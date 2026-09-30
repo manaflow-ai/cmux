@@ -198,7 +198,8 @@ Rules, and how they improve on the references:
   `viewport` (only elements that intersect the viewport, with their
   ancestors, and a closing note `# N interactive elements outside the
   viewport are not shown`; refs are the same as in a full snapshot),
-  `showHidden`, `maxChars` (truncates with a note), `options`, `urls`.
+  `showHidden`, `maxChars` (the print budget, see [Large output](#large-output)),
+  `options`, `urls`.
 - **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds
   every interactive element of Chrome's Playwright AI snapshot that no
   overflow ancestor clips out, and no text Chrome does not render. It keeps
@@ -209,12 +210,62 @@ Rules, and how they improve on the references:
   same tab when the diff is shorter than the tree; for a tree over 2,048
   characters the diff must be at least 30% shorter, because a diff that is
   most of a large page reads worse than the page. `.tree` and `.diff` are
-  always available.
+  always available and always complete; what prints is at most `maxChars`
+  (see [Large output](#large-output)).
 - **Diff** lines are `+ ` added, `- ` removed and `~ ` changed, each change
   preceded by its unchanged ancestor lines (two-space prefix) as context so
   it is locatable. A changed line (matched by ref, else role and name)
   prints once, as its new version. ChatGPT omits ancestors; Aside prints
-  bare `@@` hunks.
+  bare `@@` hunks. The diff anchors on lines that occur once in both trees
+  (refs make most element lines unique) and runs a bounded Myers diff
+  between anchors, so it is near-linear: a 100,000-line tree with one change
+  diffs in milliseconds, and a full rewrite of 50,000 lines in about a
+  second, where a plain Myers diff ran out of memory.
+
+## Large output
+
+What an agent reads costs context, and agent harnesses cut what a tool
+prints: Claude Code keeps about 30,000 characters inline (then a
+2,000-character preview and a file), Codex keeps 10,000 tokens (head and
+tail, the middle dropped), ChatGPT for Chrome stops its DOM view at 20,000
+characters and a node's children at 500 without saying where. Aside prints
+everything (a 5,000-item page is a 400 KB answer). cmux decides what is
+kept, keeps what an agent needs to act, and says at each cut how to get the
+rest. Measurements: [performance.md](performance.md).
+
+- **The value is complete, the print is budgeted.** `.tree` and `.diff`
+  always hold everything, so code can search them for free. Printing a
+  snapshot (the REPL's auto-print, `String(s)`, `console.log(s)`) shows at
+  most `maxChars` characters, 20,000 by default (about 6,000 tokens; five
+  of the nine frozen corpus pages, median 16,616 characters, print whole).
+  `snapshot({ maxChars: Infinity })` prints everything.
+- **Condensing keeps, in order:** controls on screen and the focused element
+  with their ancestors; the outline (landmarks, frames, then headings level
+  by level while the outline fits in half the budget); then the page in
+  document order. A run of six or more similar siblings, also a repeating
+  group such as a card flattened into heading, text, link and button, keeps
+  its first three in that pass and the rest only if room is left. Prose
+  (text between links) is never treated as a run. A small subtree (a list
+  item, a card) prints whole or not at all; a line longer than a quarter of
+  the budget prints its start and its length.
+- **Every cut is a line** where the content was: `- … 4,997 more listitem
+  (4,997 refs): snapshot("e1")`, `- … 12 more repeats of heading, link,
+  button`, `- … 444 more lines (172 refs): snapshot("e384")`, naming the
+  nearest ancestor with a ref to scope to. The last line says how much
+  printed and how to get more:
+  `# condensed to 19,657 of 62,822 characters (368 of 626 refs not shown): …`.
+  Refs in the cut part are real and work in locators.
+- **A diff too large for the budget** prints the condensed tree with a note
+  that `.diff` has the changes.
+- **Per call**, the REPL prints at most 25,000 characters
+  (`cmux browser repl --max-output <chars>`, `0` for no limit), under both
+  harness limits above so the REPL, not the harness, picks what is cut.
+  Past the cap, the call's whole output goes to
+  `<tmp>/cmux-browser-repl/<session>/output-N.txt`: the first 80% prints,
+  then `# output continues in <path>`, and at the end of the call its last
+  lines and `# output truncated: X of Y characters shown; full output:
+  <path>`. The file is written as output arrives, so a call that times out
+  still has it.
 
 ## Sessions and tabs
 

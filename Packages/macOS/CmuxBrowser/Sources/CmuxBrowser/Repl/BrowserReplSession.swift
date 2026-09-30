@@ -131,13 +131,17 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///   - code: JavaScript source.
     ///   - cwd: New fs root, or `nil` to keep the current one.
     ///   - timeout: Evaluation timeout.
+    ///   - maxOutput: Characters of output the cell prints before the rest
+    ///     goes to a file (`0` for no limit), or `nil` for the runtime's
+    ///     default (`repl-host.js`, `createOutputGate`).
     public func evaluate(
         code: String,
         cwd: String? = nil,
-        timeout: Duration = BrowserReplSession.defaultTimeout
+        timeout: Duration = BrowserReplSession.defaultTimeout,
+        maxOutput: Int? = nil
     ) async -> BrowserReplEvalResult {
         await gate.acquire()
-        let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout)
+        let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput)
         await gate.release()
         return result
     }
@@ -145,7 +149,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func evaluateLocked(
         code: String,
         cwd: String?,
-        timeout: Duration
+        timeout: Duration,
+        maxOutput: Int?
     ) async -> BrowserReplEvalResult {
         let isClosed = stateLock.withLock {
             lastUsedAt = .now
@@ -157,7 +162,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         return await withCheckedContinuation { continuation in
             let submitted = thread.perform { [self] in
-                self.beginEval(code: code, cwd: cwd, timeout: timeout, continuation: continuation)
+                self.beginEval(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput, continuation: continuation)
             }
             if !submitted {
                 continuation.resume(returning: BrowserReplEvalResult(
@@ -197,6 +202,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         code: String,
         cwd: String?,
         timeout: Duration,
+        maxOutput: Int?,
         continuation: CheckedContinuation<BrowserReplEvalResult, Never>
     ) {
         nextEvalID += 1
@@ -235,7 +241,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
 
         context.exception = nil
-        let promise = evalFunction.call(withArguments: [code])
+        // The runtime's options argument: `{ "maxOutput": characters }`.
+        var arguments: [Any] = [code]
+        if let maxOutput { arguments.append("{\"maxOutput\":\(max(0, maxOutput))}") }
+        let promise = evalFunction.call(withArguments: arguments)
         if let exception = context.exception {
             context.exception = nil
             finishEval(id: evalID, error: formatError(exception, in: context))

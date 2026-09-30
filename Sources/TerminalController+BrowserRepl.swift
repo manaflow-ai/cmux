@@ -124,7 +124,8 @@ extension TerminalController {
         let outcome = await session.evaluate(
             code: code,
             cwd: cwd,
-            timeout: .milliseconds(max(1, timeoutMilliseconds))
+            timeout: .milliseconds(max(1, timeoutMilliseconds)),
+            maxOutput: (params["max_output"] as? NSNumber)?.intValue
         )
         if named == nil {
             host.registry.reset(named: sessionID)

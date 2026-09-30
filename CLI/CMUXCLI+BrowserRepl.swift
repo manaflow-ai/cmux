@@ -48,6 +48,8 @@ extension CMUXCLI {
         remaining = afterTimeout
         let (workspaceOption, afterWorkspace) = parseOption(remaining, name: "--workspace")
         remaining = afterWorkspace
+        let (maxOutputOption, afterMaxOutput) = parseOption(remaining, name: "--max-output")
+        remaining = afterMaxOutput
         if let stray = remaining.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
             let prefix = String(
                 localized: "cli.browser.repl.error.unknownOption",
@@ -71,6 +73,17 @@ extension CMUXCLI {
             "cwd": FileManager.default.currentDirectoryPath,
             "timeout_ms": timeoutMilliseconds,
         ]
+        // Characters one call prints before the rest goes to a file; 0 for
+        // no limit. The runtime's default applies without the option.
+        if let maxOutputOption {
+            guard let value = Int(maxOutputOption), value >= 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.maxOutput",
+                    defaultValue: "--max-output must be a number of characters, or 0 for no limit"
+                ))
+            }
+            baseParams["max_output"] = value
+        }
         // `--workspace` must exist. `CMUX_WORKSPACE_ID` is only a hint: it can
         // come from another cmux instance, so the app falls back to the
         // focused workspace when it does not know the id.
@@ -176,7 +189,7 @@ extension CMUXCLI {
 
     /// Help line for `cmux browser --help`.
     static var browserReplHelp: String {
-        let usage = "repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [--timeout <ms>] [<code>]"
+        let usage = "repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [--timeout <ms>] [--max-output <chars>] [<code>]"
         let description = String(
             localized: "cli.browser.help.replDescription",
             defaultValue: "Run Playwright-style JavaScript against this workspace's browser panes; see `browser repl guide`"
@@ -230,6 +243,9 @@ extension CMUXCLI {
 
     - ES2023+ JavaScript with top-level await.
     - 120 second timeout per call (`--timeout <ms>` to change it).
+    - A call prints at most 25,000 characters (`--max-output <chars>`, 0 for
+      no limit); the rest of its output goes to a file whose path prints.
+      A printed snapshot is at most 20,000 characters; `.tree` is complete.
     - The last expression's value prints; `console.log()` prints too. The call
       ends with `[ok | Nms]`, or the uncaught error and `[error | Nms]` (exit
       status 1).

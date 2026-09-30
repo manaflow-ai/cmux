@@ -581847,6 +581847,65 @@
           }
         }
       }
+    },
+    "cli.browser.repl.error.maxOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output must be a number of characters, or 0 for no limit"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة --max-output عددًا من الأحرف، أو 0 لعدم وجود حد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output muss eine Anzahl von Zeichen sein, oder 0 für keine Begrenzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output debe ser un número de caracteres, o 0 para no tener límite"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output doit être un nombre de caractères, ou 0 pour aucune limite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output には文字数を指定してください（0 で無制限）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output은 문자 수이거나, 제한이 없으면 0이어야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output 必须是字符数，或 0 表示不设限制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--max-output 必須是字元數，或 0 表示不設限制"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

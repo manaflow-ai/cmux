@@ -20,6 +20,10 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - The last expression's value prints (a promise is awaited first);
   `undefined` prints nothing. `console.log()` prints too.
 - 120 second timeout per call (`--timeout <ms>`).
+- A call prints at most 25,000 characters (`--max-output <chars>`, `0` for
+  no limit). Past that, its whole output goes to a file: the start, the
+  last lines and the file's path print. Read the file with `fs` or your
+  own tools.
 - `page` is ready at once: the first use opens a tab. `tabs.open()` never
   steals focus.
 
@@ -31,9 +35,9 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   tab in the workspace without attaching; `use(id)` and `get(id)` return a `Page`.
 - `snapshot(target?, options?)`: accessibility snapshot of `page`, a locator or
   a ref. Options: `interactive` (controls plus headings and landmarks),
-  `viewport` (only what is on screen), `showHidden`, `maxChars`, `options`
-  (one line per option), and `urls` (every link's `[url=…]`; links with no
-  name show it anyway).
+  `viewport` (only what is on screen), `showHidden`, `maxChars` (print
+  budget, below), `options` (one line per option), and `urls` (every
+  link's `[url=…]`; links with no name show it anyway).
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
@@ -86,6 +90,16 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   full tree. `.tree` and `.diff` are always there. Diff lines start with `+`
   (added), `-` (removed) or `~` (changed, new version); unchanged ancestors
   are shown for context.
+- A printed snapshot is at most 20,000 characters (`maxChars`). A larger
+  page prints condensed: on-screen controls, the focused element and the
+  headings and landmarks first, then the page from the top; long runs of
+  similar items (list items, rows, cards) keep their first few. Each cut
+  is one line, `- … 480 more listitem (480 refs): snapshot("e12")`, and a
+  last `# condensed …` line says what is left out. Refs in the cut part
+  work. For more: `snapshot("e12")` for that region,
+  `snapshot({ viewport: true })` after scrolling, or
+  `snapshot({ maxChars: Infinity })` and `.tree` for everything (search
+  `.tree` in code rather than printing it).
 - Refs stay valid until their element is removed, also when its name or
   state changes, so there is no need to take a new snapshot after every
   action; a stale ref fails at once and says so.
