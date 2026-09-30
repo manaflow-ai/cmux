@@ -64,11 +64,14 @@ tab's page window covers the pane (`foreign_pages`).
   surface, 4 to 12 hidden surfaces; pressure warning 4, critical 0). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
   manages their memory.
-- Workspace switches park the previous workspace (`WindowController.parked`,
-  1 per 16 GB of RAM, 1 to 3; pressure warning 1, critical 0): its layout view
-  leaves the window but its panes stay in the keep-alive band (mounted,
-  paused, never evicted). Switching back swaps the view in within the frame:
-  no pane controller rebuild, no surface re-attach, no blank frame.
+- Workspace switches park the previous workspace (`WindowController.parked`):
+  its layout view leaves the window but its panes stay in the keep-alive
+  band (mounted, paused, never evicted). Switching back swaps the view in
+  within the frame: no pane controller rebuild, no surface re-attach, no
+  blank frame. Budget: at most 8 parked workspaces per window and as many
+  parked panes in total as the terminal warm set (4 to 12); pressure warning
+  one workspace of up to 2 panes, critical none. Many small workspaces stay
+  warm; a few large ones do not crowd memory.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20
@@ -99,10 +102,10 @@ cmux.json:
   state (scroll, form data) and a snapshot for the hover preview; its icon
   and title are dimmed in the strip. Selecting it restores the page; a
   navigation from the placeholder restores first.
-- WebKit: `WKWebView.interactionState`. Chromium: fork API 7
+- WebKit: `WKWebView.interactionState`. Chromium: fork API 9
   (`cmux_tab_navigation_state`, `cmux_tab_restore_navigation`, session
   restore format); the page is recreated with an empty URL and its entries
-  restored. On a fork without API 7, Chromium pages are exempt
+  restored. On a fork before API 9 (API 7-8 refused every restore: a new browser holds its initial entry), Chromium pages are exempt
   (`unsupported`) rather than reloaded into a blank history.
 - Actions: `browser.hibernation.off|moderate|aggressive` (palette, CLI
   `settings turn-off-tab-hibernation` etc.), `hibernateTab`, `wakeTab`

@@ -19,6 +19,6 @@ extension AppServices {
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
         let budget = WarmSetBudget.current(pressure: level)
         cache.setWarmBudget(budget)
-        for controller in windows.controllers { controller.setParkedWorkspaceLimit(budget.parkedWorkspaces) }
+        for controller in windows.controllers { controller.setParkedBudget(budget) }
     }
 }

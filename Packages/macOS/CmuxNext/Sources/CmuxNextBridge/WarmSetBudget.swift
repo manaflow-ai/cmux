@@ -15,10 +15,15 @@ public struct WarmSetBudget: Hashable, Sendable {
     public var terminalCapacity: Int
     /// Recently shown workspaces kept mounted per window, besides the shown one.
     public var parkedWorkspaces: Int
+    /// Panes all parked workspaces of a window may hold together (each pane
+    /// keeps one surface or page mounted): many small workspaces stay warm,
+    /// a few large ones do not crowd memory.
+    public var parkedPanes: Int
 
-    public init(terminalCapacity: Int, parkedWorkspaces: Int) {
+    public init(terminalCapacity: Int, parkedWorkspaces: Int, parkedPanes: Int) {
         self.terminalCapacity = max(0, terminalCapacity)
         self.parkedWorkspaces = max(0, parkedWorkspaces)
+        self.parkedPanes = max(0, parkedPanes)
     }
 
     /// Measured cost of one hidden terminal surface in the app's footprint
@@ -26,19 +31,19 @@ public struct WarmSetBudget: Hashable, Sendable {
     /// display, grid, atlas share): about 48 MB.
     public static let terminalCostBytes: UInt64 = 48 << 20
 
-    /// 1/128 of physical memory for hidden terminal surfaces (4 to 12 of
-    /// them) and one parked workspace per 16 GB (1 to 3). Under a pressure
-    /// warning 4 surfaces and 1 workspace; critical keeps only what shows.
+    /// 1/128 of physical memory for hidden terminal surfaces (4 to 12), and
+    /// as many panes again for parked workspaces (at most 8 workspaces).
+    /// Under a pressure warning 4 surfaces and one parked workspace of up
+    /// to 2 panes; critical keeps only what shows.
     public static func forMemory(physicalBytes: UInt64, pressure: MemoryPressureLevel) -> WarmSetBudget {
         switch pressure {
         case .critical:
-            return WarmSetBudget(terminalCapacity: 0, parkedWorkspaces: 0)
+            return WarmSetBudget(terminalCapacity: 0, parkedWorkspaces: 0, parkedPanes: 0)
         case .warning:
-            return WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1)
+            return WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1, parkedPanes: 2)
         case .normal:
-            let surfaces = Int((physicalBytes / 128) / terminalCostBytes)
-            let workspaces = Int(physicalBytes / (16 << 30))
-            return WarmSetBudget(terminalCapacity: min(12, max(4, surfaces)), parkedWorkspaces: min(3, max(1, workspaces)))
+            let surfaces = min(12, max(4, Int((physicalBytes / 128) / terminalCostBytes)))
+            return WarmSetBudget(terminalCapacity: surfaces, parkedWorkspaces: 8, parkedPanes: surfaces)
         }
     }
 

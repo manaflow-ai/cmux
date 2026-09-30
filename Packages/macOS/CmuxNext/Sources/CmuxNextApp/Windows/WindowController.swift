@@ -23,7 +23,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
     /// view in within the frame, with no surface re-attach or blank frame.
     private(set) var parked: [WorkspaceContentController] = []
-    private var parkedLimit = WarmSetBudget.standard.parkedWorkspaces
+    private var parkedBudget = WarmSetBudget.standard
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -196,13 +196,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Memory pressure or the budget changed.
-    func setParkedWorkspaceLimit(_ limit: Int) {
-        parkedLimit = limit
+    func setParkedBudget(_ budget: WarmSetBudget) {
+        parkedBudget = budget
         trimParked()
     }
 
+    /// Drops the least recently shown parked workspaces until both the
+    /// workspace count and their total panes fit the budget.
     private func trimParked() {
-        while parked.count > parkedLimit {
+        var panes = parked.reduce(0) { $0 + $1.panes.count }
+        while let oldest = parked.first, parked.count > parkedBudget.parkedWorkspaces || panes > parkedBudget.parkedPanes {
+            panes -= oldest.panes.count
             parked.removeFirst().teardown()
         }
     }

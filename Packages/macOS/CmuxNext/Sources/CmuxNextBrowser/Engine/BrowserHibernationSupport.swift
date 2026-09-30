@@ -31,10 +31,19 @@ extension WebKitTab: BrowserHibernationSource {
 }
 
 extension CEFTab: BrowserHibernationSource {
-    public var supportsHibernation: Bool { runtime.shim?.navigationRestoreSupported() == 1 }
+    /// Fork API 9: `cmux_tab_restore_navigation` accepts a new browser's
+    /// initial entry. API 7-8 refused every restore (verified on
+    /// cef-154.0.28-cmux.7), so a page there would wake with a blank
+    /// history: it is not hibernated.
+    static let navigationRestoreForkAPI: Int32 = 9
+
+    public var supportsHibernation: Bool {
+        guard let shim = runtime.shim else { return false }
+        return shim.navigationRestoreSupported() == 1 && shim.forkAPIVersion() >= Self.navigationRestoreForkAPI
+    }
 
     public func hibernationState() -> BrowserRestoreState? {
-        guard let browserID, let shim = runtime.shim, shim.navigationRestoreSupported() == 1,
+        guard supportsHibernation, let browserID, let shim = runtime.shim,
               let raw = shim.tabNavigationState(browserID) else { return nil }
         defer { shim.free(raw) }
         return .chromium(String(cString: raw))
