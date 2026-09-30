@@ -11,8 +11,10 @@ import CmuxCommandPalette
 final class PaletteAgentCommandsProvider {
     private(set) var snapshot: [CommandPaletteAgentCommand] = []
 
-    func replace(with commands: [CommandPaletteAgentCommand]) {
-        snapshot = commands
+    func replace(
+        with candidates: [CommandPaletteAgentCommandCandidate]
+    ) {
+        snapshot = CommandPaletteAgentSurface.app.commands(from: candidates)
     }
 }
 

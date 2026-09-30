@@ -7198,9 +7198,7 @@ struct ContentView: View {
                 hasRegisteredHandler: handlerRegistry.handler(for: contribution.commandId) != nil
             )
         }
-        commandPaletteAgentCommandsProvider.replace(
-            with: CommandPaletteAgentSurface.app.commands(from: candidates)
-        )
+        commandPaletteAgentCommandsProvider.replace(with: candidates)
     }
 
     private func commandPaletteShortcutHint(
