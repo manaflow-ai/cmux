@@ -490,7 +490,8 @@ struct ControlCommandCoordinatorSurfaceTests {
                 preparedArguments: command.arguments,
                 preparedArgumentsWorkingDirectory: "/tmp/日本語",
                 permissionMode: nil,
-                legacyCommand: nil
+                legacyCommand: nil,
+                continuationPrompt: "Continue where you left off."
             )
         ))
         let coordinator = ControlCommandCoordinator(context: context)
@@ -515,6 +516,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
         #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
+        #expect(record["continuation_prompt"] == .string("Continue where you left off."))
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
         #expect(payload["agent_restore_admission_supported"] == .bool(true))
     }

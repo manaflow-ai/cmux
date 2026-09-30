@@ -5,10 +5,7 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
-/// demand plus a slow poll while the panel is visible; machine mutations go
-/// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
-/// through this store.
+/// Loads the visible fleet for the Machines tab; mutations use CloudVMActionLauncher.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var machines: [MachineSnapshot] = []
@@ -16,35 +13,24 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
-    /// Why the machine list could not load, classified so the empty state can
-    /// say the true thing: a server-rejected session needs a fresh sign-in, a
-    /// plan gate needs an upgrade, and only genuinely transient failures get
-    /// the retry-first "unreachable" presentation.
+    /// Classified list failure for the matching sign-in, plan, or retry presentation.
     @Published private(set) var listProblem: CloudListProblem?
-    /// Mirrors the read coordinator's last network event; offline is its own
-    /// state, never a failed list read.
+    /// Mirrors coordinator reachability; offline is not a failed list read.
     @Published private(set) var isNetworkOffline = false
-    /// Set by a recovery read (panel shown, back online, Retry) until it settles;
-    /// routine polls never set it, so a real outage does not flicker.
+    /// Set by recovery reads, never routine polls, so a real outage does not flicker.
     @Published private(set) var isRecoveringList = false
-    /// Per-machine coderouter spend from the last successful usage fetch,
-    /// keyed by machine id. Refreshed with every machine-list refresh (the
-    /// slow poll and the explicit Refresh verb), never more often. Empty on
-    /// backends without the usage route; a failed fetch keeps the last value.
+    /// Consecutive transient failures before the first successful list read.
+    private(set) var initialTransientFailureCount = 0
+    /// Per-machine coderouter spend from the last successful usage fetch.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
-    /// Human-readable label of the Cloud VM action currently running from this
-    /// panel ("Checkpointing noble-wren…"). Shows in the status row under the
-    /// Cloud toolbar while set — the in-app substitute for a floating progress HUD.
+    /// Human-readable label of the Cloud VM action currently running from this panel.
     @Published private(set) var activeOperation: String?
-    /// The surface catalog as one value: machines (this Mac first), their
-    /// terminals/screens/browsers, and which local panes project them.
+    /// Surface catalog: machines, their resources, and local projections.
     @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
-    /// Local workspaces in sidebar order, so this Mac's terminals group under
-    /// the workspace that shows them (titles resolved here, above the outline).
+    /// Local workspaces in sidebar order for terminal grouping.
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
-    /// Machine id to terminal ids with a notification this Mac has not read,
-    /// from the per-machine notification syncs.
+    /// Machine ids to unread terminal ids from notification syncs.
     @Published private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
     private var unreadObserver: NSObjectProtocol?
     /// Last failure from a tree verb (open, new terminal, …); shown in the
@@ -179,12 +165,17 @@ final class MachinesPanelViewModel: ObservableObject {
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
-        authScopeObservers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
+        authScopeObservers = [
+            Notification.Name.cmuxCloudVMAccessDidEnd,
+            .cmuxCloudTeamScopeDidChange,
+            .cmuxCloudTeamScopeReady,
+        ].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
-                    else if self.wantsPolling { self.startPolling() }
+                    else if name == .cmuxCloudTeamScopeDidChange { self.beginTeamScopeTransition() }
+                    else { self.finishTeamScopeTransition() }
                 }
             }
         }
@@ -362,6 +353,7 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
     }
     static let pollInterval: Duration = .seconds(45)
+    static let initialTransientFailureLimit = 3
     /// A refresh asked for while one is in flight runs again afterwards: a
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
@@ -419,7 +411,23 @@ final class MachinesPanelViewModel: ObservableObject {
         lastErrorDescription = nil
         listProblem = nil
         hasLoadedOnce = false
+        initialTransientFailureCount = 0
         isLoading = false
+    }
+
+    /// Clears old-team rows as soon as auth announces a scope transition.
+    private func beginTeamScopeTransition() {
+        resetForAuthTransition()
+        machinePinStore?.refreshScope()
+        awaitingCatalogScope = true
+    }
+
+    /// Re-enables catalog rows only after the shared provider registry has
+    /// finished retiring the old team and resuming the new one.
+    private func finishTeamScopeTransition() {
+        awaitingCatalogScope = false
+        readCatalog()
+        if wantsPolling { startPolling() }
     }
 
     /// Retire old requests before changing pin scope. Catalog discoveries are
@@ -500,6 +508,7 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: [:])
     }
 
+
     func applyRefreshResult(_ result: Result<VMListPage, Error>, generation: UInt64, scope: String?) {
         guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier, isCloudEnabled() else { return }
         do {
@@ -531,6 +540,7 @@ final class MachinesPanelViewModel: ObservableObject {
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
             listProblem = nil
+            initialTransientFailureCount = 0
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .notConnectedToInternet {
@@ -548,6 +558,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 lastErrorDescription = nil
                 listProblem = nil
                 hasLoadedOnce = false
+                initialTransientFailureCount = 0
                 isLoading = false
                 return
             }
@@ -559,7 +570,15 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        hasLoadedOnce = true
+        if listProblem == .unreachable, !hasLoadedOnce {
+            initialTransientFailureCount = min(
+                initialTransientFailureCount + 1,
+                Self.initialTransientFailureLimit
+            )
+        } else if listProblem != .unreachable {
+            initialTransientFailureCount = 0
+        }
+        hasLoadedOnce = hasLoadedOnce || listProblem != .unreachable
         #if DEBUG
         cmuxDebugLog("cloud.machines.list settled count=\(machines.count) problem=\(String(describing: listProblem))")
         #endif

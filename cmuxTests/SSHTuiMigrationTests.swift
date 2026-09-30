@@ -150,7 +150,7 @@ struct SSHTuiMigrationTests {
         // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
         // runs in batch mode, so on a password-only host the live master is
         // its only way in.
-        let opened = configuration(options: SSHConnectionSharingOptions().mergingDefaults(into: ["ProxyJump=bastion"]))
+        let opened = configuration(options: ["ProxyJump=bastion"])
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
