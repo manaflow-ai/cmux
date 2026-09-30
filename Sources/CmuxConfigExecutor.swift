@@ -73,6 +73,7 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
@@ -81,6 +82,7 @@ struct CmuxConfigExecutor {
                 change,
                 actionSourcePath: action.actionSourcePath,
                 globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
                 confirm: action.confirm ?? false,
                 title: action.title,
                 presentingWindow: presentingWindow

@@ -32,13 +32,16 @@ struct CmuxSettingChangePlanner {
 
     private let schema: CmuxConfigSchemaPathLookup
     private let liveValues: CmuxSettingLiveValues
+    private let presetOverrides: [String: CmuxSettingValue]
 
     init(
         schema: CmuxConfigSchemaPathLookup = CmuxConfigSchemaPathLookup(),
-        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly
+        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly,
+        presetOverrides: [String: CmuxSettingValue] = [:]
     ) {
         self.schema = schema
         self.liveValues = liveValues
+        self.presetOverrides = presetOverrides
     }
 
     func edits(for change: CmuxSettingChange, in root: [String: Any]) throws -> [Edit] {
@@ -69,8 +72,9 @@ struct CmuxSettingChangePlanner {
             }
             return [Edit(path: path, value: next.jsonObject)]
         case .preset(let name):
-            guard let presets = root[Self.presetsKey] as? [String: Any],
-                  let preset = presets[name] else {
+            let presetObject = presetOverrides[name]?.jsonObject
+                ?? (root[Self.presetsKey] as? [String: Any])?[name]
+            guard let preset = presetObject else {
                 throw CmuxSettingChangeError.unknownPreset(name)
             }
             guard let settings = preset as? [String: Any], !settings.isEmpty else {

@@ -456,6 +456,8 @@ public actor JSONConfigStore {
     ///     default. Pass ``CmuxSettingLiveValues/userDefaults(suiteName:)``
     ///     so settings changed in the Settings window start from what the
     ///     user sees.
+    ///   - presetOverrides: Presets resolved from trusted config packs. These
+    ///     values are used for planning but are never written into the file.
     /// - Returns: One receipt per path the change addressed, including paths
     ///   that already held the requested value. Runtime application is not
     ///   observed; cmux's config file watcher applies the saved file.
@@ -466,9 +468,13 @@ public actor JSONConfigStore {
     ///   published on throw.
     public func apply(
         _ change: CmuxSettingChange,
-        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly
+        liveValues: CmuxSettingLiveValues = .schemaDefaultsOnly,
+        presetOverrides: [String: CmuxSettingValue] = [:]
     ) async throws -> CmuxSettingChangeResult {
-        let planner = CmuxSettingChangePlanner(liveValues: liveValues)
+        let planner = CmuxSettingChangePlanner(
+            liveValues: liveValues,
+            presetOverrides: presetOverrides
+        )
         let receipts = try await mutateRoot(validateSemantics: true) { root, _ in
             try planner.edits(for: change, in: root)
         }

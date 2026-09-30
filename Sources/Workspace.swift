@@ -4508,6 +4508,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
@@ -4515,6 +4516,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             buttons: buttons,
             sourcePath: sourcePath,
             globalConfigPath: globalConfigPath,
+            settingPresets: settingPresets,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
             workspaceCommands: workspaceCommands
         )
@@ -4605,6 +4607,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration.buttons,
             sourcePath: configuration.sourcePath,
             globalConfigPath: configuration.globalConfigPath,
+            settingPresets: configuration.settingPresets,
             terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
             workspaceCommands: configuration.workspaceCommands
         )
@@ -14902,6 +14905,7 @@ extension Workspace: BonsplitDelegate {
                 change,
                 actionSourcePath: executable.button.actionSourcePath,
                 globalConfigPath: globalConfigPath,
+                settingPresets: surfaceTabBarButtonConfiguration?.settingPresets ?? [:],
                 confirm: executable.button.confirm ?? false,
                 title: executable.button.title,
                 presentingWindow: presentingWindow

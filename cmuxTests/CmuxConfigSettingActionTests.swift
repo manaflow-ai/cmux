@@ -176,6 +176,11 @@ struct CmuxConfigSettingActionTests {
               "type": "setting", "path": "terminal.scrollSpeed", "cycle": [1, 1.4],
               "title": "Cycle Scroll", "confirm": true
             }
+          },
+          "settingPresets": {
+            "sidebar.quiet": {
+              "sidebar": { "showPorts": false }
+            }
           }
         }
         """.write(to: globalPackDirectory.appendingPathComponent("cmux.pack.json"), atomically: true, encoding: .utf8)
@@ -196,6 +201,9 @@ struct CmuxConfigSettingActionTests {
         store.loadAll()
 
         let cycle = try #require(store.resolvedAction(id: "scroll.cycle"))
+        #expect(store.settingPresets["sidebar.quiet"] == .object([
+            "sidebar": .object(["showPorts": .bool(false)])
+        ]))
         #expect(cycle.confirm == true)
         #expect(CmuxSettingActionTrust.allowsSettingAction(
             actionSourcePath: cycle.actionSourcePath,

@@ -371,6 +371,30 @@ struct CmuxSettingChangeTests {
         #expect((try value("terminal.rendererRealization.idleSeconds", in: file) as? NSNumber)?.intValue == 30)
     }
 
+    @Test("trusted pack presets can be applied without persisting pack metadata")
+    func presetOverrideMergesLeaves() async throws {
+        let file = try fixture("""
+        {
+          "sidebar": { "showLog": true }
+        }
+
+        """)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+        let result = try await store.apply(
+            .preset(name: "sidebar.quiet"),
+            presetOverrides: [
+                "sidebar.quiet": .object([
+                    "sidebar": .object(["showPorts": .bool(false)])
+                ])
+            ]
+        )
+
+        #expect(result.receipts.map(\.path) == ["sidebar.showPorts"])
+        #expect((try value("sidebar.showPorts", in: file) as? NSNumber)?.boolValue == false)
+        #expect((try value("settingPresets.sidebar.quiet", in: file)) == nil)
+    }
+
     @Test("a missing or structural preset is refused without writing")
     func presetRefusals() async throws {
         let file = try fixture("""

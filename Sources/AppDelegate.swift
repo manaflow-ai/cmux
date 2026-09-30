@@ -18016,6 +18016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: context.tabManager,
                 baseCwd: baseCwd,
                 globalConfigPath: cmuxConfigStore.globalConfigPath,
+                settingPresets: cmuxConfigStore.settingPresets,
                 presentingWindow: preferredWindow,
                 onExecuted: onExecuted
             )

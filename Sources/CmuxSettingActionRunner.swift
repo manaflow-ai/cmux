@@ -40,6 +40,7 @@ enum CmuxSettingActionRunner {
         _ change: CmuxSettingChange,
         actionSourcePath: String?,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         confirm: Bool = false,
         title: String? = nil,
         presentingWindow: NSWindow? = nil
@@ -52,17 +53,32 @@ enum CmuxSettingActionRunner {
             return false
         }
         guard confirm else {
-            apply(change, globalConfigPath: globalConfigPath, presentingWindow: presentingWindow)
+            apply(
+                change,
+                globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
+                presentingWindow: presentingWindow
+            )
             return true
         }
         let alert = confirmationAlert(for: change, title: title)
         if let window = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window) { [weak window] response in
                 guard response == .alertFirstButtonReturn else { return }
-                apply(change, globalConfigPath: globalConfigPath, presentingWindow: window)
+                apply(
+                    change,
+                    globalConfigPath: globalConfigPath,
+                    settingPresets: settingPresets,
+                    presentingWindow: window
+                )
             }
         } else if alert.runModal() == .alertFirstButtonReturn {
-            apply(change, globalConfigPath: globalConfigPath, presentingWindow: nil)
+            apply(
+                change,
+                globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
+                presentingWindow: nil
+            )
         }
         return true
     }
@@ -89,6 +105,7 @@ enum CmuxSettingActionRunner {
     private static func apply(
         _ change: CmuxSettingChange,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue],
         presentingWindow: NSWindow?
     ) {
         let store = store(for: globalConfigPath)
@@ -96,7 +113,11 @@ enum CmuxSettingActionRunner {
             do {
                 // Start toggle and cycle from what the user sees: a value set
                 // in the Settings window lives in UserDefaults, not cmux.json.
-                _ = try await store.apply(change, liveValues: .userDefaults(suiteName: nil))
+                _ = try await store.apply(
+                    change,
+                    liveValues: .userDefaults(suiteName: nil),
+                    presetOverrides: settingPresets
+                )
             } catch {
                 NSLog("[CmuxConfig] setting action on '%@' failed: %@", change.displayTarget, String(describing: error))
                 presentFailure(error, window: presentingWindow)

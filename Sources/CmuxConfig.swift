@@ -65,6 +65,7 @@ struct CmuxConfigPackReference: Codable, Sendable, Hashable {
 struct CmuxConfigFile: Codable, Sendable {
     var packs: [CmuxConfigPackReference]
     var actions: [String: CmuxConfigActionDefinition]
+    var settingPresets: [String: CmuxSettingValue]
     var ui: CmuxConfigUIDefinition?
     var notifications: CmuxNotificationConfigDefinition?
     var agentChat: CmuxAgentChatConfigDefinition?
@@ -75,12 +76,13 @@ struct CmuxConfigFile: Codable, Sendable {
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case packs, actions, settingPresets, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         packs: [CmuxConfigPackReference] = [],
         actions: [String: CmuxConfigActionDefinition] = [:],
+        settingPresets: [String: CmuxSettingValue] = [:],
         ui: CmuxConfigUIDefinition? = nil,
         notifications: CmuxNotificationConfigDefinition? = nil,
         agentChat: CmuxAgentChatConfigDefinition? = nil,
@@ -92,6 +94,7 @@ struct CmuxConfigFile: Codable, Sendable {
     ) {
         self.packs = packs
         self.actions = actions
+        self.settingPresets = settingPresets
         self.ui = ui
         self.notifications = notifications
         self.agentChat = agentChat
@@ -113,6 +116,10 @@ struct CmuxConfigFile: Codable, Sendable {
             decodedActions,
             codingPath: decoder.codingPath + [CodingKeys.actions]
         )
+        settingPresets = try container.decodeIfPresent(
+            [String: CmuxSettingValue].self,
+            forKey: .settingPresets
+        ) ?? [:]
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
         notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
         agentChat = try container.decodeIfPresent(CmuxAgentChatConfigDefinition.self, forKey: .agentChat)
@@ -1807,6 +1814,7 @@ final class CmuxConfigStore: ObservableObject {
     /// Which config file each command came from, keyed by command id.
     private(set) var commandSourcePaths: [String: String] = [:]
     private(set) var actionLookup: [String: CmuxResolvedConfigAction] = [:]
+    private(set) var settingPresets: [String: CmuxSettingValue] = [:]
     private(set) var surfaceTabBarButtonSourcePath: String?
     private(set) var surfaceTabBarCommandSourcePaths: [String: String] = [:]
     private(set) var newWorkspaceActionSourcePath: String?
@@ -2266,6 +2274,7 @@ final class CmuxConfigStore: ObservableObject {
         )
         loadedCommands = commands
         loadedActions = resolvedActions
+        settingPresets = mergedSettingPresets(from: globalConfigEntries)
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2425,6 +2434,16 @@ final class CmuxConfigStore: ObservableObject {
                 ),
                 fallback: merged
             )
+        }
+        return merged
+    }
+
+    private func mergedSettingPresets(from entries: [ConfigEntry]) -> [String: CmuxSettingValue] {
+        var merged: [String: CmuxSettingValue] = [:]
+        for entry in entries {
+            for (name, preset) in entry.config.settingPresets where merged[name] == nil {
+                merged[name] = preset
+            }
         }
         return merged
     }
@@ -2827,6 +2846,7 @@ final class CmuxConfigStore: ObservableObject {
             surfaceTabBarButtons,
             sourcePath: surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath,
+            settingPresets: settingPresets,
             terminalCommandSourcePaths: surfaceTabBarCommandSourcePaths,
             workspaceCommands: surfaceTabBarWorkspaceCommands
         )
