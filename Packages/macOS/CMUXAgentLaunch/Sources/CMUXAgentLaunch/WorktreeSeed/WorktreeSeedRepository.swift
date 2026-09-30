@@ -94,9 +94,10 @@ public struct WorktreeSeedRepository: Sendable {
 
     private static func resolveSymlinksPreservingMissingLeaf(_ url: URL) -> URL? {
         var current = url.standardizedFileURL
-        var followed: Set<String> = []
+        var seen: Set<String> = []
 
         while true {
+            guard seen.insert(current.path).inserted else { return nil }
             let components = current.pathComponents
             var rebuilt = URL(fileURLWithPath: components[0], isDirectory: true)
             var foundSymlink = false
@@ -104,7 +105,6 @@ public struct WorktreeSeedRepository: Sendable {
             for (offset, component) in components.dropFirst().enumerated() {
                 rebuilt.appendPathComponent(component)
                 if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: rebuilt.path) {
-                    guard followed.insert(rebuilt.path).inserted else { return nil }
                     current = URL(fileURLWithPath: destination, relativeTo: rebuilt.deletingLastPathComponent())
                     for suffix in components.dropFirst(offset + 2) {
                         current.appendPathComponent(suffix)
