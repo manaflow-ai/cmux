@@ -60,6 +60,20 @@ struct CloudTreeMachineMenuTests {
         #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [Self.title("cloudTree.menu.refresh", "Refresh")])
     }
 
+    @Test("Unavailable display creation hover affordance does not dispatch")
+    func unavailableDisplayCreationIsInert() {
+        var dispatches = 0
+        CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(false) {
+            dispatches += 1
+        }
+        #expect(dispatches == 0)
+
+        CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(true) {
+            dispatches += 1
+        }
+        #expect(dispatches == 1)
+    }
+
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
     func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -221,6 +235,49 @@ struct CloudTreeMachineMenuTests {
         })
         #expect(recorder.projectRemoteViewCount == 0)
         _ = container
+    }
+
+    @Test("A workspace row uses the same open verb for click and Return")
+    func workspaceActivationUsesSharedOpenVerb() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let workspace = SurfaceRemoteWorkspace(id: "ws-open", name: "Open", index: 0, focused: true)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-open")
+        let view = SurfaceRemoteView(tabID: "tab-open", workspace: workspace)
+        let resource = SurfaceResource(
+            id: resourceID, title: "shell", detail: nil, lifecycle: .running,
+            agent: nil, remoteWorkspace: workspace, remoteViews: [view], port: nil, url: nil
+        )
+        let group = SurfaceResourceGroup(
+            title: workspace.name,
+            placements: [SurfaceResourcePlacement(resource: resourceID, remoteView: view)],
+            remoteWorkspaceID: workspace.id,
+            representsWorkspace: true
+        )
+        let node = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(workspace: workspace.id, machine: machine),
+            kind: .workspace(machine: machine, workspace, terminalCount: 1, hiddenTabCount: 0, openIn: nil),
+            children: [CloudTreeNode(
+                id: CloudTreeNodeBuilder.nodeID(resource: resourceID, inRemoteWorkspace: workspace.id, remoteTabID: view.tabID),
+                kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: false, viewBadge: nil, remoteView: view))
+            )],
+            dragGroup: group
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "cloud-tree-open-verb-\(UUID())")!),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { _ = container }
+        coordinator.apply(nodes: [node])
+        let outline = try #require(coordinator.outlineView)
+        coordinator.open(node)
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: node)), byExtendingSelection: false)
+        coordinator.openSelection()
+        #expect(recorder.openWorkspaces.count == 2)
+        #expect(recorder.openWorkspaces.allSatisfy { $0.machine == machine && $0.workspace.id == workspace.id && $0.group == group })
     }
 
     @Test("Double-clicking machines and remote workspaces routes to their rename actions")
@@ -503,6 +560,63 @@ struct CloudTreeMachineMenuTests {
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
+    @Test("Idle machine hover controls do not steal the row click target")
+    func idleHoverControlsDoNotStealRowClick() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-idle-hover-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [Self.machineNode()])
+        container.layoutSubtreeIfNeeded()
+
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(false)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(buttons.isHidden)
+
+        let trailingPoint = cell.convert(
+            NSPoint(x: cell.bounds.maxX - 4, y: cell.bounds.midY),
+            to: try #require(outline.superview)
+        )
+        let hit = try #require(outline.hitTest(trailingPoint))
+        #expect(!hit.isDescendant(of: buttons))
+    }
+
+    @Test("Reused cells hide stale hover controls on buttonless rows")
+    func reusedCellHidesStaleHoverControls() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let actions = Self.machineActions(recording: recorder)
+        let nodeActions = Self.nodeActions(recording: recorder)
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 360, height: 32))
+        cell.configure(node: Self.machineNode(), machineActions: actions, nodeActions: nodeActions)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(!buttons.isHidden)
+
+        let buttonless = CloudTreeNode(
+            id: "resources",
+            kind: .resourcesPool(machine: .cloud(Self.machineID), count: 0)
+        )
+        cell.configure(node: buttonless, machineActions: actions, nodeActions: nodeActions)
+        #expect(buttons.isHidden)
+    }
+
     private static func machineNode(expired: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
@@ -545,7 +659,7 @@ struct CloudTreeMachineMenuTests {
     }
 
     private static func nodeActions(recording recorder: CloudTreeMenuVerbRecorder) -> CloudTreeNodeActions {
-        CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { _, _, _ in },
             projectRemoteView: { _, _, _, _ in recorder.projectRemoteViewCount += 1 },
             projectInLocalWorkspace: { _, _ in },
@@ -568,6 +682,10 @@ struct CloudTreeMachineMenuTests {
                 recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
             }
         )
+        actions.openWorkspace = { machine, workspace, group in
+            recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
+        }
+        return actions
     }
 }
 
@@ -580,6 +698,7 @@ private final class CloudTreeMenuVerbRecorder {
     var deletions: [String] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
+    var openWorkspaces: [(machine: SurfaceMachineID, workspace: SurfaceRemoteWorkspace, group: SurfaceResourceGroup)] = []
     var resizes: [(String, Int)] = []
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []

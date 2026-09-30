@@ -14,11 +14,16 @@ struct SplitSpaceVerdictTests {
         ))
     }
 
-    private func split(_ orientation: String, _ first: ExternalTreeNode, _ second: ExternalTreeNode) -> ExternalTreeNode {
+    private func split(
+        _ orientation: String,
+        _ first: ExternalTreeNode,
+        _ second: ExternalTreeNode,
+        dividerPosition: Double = 0.5
+    ) -> ExternalTreeNode {
         .split(ExternalSplitNode(
             id: UUID().uuidString,
             orientation: orientation,
-            dividerPosition: 0.5,
+            dividerPosition: dividerPosition,
             first: first,
             second: second
         ))
@@ -28,13 +33,15 @@ struct SplitSpaceVerdictTests {
         _ tree: ExternalTreeNode,
         splitting paneId: String,
         _ orientation: String = "vertical",
-        minimum: Double = 100
+        minimum: Double = 100,
+        dividerPosition: Double? = nil
     ) -> SplitSpaceVerdict {
         tree.splitSpaceVerdict(
             splittingPaneId: paneId,
             orientation: orientation,
             minimumExtent: minimum,
-            dividerThickness: 1
+            dividerThickness: 1,
+            dividerPosition: dividerPosition
         )
     }
 
@@ -55,6 +62,14 @@ struct SplitSpaceVerdictTests {
     @Test func aPaneWithRoomForTwoHalvesFits() {
         #expect(verdict(pane("a", y: 0, height: 860), splitting: "a") == .fits)
         #expect(verdict(halvedColumn(), splitting: "a") == .fits)
+    }
+
+    @Test func anExplicitDividerPositionMustLeaveBothChildrenAtTheMinimum() {
+        let tree = pane("a", y: 0, height: 300)
+        #expect(verdict(tree, splitting: "a", dividerPosition: 0.66) == .fits)
+        #expect(verdict(tree, splitting: "a", dividerPosition: 0.9) == .noSpace)
+        // Bonsplit clamps even more extreme requests to 0.9.
+        #expect(verdict(tree, splitting: "a", dividerPosition: 0.99) == .noSpace)
     }
 
     @Test func aSmallPaneBorrowsFromItsColumn() {
@@ -128,6 +143,22 @@ struct SplitSpaceVerdictTests {
                          pane("a", x: 0, y: 0, width: 700, height: 860),
                          split("horizontal", slot, pane("d", x: 1100, y: 0, width: 300, height: 860)))
         #expect(verdict(tree, splitting: "d", "horizontal", minimum: 160) == .noSpace)
+    }
+
+    @Test func anEleventhExactCapacitySlotAccountsForBonsplitRatioClamping() {
+        // Ten 100 pt panes plus ten 1 pt dividers would arithmetically fit an
+        // eleventh pane in 1110 pt. Equalizing this right-heavy tree asks its
+        // root for a 1/11 ratio, however, and Bonsplit clamps that to 0.1.
+        // The remaining ten slots receive less than their exact capacity.
+        var tree = pane("target", x: 1000, y: 0, width: 110, height: 860)
+        for index in stride(from: 8, through: 0, by: -1) {
+            tree = split(
+                "horizontal",
+                pane("p\(index)", x: Double(index) * 100, y: 0, width: 100, height: 860),
+                tree
+            )
+        }
+        #expect(verdict(tree, splitting: "target", "horizontal", minimum: 100) == .noSpace)
     }
 
     @Test func anUnmeasuredLayoutAllowsTheSplit() {

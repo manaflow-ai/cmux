@@ -61,6 +61,7 @@ record = {
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
     "runner_name": os.environ.get("RUNNER_NAME"),
+    "canonical_root_lock_skipped": os.environ.get("CMUX_CI_ROOT_LOCK_SKIPPED") == "true",
 }
 record["route"] = record["lookup_source"]
 print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
@@ -125,7 +126,24 @@ esac
 # this job (released when it ends), so a consumer never swaps the tree of a
 # compile running there. Ephemeral runners have no helper and no neighbours.
 root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+canonical_root_ready=true
 if [ -x "$root_lock" ]; then
-  "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 1800 >/dev/null
+  if "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 0 >/dev/null; then
+    :
+  else
+    status=$?
+    if [ "$status" -ne 1 ]; then
+      echo "restore-app-host-test-product: canonical root helper failed (exit $status)" >&2
+      exit "$status"
+    fi
+    canonical_root_ready=false
+    export CMUX_CI_ROOT_LOCK_SKIPPED=true
+    unset CMUX_CI_CANONICAL_ROOT
+    echo "restore-app-host-test-product: canonical root is busy; running tests from this job's DerivedData" >&2
+  fi
 fi
-scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
+if [ "$canonical_root_ready" = true ]; then
+  scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
+else
+  echo "restore-app-host-test-product: skipped canonical source alias until root-independent file paths land" >&2
+fi

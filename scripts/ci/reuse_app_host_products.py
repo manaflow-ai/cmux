@@ -274,6 +274,15 @@ ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
 # every second, so it takes the root as it frees. Two switchers after each
 # other's root both give up after this wait, as before, and then compile.
 ROOT_SWITCH_WAIT_S = 360
+# When the first lookup already established that this consumer has no usable
+# producer (or that its producer did not publish), do not hold a second root
+# for six minutes hoping the other root becomes free. A non-blocking attempt
+# can still adopt an immediately available product; otherwise the job falls
+# through to its normal compile path.
+ROOT_SWITCH_FAST_MISS_REASONS = frozenset({
+    "producer_compile_unsuccessful",
+    "no_matching_contract_artifact",
+})
 # Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
 FIRST_ROOT = Path("/private/tmp/cmux-ci")
 DERIVED_NAME = "derived-data-compile-admission"
@@ -295,7 +304,7 @@ def at_root(value, root):
     return {**value, "build_location": str((root / DERIVED_NAME).resolve())}
 
 
-def switch_root(root):
+def switch_root(root, wait_seconds=ROOT_SWITCH_WAIT_S):
     """Move this job to `root` and give it an empty DerivedData there.
 
     A product's test binaries carry #filePath strings under the root that
@@ -305,8 +314,8 @@ def switch_root(root):
     """
     try:
         result = subprocess.run(
-            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(ROOT_SWITCH_WAIT_S)],
-            text=True, capture_output=True, timeout=ROOT_SWITCH_WAIT_S + 60)
+            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(wait_seconds)],
+            text=True, capture_output=True, timeout=wait_seconds + 60)
     except (OSError, subprocess.SubprocessError) as error:
         print(f"Could not move this job to {root} ({error}); compiling here.")
         return None
@@ -337,6 +346,31 @@ def portable_contract(value):
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def contract_differences(sealed, wanted, prefix=""):
+    """The dotted contract fields where a sealed receipt and this job differ.
+
+    Only names: a receipt found under this job's key but sealed with another
+    contract means the producer's contract changed between naming its artifact
+    and sealing it, and the field says which input moved.
+    """
+    if not isinstance(sealed, dict) or not isinstance(wanted, dict):
+        return [prefix or "contract"]
+    fields = []
+    for name in sorted(set(sealed) | set(wanted)):
+        path = f"{prefix}{name}"
+        sealed_has = name in sealed
+        wanted_has = name in wanted
+        if sealed_has and wanted_has and sealed[name] == wanted[name]:
+            continue
+        if (sealed_has and wanted_has
+                and isinstance(sealed[name], dict)
+                and isinstance(wanted[name], dict)):
+            fields.extend(contract_differences(sealed[name], wanted[name], f"{path}."))
+        else:
+            fields.append(path)
+    return fields or [prefix or "contract"]
 
 
 def github_product_identity(api, revision):
@@ -1036,10 +1070,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             root = staging / "Build/Products"
             try:
                 receipt = json.loads((root / RECEIPT).read_text())
-                if (receipt["contract"] != value
-                        or receipt["run_id"] != str(run["id"])
+                if receipt["contract"] != value:
+                    raise ValueError("artifact producer contract mismatch in "
+                                     + ", ".join(contract_differences(receipt["contract"], value)))
+                if (receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
-                    raise ValueError("artifact producer contract mismatch")
+                    raise ValueError("artifact producer run mismatch")
                 # Bind the candidate-authored receipt back to a GitHub-attested
                 # producer revision, re-fingerprinting whatever it names.
                 revision = receipt["revision"]
@@ -1059,7 +1095,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
             except (TypeError, AttributeError, ValueError, KeyError, OSError,
-                    subprocess.SubprocessError):
+                    subprocess.SubprocessError) as error:
+                # The reason alone cannot tell a stale receipt from a relocation
+                # or disk fault, and every candidate records it once; name the
+                # artifact and the check that refused it.
+                print(f"Compiled-product reuse refused artifact {artifact.get('id')} of run "
+                      f"{run.get('id')}: {type(error).__name__}: {str(error)[:300]}")
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
@@ -1199,7 +1240,17 @@ def main():
                     wanted.append((portable_contract(value), None))
                 reasons = []
                 for candidate, root in wanted:
-                    extra = {} if root is None else {"claim": lambda root=root: moved(switch_root(root))}
+                    fast_root_switch = bool(
+                        ROOT_SWITCH_FAST_MISS_REASONS.intersection(
+                            set(filter(None, str(report.get("miss_reasons", "")).split(",")))
+                        )
+                    )
+                    wait_seconds = 0 if fast_root_switch else ROOT_SWITCH_WAIT_S
+                    extra = {} if root is None else {
+                        "claim": lambda root=root, wait_seconds=wait_seconds: moved(
+                            switch_root(root, wait_seconds=wait_seconds)
+                        )
+                    }
                     hit = restore(
                         api,
                         candidate,

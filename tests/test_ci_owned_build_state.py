@@ -432,10 +432,14 @@ class WarmKeys(Fixture):
         (self.store / "stamp.json").write_text("{}")
         slot = self.store / "pr-builds" / "pr-7"
         os.utime(slot, (1, 1))
-        run(state.check, self.store, "fp", self.workspace, None, "7")
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual(self.kept_marker(), "nine")
         os.utime(slot)
-        result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual((result["reason"], self.kept_marker()), ("this pull request's parked build", "seven"))
 
     def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
@@ -546,15 +550,18 @@ class WarmKeys(Fixture):
         self.assertIn("pr-8", output.getvalue())
         self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-7"])
 
-    def test_parked_builds_are_capped_by_count_and_age(self):
+    def test_parked_builds_are_capped_by_count_and_reuse_distance(self):
         for number in ("1", "2", "3", "4"):
             self.build(number)
             self.kept(pr=number)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-2", "pr-3"])
         stale = self.store / "pr-builds" / "pr-2"
         os.utime(stale, (1, 1))
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
         (self.store / "pr-builds" / ".pr-5.incoming-999999999").mkdir()
-        state.prune_pr_slots(self.store)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            state.prune_pr_slots(self.store)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-3"])
 
     def test_at_most_eight_keys_without_repeats(self):
@@ -862,6 +869,20 @@ class Prefer(Fixture):
         self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
                          ("false", "true", "false"))
 
+    def test_a_kept_build_that_recompiles_the_app_stays_when_the_seed_would_too(self):
+        """Both starts recompile the app, so the seed's fewer changed inputs save nothing: from 2026-09-27 17:45Z
+        to 2026-09-28, 269 such local-seed starts compiled in 515 s at the median against 408 to 429 s from a kept build."""
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "true"))
+        self.assertIn("both recompile the app", result["reason"])
+
     def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
         self.kept(changed=6)
         (self.store / "derived-data" / state.RECORD).write_text(
@@ -873,17 +894,17 @@ class Prefer(Fixture):
             result = self.prefer(("p-j14-base", 0), max_distance=2)
         compare.assert_called_once_with("p-j14-base", self.workspace)
         self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
-        # When the bucket seed recompiles the app too, or GitHub cannot say,
-        # the clone stays: it is the cheaper start.
+        # When the bucket seed recompiles the app too, or GitHub cannot say, the kept build stays: the kept
+        # seed recompiles the app as well, and a kept build does that faster.
         for answer in (True, None):
             with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
                 result = self.prefer(("p-j14-base", 0), max_distance=2)
-            self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
-        # Without downloads, the kept seed is all there is.
+            self.assertEqual(result["prefer"], "false")
+        # Without downloads, the kept build stays for the same reason.
         with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
             result = self.prefer(("p-j14-base", 0))
         compare.assert_not_called()
-        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-oldest"))
+        self.assertEqual(result["prefer"], "false")
 
     def test_a_far_bucket_seed_replaces_a_kept_build_that_recompiles_the_app(self):
         (self.store / "derived-data").mkdir(parents=True)
@@ -1097,8 +1118,8 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
-        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
-        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+        # Trusted manual dispatches may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch'",
                       self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])

@@ -31,60 +31,96 @@ extension Workspace {
     /// Whether splitting `paneId` along `orientation` fits the minimum pane
     /// size, measured from bonsplit's current layout. Canvas workspaces place
     /// panes freely, so they always fit.
-    func splitSpaceVerdict(splitting paneId: PaneID, orientation: SplitOrientation) -> SplitSpaceVerdict {
+    func splitSpaceVerdict(
+        splitting paneId: PaneID,
+        orientation: SplitOrientation,
+        dividerPosition: CGFloat? = nil
+    ) -> SplitSpaceVerdict {
         guard layoutMode != .canvas else { return .fits }
         let minimum = splitMinimumPaneSize
         return bonsplitController.treeSnapshot().splitSpaceVerdict(
             splittingPaneId: paneId.id.uuidString,
             orientation: orientation.rawValue,
             minimumExtent: Double(orientation == .horizontal ? minimum.width : minimum.height),
-            dividerThickness: Double(bonsplitController.configuration.appearance.dividerThickness)
+            dividerThickness: Double(bonsplitController.configuration.appearance.dividerThickness),
+            dividerPosition: dividerPosition.map(Double.init)
         )
     }
 
     /// The verdict for splitting the pane that holds `panelId`, or `.fits`
     /// when the panel has no pane (the split fails on its own later).
-    func splitSpaceVerdict(splittingPanel panelId: UUID, orientation: SplitOrientation) -> SplitSpaceVerdict {
-        guard let paneId = paneId(forPanelId: panelId) else { return .fits }
-        return splitSpaceVerdict(splitting: paneId, orientation: orientation)
-    }
-
-    /// Completes a split admitted as `.fitsAfterEqualizingRun`: when the new
-    /// pane came out below the minimum, equalizes the run that now holds it.
-    /// A split that fit in place is left as it is, so this is safe to call
-    /// after any admitted split. An explicit divider position from the caller
-    /// wins, so the run is left alone then.
-    func finishSplitSpaceBorrow(
-        newPanelId: UUID,
+    func splitSpaceVerdict(
+        splittingPanel panelId: UUID,
         orientation: SplitOrientation,
-        explicitDividerPosition: CGFloat? = nil
-    ) {
-        guard explicitDividerPosition == nil,
-              let newPaneId = paneId(forPanelId: newPanelId) else { return }
-        finishSplitSpaceBorrow(newPaneId: newPaneId, orientation: orientation)
+        dividerPosition: CGFloat? = nil
+    ) -> SplitSpaceVerdict {
+        guard let paneId = paneId(forPanelId: panelId) else { return .fits }
+        return splitSpaceVerdict(
+            splitting: paneId,
+            orientation: orientation,
+            dividerPosition: dividerPosition
+        )
     }
 
-    /// The space check for splits bonsplit starts itself (its split buttons
-    /// and tab drags to a pane edge). cmux's own split paths check before
-    /// they reach bonsplit and mark themselves programmatic, so they pass.
-    /// A refused UI split beeps, like Cmd+D with no room.
+    /// The single space check for every split Bonsplit starts: UI split
+    /// buttons, tab drags, and cmux's programmatic helpers all pass here.
+    /// Only restoration and remote-layout projection transactions opt out.
+    /// A refused split beeps, like Cmd+D with no room.
     func admitsBonsplitUISplit(of paneId: PaneID, orientation: SplitOrientation) -> Bool {
-        guard !isProgrammaticSplit,
-              activeMovingTabSplitFocusIntent == nil,
-              splitSpaceVerdict(splitting: paneId, orientation: orientation) == .noSpace else { return true }
+        admitsSplitSpacePreflight(
+            splitting: paneId,
+            orientation: orientation,
+            dividerPosition: activeSplitSpaceDividerPosition
+        )
+    }
+
+    /// Cheap gate used before a split helper constructs a live panel. The
+    /// Bonsplit delegate repeats this check immediately before mutation as a
+    /// backstop against geometry changes between preflight and commit.
+    func admitsSplitSpacePreflight(
+        splitting paneId: PaneID,
+        orientation: SplitOrientation,
+        dividerPosition: CGFloat? = nil
+    ) -> Bool {
+        guard splitSpaceAdmissionBypassDepth == 0,
+              splitSpaceVerdict(
+                  splitting: paneId,
+                  orientation: orientation,
+                  dividerPosition: dividerPosition
+              ) == .noSpace else { return true }
         NSSound.beep()
         return false
     }
 
-    func finishSplitSpaceBorrow(newPaneId: PaneID, orientation: SplitOrientation) {
+    func withSplitSpaceDividerPosition<Result>(
+        _ dividerPosition: CGFloat?,
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        let previous = activeSplitSpaceDividerPosition
+        activeSplitSpaceDividerPosition = dividerPosition
+        defer { activeSplitSpaceDividerPosition = previous }
+        return try body()
+    }
+
+    func withSplitSpaceAdmissionBypass<Result>(_ body: () throws -> Result) rethrows -> Result {
+        splitSpaceAdmissionBypassDepth += 1
+        defer { splitSpaceAdmissionBypassDepth = max(0, splitSpaceAdmissionBypassDepth - 1) }
+        return try body()
+    }
+
+    func finishSplitSpaceBorrow(
+        originalPaneId: PaneID,
+        newPaneId: PaneID,
+        orientation: SplitOrientation
+    ) {
         guard layoutMode != .canvas else { return }
-        let paneKey = newPaneId.id.uuidString
-        guard let frame = bonsplitController.layoutSnapshot().panes.first(where: { $0.paneId == paneKey })?.frame
-        else { return }
+        let paneKeys = Set([originalPaneId.id.uuidString, newPaneId.id.uuidString])
+        let splitFrames = bonsplitController.layoutSnapshot().panes.filter { paneKeys.contains($0.paneId) }
+        guard splitFrames.count == paneKeys.count else { return }
         let minimum = splitMinimumPaneSize
-        let extent = orientation == .horizontal ? frame.width : frame.height
         let required = Double(orientation == .horizontal ? minimum.width : minimum.height)
-        guard extent > 0, extent < required else { return }
+        let extents = splitFrames.map { orientation == .horizontal ? $0.frame.width : $0.frame.height }
+        guard extents.allSatisfy({ $0 > 0 }), extents.contains(where: { $0 < required }) else { return }
         equalizeSplitRun(containingNewPane: newPaneId)
     }
 }
