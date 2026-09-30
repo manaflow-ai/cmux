@@ -225,6 +225,9 @@ jobs:
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:e2e-backend
           hostname: ${{ env.CMUX_E2E_BACKEND_TAILNET_HOSTNAME }}
+          # `tailscale cert` (Postgres TLS) and Serve need a state directory;
+          # without one tailscaled has no var root.
+          statedir: ${{ runner.temp }}/tailscale-state
           # Tailscale SSH server: the macOS job releases this holder as
           # `runner`, the only SSH the ACL grants into tag:e2e-backend.
           args: --ssh
