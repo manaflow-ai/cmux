@@ -105,7 +105,11 @@ extension TerminalController {
         let targetID = open ? await MainActor.run {
             TerminalController.shared.surfaceTargetWorkspaceID(params, strictExplicit: true)
         } : nil
-        let destination = targetID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
+        let destination = await MainActor.run {
+            targetID.map {
+                Self.surfaceDestination(TerminalController.shared.surfaceResolvedParams(params), workspaceID: $0)
+            }
+        }
         if open, explicitWorkspace != nil, destination == nil {
             throw FanOutSocketError.destinationRequired
         }
