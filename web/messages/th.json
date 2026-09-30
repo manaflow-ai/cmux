@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ภาพรวม",
       "team": "ทีม",
       "mobileDevices": "อุปกรณ์มือถือ",
@@ -361,7 +361,7 @@
       "teams": "ทีม"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
       "coderouterLink": "เปิด coderouter",
       "iosAppName": "แอป iOS",
@@ -369,10 +369,10 @@
       "iosLink": "เปิดแอป iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "จัดการบัญชี AI ที่แชร์และกำหนดเส้นทางคำขอด้วย coderouter",
-      "title": "coderouter",
-      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
+      "title": "Coderouter",
+      "description": "Coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
       "machines": {
         "title": "เครื่อง",
         "description": "การใช้งาน coderouter แยกตามเครื่องของ {team} ในช่วง {days} วันที่ผ่านมา",
@@ -407,7 +407,8 @@
       "signingOut": "กำลังออกจากระบบ…",
       "signOutError": "ออกจากระบบไม่ได้ โปรดลองอีกครั้ง",
       "organizationSwitchError": "เปลี่ยนองค์กรไม่ได้ โปรดลองอีกครั้ง",
-      "signIn": "เข้าสู่ระบบ"
+      "signIn": "เข้าสู่ระบบ",
+      "upgrade": "อัปเกรด"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "สร้างทีม"
+      },
+      "title": "แพ็กเกจและการเรียกเก็บเงิน",
+      "picker": {
+        "current": "แพ็กเกจปัจจุบัน",
+        "upgradeTo": "อัปเกรดเป็น {plan}",
+        "switchTo": "เปลี่ยนเป็น {plan}",
+        "cancelPlan": "ยกเลิกแพ็กเกจ",
+        "resume": "ใช้ {plan} ต่อ",
+        "renewsOn": "ต่ออายุวันที่ {date}",
+        "endsOn": "สิ้นสุดวันที่ {date}",
+        "perMonth": "ต่อเดือน",
+        "perSeatMonth": "ต่อที่นั่งต่อเดือน",
+        "paymentMethod": "จัดการวิธีการชำระเงิน",
+        "invoices": "ใบแจ้งหนี้",
+        "heading": "แพ็กเกจ",
+        "actionError": "เปลี่ยนแพ็กเกจไม่ได้ ลองอีกครั้ง",
+        "unavailable": {
+          "cancelScheduled": "ใช้แพ็กเกจต่อก่อนจึงจะเปลี่ยนได้",
+          "granted": "ได้รับจาก cmux ไม่มีอะไรให้เปลี่ยน",
+          "adminOnly": "เฉพาะผู้ดูแลทีมเท่านั้นที่เปลี่ยนแพ็กเกจได้"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "เทอร์มินัล cmux ครบทุกฟีเจอร์สำหรับ macOS",
+            "ใช้เอเจนต์ CLI ใดก็ได้ด้วยคีย์ของคุณเอง",
+            "ประวัติเซสชันในเครื่อง"
+          ],
+          "go": [
+            "Cloud VM ที่ทำงานอยู่ 1 เครื่อง",
+            "40 ชั่วโมง VM ต่อเดือน",
+            "VM ที่บันทึกไว้ 2 เครื่อง"
+          ],
+          "pro": [
+            "เอเจนต์บนคลาวด์ใน Cloud VMs",
+            "RAM 24 GB และ 6 vCPU ใช้ร่วมกันทุก VM",
+            "แอป cmux สำหรับ iOS"
+          ],
+          "max": [
+            "RAM 64 GB และ 16 vCPU ใช้ร่วมกันทุก VM",
+            "เครื่องขนาดใหญ่ขึ้น",
+            "ทุกอย่างใน Pro"
+          ],
+          "team": [
+            "ทุกอย่างใน Pro สำหรับสมาชิกทุกคน",
+            "ใบแจ้งหนี้เดียวสำหรับทั้งทีม",
+            "การสนับสนุนแบบเร่งด่วน"
+          ]
+        },
+        "billedAnnually": "เรียกเก็บเงินรายปี"
+      },
+      "change": {
+        "title": "เปลี่ยนเป็น {plan} ไหม",
+        "upgradeBody": "{plan} เริ่มทันที วันนี้คุณชำระ {amount} สำหรับช่วงที่เหลือของรอบบิลนี้ ตั้งแต่ {date} คุณชำระ {price} ต่อเดือน",
+        "downgradeBody": "{plan} เริ่มทันที ส่วนที่ยังไม่ได้ใช้ของแพ็กเกจปัจจุบัน {credit} จะนำไปหักในใบแจ้งหนี้ถัดไป ใบแจ้งหนี้ถัดไปในวันที่ {date} คือ {amount}",
+        "confirm": "เปลี่ยนเป็น {plan}",
+        "keep": "ใช้แพ็กเกจปัจจุบันต่อ",
+        "switching": "กำลังเปลี่ยน…",
+        "previewError": "คำนวณราคาไม่ได้ ลองอีกครั้ง",
+        "paymentFailed": "บัตรของคุณถูกปฏิเสธ อัปเดตวิธีการชำระเงินแล้วลองอีกครั้ง",
+        "error": "เปลี่ยนแพ็กเกจไม่ได้ ลองอีกครั้ง"
+      },
+      "cancelDialog": {
+        "title": "ยกเลิก {plan} ไหม",
+        "body": "คุณยังใช้ {plan} ได้จนถึง {date} หลังจากนั้นคุณจะเสีย:",
+        "bodyNoDate": "คุณยังใช้ {plan} ได้จนสิ้นรอบบิลนี้ หลังจากนั้นคุณจะเสีย:",
+        "reasonLabel": "ทำไมจึงยกเลิก (ไม่บังคับ)",
+        "otherPlaceholder": "บอกเราเพิ่มเติม (ไม่บังคับ)",
+        "confirm": "ยกเลิกแพ็กเกจ",
+        "keep": "ใช้ {plan} ต่อ",
+        "error": "ยกเลิกแพ็กเกจไม่ได้ ลองอีกครั้ง",
+        "resumeError": "ใช้แพ็กเกจต่อไม่ได้ ลองอีกครั้ง",
+        "reasons": {
+          "too_expensive": "แพงเกินไป",
+          "missing_feature": "ขาดฟีเจอร์ที่ต้องการ",
+          "not_using": "ใช้ไม่บ่อยพอ",
+          "other": "อื่น ๆ"
+        }
+      },
+      "welcome": {
+        "title": "ยินดีต้อนรับสู่ {plan}",
+        "body": "แพ็กเกจของคุณใช้งานได้แล้ว ลองสิ่งเหล่านี้ก่อน:",
+        "ios": "ติดตั้งแอป iOS",
+        "cloud": "เปิด Cloud",
+        "team": "สร้างทีม",
+        "banner": "ตอนนี้คุณใช้ {plan}",
+        "bannerLink": "แพ็กเกจและการเรียกเก็บเงิน"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "บัญชี",
         "billing": "การเรียกเก็บเงิน",
         "teamsGroup": "ทีม",
-        "createTeam": "สร้างทีม"
+        "createTeam": "สร้างทีม",
+        "accountGroup": "บัญชี",
+        "billingGroup": "การเรียกเก็บเงิน",
+        "planBilling": "แพ็กเกจและการเรียกเก็บเงิน"
       },
       "ui": {
         "save": "บันทึก",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "ไม่มีข้อมูลการใช้งาน",
       "revokeApiKeyConfirmBody": "ไคลเอนต์ที่ใช้คีย์นี้จะยืนยันตัวตนไม่ได้ทันที",
       "apiKeysEmptyTitle": "ยังไม่มีคีย์ API",
-      "apiKeysEmptyHint": "สร้างคีย์เพื่อยืนยันตัวตนไคลเอนต์ CodeRouter"
+      "apiKeysEmptyHint": "สร้างคีย์เพื่อยืนยันตัวตนไคลเอนต์ CodeRouter",
+      "unavailableTitle": "บัญชีที่แชร์ใช้งานไม่ได้",
+      "unavailableBody": "ขณะนี้ cmux เชื่อมต่อบริการบัญชีที่แชร์ไม่ได้ บัญชีที่เพิ่มด้วย cr add และบัญชี Anthropic และ Bedrock ยังใช้งานได้"
     },
     "notFound": {
       "title": "ไม่พบหน้า",
@@ -1050,6 +1149,14 @@
       },
       "retry": "ลองอีกครั้ง",
       "retrying": "กำลังลองอีกครั้ง…"
+    },
+    "upgrade": {
+      "title": "ต้องใช้ Pro",
+      "cloud": "Cloud VMs และเอเจนต์บนคลาวด์เป็นส่วนหนึ่งของ Pro",
+      "testflight": "แอป cmux สำหรับ iOS เป็นส่วนหนึ่งของ Pro",
+      "mobileDevices": "การเชื่อมต่อโทรศัพท์และแท็บเล็ตเป็นส่วนหนึ่งของ Pro",
+      "action": "อัปเกรดเป็น Pro",
+      "comparePlans": "เปรียบเทียบแพ็กเกจ"
     }
   },
   "community": {
@@ -2043,9 +2150,17 @@
       "customActionsDesc": "<actions>actions</actions> คือรายการที่ cmux ใช้รันซ้ำได้ ใช้ actions เมื่อ behavior เดียวกันควรเรียกได้จาก Command Palette, surface tab bar, shortcuts หรือเมนูของปุ่มบวก เก็บ <commands>commands</commands> ไว้สำหรับ shell commands และ workspace layouts ที่ใช้ซ้ำได้ ตั้ง <palette>palette</palette> เป็น false เมื่อไม่ต้องการให้ action แสดงใน Command Palette",
       "actionTypes": "ประเภท action",
       "actionTypeBuiltin": "สร้าง alias ให้ built-in cmux action เช่น cmux.newTerminal, cmux.newBrowser, cmux.splitRight หรือ cmux.splitDown",
+      "actionTypeBuiltinCopy": "การดำเนินการคัดลอกในตัว: cmux.copyWorkingDirectory คัดลอกไดเรกทอรีทำงานของเทอร์มินัล cmux.copyProjectRoot คัดลอกรากของรีโพซิทอรี git (หรือไดเรกทอรีทำงานเมื่ออยู่นอกรีโพซิทอรี) และ cmux.copyScreen คัดลอกหน้าจอที่มองเห็น",
+      "actionTypeBuiltinCopyRemote": "ในเวิร์กสเปซ SSH คลาวด์ หรือ tmux ระยะไกล cmux.copyProjectRoot จะคัดลอกไดเรกทอรีทำงานระยะไกล เพราะ cmux ค้นหารีโพซิทอรี git บนโฮสต์อื่นไม่ได้",
       "actionTypeCommand": "รันข้อความ shell ใน terminal ใช้ target เพื่อเลือก terminal ปัจจุบันหรือ tab ใหม่ใน pane ปัจจุบัน",
       "actionTypeAgent": "เริ่ม coding agent ที่รองรับ ปัจจุบันรองรับ codex และ claude พร้อม args แบบเลือกได้",
       "actionTypeWorkspaceCommand": "รัน workspace definition ที่มีชื่อจาก commands ใช้สำหรับเลย์เอาต์หลาย pane, working directory แบบกำหนดเอง และ startup commands",
+      "actionTypeSetting": "เปลี่ยนการตั้งค่าหนึ่งรายการใน cmux.json แบบ global ของคุณ เช่น สลับการตั้งค่าแบบ true/false หรือวนผ่านรายการค่า ดู Action การตั้งค่า ด้านล่าง",
+      "actionTypeSettingPreset": "ใช้กลุ่มการตั้งค่าที่มีชื่อจาก settingPresets ในขั้นตอนเดียว",
+      "settingActions": "Action การตั้งค่า",
+      "settingActionsDesc": "action การตั้งค่าระบุ <path>path</path> ของการตั้งค่า และระบุเพียงหนึ่งอย่างจาก <set>set</set> (เขียนค่า), <toggle>toggle: true</toggle> (สลับการตั้งค่าแบบ true/false), <cycle>cycle</cycle> (ไปยังค่าถัดไปในรายการ และวนกลับไปค่าแรกเมื่อถึงค่าสุดท้าย) หรือ <unset>unset: true</unset> (ลบ key ออกจาก cmux.json เพื่อให้ใช้ค่าจากหน้าต่างการตั้งค่าหรือค่าเริ่มต้น) toggle และ cycle เริ่มจากค่าที่ cmux ใช้อยู่ รวมถึงค่าที่คุณตั้งไว้ในหน้าต่างการตั้งค่า action settingPreset จะใช้ entry จาก <presets>settingPresets</presets> ซึ่งเป็น cmux.json บางส่วนที่ object ซ้อนกันจะถูก merge ทีละ key cmux ตรวจสอบการเปลี่ยนแปลงแต่ละรายการกับ schema ก่อนบันทึก เก็บ comment และ key อื่นของคุณไว้ แล้วนำการเปลี่ยนแปลงไปใช้ทันที action การตั้งค่าและ preset ทำงานได้เฉพาะจาก cmux.json แบบ global ของคุณและ pack ที่ไฟล์นั้นอ้างถึงเท่านั้น config ของโปรเจกต์ประกาศสิ่งเหล่านี้ไม่ได้",
+      "settingActionsCli": "ทำการเปลี่ยนแปลงเดียวกันจาก terminal ได้เช่นกัน: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> และ <preset>cmux config preset sidebar.quiet</preset>",
+      "settingActionsLimits": "เมื่อใช้ <confirm>confirm: true</confirm> cmux จะถามก่อนบันทึกและแสดงคำสั่ง cmux config ที่เทียบเท่า path จะถูกแยกที่ \".\" ทุกตัว ดังนั้น key ที่มี \".\" อยู่ในชื่อเอง (เช่น entry <byCwd>workspaceGroups.byCwd</byCwd> สำหรับ ~/src/app.web) จึงเปลี่ยนด้วยวิธีนี้ไม่ได้ ให้แก้ไขใน cmux.json โดยตรง",
       "actionFields": "ฟิลด์ของ action",
       "actionFieldTitle": "ชื่อแถวใน Command Palette, label ของปุ่ม, ชื่อ item ในเมนู และชื่อ trust prompt เว้นแต่ entry จะ override ค่าไว้",
       "actionFieldSubtitle": "ข้อความรองใน Command Palette โดย description ใช้เป็น alias ของ subtitle ได้",

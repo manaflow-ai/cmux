@@ -22,4 +22,7 @@ public struct CloseWarningKinds: OptionSet, Sendable, Hashable {
 
     /// `app.warnBeforeClosingWindow`: the "Close window?" prompts.
     public static let window = CloseWarningKinds(rawValue: 1 << 3)
+
+    /// An active foreground process requires a warning regardless of settings.
+    public static let safety = CloseWarningKinds(rawValue: 1 << 4)
 }
