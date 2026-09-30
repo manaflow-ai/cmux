@@ -3204,7 +3204,7 @@ impl Mux {
         );
         // A kept-layout end keeps its tabs across owner restarts
         // (`end-terminals-keep-layout-v1`); a frontend relaunches them.
-        if exit_receipt_keeps_layout(terminal.exit.as_ref()) {
+        if terminal_reap::exit_receipt_keeps_layout(terminal.exit.as_ref()) {
             return Ok(false);
         }
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
