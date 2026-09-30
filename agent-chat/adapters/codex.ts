@@ -74,18 +74,25 @@ export const codexAdapter: Adapter = {
       const srv = await ensureServer();
       const st = await ensureCodexState(sess);
       let threadId = sess.internal.threadId as string | undefined;
-      if (!threadId) {
-        // Single-flight: concurrent first sends must share one thread/start or
-        // each spawns its own thread and the UI tracks only one of them.
+      if (!threadId || srv.sessionsByThread.get(threadId) !== sess) {
+        // Single-flight: concurrent first sends and post-crash resumes must
+        // share one thread/start or resume, rather than creating duplicates.
         let starting = sess.internal.threadStarting as Promise<string> | undefined;
         if (!starting) {
           starting = (async () => {
-            const res = await srv.request("thread/start", { cwd: sess.cwd });
+            const savedThreadId = sess.internal.threadId as string | undefined;
+            const res = savedThreadId
+              ? await srv.request("thread/resume", { threadId: savedThreadId, cwd: sess.cwd })
+              : await srv.request("thread/start", { cwd: sess.cwd });
             const id: string | undefined = res.thread?.id;
-            if (!id) throw new Error("codex thread/start returned no thread id");
+            if (!id) {
+              throw new Error(
+                `codex ${savedThreadId ? "thread/resume" : "thread/start"} returned no thread id`,
+              );
+            }
             sess.internal.threadId = id;
             srv.sessionsByThread.set(id, sess);
-            sess.emit({ kind: "meta", providerSessionId: id });
+            if (id !== savedThreadId) sess.emit({ kind: "meta", providerSessionId: id });
             emitOptions(sess);
             await refreshCommands(sess);
             return id;
@@ -293,7 +300,6 @@ async function startServer(): Promise<AppServer> {
         sess.emit({ kind: "done", generation } as any);
         sess.setStatus("idle");
       }
-      sess.internal.threadId = undefined;
     }
     if (shared === srv) shared = null;
   });
