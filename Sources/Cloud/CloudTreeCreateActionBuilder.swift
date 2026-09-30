@@ -7,15 +7,18 @@ enum CloudTreeCreateActionBuilder {
     static let newCloudMachineNodeID = "cloud-machines-section/new-cloud-vm"
     static let newWorkspaceNodeID = "cloud-machines-section/new-workspace"
 
-    static func add(to nodes: [CloudTreeNode]) -> [CloudTreeNode] {
+    /// - Parameter fleetListIsCurrent: False while the fleet read is failing or
+    ///   offline. Listed machines can be left over from an earlier read, and the
+    ///   section's New Workspace re-reads the fleet, so it is withheld then.
+    static func add(to nodes: [CloudTreeNode], fleetListIsCurrent: Bool = true) -> [CloudTreeNode] {
         for node in nodes {
-            node.children = add(to: node.children)
+            node.children = add(to: node.children, fleetListIsCurrent: fleetListIsCurrent)
             switch node.kind {
             case .cloudMachinesSection(let canCreateMachine, _):
                 guard canCreateMachine,
                       !node.children.contains(where: { $0.id == newCloudMachineNodeID }) else { break }
                 var actions = [CloudTreeNode(id: newCloudMachineNodeID, kind: .createAction(.newCloudVM))]
-                if hasWorkspaceDestination(node.children) {
+                if fleetListIsCurrent && hasWorkspaceDestination(node.children) {
                     actions.append(CloudTreeNode(id: newWorkspaceNodeID, kind: .createAction(.newWorkspaceOnResolvedMachine)))
                 }
                 node.children = actions + node.children

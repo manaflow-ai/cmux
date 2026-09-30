@@ -516,6 +516,7 @@ struct MachinesPanelView: View {
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
+            cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
