@@ -2575,7 +2575,6 @@ public actor VMClient {
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
-        let requestedTeamID = await auth.resolvedTeamID
         guard isAuthenticated || isRestoringSession else {
             throw VMClientError.notSignedIn
         }
@@ -2589,6 +2588,10 @@ public actor VMClient {
         } catch {
             throw VMClientError.notSignedIn
         }
+        // `currentTokens()` waits for auth bootstrap. Read the team scope only
+        // after that barrier so a request admitted during launch cannot retain
+        // the transient teamless value captured before team loading finished.
+        let requestedTeamID = await auth.resolvedTeamID
         let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")

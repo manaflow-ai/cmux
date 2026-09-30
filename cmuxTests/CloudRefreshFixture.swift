@@ -22,13 +22,21 @@ struct CloudRefreshFixture {
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
         authClient: (any AuthClient)? = nil,
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
-        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        awaitBootstrap: Bool = true,
+        bootstrapFromCachedSession: Bool = false
     ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
+        let sessionCache = CMUXAuthSessionCache(keyValueStore: defaults, key: "session")
+        let userCache = CMUXAuthIdentityStore(keyValueStore: defaults, key: "user")
+        if bootstrapFromCachedSession {
+            sessionCache.setHasTokens(true)
+            try userCache.save(CMUXAuthUser(id: "fixture", primaryEmail: "fixture@example.test", displayName: "Fixture"))
+        }
         let auth = AuthCoordinator(
             client: authClient ?? CloudRefreshAuthClient(),
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            sessionCache: sessionCache,
+            userCache: userCache,
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
             anchor: AuthPresentationContextProvider(),
             config: AuthConfig(
@@ -37,13 +45,17 @@ struct CloudRefreshFixture {
             ),
             launch: AuthLaunchOptions(
                 clearAuthRequested: false, mockDataEnabled: false,
-                environment: ["CMUX_UITEST_AUTH_FIXTURE": "1", "CMUX_UITEST_AUTH_USER_ID": "fixture"],
+                environment: bootstrapFromCachedSession ? [:] : [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1", "CMUX_UITEST_AUTH_USER_ID": "fixture"
+                ],
                 includesDevAuth: true
             )
         )
         auth.start()
-        await auth.awaitBootstrapped()
-        try #require(auth.isAuthenticated)
+        if awaitBootstrap {
+            await auth.awaitBootstrapped()
+            try #require(auth.isAuthenticated)
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CloudRefreshURLProtocol.self]
         let session = URLSession(configuration: configuration)

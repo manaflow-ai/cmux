@@ -11,6 +11,32 @@ import Testing
 
 @MainActor
 extension VMClientReadCoalescingTests {
+    @Test("VM requests use the team scope resolved during auth bootstrap")
+    func requestCapturesTeamScopeAfterBootstrap() async throws {
+        let authClient = CloudReadIdentityAuthClient()
+        await authClient.holdTeamList()
+        let fixture = try await CloudRefreshFixture.make(
+            authClient: authClient,
+            awaitBootstrap: false,
+            bootstrapFromCachedSession: true
+        )
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+
+        let request = Task {
+            try await fixture.client.request(
+                "POST",
+                path: "/api/vm",
+                jsonBody: [:]
+            )
+        }
+        await authClient.waitUntilTeamListRequested()
+        await authClient.releaseTeamList()
+        _ = try await request.value
+
+        #expect(await CloudRefreshURLProtocol.lastTeamID() == "selected")
+    }
+
     @Test("Reads without a transition identity fail before HTTP and recover for the next account", arguments: ["list", "stats", "usage"])
     func nilIdentityAdmission(operation: String) async throws {
         let authClient = CloudReadIdentityAuthClient()
