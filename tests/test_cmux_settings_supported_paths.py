@@ -25,6 +25,11 @@ SETTINGS_SECTIONS = (
     "workspaceColors", "automation", "browser", "markdown", "fileEditor",
     "fileExplorer", "diffViewer", "shortcuts",
 )
+ROOT_SETTINGS = (
+    "paneBorderColor", "activePaneBorderColor", "focusMarkerStyle",
+    "focusMarkerColor", "focusMarkerThickness", "focusMarkerIntensity",
+    "focusMarkerVisibility",
+)
 
 
 class SupportedPathsTests(unittest.TestCase):
@@ -106,6 +111,9 @@ class SupportedPathsTests(unittest.TestCase):
             for section in SETTINGS_SECTIONS
             for key in schema["properties"][section]["properties"]
         }
+        expected.update(
+            key for key in ROOT_SETTINGS if key in schema["properties"]
+        )
         result = self.run_helper(self.helper("installed"), "list-supported")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         actual = set(result.stdout.splitlines())

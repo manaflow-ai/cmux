@@ -4,17 +4,19 @@ Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema
 authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
 rendered docs, see `https://cmux.com/docs/configuration`.
 
-## focused-pane marker
+## root
 
-Focused-pane feedback uses a separate visual channel from the blue unread ring.
+Top-level pane chrome settings.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `focusMarkerStyle` | `"edge"` or `"dim-others"` or `"glow"` or `"none"` | `"edge"` | Marker style for the focused pane in split workspaces. |
-| `focusMarkerColor` | color hex or null | `null` | Explicit marker color; null follows the terminal theme foreground. |
-| `focusMarkerThickness` | number (1..6) | `2` | Edge or glow thickness in points. |
-| `focusMarkerIntensity` | number (0.05..0.8) | `0.24` | Marker or dimming strength. |
-| `focusMarkerVisibility` | `"persistent"` or `"on-change"` | `"persistent"` | Keep the marker visible or show it briefly when focus changes. |
+| `paneBorderColor` | colorHexOrNull | `null` | Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits. |
+| `activePaneBorderColor` | colorHexOrNull | `null` | Optional border color drawn around the focused cmux pane in split workspaces. |
+| `focusMarkerStyle` | `"edge"` or `"dim-others"` or `"glow"` or `"none"` | `"edge"` | Focused-pane marker style. The marker uses a theme-derived foreground color unless focusMarkerColor is set. |
+| `focusMarkerColor` | colorHexOrNull | `null` | Focused-pane marker color. Null follows the terminal theme foreground. |
+| `focusMarkerThickness` | number | `2` | Focused-pane edge or glow thickness in points. |
+| `focusMarkerIntensity` | number | `0.24` | Focused-pane marker intensity. |
+| `focusMarkerVisibility` | `"persistent"` or `"on-change"` | `"persistent"` | Keep the focused-pane marker visible, or show it only briefly when focus changes. |
 
 ## app
 
