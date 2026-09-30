@@ -2050,9 +2050,8 @@ jobs:
       # On an owned Mac every GUI job shares the one console session, so the
       # tests need glaeda's gui token. glaeda's hook gives this job none at
       # job start (class gui-step), so the product fetch above leaves the
-      # console to other GUI jobs; the token is taken here, before the restore
-      # step takes the producer's canonical root (the order every GUI job
-      # takes them in), and held until the job ends, through the console
+      # console to other GUI jobs; the token is taken here before the tests
+      # start and held until the job ends, through the console
       # session cleanup. An older hook gave the token at job start, so
       # take-gui returns 0 at once; one without take-gui exits 2 and still
       # gave it at job start. Blacksmith has no helper.
