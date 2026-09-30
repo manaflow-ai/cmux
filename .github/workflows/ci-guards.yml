@@ -23,6 +23,39 @@ permissions:
   contents: read
 
 jobs:
+  workflow-guard-submodule-forward-only:
+    name: workflow-guard-submodule-forward-only
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The synthetic PR commit and its first parent are sufficient for
+          # the merge-base comparison, and keep this guard shallow like the
+          # neighboring history guard.
+          fetch-depth: 2
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Bind submodule guard to synthetic merge parent
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          git cat-file -e "$base^{commit}"
+          echo "GITHUB_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GITHUB_HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Validate submodule gitlinks move forward only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/submodule_forward_only.py
+
+      - name: Test submodule forward-only guard
+        run: python3 tests/test_submodule_forward_only.py
+
   workflow-guard-tests:
     if: ${{ inputs.linux_guard_tests == 'true' }}
     name: workflow-guard-tests / ${{ matrix.group }}
@@ -123,6 +156,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_lint_feature_flags_scope.py
 
+      - name: Validate feature flag review lead-time report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_feature_flag_review_lead_time.py
+
+      - name: Validate feature flag review drift issue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_feature_flag_review_drift_issue.py
+
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
@@ -157,6 +198,10 @@ jobs:
       - name: Validate tagged reload works without the shared dev backend
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_local_backend_mode.sh
+
+      - name: Validate per-run iOS E2E backend script contracts
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_e2e_backend_scripts.py
 
       - name: Validate release SDK build lane
         if: ${{ matrix.group == 'preflight' }}
@@ -259,12 +304,15 @@ jobs:
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
         env:
-          CMUX_TEST_REGISTRY_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
         run: |
           set -euo pipefail
           args=()
-          if [[ -n "$CMUX_TEST_REGISTRY_BASE_SHA" ]]; then
-            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_SHA"
+          if [[ -n "$CMUX_TEST_REGISTRY_BASE_REF" ]]; then
+            # Keep this fetch shallow. With the current base tip, merge-base may
+            # be unavailable, and the two-tree diff fallback is the right answer.
+            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
+            CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
@@ -329,15 +377,21 @@ jobs:
         with:
           bun-version: "1.3.6"
 
-      # Runs the agent-chat unit tests listed in its package.json, including
-      # the Claude launch environment policy. `bun run check` also runs an
-      # unpinned tsc, whose result depends on the version bun x fetches.
-      - name: Run agent-chat unit tests
+      # TypeScript is pinned exactly in agent-chat's devDependencies, so this
+      # check uses the locked local compiler instead of fetching one at runtime.
+      - name: Type-check agent-chat
         if: ${{ matrix.group == 'preflight' }}
         working-directory: agent-chat
         run: |
           bun install --frozen-lockfile
-          bun run test
+          ./node_modules/.bin/tsc --noEmit
+
+      # Runs the agent-chat unit tests listed in its package.json, including
+      # the Claude launch environment policy.
+      - name: Run agent-chat unit tests
+        if: ${{ matrix.group == 'preflight' }}
+        working-directory: agent-chat
+        run: bun run test
 
       # The committed control-plane wire types (Swift + TS) must be exactly
       # what quicktype regenerates from schemas/control-plane/; fails on any
@@ -444,14 +498,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
-      - name: Validate PR catch-up merge and its workflow
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_catch_up_pr.py
-
-      - name: Validate automatic PR catch-up selection
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_auto_catch_up_select.py
-
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
@@ -467,6 +513,10 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate simple live macOS pool choice
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_simple_pool_picker.py
 
       - name: Validate delta CI from the last green head
         if: ${{ matrix.group == 'ci' }}
@@ -607,6 +657,10 @@ jobs:
       - name: Validate checkout failure network diagnostics
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
+
+      - name: Validate production drift issue updates are sticky
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_iroh_drift_issue.py
 
       - name: Validate Swift Testing suite timeout guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -981,6 +1035,10 @@ jobs:
           python3 tests/test_ci_product_publication.py
           python3 tests/test_ci_cli_product_routing.py
 
+      - name: Validate Iroh release gate timeouts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_iroh_monitor_simulator_plan.py
+
       - name: Validate Python R2 appcast upload guard
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_r2_upload_python.sh
@@ -1060,6 +1118,12 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
+
+      - name: Validate CLI contract verb coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_cli_contract_verb_guard.py
+          python3 scripts/check-cli-contract-verbs.py
 
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
@@ -1195,6 +1259,7 @@ jobs:
   guard-status:
     name: Guard status
     needs:
+      - workflow-guard-submodule-forward-only
       - workflow-guard-tests
       - workflow-guard-history
       - workflow-guard-cli-scripts
@@ -1216,6 +1281,7 @@ jobs:
           inputs = json.loads(os.environ["GUARD_INPUTS"])
           needs = json.loads(os.environ["GUARD_NEEDS"])
           route_jobs = {
+              "submodule_forward_only": "workflow-guard-submodule-forward-only",
               "linux_guard_tests": "workflow-guard-tests",
               "linux_guard_history": "workflow-guard-history",
               "linux_guard_cli": "workflow-guard-cli-scripts",
@@ -1223,6 +1289,10 @@ jobs:
           }
           bad = {}
           for route, job in sorted(route_jobs.items()):
+              if route == "submodule_forward_only":
+                  if needs[job]["result"] != "success":
+                      bad[job] = needs[job]["result"]
+                  continue
               value = inputs.get(route)
               result = needs[job]["result"]
               if value not in {"true", "false"}:

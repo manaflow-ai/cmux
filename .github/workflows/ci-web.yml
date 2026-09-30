@@ -236,6 +236,9 @@ jobs:
       - name: Verify generated webviews assets
         run: ./scripts/build-webviews-app.sh --check
 
+      - name: Check diff viewer eager JS budget
+        run: node ./scripts/check-webviews-diff-budget.mjs
+
       - name: Verify React Compiler for webviews
         run: ./scripts/check-webviews-react-compiler.mjs
 

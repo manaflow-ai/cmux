@@ -141,6 +141,30 @@ import Testing
         #expect(legacyMac.macSurfaceRows.map(\.id) == [.macSurface(browser.id), .macSurface(markdown.id)])
     }
 
+    @Test func browserUpdateHintRequiresAConnectedCapabilitySnapshot() {
+        func value(
+            supportsBrowserStream: Bool,
+            browserStreamSupportKnown: Bool
+        ) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [],
+                selectedID: nil,
+                canCreateWorkspace: true,
+                hasActiveBrowser: false,
+                supportsBrowserStream: supportsBrowserStream,
+                browserStreamSupportKnown: browserStreamSupportKnown
+            )
+        }
+
+        // An empty capability set while disconnected/reconnecting is unknown,
+        // so it must not claim that the Mac needs an update.
+        #expect(value(supportsBrowserStream: false, browserStreamSupportKnown: false).showsBrowserStreamUpdateHint == false)
+        // Once connected, the same missing capability is an authoritative
+        // unsupported-host result and the hint is appropriate.
+        #expect(value(supportsBrowserStream: false, browserStreamSupportKnown: true).showsBrowserStreamUpdateHint)
+        #expect(value(supportsBrowserStream: true, browserStreamSupportKnown: true).showsBrowserStreamUpdateHint == false)
+    }
+
     /// SSH computers' browser tabs are not on a Mac, so the switcher's
     /// browser section is named by the computer's kind.
     @Test func browserSectionIsNamedByComputerKind() {

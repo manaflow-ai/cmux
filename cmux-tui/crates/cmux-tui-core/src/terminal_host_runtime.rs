@@ -2095,11 +2095,16 @@ mod unix {
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
-        let command = options
-            .command
-            .clone()
-            .filter(|command| !command.is_empty())
-            .unwrap_or_else(|| vec![crate::platform::default_shell()]);
+        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
+            Some(command) => {
+                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![crate::platform::default_shell()],
+                options.extra_env.clone(),
+            ),
+        };
+        let command = shell_launch.command;
         let launch = HostLaunch {
             endpoint: endpoint.to_string_lossy().into_owned(),
             record_path: record_path.to_string_lossy().into_owned(),
@@ -2110,7 +2115,7 @@ mod unix {
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
-            extra_env: options.extra_env.clone(),
+            extra_env: shell_launch.env,
             default_colors,
             kitty_graphics_limits,
         };
@@ -4183,7 +4188,7 @@ mod unix {
                     encode_resize(
                         size.0,
                         size.1,
-                        &replay.bytes,
+                        &replay.self_contained_bytes(),
                         &replay.kitty_image_aliases,
                         next,
                         replay.kitty_state,
@@ -4274,7 +4279,7 @@ mod unix {
             let resize_payload = match encode_resize(
                 size.0,
                 size.1,
-                &replay.bytes,
+                &replay.self_contained_bytes(),
                 &replay.kitty_image_aliases,
                 cell_pixels,
                 replay.kitty_state,
@@ -4486,7 +4491,7 @@ mod unix {
                             encode_resize(
                                 cols,
                                 rows,
-                                &replay.bytes,
+                                &replay.self_contained_bytes(),
                                 &replay.kitty_image_aliases,
                                 cell_pixels,
                                 replay.kitty_state,
@@ -5807,7 +5812,7 @@ mod unix {
                     cols,
                     rows,
                     cell_pixels,
-                    replay: replay.bytes,
+                    replay: replay.self_contained_bytes().into_owned(),
                     kitty_image_aliases: replay.kitty_image_aliases,
                     kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
@@ -8636,6 +8641,7 @@ mod unix {
                     bytes: decoded.replay,
                     kitty_image_aliases: decoded.kitty_image_aliases,
                     kitty_state: decoded.kitty_state,
+                    pending_sequence: Vec::new(),
                 })
                 .unwrap();
             assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());
