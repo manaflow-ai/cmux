@@ -333,6 +333,29 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         }
     }
 
+#if DEBUG
+    /// Scrolls to the top (animated), as a user scroll would, for recordings.
+    func debugScroll(toTop: Bool) {
+        let clip = scrollView.contentView
+        let target = NSPoint(x: 0, y: toTop ? -scrollView.contentInsets.top : max(0, tableView.frame.height - clip.bounds.height))
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.35
+            clip.animator().setBoundsOrigin(target)
+        } completionHandler: { [weak self] in
+            guard let self else { return }
+            self.scrollView.reflectScrolledClipView(clip)
+            self.clipViewBoundsChanged(Notification(name: NSView.boundsDidChangeNotification))
+        }
+    }
+
+    /// Toggles the newest activity group, as a click on its header would.
+    func debugToggleLastActivity() -> Bool {
+        guard let row = rows.last(where: { if case .activity = $0.content { return true } else { return false } }) else { return false }
+        toggle(row.id)
+        return true
+    }
+#endif
+
     // MARK: - Morph support
 
     /// Hides a row's content while an overlay animates into its place.

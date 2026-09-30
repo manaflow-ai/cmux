@@ -127,6 +127,7 @@ class TerminalController {
 #if DEBUG
     nonisolated let windowScreenshotCaptureCoordinator =
         WindowScreenshotCaptureCoordinator()
+    nonisolated let debugWindowRecorder = DebugWindowRecorder()
 #endif
     private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
         4
@@ -1923,6 +1924,10 @@ class TerminalController {
                 "styles": CloudTreeStyle.presets.map(\.id),
                 "selected": selected,
             ])
+        case "debug.window.record":
+            return debugWindowRecord(request)
+        case "debug.agent_chat.action":
+            return debugAgentChatAction(request)
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
@@ -2056,6 +2061,8 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
+                || request.method == "debug.window.record"
+                || request.method == "debug.agent_chat.action"
                 || request.method == "debug.mobile.transport.disconnect"
                 || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")

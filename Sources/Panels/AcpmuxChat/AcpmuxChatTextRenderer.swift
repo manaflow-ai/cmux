@@ -71,6 +71,19 @@ struct AcpmuxChatTextRenderer {
             }
             if !isLast { output.append(NSAttributedString(string: "\n")) }
         }
+        if case .code? = blocks.last {
+            // TextKit drops paragraph spacing after the final line of the text. A 1 pt
+            // spacer line after a closing code block keeps that spacing (the box's bottom inset).
+            let spacer = NSMutableParagraphStyle()
+            spacer.minimumLineHeight = 1
+            spacer.maximumLineHeight = 1
+            // A zero-width space, not a trailing newline: a trailing newline adds an extra
+            // full-height line fragment at the end of the text.
+            output.append(NSAttributedString(string: "\n\u{200B}", attributes: [
+                .font: NSFont.systemFont(ofSize: 1),
+                .paragraphStyle: spacer,
+            ]))
+        }
         return output
     }
 
@@ -86,8 +99,9 @@ struct AcpmuxChatTextRenderer {
             style.headIndent = Self.codeInset
             style.tailIndent = -Self.codeInset
             style.lineBreakMode = .byCharWrapping
-            style.paragraphSpacingBefore = index == 0 ? Self.codeInset + 2 : 0
-            style.paragraphSpacing = index == lines.count - 1 ? Self.codeInset + spacingAfter : 0
+            // Outer margin plus the box inset above the first line and below the last.
+            style.paragraphSpacingBefore = index == 0 ? Self.codeInset + 4 : 0
+            style.paragraphSpacing = index == lines.count - 1 ? Self.codeInset + spacingAfter + 2 : 0
             let text = index == lines.count - 1 ? line : line + "\n"
             output.append(NSAttributedString(string: text.isEmpty ? " " : text, attributes: [
                 .font: theme.codeFont,

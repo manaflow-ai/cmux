@@ -114,6 +114,13 @@ final class AgentSessionPanel: Panel {
 
     func unfocus() {}
 
+#if DEBUG
+    /// Scripted pane interactions for DEBUG animation recordings.
+    func performDebugChatAction(_ action: String) -> Bool {
+        chatPane?.performDebugAction(action) ?? false
+    }
+#endif
+
     func close() {
         chatModel.stop()
     }

@@ -46,14 +46,13 @@ final class AcpmuxTranscriptTextView: NSTextView {
             guard let color = value as? NSColor else { return }
             let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             var box = CGRect.null
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { lineRect, _, _, _, _ in
-                box = box.union(lineRect)
+            // Used rects cover only the glyphs, so the box does not depend on paragraph spacing.
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { _, usedRect, _, _, _ in
+                box = box.union(usedRect)
             }
             guard !box.isNull else { return }
-            // Line fragment rects include the block's paragraph spacing; trim the trailing gap.
-            let style = storage.attribute(.paragraphStyle, at: NSMaxRange(range) - 1, effectiveRange: nil) as? NSParagraphStyle
-            let trailing = max(0, (style?.paragraphSpacing ?? 0) - AcpmuxChatTextRenderer.codeInset)
-            box = CGRect(x: 0, y: box.minY + 2, width: textContainer.size.width, height: box.height - trailing - 2)
+            let inset = AcpmuxChatTextRenderer.codeInset
+            box = CGRect(x: 0, y: box.minY - inset, width: textContainer.size.width, height: box.height + 2 * inset)
             color.setFill()
             NSBezierPath(roundedRect: box.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), xRadius: 7, yRadius: 7).fill()
         }

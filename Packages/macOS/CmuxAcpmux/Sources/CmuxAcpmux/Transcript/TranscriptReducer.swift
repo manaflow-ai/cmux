@@ -27,6 +27,7 @@ public struct TranscriptReducer: Sendable {
     public var isTurnOpen: Bool { turn != nil }
 
     private var records: [AcpmuxEventRecord] = []
+    private let adapter = AcpmuxProtocolAdapter()
     private var indexByID: [String: Int] = [:]
     private var toolRowByCallID: [String: String] = [:]
     private var turn: TurnState?
@@ -179,10 +180,10 @@ public struct TranscriptReducer: Sendable {
         switch record.kind {
         case "user_message":
             let text = msg["text"]?.stringValue ?? ""
-            // Daemons that do not echo `promptId` (acpmux 67d0b7e) still confirm the local
-            // echo: the oldest pending message with the same text is this prompt.
-            let promptId = msg["promptId"]?.stringValue
-                ?? pendingLocal.first(where: { !$0.failed && $0.text == text })?.promptId
+            let promptId = adapter.promptID(
+                forUserMessage: msg,
+                pendingEchoes: pendingLocal.filter { !$0.failed }.map { ($0.promptId, $0.text) }
+            )
             if let promptId {
                 queue.removeAll { $0.promptId == promptId }
                 pendingLocal.removeAll { $0.promptId == promptId }
@@ -296,7 +297,7 @@ public struct TranscriptReducer: Sendable {
             // stream (Codex does this): the abandoned partial row goes away.
             if let last = rows.last, case .assistant(let existing, true) = last.content, isLastRowInCurrentTurn,
                messageID != nil, messageIDByRow[last.id] != nil,
-               Self.isRedelivery(of: existing, restartingWith: text) {
+               adapter.isRedelivery(of: existing, restartingWith: text) {
                 removeRow(last.id)
             }
             let rowID = "msg-\(record.seq)"
@@ -383,8 +384,7 @@ public struct TranscriptReducer: Sendable {
             // an assistant bubble.
             for rowID in current.streamingRowIDs {
                 guard let index = indexByID[rowID], case .assistant(let text, _) = rows[index].content else { continue }
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty, error.contains(trimmed) { removeRow(rowID) }
+                if adapter.isStreamedErrorProse(text, turnError: error) { removeRow(rowID) }
             }
         }
         for rowID in current.streamingRowIDs {
@@ -483,13 +483,6 @@ public struct TranscriptReducer: Sendable {
     private func continuesMessage(rowID: String, messageID: String?) -> Bool {
         guard let messageID, let current = messageIDByRow[rowID] else { return true }
         return current == messageID
-    }
-
-    /// Whether a new message that begins with `start` restarts `abandoned`.
-    static func isRedelivery(of abandoned: String, restartingWith start: String) -> Bool {
-        let head = start.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !head.isEmpty else { return false }
-        return abandoned.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(head)
     }
 
     private mutating func removeRow(_ rowID: String) {

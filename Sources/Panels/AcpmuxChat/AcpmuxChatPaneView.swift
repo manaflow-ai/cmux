@@ -73,6 +73,19 @@ final class AcpmuxChatPaneView: AcpmuxFlippedView {
         window?.makeFirstResponder(composer.textView)
     }
 
+#if DEBUG
+    /// Scripted interactions for DEBUG animation recordings.
+    func performDebugAction(_ action: String) -> Bool {
+        switch action {
+        case "scroll_top": transcript.debugScroll(toTop: true)
+        case "jump_latest": transcript.jumpToLatest()
+        case "toggle_last_group": return transcript.debugToggleLastActivity()
+        default: return false
+        }
+        return true
+    }
+#endif
+
     /// Appends `text` to the composer. Each newline submits, exactly like pressing Return.
     func receiveComposerInput(_ text: String) {
         var pending = ""
