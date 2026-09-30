@@ -3,21 +3,60 @@ import Synchronization
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
+///
+/// Bounded (architecture.md 5a): past `limit` events the buffer collapses
+/// into one `.overflow` marker, which the store answers with one snapshot
+/// that supersedes everything dropped. Lifecycle events and transaction
+/// echoes (which settle optimistic patches) survive the collapse; every
+/// other event is dropped until the next `take()`.
 final class EventInbox: Sendable {
     private struct State {
         var events: [DaemonEventEnvelope] = []
         var framePending = false
+        /// Set once the buffer collapsed; cleared by `take()`.
+        var collapsed = false
+        var echoes: Set<ClientTransactionID> = []
     }
 
+    /// Matches the daemon's own per-client mailbox.
+    static let defaultLimit = 4096
+
     private let state = Mutex(State())
+    private let limit: Int
+
+    init(limit: Int = EventInbox.defaultLimit) {
+        self.limit = max(limit, 1)
+    }
 
     /// Returns true when the caller must schedule a frame.
     func append(_ envelope: DaemonEventEnvelope) -> Bool {
         state.withLock { state in
-            state.events.append(envelope)
+            if state.collapsed {
+                Self.keep(envelope, in: &state)
+            } else if state.events.count >= limit {
+                let buffered = state.events
+                state.events = [DaemonEventEnvelope(sequence: envelope.sequence, event: .overflow("app event inbox exceeded \(limit) events"))]
+                state.collapsed = true
+                for old in buffered { Self.keep(old, in: &state) }
+                Self.keep(envelope, in: &state)
+            } else {
+                state.events.append(envelope)
+            }
             guard !state.framePending else { return false }
             state.framePending = true
             return true
+        }
+    }
+
+    /// While collapsed: keep lifecycle events and one echo per transaction
+    /// (as a `tree-changed` carrying it), drop the rest.
+    private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
+        switch envelope.event {
+        case .connected, .disconnected, .daemonShutdown:
+            state.events.append(envelope)
+        default:
+            guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
+            state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
         }
     }
 
@@ -25,6 +64,8 @@ final class EventInbox: Sendable {
     func take() -> [DaemonEventEnvelope] {
         state.withLock { state in
             state.framePending = false
+            state.collapsed = false
+            state.echoes.removeAll(keepingCapacity: true)
             defer { state.events.removeAll(keepingCapacity: true) }
             return state.events
         }
@@ -83,6 +124,7 @@ extension DaemonStore {
         guard let driver, !isResyncing else { return }
         isResyncing = true
         driver.inbox.hold()
+        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
             do {
                 let (tree, barrier) = try await driver.connection.snapshot()

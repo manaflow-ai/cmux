@@ -76,16 +76,8 @@ enum CompatDeadline {
         _ what: String, within limit: Duration = controlPlane,
         _ body: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T?.self) { group in
-            group.addTask { try await body() }
-            group.addTask {
-                try await ContinuousClock().sleep(for: limit)
-                return nil
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw CompatErrors.timeout(what, limit) }
-            guard let value = first else { throw CompatErrors.timeout(what, limit) }
-            return value
-        }
+        // Not a task group: it would wait for a body that ignores
+        // cancellation, turning the deadline into a hang.
+        try await ControlDeadline.run(method: what, deadline: .now + limit, body)
     }
 }

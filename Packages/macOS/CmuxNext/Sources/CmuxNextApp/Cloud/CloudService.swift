@@ -70,7 +70,13 @@ final class CloudService {
             guard let self else { return }
             await auth.awaitRestored()
             for await signedIn in Observations({ self.auth.isSignedIn }) {
-                if signedIn { await self.refresh() } else { self.dropAllMachines() }
+                if signedIn {
+                    // Sign-out revoked the WireGuard peer and parked the hub.
+                    await self.hub?.resume()
+                    await self.refresh()
+                } else {
+                    self.dropAllMachines()
+                }
             }
         })
         observers.append(Task { [weak self] in
@@ -85,6 +91,7 @@ final class CloudService {
         for observer in observers { observer.cancel() }
         observers.removeAll()
         for session in machines.cloud { session.disconnect() }
+        // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
     }
 

@@ -54,6 +54,7 @@ final class MobileHostService {
         starting = nil
         let host = host
         self.host = nil
+        // task-owner: teardown hop; MobileIrxHost.stop() is idempotent and bumps its lifetime
         Task { await host?.stop() }
     }
 

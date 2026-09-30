@@ -61,6 +61,7 @@ public final class TerminalSession {
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
+        // concurrency-allow: carries only user input and resizes, produced at human rate
         let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
         input = TerminalInputSink(continuation: continuation)
 

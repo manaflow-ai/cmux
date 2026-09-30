@@ -44,6 +44,22 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
+    /// The app's own create-workspace + create-terminal answered, but the
+    /// terminal's pane delta has not reached the mirror yet: the workspace
+    /// still looks empty and must not get a second terminal.
+    @Test func workspaceTheAppPopulatedIsNotRepairedBeforeItsDeltaLands() async throws {
+        let (services, recorder) = Self.services(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "new")])
+        try await services.emptyWorkspaces.populating(Self.key) { () async throws -> Void in }
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        controller.applyCurrent()
+        await Self.settle { false }
+        #expect(recorder.keys.isEmpty)
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
     @Test func populatedWorkspaceIsLeftAlone() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let tree = try BridgeTreeFixture.tree()
