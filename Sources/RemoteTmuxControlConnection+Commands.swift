@@ -530,9 +530,10 @@ extension RemoteTmuxControlConnection {
     /// genuine paste, so the remote app recognizes it (e.g. claude → `[Image #N]`)
     /// instead of seeing the plain keystrokes that ``sendKeys(paneId:data:)`` would
     /// deliver. Uses a dedicated, immediately-deleted (`-d`) per-pane buffer so
-    /// there's no buffer-name collision. Carriage returns are rejected because
-    /// they would terminate a control-mode command; line breaks use tmux's
-    /// double-quoted C escapes so the control stream remains line-oriented.
+    /// there's no buffer-name collision. CRLF is normalized to LF and standalone
+    /// carriage returns are rejected because they would terminate a control-mode
+    /// command; line breaks use tmux's double-quoted C escapes so the control
+    /// stream remains line-oriented.
     func pastePane(paneId: Int, text: String) -> Bool {
         guard !text.isEmpty else { return false }
         let normalizedText = text.replacingOccurrences(of: "\r\n", with: "\n")
