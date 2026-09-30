@@ -380,6 +380,14 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            #if DEBUG
+            .environment(
+                \.mobileWhatsNewPresentationPolicy,
+                MobileWhatsNewPresentationPolicy(
+                    suppressLaunchPresentation: UITestConfig.suppressWhatsNewLaunch
+                )
+            )
+            #endif
             #endif
     }
 

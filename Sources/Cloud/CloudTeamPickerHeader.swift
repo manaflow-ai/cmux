@@ -16,10 +16,36 @@ struct CloudTeamPickerHeader<Status: View>: View {
     var body: some View {
         @Bindable var picker = presentation ?? panePresentation
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                if let accountFlow {
-                    CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
-                        .disabled(accountFlow.isWorkingOnAuth)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    if let accountFlow {
+                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .disabled(accountFlow.isWorkingOnAuth)
+                    }
+                    Spacer(minLength: 0)
+                    agentMenu()
+                    MachinesChromeIconButton(
+                        symbolName: "arrow.clockwise",
+                        accessibilityLabel: refreshLabel,
+                        isBusy: isRefreshing,
+                        action: onRefresh
+                    )
+                    MachinesChromeIconButton(
+                        symbolName: "plus",
+                        accessibilityLabel: newMachineLabel,
+                        isBusy: false,
+                        action: onNewMachine
+                    )
+                }
+                HStack(spacing: 6) {
+                    if let accountFlow {
+                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                            .disabled(accountFlow.isWorkingOnAuth)
+                    }
+                    Spacer(minLength: 0)
+                    agentMenu()
+                    machineActionsMenu
                 }
                 Spacer(minLength: 0)
                 if let accountFlow, accountFlow.confirmedTeamID != nil {
@@ -50,6 +76,43 @@ struct CloudTeamPickerHeader<Status: View>: View {
         }
     }
 
+    private var refreshLabel: String {
+        String(localized: "machines.refresh", defaultValue: "Refresh Machines")
+    }
+
+    private var newMachineLabel: String {
+        String(localized: "machines.new", defaultValue: "New Machine")
+    }
+
+    private var machineActionsMenu: some View {
+        Menu {
+            Button {
+                onRefresh()
+            } label: {
+                Text(refreshLabel)
+            }
+            .help(refreshLabel)
+            .accessibilityLabel(refreshLabel)
+
+            Button {
+                onNewMachine()
+            } label: {
+                Text(newMachineLabel)
+            }
+            .help(newMachineLabel)
+            .accessibilityLabel(newMachineLabel)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 22, height: 20)
+        .foregroundStyle(.secondary)
+    }
+
     private func teamChangeErrorRow(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "exclamationmark.triangle")
@@ -67,7 +130,7 @@ struct CloudTeamPickerHeader<Status: View>: View {
         // Without its own container, the row's help and copy menu let the
         // panel's RightSidebar identifier replace the message's and Close's.
         .accessibilityElement(children: .contain)
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.top, RightSidebarChromeMetrics.barVerticalPadding)
     }
 }
