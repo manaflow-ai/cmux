@@ -433,6 +433,10 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    if (!this.turnOpen && ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(event.kind)) {
+      this.turnOpen = true;
+      this.turnStartedAt = event.at;
+    }
     const text = textFromContent(update.content);
     if (event.kind === "user_message_chunk" && text && !this.sawUserMessage) {
       const id = this.streamingUserMessage ?? `user-chunk-${event.seq}`;
