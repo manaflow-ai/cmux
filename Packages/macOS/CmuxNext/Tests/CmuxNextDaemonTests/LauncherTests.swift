@@ -105,6 +105,26 @@ import Testing
         #expect(fallback["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
     }
 
+    /// The `CMUX_` prefix must not carry credentials into terminals (every
+    /// program in them could read them, and terminal-env-v1 writes each
+    /// terminal's env to the daemon state directory).
+    @Test func credentialCMUXKeysNeverReachTerminalsOrTheDaemon() {
+        let secrets = ["CMUX_DOGFOOD_STACK_PASSWORD": "p1", "CMUX_UITEST_STACK_PASSWORD": "p2",
+                       "CMUX_SOCKET_PASSWORD": "p3", "CMUX_AUTH_CREDENTIALS_FILE": "/Users/u/.secrets/x.env",
+                       "CMUX_RELAY_TOKEN": "t", "CMUX_API_KEY": "k", "CMUX_CLIENT_SECRET": "s"]
+        let login = secrets.merging(["PATH": "/usr/bin", "CMUX_TAG": "t1"]) { a, _ in a }
+        let base = secrets.merging(["HOME": "/Users/u", "CMUX_TAG": "t1"]) { a, _ in a }
+        let terminal = TerminalEnvironment.terminal(login: login, base: base)
+        let daemon = TerminalEnvironment.daemon(login: login, base: base, overrides: [:])
+        for key in secrets.keys {
+            #expect(terminal[key] == nil, "\(key)")
+            #expect(daemon[key] == nil, "\(key)")
+        }
+        #expect(terminal["CMUX_TAG"] == "t1")
+        // Names that only look similar stay.
+        #expect(TerminalEnvironment.isAllowed("CMUX_KEYBOARD_LAYOUT"))
+    }
+
     @Test(.timeLimit(.minutes(1))) func capturesRealLoginShellEnvironment() async throws {
         let env = try #require(await LoginEnvironment.capture(timeout: .seconds(15)))
         #expect(env["PATH"]?.isEmpty == false)
