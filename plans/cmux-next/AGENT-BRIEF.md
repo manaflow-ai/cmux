@@ -15,3 +15,11 @@
 - Local cmux-next reloads need `CMUX_NEXT_MIN_FREE_GIB` (default 40) GiB free and then lift the local build guard's 500 GiB floor for that build only; do not set `CMUX_ALLOW_LOW_SPACE_BUILD=1` yourself.
 - Visual evidence without moving windows or taking focus: add `CMUX_NEXT_TEST_WINDOW_SCREEN=last` (or a `NSScreen.screens` index; 0 is the menu-bar screen) and optionally `CMUX_NEXT_TEST_WINDOW_FRAME=x,y,w,h` (points, from the top-left of that screen's visible frame; default 1100x720 centered) to the no-activate launch. Only with `CMUX_NEXT_NO_ACTIVATE=1`, the app places its own windows there and orders them front with `orderFrontRegardless`; it never activates and no window becomes key. `last` is the agent default: a secondary display when one exists, else the only screen. Capture only the tagged window: `screencapture -x -o -l <CGWindowID> out.png` (find the id with cmux-cua `list_windows` filtered by the app's pid).
 - Before visual evidence, check the screen is unlocked (`ioreg -n Root -d1 -a` → IOConsoleUsers CGSSessionScreenIsLocked). While locked, macOS reports every window occluded, Ghostty surfaces pause by design, and screenshots show blank terminals. Report visual checks UNVERIFIED while locked; functional checks (tree, read-screen) still count.
+
+## Landing work: push directly, no PRs (user decision 2026-09-29)
+
+- Work in your own worktree/branch as before (isolation is still required), but do NOT open a PR.
+- To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`; cmux-tui changes still need the hosted verification green first.
+- Then `git push origin HEAD:feat-cmux-next`. If rejected (someone pushed first), rebase again, re-run the gate, push again. Never force-push feat-cmux-next.
+- Keep commits self-describing (what/why, root cause for fixes, failing-test commit before the fix for regressions) since there is no PR body; end each with the Co-Authored-By trailer.
+- Report the landed commit SHAs in your final reply.
