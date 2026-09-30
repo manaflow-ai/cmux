@@ -39,7 +39,11 @@ final class CmuxFeatureFlags {
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
+    #if DEBUG
+    private static let agentChatUIDefault = true
+    #else
     private static let agentChatUIDefault = false
+    #endif
     #if DEBUG
     private nonisolated static let mobileWorkspaceChangesDefault = true
     #else
@@ -234,7 +238,8 @@ final class CmuxFeatureFlags {
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
             // command-palette command, surface-tab-bar button, and shared action
-            // executor. Hidden by default until the sidecar UX is ready to ship.
+            // executor. Release builds hide them until the PostHog flag is enabled;
+            // DEBUG keeps them visible for dogfood.
             CmuxFeatureFlagDefinition(
                 key: "agent-chat-ui-enabled-release",
                 title: String(localized: "featureFlags.agentChat.title", defaultValue: "Agent Chat UI"),
