@@ -9,8 +9,8 @@
   ],
   "launch": {
     "args": [
-      "-sidebar.beta.conversations.enabled", "true",
-      "-cmux.flags.override.conversation-sidebar-release", "true"
+      "-sidebar.beta.conversations.enabled", "<true/>",
+      "-cmux.flags.override.conversation-sidebar-release", "<true/>"
     ],
     "zoom": true
   },
