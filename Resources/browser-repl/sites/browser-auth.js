@@ -55,6 +55,8 @@
             await loc.evaluate((el, m) => el.setAttribute("data-cmux-auth", m), marker);
             marked.push({ loc, field: f, marker });
           }
+          // The user should see the page they are signing in to under the sheet.
+          await page.bringToFront().catch(() => {});
           let r;
           try {
             r = await t.session.call("auth.request", {
