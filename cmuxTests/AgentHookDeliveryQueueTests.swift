@@ -109,8 +109,8 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == [activePayload, latestPayload])
     }
 
-    @Test("Terminal lifecycle admission replaces stale actor-resident state")
-    func terminalLifecycleReplacesActorResidentState() async throws {
+    @Test("Session end replaces stale state but preserves stop completion")
+    func sessionEndReplacesStaleStateButPreservesStopCompletion() async throws {
         let activePayload = #"{"session_id":"session-a","state":"active"}"#
         let stalePrompt = #"{"session_id":"session-a","state":"stale-prompt"}"#
         let staleStop = #"{"session_id":"session-a","state":"stale-stop"}"#
@@ -147,8 +147,8 @@ struct AgentHookDeliveryQueueTests {
         )))
 
         await probe.release(payload: activePayload)
-        try await probe.waitUntilCompleted(count: 2)
-        #expect(await probe.completedPayloads() == [activePayload, latestPayload])
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, staleStop, latestPayload])
     }
 
     @Test("Session end preserves a buffered stop completion")
