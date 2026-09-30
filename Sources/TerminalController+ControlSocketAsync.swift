@@ -302,6 +302,20 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, typedResult)
         }
 
+        if request.method == "surface.input_state" {
+            // Several main-actor hops; run them on a GCD thread rather than
+            // parking a cooperative-pool thread while main is busy.
+            return await runSocketWorkerBlockingBody {
+                self.socketWorkerV2Response(
+                    handling: ControlRequest(
+                        id: request.id,
+                        method: request.method,
+                        params: request.params
+                    )
+                )
+            }
+        }
+
         if request.method == "surface.read_text" {
             // The fallback performs one short v2MainSync capture hop, then
             // formats potentially large scrollback off-main. Keep the whole
