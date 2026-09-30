@@ -1,0 +1,135 @@
+{
+  "artifacts": {
+    "launched": null,
+    "produced": null
+  },
+  "assessment": {
+    "exact_verification": false,
+    "launched_matches_produced": false,
+    "qualifications": [
+      "exact_snapshot_not_established",
+      "dirty_or_unknown_source"
+    ],
+    "review_current": false
+  },
+  "authority": "evidence_only",
+  "checks": [
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "preparation",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "parsing",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "typechecking",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence",
+      "executed": true,
+      "phase": "tests",
+      "status": "passed"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "packaging",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "live",
+      "status": "skipped"
+    }
+  ],
+  "environment": {
+    "architecture": null,
+    "build_input_identity": null,
+    "configuration": "workflow guard",
+    "platform": null,
+    "runner_labels": [
+      "blacksmith-4vcpu-ubuntu-2404"
+    ],
+    "toolchain": null
+  },
+  "evidence": {
+    "completed_at": "2026-09-20T16:38:24Z",
+    "event": "pull_request",
+    "job_conclusion": "success",
+    "job_id": 106111086646,
+    "job_name": "workflow-guard-tests",
+    "kind": "github_actions",
+    "log_sha256": "c2a9208829bc9c8fe4843ebbefd702cde854bc063145adb01a606f2a16a4325f",
+    "run_attempt": 1,
+    "run_conclusion": "failure",
+    "run_id": 35523305193,
+    "started_at": "2026-09-20T16:38:24Z",
+    "step_conclusion": "success",
+    "step_name": "Validate docs deployment authentication guard",
+    "step_number": 7,
+    "summary": [
+      "Ran 3 tests in 0.000s",
+      "OK"
+    ],
+    "url": "https://github.com/manaflow-ai/cmux/actions/runs/35523305193/job/106111086646",
+    "workflow_path": ".github/workflows/ci.yml",
+    "workflow_revision": null
+  },
+  "integrations": {
+    "glaeda_request_id": null,
+    "glaeda_run_id": null,
+    "stensibly_run_id": null,
+    "stensibly_settlement_id": null
+  },
+  "recipe": {
+    "argv": [
+      "python3",
+      "tests/test_docs_deploy_auth_guard.py"
+    ],
+    "claim_class": "python-workflow-guard-tests",
+    "id": "tests/test_docs_deploy_auth_guard.py",
+    "revision": "25930fe8a91012ad178343016774d6850d5fd3db"
+  },
+  "review": {
+    "current_head": null,
+    "evidence": null,
+    "reviewed_head": null,
+    "status": "unsupported"
+  },
+  "schema_version": "cmux-verification/v1",
+  "source": {
+    "after": null,
+    "base_sha": "b334a7deeb0ff65bc9ee4d1c6a2bf7d454795110",
+    "before": {
+      "clean": null,
+      "commit": "25930fe8a91012ad178343016774d6850d5fd3db"
+    },
+    "checkout_sha": "25930fe8a91012ad178343016774d6850d5fd3db",
+    "exact_snapshot": null,
+    "head_sha": "e0deb0e897e58de722015e714700b2ec6c220bc6",
+    "merge_sha": "25930fe8a91012ad178343016774d6850d5fd3db",
+    "repository": "manaflow-ai/cmux",
+    "semantics": "latest_checkout_at_execution",
+    "tree": null
+  },
+  "tests": {
+    "accepted_baselines": [],
+    "discovered": null,
+    "executed": 3,
+    "runner_reported": 3,
+    "selected": null,
+    "selection": [
+      "tests/test_docs_deploy_auth_guard.py"
+    ],
+    "skipped": 0
+  }
+}

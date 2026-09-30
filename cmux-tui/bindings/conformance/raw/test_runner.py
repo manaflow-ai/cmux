@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import unittest
 
 from runner import (
+    BINDINGS,
     FIXTURES,
     LANGUAGES,
-    RAW_CATALOG,
+    RAW_CATALOGS,
     ConformanceFailure,
     FakeServer,
     assert_case_response,
@@ -26,12 +28,16 @@ class FixtureTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_raw_metadata_baseline_is_frozen_to_protocol_10(self) -> None:
-        catalog = json.loads(RAW_CATALOG.read_text())
-        self.assertEqual(catalog["source_commit"], "34741cdc96")
-        self.assertEqual(catalog["protocol"], 10)
-        self.assertEqual(len(catalog["commands"]), 83)
-        self.assertEqual(len(catalog["events"]), 44)
+    def test_raw_metadata_baselines_are_frozen_to_prior_protocols(self) -> None:
+        expected_counts = {10: (83, 44), 11: (101, 46)}
+        self.assertEqual(len(RAW_CATALOGS), len(expected_counts))
+        for path, source_commit, protocol in RAW_CATALOGS:
+            catalog = json.loads(path.read_text())
+            self.assertEqual(catalog["source_commit"], source_commit)
+            self.assertEqual(catalog["protocol"], protocol)
+            command_count, event_count = expected_counts[protocol]
+            self.assertEqual(len(catalog["commands"]), command_count)
+            self.assertEqual(len(catalog["events"]), event_count)
 
     def test_security_fixture_requires_local_denial_and_no_wire_write(self) -> None:
         cases = {case["name"]: case for case in self.fixtures["fake_cases"]}
@@ -92,6 +98,50 @@ class FixtureTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(expected.values()))
+
+    def test_ergonomics_documents_current_inventory_and_matrix_count(self) -> None:
+        docs = (BINDINGS / "ERGONOMICS.md").read_text()
+        schema = json.loads((BINDINGS.parent / "spec" / "sdk-schema.json").read_text())
+        command_count = len(schema["commands"])
+        event_count = len(schema["events"])
+        fake_count = len(self.fixtures["fake_cases"])
+        real_count = len(self.fixtures["real_cases"])
+        check_count = len(LANGUAGES) * (fake_count + 1 + real_count)
+
+        inventory = re.search(
+            r"raw protocol inventory is a\s+separate compatibility surface with "
+            r"(?P<commands>\d+) commands and (?P<events>\d+) events\.",
+            docs,
+        )
+        self.assertIsNotNone(inventory)
+        assert inventory is not None
+        self.assertEqual(int(inventory.group("commands")), command_count)
+        self.assertEqual(int(inventory.group("events")), event_count)
+
+        go_readme = (BINDINGS / "go" / "raw" / "README.md").read_text()
+        go_inventory = re.search(
+            r"The Go SDK covers all (?P<commands>\d+) protocol-12 commands and "
+            r"(?P<events>\d+) event shapes",
+            go_readme,
+        )
+        self.assertIsNotNone(go_inventory)
+        assert go_inventory is not None
+        self.assertEqual(int(go_inventory.group("commands")), command_count)
+        self.assertEqual(int(go_inventory.group("events")), event_count)
+
+        matrix = re.search(
+            r"The separate raw protocol-12 suite runs\s+(?P<checks>\d+)\s+"
+            r"compatibility checks across seven language adapters:\s+"
+            r"(?P<fake>\d+) fake cases, one metadata\s+audit, and\s+"
+            r"(?P<real>three) live cases per language\.",
+            docs,
+        )
+        self.assertIsNotNone(matrix)
+        assert matrix is not None
+        self.assertEqual(int(matrix.group("checks")), check_count)
+        self.assertEqual(int(matrix.group("fake")), fake_count)
+        self.assertEqual(matrix.group("real"), "three")
+        self.assertEqual(real_count, 3)
 
 
 class MatchingTests(unittest.TestCase):
@@ -185,7 +235,7 @@ class StreamNegotiationServerTests(unittest.TestCase):
             stream.flush()
             identity = json.loads(stream.readline())
             self.assertEqual(identity["id"], 1)
-            self.assertEqual(identity["data"]["protocol"], 11)
+            self.assertEqual(identity["data"]["protocol"], 12)
 
             stream.write(
                 b'{"id":2,"cmd":"subscribe","tree_events":"deltas"}\n'

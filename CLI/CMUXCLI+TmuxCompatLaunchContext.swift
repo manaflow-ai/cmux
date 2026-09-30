@@ -11,6 +11,11 @@ extension CMUXCLI {
         let surfaceId: String?
     }
 
+    struct ClaudeTeamsShimPlan {
+        let directory: URL
+        let managedClaudeWrapperURL: URL?
+    }
+
     func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
         let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -19,21 +24,29 @@ extension CMUXCLI {
             environment: processEnvironment
         )
         let source: CLISocketPathSource
-        if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: bundleIdentifier,
-                environment: processEnvironment
-            ) ? .implicitDefault : .environment
+        if envSocketPath != nil {
+            // Environment overrides are explicit pins. Never reinterpret a
+            // stable-looking value as permission to select another instance.
+            source = .environment
         } else {
             source = .implicitDefault
         }
-        return CLISocketPathResolver.resolve(
-            requestedPath: requestedSocketPath,
-            source: source,
+        let resolver = CLISocketPathResolver(
             environment: processEnvironment,
             bundleIdentifier: bundleIdentifier
         )
+        let resolution = resolver.resolve(
+            requestedPath: requestedSocketPath,
+            source: source
+        )
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        if source == .implicitDefault,
+           let rerouteNotice = resolution.rerouteNotice {
+            cliWriteStderr(rerouteNotice + "\n")
+        }
+        return resolution.selectedPath ?? requestedSocketPath
     }
 
     func tmuxCompatLaunchContext(
@@ -199,11 +212,11 @@ extension CMUXCLI {
         return environment
     }
 
-    func createClaudeTeamsShimDirectory(
+    func createClaudeTeamsShimPlan(
         processEnvironment: [String: String],
         commandArgs: [String],
         launchContext: TmuxCompatLaunchContext?
-    ) throws -> URL {
+    ) throws -> ClaudeTeamsShimPlan {
         let downstreamTmuxMissing = String(
             localized: "cli.tmux-compat.error.downstreamTmuxMissing",
             defaultValue: "cmux tmux shim: no downstream tmux executable found"
@@ -259,7 +272,11 @@ extension CMUXCLI {
                     script,
                     to: managedRoot.appendingPathComponent("tmux", isDirectory: false)
                 )
-                return managedRoot
+                return ClaudeTeamsShimPlan(
+                    directory: managedRoot,
+                    managedClaudeWrapperURL: managedRoot
+                        .appendingPathComponent("claude", isDirectory: false)
+                )
             } catch {
                 // Informational launches do not create teammates, so they may use the
                 // launcher-only compatibility directory below. Real Teams sessions must
@@ -270,9 +287,12 @@ extension CMUXCLI {
         guard claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs) else {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
-        return try createTmuxCompatShimDirectory(
-            directoryName: "claude-teams-bin",
-            tmuxShimScript: script
+        return ClaudeTeamsShimPlan(
+            directory: try createTmuxCompatShimDirectory(
+                directoryName: "claude-teams-bin",
+                tmuxShimScript: script
+            ),
+            managedClaudeWrapperURL: nil
         )
     }
 

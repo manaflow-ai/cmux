@@ -16,7 +16,7 @@ final class SessionIndexTableRowHeightCalculator {
         case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _):
             let headerHeight = lineHeight(
                 baseFontSize: 13,
-                minimumContentHeight: 14,
+                minimumContentHeight: SessionIndexRowMetrics.sectionIconSize,
                 verticalPadding: 6,
                 environment: environment
             )
@@ -24,11 +24,30 @@ final class SessionIndexTableRowHeightCalculator {
 
             let entryHeight = lineHeight(
                 baseFontSize: 13,
-                minimumContentHeight: 12,
-                verticalPadding: 8,
+                // The primary line is the title text or the bare agent glyph,
+                // whichever is taller; there is no icon tile to reserve.
+                minimumContentHeight: SessionIndexRowMetrics.agentIconSize,
+                verticalPadding: SessionIndexRowMetrics.verticalPadding * 2,
                 environment: environment
             )
-            let visibleEntryHeight = CGFloat(min(section.entries.count, rowLimit)) * entryHeight
+            // Default rows in every grouping can carry a second subtitle line
+            // (folder · branch); compact rows remove it before this snapshot
+            // reaches the calculator.
+            let subtitleHeight = lineHeight(
+                baseFontSize: 11,
+                minimumContentHeight: 0,
+                verticalPadding: 1,
+                environment: environment
+            )
+            var visibleEntryHeight: CGFloat = 0
+            for entry in section.entries.prefix(rowLimit) {
+                visibleEntryHeight += entryHeight
+                if section.accessories[entry.id]?.hasSubtitle == true {
+                    // SessionRow stacks its primary and detail lines with
+                    // `detailLineSpacing` between them.
+                    visibleEntryHeight += SessionIndexRowMetrics.detailLineSpacing + subtitleHeight
+                }
+            }
             let showMoreHeight: CGFloat
             if section.shouldOfferShowMore(rowLimit: rowLimit) {
                 showMoreHeight = lineHeight(

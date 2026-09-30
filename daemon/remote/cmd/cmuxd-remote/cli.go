@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -163,8 +164,19 @@ doneFlags:
 	if socketPath == "" {
 		socketPath = defaultCloudCLIBridgeSocketIfExists()
 	}
+	// Agent entrypoints fail open: without a relay they launch or answer
+	// normally instead of blocking Claude.
+	switch cmdName {
+	case "claude-wrapper":
+		return runClaudeWrapper(socketPath, cmdArgs, refreshAddr)
+	case "claude-hook":
+		if len(cmdArgs) > 0 && (cmdArgs[0] == "install" || cmdArgs[0] == "uninstall") {
+			return runClaudeHookInstall(cmdArgs, os.Stdout, os.Stderr)
+		}
+		return runClaudeHookRelay(socketPath, cmdArgs, refreshAddr, os.Stdin, os.Stdout)
+	}
 	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
+		fmt.Fprintln(os.Stderr, "cmux: no relay connection is configured; reconnect this SSH workspace or provide --socket")
 		return 1
 	}
 
@@ -880,11 +892,9 @@ func applyNotifyCallerEnv(method string, params map[string]any) string {
 	if workspaceID == "" || surfaceID == "" {
 		return method
 	}
-	params["preferred_workspace_id"] = workspaceID
-	params["preferred_surface_id"] = surfaceID
-	delete(params, "workspace_id")
-	delete(params, "surface_id")
-	return "notification.create_for_caller"
+	params["workspace_id"] = workspaceID
+	params["surface_id"] = surfaceID
+	return "notification.create_for_target"
 }
 
 func defaultRelayOutput(resp string) string {
@@ -1087,35 +1097,72 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 	return readRelayAuthFile(socketPath)
 }
 
+// cliSocketPeerUserID reports the user serving a dialed Unix socket.
+var cliSocketPeerUserID = cloudCLIConnectionUserID
+
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
 // For TCP connections, refreshAddr is used only to recover from a stale socket_addr
 // rewrite, not to poll for relay readiness.
 func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
+	return dialSocketUntil(addr, refreshAddr, time.Time{})
+}
+
+// dialSocketUntil is dialSocket with one deadline covering the dial and the
+// relay handshake. A zero deadline keeps the default per-step timeouts.
+func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time) (net.Conn, error) {
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/") {
-		conn, connectedAddr, err := dialTCP(addr)
+		conn, connectedAddr, err := dialTCP(addr, deadline)
 		if err != nil && refreshAddr != nil && isConnectionRefused(err) {
 			if refreshedAddr := strings.TrimSpace(refreshAddr()); refreshedAddr != "" && refreshedAddr != addr {
 				addr = refreshedAddr
-				conn, connectedAddr, err = dialTCP(addr)
+				conn, connectedAddr, err = dialTCP(addr, deadline)
 			}
 		}
 		if err != nil {
 			return nil, err
 		}
-		if auth := currentRelayAuth(connectedAddr); auth != nil {
-			if err := authenticateRelayConn(conn, auth); err != nil {
-				conn.Close()
-				return nil, err
-			}
+		// A TCP address is a forwarded relay port that another remote user
+		// can bind while the forward is down, so never talk to it without
+		// credentials that let the relay prove itself.
+		auth := currentRelayAuth(connectedAddr)
+		if auth == nil {
+			conn.Close()
+			return nil, errors.New("no relay credentials for this address; reconnect this SSH workspace")
+		}
+		authDeadline := deadline
+		if authDeadline.IsZero() {
+			authDeadline = time.Now().Add(5 * time.Second)
+		}
+		if err := authenticateRelayConnUntil(conn, auth, authDeadline); err != nil {
+			conn.Close()
+			return nil, err
 		}
 		return conn, nil
 	}
-	return net.Dial("unix", addr)
+	dialer := net.Dialer{Deadline: deadline}
+	conn, err := dialer.Dial("unix", addr)
+	if err != nil {
+		return nil, err
+	}
+	// Another user can bind a vacated path in shared /tmp, so send requests
+	// only to a server running as this user, as the bridge requires of clients.
+	uid, err := cliSocketPeerUserID(conn)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("cannot verify the socket's owner: %w", err)
+	}
+	if uid != uint32(os.Geteuid()) {
+		_ = conn.Close()
+		return nil, errors.New("socket is served by another user")
+	}
+	return conn, nil
 }
 
-func dialTCP(addr string) (net.Conn, string, error) {
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+// dialTCP connects with a 2-second timeout, capped by deadline when set.
+func dialTCP(addr string, deadline time.Time) (net.Conn, string, error) {
+	dialer := net.Dialer{Timeout: 2 * time.Second, Deadline: deadline}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, addr, err
 	}
@@ -1131,8 +1178,14 @@ func isConnectionRefused(err error) bool {
 }
 
 func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
+	return authenticateRelayConnUntil(conn, auth, time.Now().Add(5*time.Second))
+}
+
+// authenticateRelayConnUntil completes the relay challenge before deadline and
+// clears the connection deadline on success.
+func authenticateRelayConnUntil(conn net.Conn, auth *relayAuthState, deadline time.Time) error {
 	reader := bufio.NewReader(conn)
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetDeadline(deadline)
 
 	var challenge struct {
 		Protocol string `json:"protocol"`
@@ -1152,13 +1205,19 @@ func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
 	}
 
 	tokenBytes, err := hex.DecodeString(auth.RelayToken)
-	if err != nil {
+	if err != nil || len(tokenBytes) == 0 {
 		return fmt.Errorf("invalid relay auth token")
 	}
+	clientNonceBytes := make([]byte, 32)
+	if _, err := rand.Read(clientNonceBytes); err != nil {
+		return fmt.Errorf("failed to create relay auth nonce: %w", err)
+	}
+	clientNonce := hex.EncodeToString(clientNonceBytes)
 	mac := computeRelayMAC(tokenBytes, auth.RelayID, challenge.Nonce, challenge.Version)
 	payload, err := json.Marshal(map[string]any{
-		"relay_id": auth.RelayID,
-		"mac":      hex.EncodeToString(mac),
+		"relay_id":     auth.RelayID,
+		"mac":          hex.EncodeToString(mac),
+		"client_nonce": clientNonce,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to encode relay auth response: %w", err)
@@ -1172,7 +1231,8 @@ func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
 		return fmt.Errorf("failed to read relay auth result: %w", err)
 	}
 	var result struct {
-		OK bool `json:"ok"`
+		OK       bool   `json:"ok"`
+		RelayMAC string `json:"relay_mac"`
 	}
 	if err := json.Unmarshal([]byte(line), &result); err != nil {
 		return fmt.Errorf("invalid relay auth result")
@@ -1180,8 +1240,26 @@ func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
 	if !result.OK {
 		return fmt.Errorf("relay auth rejected")
 	}
+	// Anyone who connected once has seen the relay ID, so only a proof over
+	// this client's nonce shows the listener holds the relay token.
+	receivedProof, err := hex.DecodeString(result.RelayMAC)
+	expectedProof := computeRelayProofMAC(tokenBytes, auth.RelayID, clientNonce, challenge.Nonce, challenge.Version)
+	if err != nil || !hmac.Equal(receivedProof, expectedProof) {
+		return fmt.Errorf("relay did not prove it holds the relay token; reconnect this SSH workspace")
+	}
 	_ = conn.SetDeadline(time.Time{})
 	return nil
+}
+
+// computeRelayProofMAC is the relay's answer to the client nonce. Its label
+// keeps it distinct from the client MAC, whose message starts with "relay_id=".
+func computeRelayProofMAC(token []byte, relayID, clientNonce, serverNonce string, version int) []byte {
+	mac := hmac.New(sha256.New, token)
+	_, _ = io.WriteString(mac, fmt.Sprintf(
+		"cmux-relay-server-proof\nrelay_id=%s\nclient_nonce=%s\nserver_nonce=%s\nversion=%d",
+		relayID, clientNonce, serverNonce, version,
+	))
+	return mac.Sum(nil)
 }
 
 func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
@@ -1192,7 +1270,14 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
 func socketRoundTripV2(socketPath, method string, params map[string]any, refreshAddr func() string) (string, error) {
-	conn, err := dialSocket(socketPath, refreshAddr)
+	return socketRoundTripV2Until(socketPath, method, params, refreshAddr, time.Time{})
+}
+
+// socketRoundTripV2Until bounds the whole request (dial, relay handshake,
+// write, and response) by deadline. A zero deadline keeps the default
+// 15-second response wait.
+func socketRoundTripV2Until(socketPath, method string, params map[string]any, refreshAddr func() string, deadline time.Time) (string, error) {
+	conn, err := dialSocketUntil(socketPath, refreshAddr, deadline)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
 	}
@@ -1214,11 +1299,16 @@ func socketRoundTripV2(socketPath, method string, params map[string]any, refresh
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	if !deadline.IsZero() {
+		_ = conn.SetDeadline(deadline)
+	}
 	if _, err := conn.Write(append(payload, '\n')); err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	if deadline.IsZero() {
+		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	}
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -1320,6 +1410,10 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
+	fmt.Fprintln(os.Stderr, "  claude-wrapper [args...]  Launch the agent with cmux status hooks")
+	fmt.Fprintln(os.Stderr, "  claude-hook <event>       Forward an agent hook event to cmux")
+	fmt.Fprintln(os.Stderr, "  claude-hook install|uninstall [--settings-file <path>]")
+	fmt.Fprintln(os.Stderr, "                            Add or remove cmux status hooks in the agent's user settings")
 	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")

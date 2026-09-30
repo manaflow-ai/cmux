@@ -1,37 +1,46 @@
 public import SwiftUI
 
 /// Swipe-paged diff viewer over an immutable changed-file snapshot.
+///
+/// Page state (cached presentations, scroll positions) lives in a
+/// render-inert reference store, and on iOS the page hierarchy is owned by
+/// UIKit, so async cache writes cannot rebuild the pager mid-gesture. See
+/// `DiffPagerContainerView` for the ownership invariant.
 public struct WorkspaceFileDiffPagerView: View {
     private let files: [ChangedFileItem]
-    private let cachedPresentations: [String: FileDiffPresentation]
+    private let store: FileDiffPresentationStore
     private let actions: WorkspaceFileDiffPagerActions
-    private let mountPolicy = DiffPagerMountPolicy()
+    private let prefetchPolicy = DiffPagerPrefetchPolicy()
     @State private var selection: Int
-    @State private var fontSize: Double
-    @State private var scrollRowIDsByPath: [String: String] = [:]
+    @State private var pageEnvironment: DiffPagerPageEnvironment
 
     /// Creates a file diff pager.
     /// - Parameters:
     ///   - files: Stable changed-file snapshot.
     ///   - initialSelectedIndex: File index opened from the list.
-    ///   - cachedPresentations: Parsed and projected diffs already held by the mount layer.
+    ///   - presentationStore: Render-inert store holding parsed diffs and
+    ///     per-page scroll positions across page mounts.
     ///   - initialFontSize: Persisted font size snapshot.
     ///   - actions: Loading, persistence, and clipboard closures.
     public init(
         files: [ChangedFileItem],
         initialSelectedIndex: Int,
-        cachedPresentations: [String: FileDiffPresentation],
+        presentationStore: FileDiffPresentationStore,
         initialFontSize: Double,
         actions: WorkspaceFileDiffPagerActions
     ) {
         self.files = files
-        self.cachedPresentations = cachedPresentations
+        store = presentationStore
         self.actions = actions
         let validIndex = files.isEmpty ? 0 : min(max(initialSelectedIndex, 0), files.count - 1)
         _selection = State(initialValue: validIndex)
-        _fontSize = State(initialValue: min(
+        let clampedFontSize = min(
             max(initialFontSize, DiffFontPreference.minimumPointSize),
             DiffFontPreference.maximumPointSize
+        )
+        _pageEnvironment = State(initialValue: DiffPagerPageEnvironment(
+            fontSize: clampedFontSize,
+            selectedIndex: validIndex
         ))
     }
 
@@ -44,7 +53,26 @@ public struct WorkspaceFileDiffPagerView: View {
         .accessibilityIdentifier("MobileChangesDiffPager")
         .onAppear(perform: recordSelectedPresentationAccess)
         .onChange(of: selection) {
+            pageEnvironment.selectedIndex = selection
             recordSelectedPresentationAccess()
+        }
+        // Warm nearby pages while the user reads the current one, so a swipe
+        // lands on content instead of a placeholder that pops in mid-slide.
+        // Loads land in the render-inert store, so a landing (or an LRU
+        // eviction) never re-renders the pager; a canceled batch (fast
+        // consecutive swipes) is retried by the next selection's task.
+        .task(id: selection) {
+            let paths = prefetchPolicy.prefetchPaths(
+                files: files,
+                selectedIndex: selection,
+                cachedPaths: store.cachedPaths
+            )
+            // Sequential, nearest first: the page most likely to be swiped to
+            // warms first, and a canceled tail simply retries next selection.
+            for path in paths {
+                guard !Task.isCancelled else { return }
+                _ = try? await actions.onLoad(path, false, nil)
+            }
         }
     }
 
@@ -68,50 +96,34 @@ public struct WorkspaceFileDiffPagerView: View {
     @ViewBuilder
     private var pager: some View {
         #if os(iOS)
-        pages
-            .tabViewStyle(.page(indexDisplayMode: .never))
+        DiffPagerContainerView(
+            files: files,
+            initialSelectedIndex: selection,
+            makePage: { index, file in
+                AnyView(pageRoot(index: index, file: file))
+            },
+            onSelectionChanged: { selection = $0 }
+        )
         #else
-        pages
+        // Non-iOS builds exist only for the macOS test host; a plain TabView
+        // keeps the package compiling without UIKit.
+        TabView(selection: $selection) {
+            ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
+                pageRoot(index: index, file: file)
+                    .tag(index)
+            }
+        }
         #endif
     }
 
-    private var pages: some View {
-        TabView(selection: $selection) {
-            ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
-                let fontSizeChanged: @MainActor @Sendable (Double) -> Void = {
-                    fontSize = $0
-                }
-                Group {
-                    if mountPolicy.shouldMount(
-                        pageIndex: index,
-                        selectedIndex: selection
-                    ) {
-                        let scrollRowIDChanged: @MainActor @Sendable (String?) -> Void = {
-                            guard let rowID = $0 else { return }
-                            scrollRowIDsByPath[file.path] = rowID
-                        }
-                        FileDiffPageView(
-                            fileIndex: index,
-                            file: file,
-                            initialPresentation: cachedPresentations[file.path],
-                            initialScrollRowID: scrollRowIDsByPath[file.path],
-                            fontSize: fontSize,
-                            onFontSizeChanged: fontSizeChanged,
-                            onScrollRowIDChanged: scrollRowIDChanged,
-                            onPersistFontSize: actions.onPersistFontSize,
-                            onLoad: actions.onLoad,
-                            onLoadCurrentLines: actions.onLoadCurrentLines,
-                            onCopy: actions.onCopy,
-                            inlinePreview: index == selection ? actions.inlinePreview : nil
-                        )
-                    } else {
-                        Color.clear
-                            .accessibilityHidden(true)
-                    }
-                }
-                .tag(index)
-            }
-        }
+    private func pageRoot(index: Int, file: ChangedFileItem) -> some View {
+        DiffPagerPageRoot(
+            index: index,
+            file: file,
+            pageEnvironment: pageEnvironment,
+            store: store,
+            actions: actions
+        )
     }
 
     private var currentFile: ChangedFileItem? {
@@ -123,5 +135,35 @@ public struct WorkspaceFileDiffPagerView: View {
     private func recordSelectedPresentationAccess() {
         guard let currentFile else { return }
         actions.onPresentationAccess(currentFile.path)
+    }
+}
+
+/// One page's SwiftUI subtree, rehydrated from the store at mount.
+///
+/// Reads the shared page environment so pinch-driven font changes and
+/// selection gating re-render only mounted page subtrees, never the
+/// container.
+private struct DiffPagerPageRoot: View {
+    let index: Int
+    let file: ChangedFileItem
+    let pageEnvironment: DiffPagerPageEnvironment
+    let store: FileDiffPresentationStore
+    let actions: WorkspaceFileDiffPagerActions
+
+    var body: some View {
+        FileDiffPageView(
+            fileIndex: index,
+            file: file,
+            initialPresentation: store.presentation(forPath: file.path),
+            initialScrollRowID: store.scrollRowID(forPath: file.path),
+            fontSize: pageEnvironment.fontSize,
+            onFontSizeChanged: { pageEnvironment.fontSize = $0 },
+            onScrollRowIDChanged: { store.setScrollRowID($0, forPath: file.path) },
+            onPersistFontSize: actions.onPersistFontSize,
+            onLoad: actions.onLoad,
+            onLoadCurrentLines: actions.onLoadCurrentLines,
+            onCopy: actions.onCopy,
+            inlinePreview: index == pageEnvironment.selectedIndex ? actions.inlinePreview : nil
+        )
     }
 }

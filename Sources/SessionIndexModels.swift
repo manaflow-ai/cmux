@@ -1,6 +1,55 @@
 import CMUXAgentLaunch
 import Foundation
 
+/// Resolves the filesystem locations used by OpenCode from its documented
+/// environment overrides.
+enum OpenCodePaths {
+    static func configDirectory(environment: [String: String]) -> URL {
+        let home = homeURL(environment: environment)
+        if let override = nonEmpty(environment["OPENCODE_CONFIG_DIR"]) {
+            return expandedURL(override, home: home)
+        }
+        if let xdgConfigHome = nonEmpty(environment["XDG_CONFIG_HOME"]) {
+            return expandedURL(xdgConfigHome, home: home)
+                .appendingPathComponent("opencode", isDirectory: true)
+        }
+        return home.appendingPathComponent(".config/opencode", isDirectory: true)
+    }
+
+    static func databaseURL(environment: [String: String]) -> URL {
+        let home = homeURL(environment: environment)
+        if let override = nonEmpty(environment["OPENCODE_DB"]) {
+            return expandedURL(override, home: home)
+        }
+        if let xdgDataHome = nonEmpty(environment["XDG_DATA_HOME"]) {
+            return expandedURL(xdgDataHome, home: home)
+                .appendingPathComponent("opencode/opencode.db", isDirectory: false)
+        }
+        return home.appendingPathComponent(".local/share/opencode/opencode.db", isDirectory: false)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func expandedURL(_ path: String, home: URL) -> URL {
+        if path == "~" { return home }
+        if path.hasPrefix("~/") {
+            return home.appendingPathComponent(String(path.dropFirst(2)), isDirectory: false)
+        }
+        return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+    }
+
+    private static func homeURL(environment: [String: String]) -> URL {
+        if let home = nonEmpty(environment["HOME"]) {
+            return URL(fileURLWithPath: NSString(string: home).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
+}
+
 // MARK: - Agents
 
 struct RegisteredSessionAgent: Hashable, Sendable {
@@ -149,11 +198,10 @@ enum OpenCodeDatabaseSnapshot {
         }
     }
 
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-
     static func make(prefix: String) throws -> Snapshot? {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+        let sourceURL = OpenCodePaths.databaseURL(environment: ProcessInfo.processInfo.environment)
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return nil }
 
         let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
             "\(prefix)-\(UUID().uuidString)",
@@ -163,7 +211,7 @@ enum OpenCodeDatabaseSnapshot {
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+            try fileManager.copyItem(at: sourceURL, to: snapshotDB)
         } catch {
             try? fileManager.removeItem(at: snapshotDir)
             throw error
@@ -171,7 +219,7 @@ enum OpenCodeDatabaseSnapshot {
 
         do {
             for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
+                let source = sourceURL.path + sidecar
                 let destination = snapshotDB.path + sidecar
                 if fileManager.fileExists(atPath: source) {
                     try fileManager.copyItem(atPath: source, toPath: destination)
@@ -202,7 +250,10 @@ enum AgentSpecifics: Hashable, Sendable {
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
-    case registered(CmuxVaultAgentRegistration)
+    case registered(
+        CmuxVaultAgentRegistration,
+        launchCommand: AgentLaunchCommandSnapshot? = nil
+    )
 }
 
 enum ClaudeConfigurationRoot {
@@ -264,10 +315,45 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    /// Session creation time when the source exposes it cheaply (file birth
+    /// time, SQL column); nil otherwise.
+    let created: Date?
+    /// Exact conversation message count when it is knowable without extra
+    /// scanning (whole file inside the metadata read cap, SQL count); nil when
+    /// unknown or approximate.
+    let messageCount: Int?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        created: Date? = nil,
+        messageCount: Int? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.created = created
+        self.messageCount = messageCount
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -293,26 +379,22 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 permissionMode: permissionMode,
                 configDirectoryForResume: configDirectory
-            )
+            ),
+            created: created,
+            messageCount: messageCount
         )
     }
 
-    /// Shell command that resumes this session in a new terminal, with the agent's
-    /// known per-session settings injected as CLI flags.
-    var resumeCommand: String? {
-        resumeCommandWithCwd
-    }
-
-    /// Shell command that resumes this session after guarding the launch directory.
-    var resumeCommandWithCwd: String? {
-        guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
+    /// Shell command exposed by the Copy Resume Command menu item.
+    var copyResumeCommand: String? {
+        guard let command = copyResumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
-    private var resumeCommandWithoutWorkingDirectory: String? {
+    private var copyResumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
             // Route through the wrapper resolver token so a manually-resumed claude session
@@ -321,7 +403,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
             // is typed into — and copy-pasted into — the user's own shell (fish/csh
             // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
-            // everywhere; the `cd` guard stays outside in `resumeCommandWithCwd`.
+            // everywhere; the `cd` guard stays outside in `copyResumeCommand`.
             // https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -347,15 +429,15 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
             // POSIX-only and this command is typed into / copy-pasted into the
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
-            // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
+            // `copyResumeCommand`. https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            parts.append(contentsOf: Self.codexApprovalSandboxArguments(
+            parts.append(contentsOf: Self.codexApprovalSandboxArgumentTokens(
                 approvalPolicy: approval,
                 sandboxMode: sandbox
-            ))
+            ).map(Self.shellQuote))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
@@ -396,19 +478,20 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
+                arguments: [registration.defaultExecutable],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                capturedAt: nil,
+                source: "vault"
+            )
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
-                    executablePath: nil,
-                    arguments: [registration.defaultExecutable],
-                    workingDirectory: resumeWorkingDirectory,
-                    environment: nil,
-                    capturedAt: nil,
-                    source: "vault"
-                ),
+                launchCommand: capturedLaunch,
                 workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false
@@ -425,7 +508,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     ) -> String {
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(shellQuote(value))" }
@@ -440,7 +523,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         var parts: [String] = []
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(value)" }
@@ -459,49 +542,6 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
         TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
-    }
-
-    /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
-    ///
-    /// cmux captures Codex's *internal* sandbox-policy `type`, which is a
-    /// superset of the CLI vocabulary (it also includes `disabled`, `managed`,
-    /// and may grow further). Those extra types have no `--sandbox` equivalent
-    /// and must never be forwarded as `-s`, or Codex rejects the resumed command
-    /// (see https://github.com/manaflow-ai/cmux/issues/5262).
-    static let codexCLISandboxModes: Set<String> = [
-        "read-only",
-        "workspace-write",
-        "danger-full-access",
-    ]
-
-    /// Builds the approval/sandbox CLI tokens for a `codex resume` command from
-    /// the per-session policy cmux captured, always yielding a valid invocation.
-    ///
-    /// A `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a
-    /// captured `(approval: "never", sandbox: "disabled")`. This reproduces that
-    /// single combined flag rather than the invalid, contradictory `-a never -s
-    /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
-    /// future values) are dropped instead of emitted as an invalid `-s`; valid
-    /// values pass through unchanged.
-    static func codexApprovalSandboxArguments(
-        approvalPolicy: String?,
-        sandboxMode: String?
-    ) -> [String] {
-        // The exact inverse of `--dangerously-bypass-approvals-and-sandbox`:
-        // emit that one flag and nothing else, since `-a`/`-s` here would be both
-        // invalid (`-s disabled`) and contradictory with the bypass flag.
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-
-        var parts: [String] = []
-        if let approvalPolicy, !approvalPolicy.isEmpty {
-            parts.append("-a \(shellQuote(approvalPolicy))")
-        }
-        if let sandboxMode, !sandboxMode.isEmpty, codexCLISandboxModes.contains(sandboxMode) {
-            parts.append("-s \(shellQuote(sandboxMode))")
-        }
-        return parts
     }
 
     var displayTitle: String {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
 
@@ -16,6 +17,16 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         let hasOverride: Bool
         let usesMonochrome: Bool
         let fontScale: CGFloat
+        let colorScheme: ColorScheme
+        let accent: CmuxAccentColor
+        var differentiateWithoutColor = false
+
+        var glyph: SidebarWorkspaceTaskStatusGlyphModel {
+            SidebarWorkspaceTaskStatusGlyphModel(
+                status: status,
+                differentiateWithoutColor: differentiateWithoutColor
+            )
+        }
     }
 
     private static let baseSize: CGFloat = 9
@@ -65,11 +76,11 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
     private var statusColor: NSColor {
         guard let model else { return neutralColor }
         if model.usesMonochrome { return monochromeColor }
-        switch SidebarWorkspaceTaskStatusGlyphModel(status: model.status).colorRole {
+        switch model.glyph.colorRole {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentNSColor()
+            return model.accent.nsColor(for: model.colorScheme)
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
             return NSColor(srgbRed: 1.0, green: 0.42, blue: 0.2, alpha: 1)
@@ -83,7 +94,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let model, let context = NSGraphicsContext.current?.cgContext else { return }
-        let glyph = SidebarWorkspaceTaskStatusGlyphModel(status: model.status)
+        let glyph = model.glyph
         let size = Self.baseSize * model.fontScale
         let circleRect = CGRect(
             x: (bounds.width - size) / 2,
@@ -122,30 +133,15 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
             context.fillPath()
         }
 
-        if glyph.showsCheckmark {
-            // `SidebarStatusCheckmarkShape` point fractions in the circle rect.
-            let checkmark = CGMutablePath()
-            checkmark.move(to: CGPoint(
-                x: circleRect.minX + circleRect.width * 0.28,
-                y: circleRect.minY + circleRect.height * 0.52
-            ))
-            checkmark.addLine(to: CGPoint(
-                x: circleRect.minX + circleRect.width * 0.45,
-                y: circleRect.minY + circleRect.height * 0.68
-            ))
-            checkmark.addLine(to: CGPoint(
-                x: circleRect.minX + circleRect.width * 0.74,
-                y: circleRect.minY + circleRect.height * 0.34
-            ))
-            context.addPath(checkmark)
-            context.setStrokeColor(
-                (model.usesMonochrome ? NSColor.black.withAlphaComponent(0.7) : .white).cgColor
-            )
-            context.setLineWidth(1.2)
-            context.setLineCap(.round)
-            context.setLineJoin(.round)
-            context.strokePath()
-        }
+        guard let markPath = glyph.mark.path(in: circleRect) else { return }
+        context.addPath(markPath)
+        context.setStrokeColor(
+            (model.usesMonochrome ? NSColor.black.withAlphaComponent(0.7) : .white).cgColor
+        )
+        context.setLineWidth(1.2)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -25,6 +25,7 @@ import { buildDelta, type SyncDeltaFrame, type SyncRecord, type SyncSnapshotFram
 import type { SyncServerFrame } from "./sync";
 import {
   listRecords,
+  readHead,
   readRecord,
   tombstoneRecord,
   upsertRecord,
@@ -36,11 +37,14 @@ import { sanitizePublishedRoutes } from "./routePrivacy";
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
 const IOS_V2_SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScopedIosV2";
+const IOS_V3_SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScopedIosV3";
 const IOS_V2_CLIENT_SCOPE_PREFIX = "ios:v2:";
+const IOS_V3_CLIENT_SCOPE_PREFIX = "ios:v3:";
 export const PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES = [
   `${PAIRED_MACS_COLLECTION}:`,
   `${SCOPED_PAIRED_MACS_COLLECTION}:`,
   `${IOS_V2_SCOPED_PAIRED_MACS_COLLECTION}:`,
+  `${IOS_V3_SCOPED_PAIRED_MACS_COLLECTION}:`,
 ];
 
 /** Max saved-host records a single user may back up. Bounds the storage a client
@@ -129,6 +133,7 @@ export interface PairedMacBackupRecord {
 export interface PairedMacBackupSnapshot {
   records: PairedMacBackupRecord[];
   deletedMacDeviceIDs: string[];
+  revision: number;
 }
 
 export type PairedMacBackupOp =
@@ -159,11 +164,11 @@ export type PairedMacBackupOp =
   | { kind: "delete"; id: string };
 
 export type PairedMacBackupParse =
-  | { ok: true; ops: PairedMacBackupOp[] }
+  | { ok: true; ops: PairedMacBackupOp[]; expectedRevision?: number }
   | { ok: false; error: string };
 
 export class PairedMacBackupApplyError extends Error {
-  constructor(readonly code: "too_many_client_scopes") {
+  constructor(readonly code: "revision_conflict" | "too_many_client_scopes") {
     super(code);
     this.name = "PairedMacBackupApplyError";
   }
@@ -191,9 +196,13 @@ export function normalizeClientScope(value: unknown): string | null {
 
 function scopedPairedMacCollectionNamespace(clientScope: unknown): string {
   const scope = trimmedString(clientScope);
-  return scope.startsWith(IOS_V2_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V2_CLIENT_SCOPE_PREFIX.length
-    ? IOS_V2_SCOPED_PAIRED_MACS_COLLECTION
-    : SCOPED_PAIRED_MACS_COLLECTION;
+  if (scope.startsWith(IOS_V3_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V3_CLIENT_SCOPE_PREFIX.length) {
+    return IOS_V3_SCOPED_PAIRED_MACS_COLLECTION;
+  }
+  if (scope.startsWith(IOS_V2_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V2_CLIENT_SCOPE_PREFIX.length) {
+    return IOS_V2_SCOPED_PAIRED_MACS_COLLECTION;
+  }
+  return SCOPED_PAIRED_MACS_COLLECTION;
 }
 
 export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
@@ -286,6 +295,13 @@ function finiteNumber(value: unknown): number | null {
 /** Parse and bound a backup body that has already been JSON-decoded. The body is
  * `{ ops: [{ macDeviceID, deleted?, record? }] }`. Pure for tests. */
 export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBackupParse {
+  const expectedRevision = body.expectedRevision;
+  if (
+    expectedRevision !== undefined &&
+    (!Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 0)
+  ) {
+    return { ok: false, error: "invalid_expected_revision" };
+  }
   if (!Array.isArray(body.ops)) return { ok: false, error: "invalid_ops" };
   if (body.ops.length > MAX_BACKUP_OPS) return { ok: false, error: "too_many_ops" };
 
@@ -401,7 +417,13 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
     });
   }
 
-  return { ok: true, ops };
+  return {
+    ok: true,
+    ops,
+    ...(expectedRevision === undefined
+      ? {}
+      : { expectedRevision: expectedRevision as number }),
+  };
 }
 
 /** List-shape equality for a backup record: compare identity, display name,
@@ -474,8 +496,15 @@ export async function applyBackupOps(
   ops: readonly PairedMacBackupOp[],
   nowMs: number,
   clientScope?: string | null,
+  expectedRevision?: number,
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId, clientScope);
+  if (
+    expectedRevision !== undefined &&
+    await readHead(storage, collection) !== expectedRevision
+  ) {
+    throw new PairedMacBackupApplyError("revision_conflict");
+  }
   const scope = normalizeClientScope(clientScope);
   if (scope && !(await ensureScopedCollectionCapacity(
     storage,
@@ -675,7 +704,9 @@ export async function listBackupSnapshot(
   userId: string,
   clientScope?: string | null,
 ): Promise<PairedMacBackupSnapshot> {
-  const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId, clientScope));
+  const collection = pairedMacsCollection(userId, clientScope);
+  const all = await listRecords<PairedMacBackupRecord>(storage, collection);
+  const revision = await readHead(storage, collection);
   const records = all
     .filter((r) => !r.deleted)
     // Surface the sync machinery's server-authored write time so phones can
@@ -687,7 +718,7 @@ export async function listBackupSnapshot(
     .filter((r) => r.deleted)
     .map((r) => r.id)
     .sort();
-  return { records, deletedMacDeviceIDs };
+  return { records, deletedMacDeviceIDs, revision };
 }
 
 /** Re-export so the DO can build an empty delta if it ever needs to. */

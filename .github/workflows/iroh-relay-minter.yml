@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     defaults:
       run:
@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.91.0 --profile minimal --component clippy,rustfmt
+        run: rustup toolchain install 1.91.0 --profile minimal --component clippy --component rustfmt
 
       - name: Check formatting
         run: cargo fmt --check

@@ -434,7 +434,14 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
             ),
             remotePath: "/remote/cmuxd",
             localPort: 42_424,
-            strings: .init(missingPersistentPTYCapability: "", missingRequiredFunctionality: ""),
+            credential: .random(),
+            strings: .init(
+                missingPersistentPTYCapability: "",
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
+            ),
             ptyBridgeStrings: TestPTYBridgeStrings(),
             onFatalError: { _ in }
         )

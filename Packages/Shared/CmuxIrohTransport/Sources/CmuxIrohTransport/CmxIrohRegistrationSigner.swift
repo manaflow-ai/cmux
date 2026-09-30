@@ -72,6 +72,29 @@ public struct CmxIrohRegistrationSigner: Sendable {
         )
     }
 
+    /// Signs one authenticated broker request with the registered endpoint key.
+    func signBrokerRequest(
+        bindingID: String,
+        method: String,
+        path: String,
+        timestamp: Int64,
+        body: Data
+    ) throws -> String {
+        guard Self.isBrokerUUID(bindingID),
+              !method.isEmpty,
+              method.utf8.allSatisfy({ (65...90).contains($0) }),
+              !path.isEmpty,
+              path.utf8.allSatisfy({ $0 >= 0x21 && $0 <= 0x7e }),
+              timestamp > 0 else {
+            throw CmxIrohRegistrationError.invalidChallenge
+        }
+        let bodySHA256 = Self.hex(Data(SHA256.hash(data: body)))
+        let transcript = Data(
+            "cmux/iroh/binding-request/v1\n\(bindingID.lowercased())\n\(method)\n\(path)\n\(timestamp)\n\(bodySHA256)".utf8
+        )
+        return Self.base64URL(signingKey.sign(message: transcript).toBytes())
+    }
+
     private static func base64URL(_ data: Data) -> String {
         data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

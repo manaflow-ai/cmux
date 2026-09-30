@@ -67,7 +67,22 @@ extension SidebarGitMetadataService {
             if clearsMetadataBeforeRefresh {
                 if host.isRemoteWorkspace(workspaceId) == true {
                     clearWorkspaceGitProbeTracking(for: probeKey)
-                    if hadTrustedRemoteDirectory, previousDirectory != nextDirectory {
+                    // A first trusted report promotes a restored/untrusted
+                    // directory to remote provenance. Any branch or PR that
+                    // was observed while the panel still carried its local
+                    // fallback belongs to that old directory and must not be
+                    // displayed after promotion. Preserve metadata only when
+                    // the panel was already trusted and reported the same
+                    // directory again.
+                    let hasExistingMetadata = host.panelGitBranch(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ) != nil || host.panelPullRequestBadge(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ) != nil
+                    if hasExistingMetadata,
+                       (!hadTrustedRemoteDirectory || previousDirectory != nextDirectory) {
                         host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
                         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
                     }
@@ -123,7 +138,6 @@ extension SidebarGitMetadataService {
             host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
             clearWorkspaceGitProbe(probeKey)
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
-            updateWorkspaceGitMetadataFallbackTimer()
             pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId, panelId: panelId)
             return
         }
@@ -131,7 +145,6 @@ extension SidebarGitMetadataService {
         if let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
             updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
-            updateWorkspaceGitMetadataFallbackTimer()
         }
         pullRequestProbing.scheduleWorkspacePullRequestRefresh(
             workspaceId: workspaceId,
@@ -157,7 +170,6 @@ extension SidebarGitMetadataService {
         let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
         stopWorkspaceGitMetadataWatcher(for: probeKey)
-        updateWorkspaceGitMetadataFallbackTimer()
         host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
         scheduleWorkspaceGitMetadataRefreshIfPossible(

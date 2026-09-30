@@ -83,8 +83,8 @@ final class ChatArtifactViewerPagerModel {
         )
     }
 
-    func toggleSearch(for path: String) {
-        pageModel(for: path)?.toggleSearch()
+    func toggleSearch(for path: String, loader: ChatArtifactLoader) {
+        pageModel(for: path)?.toggleSearch(loader: loader)
     }
 
     func toggleGoToLine(for path: String) {

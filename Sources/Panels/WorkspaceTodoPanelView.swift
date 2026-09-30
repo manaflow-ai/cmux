@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -87,20 +88,34 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
 }
 
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WorkspaceTodoPanelOpaqueBackgroundView()
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeNSView(context: Context) -> WorkspaceTodoPanelOpaqueBackgroundView {
+        let view = WorkspaceTodoPanelOpaqueBackgroundView()
+        view.colorScheme = colorScheme
+        view.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: WorkspaceTodoPanelOpaqueBackgroundView, context: Context) {
+        nsView.colorScheme = colorScheme
         nsView.needsDisplay = true
     }
 }
 
 private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+            needsDisplay = true
+        }
+    }
+
     override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        WindowAppearanceSnapshot.resolvedColor(.windowBackgroundColor, for: colorScheme).setFill()
         dirtyRect.fill()
     }
 }
@@ -121,6 +136,7 @@ private struct WorkspaceTodoPaneContent: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
     /// toggles it.
@@ -310,6 +326,10 @@ private struct WorkspaceTodoPaneContent: View {
                     )
                 },
                 beginEdit: { beginItemEdit(item) },
+                editText: { text in
+                    guard text != item.text else { return }
+                    WorkspaceTodoActions.editChecklistItem(id: item.id, text: text, in: workspace)
+                },
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
                 focusEditor: {
@@ -409,8 +429,7 @@ private struct WorkspaceTodoPaneContent: View {
         HStack(alignment: .center, spacing: 7) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
-            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize, tint: .secondary)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText,
@@ -456,29 +475,45 @@ private struct WorkspaceTodoPaneContent: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = todoState.checklist.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            WorkspaceTodoActions.editChecklistItem(id: id, text: editingOriginalText, in: workspace)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 }
@@ -486,6 +521,7 @@ private struct WorkspaceTodoPaneContent: View {
 private struct WorkspaceTodoPaneItemRowActions {
     let toggleCompletion: () -> Void
     let beginEdit: () -> Void
+    let editText: (String) -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
     let focusEditor: () -> Void
@@ -528,9 +564,9 @@ private struct WorkspaceTodoPaneItemRow: View {
             } label: {
                 CmuxSystemSymbolImage(
                     systemName: checkboxSymbolName(for: item.state),
-                    pointSize: checkboxPointSize
+                    pointSize: checkboxPointSize,
+                    tint: isCompleted ? .secondary : .primary
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -552,6 +588,9 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .focused(editFieldFocused)
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: editingText) { _, newValue in
+                    actions.editText(newValue)
+                }
                 .backport.onKeyPress(.return) { modifiers in
                     if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
                         editingText.append("\n")

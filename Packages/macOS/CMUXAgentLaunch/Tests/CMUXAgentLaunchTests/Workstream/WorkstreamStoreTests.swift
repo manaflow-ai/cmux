@@ -5,6 +5,18 @@ import Testing
 @MainActor
 @Suite("WorkstreamStore")
 struct WorkstreamStoreTests {
+    @Test("Feed ingestion preserves every reply provider", arguments:
+        ["claude", "codex", "opencode", "pi", "cursor", "grok", "gemini"]
+    )
+    func preservesReplyProvider(_ provider: String) {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "reply-provider", hookEventName: .stop, source: provider
+        ))
+        #expect(store.items.first?.source.rawValue == provider)
+        #expect(store.items.first?.kind == .stop)
+    }
+
     @Test("ingest creates a pending item for permission requests")
     func ingestPending() {
         let store = WorkstreamStore(ringCapacity: 10)
@@ -26,6 +38,52 @@ struct WorkstreamStoreTests {
         } else {
             Issue.record("expected .resolved status")
         }
+    }
+
+    @Test("Resolution and terminal replies survive a store restart")
+    func durableMutationsRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mutations-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("durable", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        await first.flushPersistence()
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        let restored = try #require(second.items.first)
+        #expect(restored.id == id)
+        #expect(restored.reply?.text == "continue")
+        if case .resolved(.permission(.once), _) = restored.status {
+            // expected
+        } else {
+            Issue.record("expected resolved decision after restart")
+        }
+        #expect(second.revision >= 3)
+    }
+
+    @Test("Feed revision remains above the previous snapshot after restart")
+    func durableRevisionRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-revision-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("revision", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        let oldRevision = first.revision
+        await first.flushPersistence()
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        #expect(second.revision >= oldRevision)
+        #expect(second.items.first?.reply?.text == "continue")
     }
 
     @Test("Ring buffer evicts oldest items past capacity")
@@ -169,6 +227,7 @@ struct WorkstreamStoreTests {
         )
         let events: [WorkstreamEvent.HookEventName] = [
             .postToolUse,
+            .postToolUseFailure,
             .preCompact,
             .postCompact,
             .subagentStart,
@@ -186,6 +245,11 @@ struct WorkstreamStoreTests {
         #expect(store.items.count == events.count)
         #expect(store.pending.isEmpty)
         #expect(store.items.allSatisfy { $0.status == .telemetry })
+        if case .toolResult(_, _, let isError) = store.items[1].payload {
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUseFailure to decode as an error tool result")
+        }
         #expect(store.items.map(\.title).contains("Compaction"))
         #expect(store.items.map(\.title).contains("Subagent"))
         #expect(!store.items.map(\.title).contains("PreCompact"))
@@ -319,6 +383,83 @@ struct WorkstreamStoreTests {
         #expect(item.context?.planSummary == "Show the new feed UI.")
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
+    }
+
+    @Test("Legacy workstream ids normalize before context is carried forward")
+    func legacyWorkstreamIDMigrationPreservesContext() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-identity-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let legacyID = "claude-session-with-hyphens"
+        let canonicalID = "cmux-feed-v1:canonical-session"
+        try await persistence.append(WorkstreamItem(
+            workstreamId: legacyID,
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "continue the migration")
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, _ in
+                rawValue == legacyID ? canonicalID : rawValue
+            }
+        )
+        await store.start()
+        #expect(store.items.first?.workstreamId == canonicalID)
+
+        store.ingest(.permission(
+            legacyID,
+            requestId: "permission-1"
+        ))
+        #expect(store.items.last?.context?.lastUserMessage == "continue the migration")
+
+        let unknownSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-unknown-source-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: unknownSourceURL) }
+        let persistedUnknown = WorkstreamItem(
+            workstreamId: "grok-session",
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "raw producer")
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var persistedObject = try #require(
+            try JSONSerialization.jsonObject(
+                with: encoder.encode(persistedUnknown)
+            ) as? [String: Any]
+        )
+        persistedObject["sourceID"] = "grok"
+        let persistedData = try JSONSerialization.data(withJSONObject: persistedObject)
+        try persistedData.write(to: unknownSourceURL)
+
+        let unknownSourceStore = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: unknownSourceURL),
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        await unknownSourceStore.start()
+        #expect(unknownSourceStore.items.first?.workstreamId == "canonical-grok")
+        #expect(unknownSourceStore.items.first?.sourceID == "grok")
+
+        let unknownSourceEventStore = WorkstreamStore(
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        unknownSourceEventStore.ingest(WorkstreamEvent(
+            sessionId: "grok-session",
+            hookEventName: .userPromptSubmit,
+            source: "grok",
+            toolInputJSON: #"{"prompt":"raw source"}"#
+        ))
+        #expect(unknownSourceEventStore.items.first?.workstreamId == "canonical-grok")
     }
 }
 

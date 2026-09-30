@@ -15,11 +15,11 @@ struct SimulatorLocationTools: View {
         SimulatorToolSection(simulatorStrings.location) {
             coordinateFields
             HStack {
-                Button(simulatorStrings.setLocation) {
+                SimulatorLocalizedButton(simulatorStrings.setLocation) {
                     guard let coordinate = coordinate(latitude: latitude, longitude: longitude) else { return }
                     coordinator.scheduleControlAction("set-location") { await $0.setLocation(coordinate) }
                 }
-                Button(simulatorStrings.clearLocation) {
+                SimulatorLocalizedButton(simulatorStrings.clearLocation) {
                     coordinator.scheduleControlAction("set-location") { await $0.clearLocation() }
                 }
             }
@@ -54,7 +54,7 @@ struct SimulatorLocationTools: View {
                     Text(verbatim: "\(value)×").tag(value)
                 }
             }
-            Button(simulatorStrings.startRoute) {
+            SimulatorLocalizedButton(simulatorStrings.startRoute) {
                 guard let waypoints = selectedRouteWaypoints else { return }
                 coordinator.scheduleControlAction("location-route") {
                     await $0.startLocationRoute(SimulatorLocationRoute(
@@ -67,19 +67,19 @@ struct SimulatorLocationTools: View {
             if coordinator.locationRouteIsActive {
                 HStack {
                     if coordinator.locationRouteIsPaused {
-                        Button(simulatorStrings.resumeRoute) {
+                        SimulatorLocalizedButton(simulatorStrings.resumeRoute) {
                             coordinator.scheduleControlAction("location-route") {
                                 await $0.resumeLocationRoute()
                             }
                         }
                     } else {
-                        Button(simulatorStrings.pauseRoute) {
+                        SimulatorLocalizedButton(simulatorStrings.pauseRoute) {
                             coordinator.scheduleControlAction("location-route") {
                                 await $0.pauseLocationRoute()
                             }
                         }
                     }
-                    Button(simulatorStrings.stopRoute, role: .destructive) {
+                    SimulatorLocalizedButton(simulatorStrings.stopRoute, role: .destructive) {
                         coordinator.scheduleControlAction("location-route") {
                             await $0.stopLocationRoute()
                         }

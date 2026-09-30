@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { reportMissingRateLimitRule } from "../../../services/rateLimitObservability";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
 
@@ -61,11 +62,22 @@ export async function POST(request: Request) {
         return jsonError("Feedback endpoint is not configured", 503);
       }
 
+      if (process.env.VERCEL === "1") {
+        if (!feedbackConfig.rateLimitId) {
+          void reportMissingRateLimitRule({ route: "/api/feedback", reason: "unset" });
+        }
+      }
       if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
-        const { error, rateLimited } = await checkRateLimit(
-          feedbackConfig.rateLimitId,
-          { request },
-        );
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(feedbackConfig.rateLimitId, { request });
+        } catch {
+          console.error("feedback.route.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
 
         setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
         if (rateLimited || error === "blocked") {
@@ -75,10 +87,7 @@ export async function POST(request: Request) {
         if (error === "not-found") {
           // The rule was deleted; treat as "no limit" instead of taking the
           // endpoint down.
-          console.warn(
-            "feedback.route.rate_limit_not_found; failing open",
-            feedbackConfig.rateLimitId,
-          );
+          void reportMissingRateLimitRule({ route: "/api/feedback", reason: "not-found" });
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);

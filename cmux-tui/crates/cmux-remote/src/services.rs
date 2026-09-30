@@ -36,6 +36,8 @@ use crate::workspace::{
 };
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
+#[cfg(unix)]
+const MAX_RENDERER_GRANT_LINE_BYTES: usize = 64 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
 // A JSON control escape can expand one input byte to six output bytes. Leave
 // room for field names and collection punctuation without scanning strings on
@@ -57,6 +59,7 @@ const TERMINAL_BYTES_HANDSHAKE_TTL_MS: u64 = 10_000;
 #[cfg(unix)]
 const TERMINAL_BYTES_HANDSHAKE_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(TERMINAL_BYTES_HANDSHAKE_TTL_MS);
+#[cfg(unix)]
 const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
 const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
@@ -327,8 +330,7 @@ impl DaemonServices {
             }
         }
         self.workspace.shutdown().await;
-        handlers.abort_all();
-        while handlers.join_next().await.is_some() {}
+        handlers.shutdown().await;
         self.workspace.shutdown().await;
     }
 
@@ -689,7 +691,7 @@ impl DaemonServices {
     ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
         // durable terminal-host owner token never crosses the remote session.
-        let mut mux = tokio::net::UnixStream::connect(mux_path).await?;
+        let mut mux = connect_owned_unix_socket(mux_path).await?;
         let request = serde_json::to_vec(&serde_json::json!({
             "id": 1,
             "cmd": "mint-terminal-renderer-by-terminal",
@@ -700,9 +702,15 @@ impl DaemonServices {
         mux.write_all(b"\n").await?;
         mux.flush().await?;
         let mut response = String::new();
-        BufReader::new(mux).read_line(&mut response).await?;
-        if response.is_empty() {
+        let size = BufReader::new(mux)
+            .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
+            .read_line(&mut response)
+            .await?;
+        if size == 0 {
             return Err(ServicesError::Remote("mux closed before renderer grant".into()));
+        }
+        if size > MAX_RENDERER_GRANT_LINE_BYTES || !response.ends_with('\n') {
+            return Err(ServicesError::Remote("renderer grant response exceeds size limit".into()));
         }
         let response: serde_json::Value = serde_json::from_str(&response)?;
         if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
@@ -738,7 +746,7 @@ impl DaemonServices {
             return Err(ServicesError::Remote("renderer grant lacks renderer rights".into()));
         }
 
-        let mut terminal = tokio::net::UnixStream::connect(endpoint).await?;
+        let mut terminal = connect_owned_unix_socket(endpoint).await?;
         let hello = ClientHello {
             min_version: PROTOCOL_VERSION,
             max_version: PROTOCOL_VERSION,
@@ -793,7 +801,7 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = tokio::net::UnixStream::connect(path).await?;
+        let socket = connect_owned_unix_socket(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
@@ -1298,11 +1306,18 @@ where
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line_with_limit(
+            &mut reader,
+            &mut line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )
+        .await?;
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
+        {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
@@ -1314,7 +1329,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let packets = crate::mux_codec::encode_line(message, &line)?;
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1401,7 +1420,10 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::with_maximum(
+                crate::mux_codec::MAX_MUX_UPLOAD_LINE_BYTES,
+            );
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
@@ -1496,6 +1518,18 @@ fn workspace_rpc_metadata(
         }
     };
     Ok((lane, purpose))
+}
+
+/// Connect to a local mux or terminal-host socket. Both run as this daemon's
+/// user, so refuse any other listener before a request or token is written.
+#[cfg(unix)]
+async fn connect_owned_unix_socket(
+    path: impl AsRef<std::path::Path>,
+) -> Result<tokio::net::UnixStream, ServicesError> {
+    let stream = tokio::net::UnixStream::connect(path).await?;
+    crate::admin::verify_unix_peer_owner(&stream)
+        .map_err(|error| ServicesError::Unavailable(error.to_string()))?;
+    Ok(stream)
 }
 
 #[derive(Debug)]

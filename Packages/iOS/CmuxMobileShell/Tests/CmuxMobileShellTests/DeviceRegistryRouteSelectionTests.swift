@@ -41,6 +41,45 @@ import Testing
         #expect(selected == registry)
     }
 
+    @Test func registryIrohRefreshKeepsLegacyTailscaleRouteAvailable() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        let selected = try #require(
+            DeviceRegistryService.selectReconnectRoutes(local: local, registry: [iroh])
+        )
+        #expect(selected.map(\.kind) == [.iroh, .tailscale])
+        #expect(selected.last?.endpoint == local[0].endpoint)
+
+        // Once the merged routes are persisted, the same Iroh-only registry
+        // response must not trigger another write on every refresh.
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: selected,
+            registry: [iroh]
+        ) == nil)
+    }
+
+    @Test func registryIrohAndTailscaleRoutesRemainAuthoritative() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let current = try route(host: "100.0.0.2", port: 51000, id: "current")
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: local,
+            registry: [iroh, current]
+        ) == [iroh, current])
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
@@ -728,7 +767,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent)
         )
         #expect(resolved == nil)
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
@@ -751,7 +790,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present)
         )
         #expect(resolved == legacy)
         // Adopted into the authoritative store and still mirrored.
@@ -771,7 +810,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent)
         )
         #expect(resolved != nil)
         #expect(resolved != foreign)
@@ -790,7 +829,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.unavailable),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.unavailable)
         )
         #expect(resolved == nil)
         // Nothing minted, mirror preserved for the post-unlock retry.
@@ -807,7 +846,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present)
         )
         #expect(resolved != nil)
         if let resolved {

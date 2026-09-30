@@ -12,6 +12,107 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
+        paneColors[paneId] = colors
+        sendPaneColorReport(paneId: paneId)
+    }
+
+    func removePaneColors(paneId: Int) {
+        paneColors.removeValue(forKey: paneId)
+        sentPaneColors.removeValue(forKey: paneId)
+    }
+
+    func sendPaneColorReport(paneId: Int) {
+        guard canSendPaneColorReports,
+              let colors = paneColors[paneId],
+              sentPaneColors[paneId] != colors else { return }
+        let commands = colors.reportCommands(paneId: paneId)
+        if sendBatchInternal(commands, kinds: commands.map { _ in .paneColorReport(paneId, colors) }) {
+            sentPaneColors[paneId] = colors
+        }
+    }
+
+    func replayPaneColorReports() {
+        sentPaneColors.removeAll()
+        for paneId in paneColors.keys.sorted() {
+            sendPaneColorReport(paneId: paneId)
+        }
+    }
+
+    func rejectPaneColorReport(paneId: Int, colors: RemoteTmuxPaneColors, lines: [String]) {
+        if sentPaneColors[paneId] == colors {
+            sentPaneColors.removeValue(forKey: paneId)
+        }
+        let error = lines.joined(separator: " / ")
+        // refresh-client -r was added in tmux 3.5. Older supported servers
+        // still mirror normally, without repeatedly sending an unknown flag.
+        if error.localizedCaseInsensitiveContains("flag")
+            && error.contains("-r") {
+            if supportsPaneColorReports {
+                supportsPaneColorReports = false
+                record("pane-color-reports-unsupported \(error)")
+            }
+        } else {
+            record("pane-color-report-failed %\(paneId) \(error)")
+        }
+    }
+
+    // MARK: - Mirror session environment (issue #833)
+
+    /// Marker signalling to remote shell integration that this tmux session is
+    /// mirrored by a local cmux over ssh-tmux (`tmux -CC`, no relay socket).
+    static let mirrorMarkerEnvironmentKey = "CMUX_REMOTE_TMUX_MIRROR"
+
+    /// Pushes the mirror marker + identity pairs into the remote tmux SESSION
+    /// environment. Called from the first post-attach `list-windows` result, so
+    /// both paths — first connect and every reconnect — refresh values that
+    /// would otherwise go permanently stale after an app relaunch (issue #833:
+    /// the `tmux -CC` attach has no cmux wrapper shell outside tmux on the
+    /// remote, so nobody else ever re-publishes them).
+    ///
+    /// Deliberately NOT pushed: `CMUX_SOCKET_PATH`. The ssh-tmux transport has
+    /// no relay/reverse forward, so the local Mac socket path is meaningless on
+    /// the remote host; publishing it would point remote `cmux` CLI invocations
+    /// at a dead socket. Notification delivery instead rides the OSC 777/9
+    /// intercept in ``RemoteTmuxSessionMirror`` (see
+    /// ``RemoteTmuxNotificationOSCFilter``).
+    ///
+    /// Session scope (`-t`, not `-g`): the shell-integration refresh path runs
+    /// a session-scoped `show-environment`, which does not surface `-g` values.
+    func pushMirrorSessionEnvironment() {
+        // Target by the stable session id when known so the push can't race a
+        // rename (same convention as `rename-session`).
+        guard let target = sessionId.map({ "$\($0)" })
+            ?? RemoteTmuxHost.controlModeLineSafeName(sessionName)
+                .map(RemoteTmuxHost.shellSingleQuoted)
+        else { return }
+        var pairs = mirrorEnvironment
+        pairs[Self.mirrorMarkerEnvironmentKey] = "1"
+        let commands = Self.mirrorEnvironmentCommands(target: target, pairs: pairs)
+        guard !commands.isEmpty else { return }
+        _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
+    }
+
+    /// Builds the `set-environment -t <target> KEY VALUE` command lines for a
+    /// push, dropping any pair that could break the line-oriented control
+    /// stream. Pure (and deterministic — sorted by key) so tests can pin the
+    /// exact wire format.
+    static func mirrorEnvironmentCommands(
+        target: String,
+        pairs: [String: String]
+    ) -> [String] {
+        pairs.sorted { $0.key < $1.key }.compactMap { key, value in
+            // Keys are ours (static identifiers), but guard anyway: one CR/LF
+            // would terminate the command line before tmux parses the quotes.
+            guard RemoteTmuxHost.controlModeLineSafeName(key) != nil,
+                  !key.contains(" "),
+                  RemoteTmuxHost.controlModeLineSafeName(value) != nil
+            else { return nil }
+            return "set-environment -t \(target) \(key) "
+                + RemoteTmuxHost.shellSingleQuoted(value)
+        }
+    }
+
     /// Sends a command and reports how its `%begin`/`%end` block resolved:
     /// `true` on `%end`, `false` on `%error` — or `false` if the stream resets
     /// before the block arrives, since a fresh control stream can never answer
@@ -122,23 +223,28 @@ extension RemoteTmuxControlConnection {
     /// Fetches one window's REAL pane rectangles (plus the active flag, the
     /// window's `pane-border-status`, and the pane's EXPANDED
     /// `pane-border-format` — exactly the header text a native tmux client
-    /// would draw, custom formats included). The layout string is not ground
-    /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while panes touching the configured edge are shorter (and top-edge
-    /// panes also sit lower). Placement must render where panes actually are,
-    /// so a quarantined layout is published only by this fetch's reply. The
-    /// expanded format is LAST (it
-    /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
-    /// and a trailing empty field must survive line splitting).
+    /// would draw, custom formats included). The trailing field then carries
+    /// the raw pane title and host defaults after a unit-separator delimiter.
+    /// The layout string is not ground truth: under `pane-border-status` tmux
+    /// publishes the pre-title tree while panes touching the configured edge
+    /// are shorter (and top-edge panes also sit lower). Placement must render
+    /// where panes actually are, so a quarantined layout is published only by
+    /// this fetch's reply. The expanded header format may contain spaces and
+    /// may expand to EMPTY; the `:` sentinel and trailing empty fields must
+    /// survive line splitting.
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
         #if DEBUG
         cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
         #endif
-        return sendInternal(
-            "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        paneTitleMetadataSnapshotRevisions[snapshotKey] = paneTitleMetadataRevision
+        let sent = sendInternal(
+            "list-panes -t @\(windowId) -F \"\(Self.paneRectsFormat)\"",
             kind: .paneRects(windowId, generation)
         )
+        if !sent { paneTitleMetadataSnapshotRevisions[snapshotKey] = nil }
+        return sent
     }
 
     /// Rearranges the tracked window order to reflect a just-applied reorder.
@@ -334,11 +440,12 @@ extension RemoteTmuxControlConnection {
     /// hits the conservative no-reflow default on a slow link.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool = true) -> UUID? {
+        sendPaneColorReport(paneId: paneId)
         requestPaneReflow(paneId: paneId)
         let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
-        // One batched refresh-client for all three live subscriptions
-        // instead of three separate sends — see subscribePaneAll. Under
+        // One batched refresh-client for all four live subscriptions
+        // instead of four separate sends — see subscribePaneAll. Under
         // churn this is the difference between the command FIFO keeping up
         // with tmux and backing up into minutes-long non-convergence.
         subscribePaneAll(paneId: paneId)

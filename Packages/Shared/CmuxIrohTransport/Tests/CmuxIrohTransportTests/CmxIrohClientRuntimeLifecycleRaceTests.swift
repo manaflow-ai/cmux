@@ -26,6 +26,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: fixture.configuration.accountID,
             deviceID: fixture.configuration.deviceID,
             appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: fixture.configuration.clientNamespace,
             tag: fixture.configuration.tag,
             displayName: fixture.configuration.displayName,
             identity: fixture.configuration.identity,
@@ -147,7 +148,7 @@ extension CmxIrohClientRuntimeTests {
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
-                2: CmxIrohTrustBrokerClientError.connectivity,
+                2: CmxIrohTrustBrokerClientError.connectivity(nil),
             ],
             discoveryHook: { count in
                 if count == 2 { await secondDiscovery.waitOnce() }

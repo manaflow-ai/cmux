@@ -63,4 +63,22 @@ import Testing
         #expect(reloaded.mode == .recentActivity)
         #expect(reloaded.computerPriority == ["mac-a"])
     }
+
+    @Test func legacyPriorityMigrationRunsOnlyOnce() {
+        let defaults = makeDefaults()
+        defaults.set(
+            Data(#"{"mode":"computerPriority","computerPriority":["mac-a"]}"#.utf8),
+            forKey: MobileWorkspaceSortStore.defaultsKey
+        )
+        var store = MobileWorkspaceSortStore(defaults: defaults)
+        #expect(store.needsComputerIdentityMigration)
+
+        store.migrateLegacyComputerPriority(["mac-a\u{1F}stable"])
+        #expect(!store.needsComputerIdentityMigration)
+        store.migrateLegacyComputerPriority(["mac-a\u{1F}nightly"])
+
+        let reloaded = MobileWorkspaceSortStore(defaults: defaults)
+        #expect(reloaded.computerPriority == ["mac-a\u{1F}stable"])
+        #expect(!reloaded.needsComputerIdentityMigration)
+    }
 }

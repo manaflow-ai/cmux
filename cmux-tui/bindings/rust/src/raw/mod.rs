@@ -1,4 +1,4 @@
-//! Generated private protocol-v11 escape hatch.
+//! Generated private protocol-v12 escape hatch.
 //!
 //! New applications should use the handwritten resource handles at the crate
 //! root. This module exists for protocol tooling and features that have not

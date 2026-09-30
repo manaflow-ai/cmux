@@ -1,8 +1,50 @@
 import AppKit
+import CmuxNotifications
 import Foundation
 
 @MainActor
 extension AppDelegate {
+    /// Focuses a terminal surface through the same sidebar/window/tab path used by notification opens.
+    @discardableResult
+    func focusTerminal(
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        if let context = contextContainingTabId(tabId) {
+            let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+            let window = context.window
+                ?? NSApp.windows.first { $0.identifier?.rawValue == expectedIdentifier }
+            guard let window else { return false }
+            return focusTerminal(
+                tabManager: context.tabManager,
+                sidebarSelectionState: context.sidebarSelectionState,
+                window: window,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                while: effectIsCurrent
+            )
+        }
+
+        guard
+            let tabManager,
+            tabManager.tabs.contains(where: { $0.id == tabId }),
+            let window = NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })
+        else {
+            return false
+        }
+        return focusTerminal(
+            tabManager: tabManager,
+            sidebarSelectionState: sidebarSelectionState,
+            window: window,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            while: effectIsCurrent
+        )
+    }
+
     @discardableResult
     func openNotification(
         tabId: UUID,
@@ -32,6 +74,14 @@ extension AppDelegate {
             } else {
                 tabId = owner.tabID
                 surfaceId = owner.surfaceID
+                if let dock = owner.windowDock {
+                    return openNotificationInWindowDock(
+                        dock,
+                        surfaceId: owner.surfaceID,
+                        notificationId: notificationId,
+                        scrollPosition: scrollPosition
+                    )
+                }
             }
         }
 #if DEBUG
@@ -83,6 +133,41 @@ extension AppDelegate {
             notificationId: notificationId,
             scrollPosition: scrollPosition
         )
+    }
+
+    private func openNotificationInWindowDock(
+        _ dock: DockSplitStore,
+        surfaceId: UUID,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
+    ) -> Bool {
+        let target = WindowDockUnreadTarget(
+            windowId: dock.workspaceId,
+            surfaceId: surfaceId
+        )
+        guard openWindowDockUnread(target) else { return false }
+
+        // Match direct workspace/Dock interaction: revealing a surface clears
+        // every unread indicator attached to that exact destination. The id
+        // clear also covers a trusted notification whose surface moved before
+        // its namespace was rebound.
+        notificationStore?.markRead(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        notificationStore?.clearFocusedReadIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        if let notificationId {
+            notificationStore?.markRead(id: notificationId)
+        }
+        restoreWindowDockNotificationScrollPosition(
+            scrollPosition,
+            dock: dock,
+            panelId: target.surfaceId
+        )
+        return true
     }
 
     func openNotificationInContext(
@@ -232,6 +317,26 @@ extension AppDelegate {
         }
 #endif
         return true
+    }
+
+    private func focusTerminal(
+        tabManager: TabManager,
+        sidebarSelectionState: SidebarSelectionState?,
+        window: NSWindow,
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        sidebarSelectionState?.selection = .tabs
+        bringToFront(window)
+        guard effectIsCurrent() else { return false }
+        return tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: surfaceId,
+            effectIsCurrent: effectIsCurrent
+        )
     }
 
     private func notificationOpenCompletion(

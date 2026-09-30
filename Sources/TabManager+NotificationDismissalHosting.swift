@@ -87,6 +87,11 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false
     }
 
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .hasManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+    }
+
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasRestoredUnreadIndicator(forTabId: workspaceId) ?? false
     }
@@ -109,9 +114,20 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID) {
+        AppDelegate.shared?.notificationStore?
+            .markWorkspaceLevelNotificationsRead(forTabId: workspaceId)
+    }
+
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false
+    }
+
+    @discardableResult
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .clearManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     @discardableResult

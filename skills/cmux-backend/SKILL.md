@@ -12,13 +12,13 @@ description: "Backend TypeScript and Cloud VM development rules for cmux. Use wh
 - Plain TypeScript is for trivial data shapes, constants, config files, frontend React, and small glue where Effect would add ceremony without improving failure handling.
 - Cloud VM backend logic stays in Vercel route handlers and Effect services backed by Postgres. Do not reintroduce Rivet or a raw actor protocol unless a later architecture doc explicitly changes the control plane.
 - Postgres is the source of truth for VM lifecycle, active VM limits, idempotency, and usage events.
-- Production and staging Cloud VM Postgres use the Vercel Marketplace AWS Aurora PostgreSQL OIDC/RDS IAM path, with runtime env `CMUX_DB_DRIVER=aws-rds-iam`, `AWS_ROLE_ARN`, `AWS_REGION`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`.
-- Run production/staging migrations with `bun db:migrate:aws-rds-iam`; never from Vercel build or route startup. Local dev keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
+- Production and staging Cloud VM Postgres use PlanetScale PostgreSQL database `cmux-prod` in organization `cmux`. The runtime reads `DATABASE_URL` with `CMUX_DB_DRIVER=url`; migration jobs use the protected `DATABASE_URL` secret. AWS credentials are not database credentials.
+- Run production/staging migrations with `bun run cloud-vm:migrate -- staging` followed by `-- production`; never from Vercel build or route startup. Local dev keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
 - Cloud VM create pricing gates use Stack Auth team payment items when enabled.
 
 ## Secrets
 
-Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `E2B_API_KEY`, `FREESTYLE_API_KEY`, and the R2 upload vars `web/scripts/build-cloud-vm-images.ts` needs when creating Freestyle snapshots.
+Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `FREESTYLE_API_KEY` and the R2 upload vars `web/scripts/build-cloud-vm-images.ts` needs when creating Freestyle snapshots.
 
 ```bash
 set -a

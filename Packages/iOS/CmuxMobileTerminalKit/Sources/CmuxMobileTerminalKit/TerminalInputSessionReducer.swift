@@ -65,6 +65,9 @@ public enum TerminalInputSessionCommand: Equatable, Sendable {
 /// Facts and user intents consumed by the terminal input-session reducer.
 public enum TerminalInputSessionEvent: Equatable, Sendable {
     case requestFocus(TerminalInputOwner)
+    /// Reasserts UIKit focus even when the owner is already current, so a hidden
+    /// keyboard can be shown again without changing semantic ownership.
+    case requestVisibleFocus(TerminalInputOwner)
     case releaseFocus
     case focusCompleted(owner: TerminalInputOwner, succeeded: Bool)
     case resignCompleted(owner: TerminalInputOwner, succeeded: Bool)
@@ -75,6 +78,9 @@ public enum TerminalInputSessionEvent: Equatable, Sendable {
     case modalDidPresent
     case modalDidDismiss
     case sceneWillResignActive
+    /// The app left the foreground. Ends a transient interruption: focus held
+    /// before it is not restored when the app returns.
+    case sceneDidEnterBackground
     case sceneDidBecomeActive
     /// The view left its window while the application scene stayed active.
     case surfaceDetached
@@ -103,11 +109,20 @@ public struct TerminalInputSessionTransition: Equatable, Sendable {
 /// UIKit fact. They deliberately differ while a handoff is pending or a focus
 /// attempt failed. Modal and inactive phases retain new intent but emit no
 /// focus command until a real dismissal/activation boundary arrives.
+///
+/// Going inactive resigns the keyboard, but an interruption that never leaves
+/// the foreground (a system alert such as the pasteboard's "Allow Paste",
+/// Control Center, a notification pulled down) hands focus back when the app
+/// is active again, as a native text field keeps it. Entering the background
+/// or any explicit intent in between forgets it.
 public struct TerminalInputSessionState: Equatable, Sendable {
     public private(set) var scenePhase: TerminalInputScenePhase
     public private(set) var modalPhase: TerminalInputModalPhase
     public private(set) var requestedOwner: TerminalInputOwner?
     public private(set) var actualOwner: TerminalInputOwner?
+    /// The owner that held focus when the scene went inactive, restored on
+    /// reactivation unless the app backgrounded or a newer intent arrived.
+    public private(set) var interruptedOwner: TerminalInputOwner?
 
     private var latestTapID: UInt64
     private var deferredTapID: UInt64?
@@ -122,6 +137,7 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         self.modalPhase = modalPhase
         self.requestedOwner = requestedOwner
         self.actualOwner = actualOwner
+        self.interruptedOwner = nil
         self.latestTapID = 0
         self.deferredTapID = nil
     }
@@ -130,11 +146,18 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         _ event: TerminalInputSessionEvent
     ) -> TerminalInputSessionTransition {
         var transition = TerminalInputSessionTransition()
+        if event.supersedesInterruptedFocus {
+            interruptedOwner = nil
+        }
 
         switch event {
         case .requestFocus(let owner):
             deferredTapID = nil
             requestFocus(owner, commands: &transition.commands)
+
+        case .requestVisibleFocus(let owner):
+            deferredTapID = nil
+            requestVisibleFocus(owner, commands: &transition.commands)
 
         case .releaseFocus:
             requestedOwner = nil
@@ -214,6 +237,9 @@ public struct TerminalInputSessionState: Equatable, Sendable {
             reconcileFocus(commands: &transition.commands)
 
         case .sceneWillResignActive:
+            if scenePhase == .active {
+                interruptedOwner = requestedOwner
+            }
             scenePhase = .inactive
             requestedOwner = nil
             deferredTapID = nil
@@ -221,8 +247,15 @@ public struct TerminalInputSessionState: Equatable, Sendable {
                 transition.commands.append(.resign(actualOwner))
             }
 
+        case .sceneDidEnterBackground:
+            interruptedOwner = nil
+
         case .sceneDidBecomeActive:
             scenePhase = .active
+            if requestedOwner == nil {
+                requestedOwner = interruptedOwner
+            }
+            interruptedOwner = nil
             reconcileFocus(commands: &transition.commands)
 
         case .surfaceDetached:
@@ -248,12 +281,40 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         commands: inout [TerminalInputSessionCommand]
     ) {
         requestedOwner = owner
-        guard canFocus, actualOwner != owner else { return }
+        guard canFocus else { return }
+        guard actualOwner != owner else { return }
+        commands.append(.focus(owner))
+    }
+
+    private mutating func requestVisibleFocus(
+        _ owner: TerminalInputOwner,
+        commands: inout [TerminalInputSessionCommand]
+    ) {
+        requestedOwner = owner
+        guard canFocus else { return }
         commands.append(.focus(owner))
     }
 
     private func reconcileFocus(commands: inout [TerminalInputSessionCommand]) {
-        guard canFocus, let requestedOwner, actualOwner != requestedOwner else { return }
+        guard canFocus, let requestedOwner else { return }
         commands.append(.focus(requestedOwner))
+    }
+}
+
+extension TerminalInputSessionEvent {
+    /// Explicit intents and teardown that replace whatever focus an inactive
+    /// phase interrupted. Lifecycle facts and UIKit completions do not.
+    fileprivate var supersedesInterruptedFocus: Bool {
+        switch self {
+        case .requestFocus, .requestVisibleFocus, .releaseFocus, .terminalTapped,
+             .deferredTerminalTapResolved, .modalWillPresent, .surfaceDetached:
+            true
+        case .responderChanged(_, let isFirstResponder):
+            isFirstResponder
+        case .focusCompleted, .resignCompleted, .modalDidPresent, .modalDidDismiss,
+             .sceneWillResignActive, .sceneDidEnterBackground, .sceneDidBecomeActive,
+             .lifecycleBoundary:
+            false
+        }
     }
 }

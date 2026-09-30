@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxWorkspaces
 import Combine
@@ -176,7 +177,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -204,7 +205,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -295,6 +296,13 @@ extension DockSocketLifecycleTests {
 
         let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
         #expect(attachedPanelId == panel.id)
+        let attachedTabId = try #require(
+            store.surfaceId(forPanelId: panel.id)
+        )
+        #expect(
+            store.bonsplitController.tab(attachedTabId)?
+                .hasCustomTitle == true
+        )
         panel.displayTitle = "Current Dock Title"
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
@@ -307,6 +315,56 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == sessionDirectory)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
+    }
+
+    @Test("Clearing a transferred Dock title does not resurrect stale metadata")
+    @MainActor
+    func clearingTransferredDockTitleStaysCleared() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
+        panel.updateTitle("Current Dock Title")
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(
+            store.bonsplitController.allPaneIds.first
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            cachedTitle: "Stale Dock Title",
+            customTitle: "Pinned Agent",
+            customTitleSource: .user
+        )
+
+        _ = try #require(
+            store.attachDetachedSurface(
+                detached,
+                inPane: rootPane,
+                focus: false
+            )
+        )
+        #expect(
+            store.setDockPanelCustomTitle(
+                panelId: panel.id,
+                title: nil
+            )
+        )
+        let snapshot = try #require(
+            store.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panel.id }
+        )
+        #expect(snapshot.customTitle == nil)
+        #expect(snapshot.title == panel.displayTitle)
+
+        let roundTripped = try #require(
+            store.detachSurface(panelId: panel.id)
+        )
+        #expect(roundTripped.customTitle == nil)
+        #expect(roundTripped.title == panel.displayTitle)
+        roundTripped.panel.close()
     }
 
     @Test("Dock shell preexec retains a manual agent restore binding")
@@ -1217,6 +1275,63 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.resumeBinding?.source == "process-detected")
     }
 
+    @Test("Cached update relaunch save keeps a Dock tmux reattach binding")
+    @MainActor
+    func cachedUpdateRelaunchSaveKeepsDockTmuxReattachBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let directory = "/tmp/cmux-dock-tmux-update-relaunch"
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            directory: directory
+        )
+        #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
+        let tmuxBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t cmux",
+            cwd: directory,
+            checkpointId: "cmux",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+        // The last autosave's fresh process scan saw tmux in this pane.
+        _ = store.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [
+                .init(workspaceId: sourceWorkspaceId, panelId: panel.id): tmuxBinding,
+            ])
+        )
+        #expect(store.surfaceResumeBinding(panelId: panel.id)?.command == tmuxBinding.command)
+
+        // The update relaunch save and the timed-out quit fallback cannot scan
+        // processes; an unavailable index must not retire the tmux binding.
+        let cachedIndexes = ProcessDetectedResumeIndexes.cached(restorableAgentIndex: .empty)
+        let saved = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: cachedIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: cachedIndexes.surfaceResumeBindingIndex
+        )
+        let persisted = try #require(
+            saved.panels.first { $0.id == panel.id }?.terminal?.resumeBinding,
+            "the tmux reattach binding was dropped from the cached Dock snapshot"
+        )
+        #expect(persisted.command == tmuxBinding.command)
+        #expect(persisted.allowsAutomaticResume)
+        #expect(store.surfaceResumeBinding(panelId: panel.id)?.command == tmuxBinding.command)
+    }
+
     @Test("Session-ending hook clear survives a process-detected tmux binding")
     @MainActor
     func sessionEndingHookClearSurvivesProcessDetectedTmuxBinding() throws {
@@ -1614,7 +1729,7 @@ extension DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let tabId = try #require(store.surfaceId(forPanelId: panelId))

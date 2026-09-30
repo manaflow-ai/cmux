@@ -98,8 +98,10 @@ fn run_agent(args: Args) -> anyhow::Result<()> {
         StderrReporter::new().map_err(|_| anyhow::Error::msg(messages.runtime_failed))?;
     let session = SessionName::new(args.session.clone())
         .map_err(|_| anyhow::Error::msg(messages.invalid_session))?;
-    let socket =
-        args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
+    let (socket, socket_is_derived) = match args.socket {
+        Some(path) => (path, false),
+        None => (cmux_tui_core::server::try_default_socket_path(&args.session)?, true),
+    };
     let state = args
         .state
         .map_or_else(default_state_path, Ok)
@@ -117,7 +119,7 @@ fn run_agent(args: Args) -> anyhow::Result<()> {
         })
         .map_err(|_| anyhow::Error::msg(messages.cloud_configuration_invalid))?,
     );
-    let local = Arc::new(SocketSessionConnector::new(socket));
+    let local = Arc::new(SocketSessionConnector::new(socket, socket_is_derived));
     MachineAgent::new(
         identity,
         session,

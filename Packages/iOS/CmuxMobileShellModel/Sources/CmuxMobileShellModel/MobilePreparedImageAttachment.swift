@@ -6,7 +6,7 @@ public struct MobilePreparedImageAttachment: Equatable, Sendable {
     public let data: Data
     /// Lowercase extension matching ``data`` (`png` or `jpg`).
     public let format: String
-    /// Small PNG thumbnail suitable for a 56-point attachment chip.
+    /// Bounded PNG thumbnail suitable for a large Retina attachment preview.
     public let thumbnailData: Data?
 
     /// Creates a prepared image attachment.

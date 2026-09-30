@@ -10,9 +10,18 @@ import {
 export async function POST(request: Request): Promise<Response> {
   const ruleId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
   if (process.env.VERCEL === "1" && ruleId) {
-    const { error, rateLimited } = await checkRateLimit(ruleId, { request });
-    if (rateLimited || (error && error !== "not-found")) {
-      // Analytics must never affect installation or clipboard UX.
+    try {
+      const { error, rateLimited } = await checkRateLimit(ruleId, { request });
+      if (rateLimited || (error && error !== "not-found")) {
+        // Analytics must never affect installation or clipboard UX.
+        return new Response(null, {
+          status: 204,
+          headers: { "cache-control": "no-store" },
+        });
+      }
+    } catch {
+      // A firewall outage is still a best-effort analytics drop, not a reason
+      // for install scripts to retry the request.
       return new Response(null, {
         status: 204,
         headers: { "cache-control": "no-store" },

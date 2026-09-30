@@ -14,6 +14,18 @@ extension UpdateController {
     /// prompting the user again right after relaunch (issue #6366).
     public func attemptUpdate() {
         model.discardPendingChanges()
+        // A downloaded update that is held is already the latest attempt. Asking to install
+        // again from the menu means Install Now, unless it would stop something risky: the menu
+        // does not show what, so the popover asks first.
+        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+            if driver.relaunchGate.askUser() {
+                log.append("attemptUpdate while relaunch is held by risky work: asking")
+                return
+            }
+            log.append("attemptUpdate while relaunch is held: install now")
+            installing.retryTerminatingApplication()
+            return
+        }
         let action = attemptCoordinator.requestInstallLatest(currentState: model.state)
         if action == .startFreshCheck {
             // The user committed to installing. Arm the watchdog so that if the flow never reaches
@@ -65,7 +77,7 @@ extension UpdateController {
         // Sparkle may synchronously emit its identity-free dismissal while the reply/cancellation
         // runs; because the error is already visible and that callback is diagnostic-only, there
         // is no empty-pill window and no unresolved session left behind.
-        model.replaceActiveState(with: errorState)
+        driver.replaceActiveState(with: errorState)
     }
 
     func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {

@@ -158,12 +158,12 @@ func TestRunPersistentStopUsesSlotControlPlane(t *testing.T) {
 	_ = conn.Close()
 
 	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stderr := newNotifyingBuffer()
 	code := run(
 		[]string{"serve", "--persistent-stop", "--slot", "stop-command-slot"},
 		strings.NewReader(""),
 		&stdout,
-		&stderr,
+		stderr,
 	)
 	if code != 0 {
 		t.Fatalf("serve --persistent-stop exit code = %d, stderr = %q", code, stderr.String())
@@ -211,8 +211,8 @@ func TestRunPersistentLeasePortValidation(t *testing.T) {
 		{"serve", "--stdio", "--persistent-lease-port", "64008"},
 	} {
 		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		if code := run(args, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		stderr := newNotifyingBuffer()
+		if code := run(args, strings.NewReader(""), &stdout, stderr); code != 2 {
 			t.Fatalf("run(%q) exit code = %d, stderr = %q; want usage error", args, code, stderr.String())
 		}
 	}
@@ -358,13 +358,13 @@ func TestPersistentDaemonPreservesActivePTYAfterObservedSlotLeaseDisappears(t *t
 	leasePresent.Store(true)
 	leaseChecked := make(chan bool, 1)
 	leaseRemoved := make(chan struct{}, 1)
-	var stderr bytes.Buffer
+	stderr := newNotifyingBuffer()
 	done := make(chan error, 1)
 	go func() {
 		done <- servePersistentDaemonWithVerifierConfig(
 			listener,
 			persistentDaemonFixedTokenVerifier("lease-token"),
-			&stderr,
+			stderr,
 			persistentDaemonServerConfig{
 				acceptPollStep: 10 * time.Millisecond,
 				slotLeasePresent: func() (bool, error) {

@@ -17,12 +17,13 @@ struct WorkspaceNavigationRow: View {
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
-    /// Customize the workspace's name, description, color, and pin state on the Mac.
-    var customizeWorkspace: WorkspaceCustomizationAction? = nil
+    /// Requests the list-owned customization sheet for this workspace.
+    var requestCustomization: ((MobileWorkspacePreview.ID) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
@@ -43,13 +44,15 @@ struct WorkspaceNavigationRow: View {
     /// The binding is owned by the list so recycled rows do not own presentation
     /// state, but the presenter stays attached to the swiped row.
     var isConfirmingClose: Binding<Bool> = .constant(false)
+    /// The copy for that confirmation, resolved by the list when the close
+    /// was requested.
+    var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     /// Performs the confirmed close. Separate from ``closeWorkspace`` so a
     /// full-swipe can request confirmation without directly closing the row.
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
     @State private var renameDraft = ""
-    @State private var isCustomizing = false
 
     var body: some View {
         rowTarget
@@ -78,13 +81,14 @@ struct WorkspaceNavigationRow: View {
         }
         .accessibilityElement(children: onOpenChanges == nil ? .combine : .contain)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .accessibilityActions {
-            if customizeWorkspace != nil {
+            if let requestCustomization {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
-                    isCustomizing = true
+                    requestCustomization(workspace.id)
                 }
             }
             if renameWorkspace != nil {
@@ -107,18 +111,13 @@ struct WorkspaceNavigationRow: View {
             guard !trimmed.isEmpty else { return }
             renameWorkspace?(workspace.id, trimmed)
         }
-        .sheet(isPresented: $isCustomizing) {
-            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
-            }
-        }
         .confirmationDialog(
-            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            closeConfirmation.title,
             isPresented: isConfirmingClose,
             titleVisibility: .visible
         ) {
             if let confirmCloseWorkspace {
-                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                Button(closeConfirmation.actionTitle, role: .destructive) {
                     confirmCloseWorkspace(workspace.id)
                 }
                 .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
@@ -127,7 +126,7 @@ struct WorkspaceNavigationRow: View {
                 isConfirmingClose.wrappedValue = false
             }
         } message: {
-            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
+            Text(closeConfirmation.message)
         }
     }
 
@@ -162,7 +161,8 @@ struct WorkspaceNavigationRow: View {
             onOpenChanges: onOpenChanges,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
-            unreadIndicatorLeftShift: unreadIndicatorLeftShift
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter
         )
     }
 
@@ -197,9 +197,9 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspacePinButton-\(workspace.id.rawValue)")
         }
-        if customizeWorkspace != nil {
+        if let requestCustomization {
             Button {
-                isCustomizing = true
+                requestCustomization(workspace.id)
             } label: {
                 Label(
                     L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),

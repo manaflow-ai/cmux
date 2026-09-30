@@ -17,6 +17,7 @@ pub(super) enum ParsedCommand {
 }
 
 pub(super) enum CommandPlan {
+    Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
     Protocol(RequestPlan),
     SessionResetState(SessionResetStatePlan),
@@ -49,11 +50,7 @@ impl WireOperation {
 
     pub fn name(&self) -> Result<String, UsageError> {
         match self {
-            Self::Typed(operation) => serde_json::to_value(operation)
-                .map_err(|error| UsageError::new(format!("cannot encode operation: {error}")))?
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| UsageError::new("operation did not encode as a string")),
+            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
             Self::Raw { name, .. } => Ok(name.clone()),
         }
     }
@@ -65,6 +62,7 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+    pub kind: crate::plugin_manager::PluginKind,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +128,12 @@ impl Flags {
         self.values.remove(name).is_some()
     }
 
+    /// Take a flag by its dashed spelling, for compatibility flags whose bare
+    /// name is not part of this CLI's public vocabulary.
+    fn take_dashed(&mut self, flag: &str) -> Option<String> {
+        self.take(flag.trim_start_matches('-'))
+    }
+
     fn reject_remaining(&self) -> Result<(), UsageError> {
         match self.values.keys().next() {
             Some(name) => Err(UsageError::new(format!("unknown flag --{name} for this action"))),
@@ -146,6 +150,7 @@ struct Tokens {
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
+    super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
         .words
         .first()
@@ -153,6 +158,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
     let mut selectors = Selectors::default();
     let plan = match scope {
+        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
         "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -167,16 +173,48 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
-        value => return Err(UsageError::new(format!("unknown resource scope {value:?}"))),
+        value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let action = match strs(words).as_slice() {
+        ["status"] => super::lifecycle::ServerAction::Status,
+        ["stats"] => super::lifecycle::ServerAction::Stats,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
+        ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+        ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["start"] => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
+        [action] => {
+            let messages = &crate::localization::catalog().local_server;
+            return Err(UsageError::new(messages.unknown_server_action(
+                action,
+                super::suggestion(
+                    action,
+                    &["stats", "start", "ensure", "status", "stop", "reload-config"],
+                ),
+            )));
+        }
+        _ => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.invalid_action_syntax,
+            ));
+        }
+    };
+    Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -225,35 +263,44 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-fn is_boolean_flag(name: &str) -> bool {
-    matches!(
-        name,
-        "empty"
-            | "left"
-            | "right"
-            | "up"
-            | "down"
-            | "force"
-            | "confirm-close"
-            | "complete"
-            | "clear-name"
-            | "clear-kind"
-            | "clear-foreground"
-            | "clear-background"
-            | "clear-cursor"
-            | "clear-selection-background"
-            | "clear-selection-foreground"
-            | "clear-cursor-style"
-            | "clear-cursor-blink"
-            | "clear-palette"
-            | "read-only"
-            | "relaunch"
-            | "styled"
-            | "builtin"
-            | "mutation"
-            | "stream"
-            | "ignore-case"
-    )
+/// Metadata for flags which consume no following token.
+///
+/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
+/// single place to extend when a command adds a boolean option. This is the
+/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
+/// cmux's custom forwarding and error text.
+const BOOLEAN_FLAGS: &[&str] = &[
+    "clear",
+    "reply",
+    "empty",
+    "left",
+    "right",
+    "up",
+    "down",
+    "force",
+    "confirm-close",
+    "complete",
+    "clear-name",
+    "clear-kind",
+    "clear-foreground",
+    "clear-background",
+    "clear-cursor",
+    "clear-selection-background",
+    "clear-selection-foreground",
+    "clear-cursor-style",
+    "clear-cursor-blink",
+    "clear-palette",
+    "read-only",
+    "relaunch",
+    "styled",
+    "builtin",
+    "mutation",
+    "stream",
+    "ignore-case",
+];
+
+pub(super) fn is_boolean_flag(name: &str) -> bool {
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_machine(
@@ -426,6 +473,23 @@ fn parse_session(
             force: flags.boolean("force"),
             confirm_reset: flags.take("confirm-reset"),
         })),
+        [selector, "stop"] => {
+            let session = match Selector::parse(selector).map_err(|_| {
+                UsageError::new(crate::localization::catalog().local_server.session_name_required)
+            })? {
+                Selector::Name(name) if !name.is_empty() => Some(name),
+                Selector::Current => None,
+                Selector::Name(_) | Selector::Id(_) => {
+                    return Err(UsageError::new(
+                        crate::localization::catalog().local_server.session_name_required,
+                    ));
+                }
+            };
+            Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
+                action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+                session,
+            }))
+        }
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())
@@ -661,11 +725,7 @@ fn parse_screen_strings(
                 params.insert("confirm_close".into(), Value::Bool(true));
             }
             if let Some(token) = flags.take("confirmation-token") {
-                if token.is_empty() || token.len() > 128 {
-                    return Err(UsageError::new(
-                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
-                    ));
-                }
+                validate_bounded_text("--confirmation-token", &token)?;
                 params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
@@ -856,6 +916,7 @@ fn parse_tab_strings(
         }
         [selector, "rename"] => {
             selectors.insert("tab", "tab", selector)?;
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             request_with_required_name(ResourceOperation::TabRename, selectors, flags)
         }
         [selector, "move"] => {
@@ -1024,6 +1085,25 @@ fn parse_terminal(
         [selector, "history", "clear"] => {
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
+        }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
         }
         [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1242,7 +1322,7 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
         ["list"] => {
             let mut params = Map::new();
             if let Some(limit) = flags.take("limit") {
-                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 1_000)?;
+                insert_bounded_u32(&mut params, "limit", "--limit", limit, 1, 256)?;
             }
             request(ResourceOperation::NotificationList, &selectors, flags, params)
         }
@@ -1253,6 +1333,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 return Err(UsageError::new("--title cannot be empty"));
             }
             params.insert("title".into(), Value::String(title));
+            if let Some(subtitle) = flags.take("subtitle") {
+                params.insert("subtitle".into(), Value::String(subtitle));
+            }
             params.insert("body".into(), Value::String(flags.required("body")?));
             if let Some(level) = flags.take("level") {
                 validate_one_of("--level", &level, &["info", "success", "warning", "error"])?;
@@ -1264,13 +1347,144 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
             }
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
+        ["clear"] => {
+            let mut params = Map::new();
+            if let Some(terminal) = flags.take("terminal") {
+                validate_prefixed_id("terminal", "term", &terminal)?;
+                params.insert("terminal_id".into(), Value::String(terminal));
+            }
+            request(ResourceOperation::NotificationClear, &selectors, flags, params)
+        }
+        ["ack", ids @ ..] => {
+            let mut params = Map::new();
+            let client_id = flags.required("client")?;
+            if client_id.is_empty()
+                || client_id.len() > 128
+                || !client_id.bytes().all(|byte| byte.is_ascii_graphic())
+            {
+                return Err(UsageError::new(
+                    "--client must be 1 to 128 printable ASCII bytes without spaces",
+                ));
+            }
+            params.insert("client_id".into(), Value::String(client_id));
+            if ids.is_empty() {
+                return Err(UsageError::new("notification ack needs at least one notification ID"));
+            }
+            if ids.len() > 256 {
+                return Err(UsageError::new(
+                    "notification ack accepts at most 256 notification IDs",
+                ));
+            }
+            for id in ids {
+                validate_prefixed_id("notification", "notification", id)?;
+            }
+            params.insert(
+                "notifications".into(),
+                Value::Array(ids.iter().map(|id| Value::String((*id).to_string())).collect()),
+            );
+            request(ResourceOperation::NotificationAck, &selectors, flags, params)
+        }
         _ => usage("notification action"),
     }
+}
+
+/// `cmux notify`, with the flags of the macOS `cmux notify`, so a script or an
+/// agent hook written for a local terminal works unchanged inside a machine.
+/// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
+/// into every daemon PTY) unless `--surface` names another terminal of this
+/// session or `--workspace` asks for a session-level row; a machine cannot
+/// address anything outside its own session. `--reply` is refused: the reply
+/// channel would type into a terminal, and that channel does not cross the
+/// machine boundary. `--window` and `--id-format` are accepted for
+/// signature parity and have no meaning on a machine.
+fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    if !words.is_empty() {
+        return usage("notify takes flags only");
+    }
+    let selectors = Selectors::default();
+    if flags.boolean("reply") {
+        return Err(UsageError::new(
+            "--reply is not available on a machine: replies would type into a terminal across the link",
+        ));
+    }
+    let _ = flags.take("window");
+    let _ = flags.take("id-format");
+    let workspace = flags.take("workspace");
+    if let Some(workspace) = &workspace
+        && workspace != "current"
+    {
+        validate_prefixed_id("workspace", "ws", workspace)?;
+    }
+    let caller_terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+    let surface = match flags.take_dashed("--surface") {
+        Some(value) if value == "current" => match caller_terminal {
+            Some(terminal) => Some(terminal),
+            None => {
+                return Err(UsageError::new(
+                    "--surface current needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass --surface <term_id>",
+                ));
+            }
+        },
+        Some(value) => Some(value),
+        // A workspace-scoped notify has no terminal, like the local form.
+        None if workspace.is_some() => None,
+        None => caller_terminal,
+    };
+    if let Some(surface) = &surface {
+        validate_prefixed_id("terminal", "term", surface)?;
+    }
+    let mut params = Map::new();
+    if flags.boolean("clear") {
+        if flags.take("title").is_some()
+            || flags.take("subtitle").is_some()
+            || flags.take("body").is_some()
+        {
+            return Err(UsageError::new("--clear does not take --title, --subtitle, or --body"));
+        }
+        // A clear must name its scope. Outside a daemon terminal there is no
+        // caller terminal to default to, and silently clearing the whole
+        // session would be the wrong surprise.
+        if surface.is_none() && workspace.is_none() {
+            return Err(UsageError::new(
+                "--clear needs a scope: run it from a machine terminal, or pass --surface <term_id> or --workspace current",
+            ));
+        }
+        if let Some(surface) = surface {
+            params.insert("terminal_id".into(), Value::String(surface));
+        }
+        return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    let title = flags.take("title").unwrap_or_else(|| "Notification".into());
+    if title.is_empty() {
+        return Err(UsageError::new("--title cannot be empty"));
+    }
+    if title.chars().count() > 512 {
+        return Err(UsageError::new("--title is limited to 512 characters"));
+    }
+    params.insert("title".into(), Value::String(title));
+    if let Some(subtitle) = flags.take("subtitle") {
+        if subtitle.chars().count() > 512 {
+            return Err(UsageError::new("--subtitle is limited to 512 characters"));
+        }
+        params.insert("subtitle".into(), Value::String(subtitle));
+    }
+    let body = flags.take("body").unwrap_or_default();
+    if body.chars().count() > 4096 {
+        return Err(UsageError::new("--body is limited to 4096 characters"));
+    }
+    params.insert("body".into(), Value::String(body));
+    if let Some(surface) = surface {
+        params.insert("terminal_id".into(), Value::String(surface));
+    }
+    request(ResourceOperation::NotificationCreate, &selectors, flags, params)
 }
 
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
+        }
         ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
             let action = match *action {
                 "install" => crate::agent_hook_install::Action::Install,
@@ -1441,12 +1655,18 @@ fn parse_sidebar(
             insert_selector_or_current(selectors, flags, "view", "sidebar_view", "sidebar_view")?;
             request(ResourceOperation::SidebarViewReload, selectors, flags, Map::new())
         }
-        ["plugin", tail @ ..] => parse_plugin(tail, flags),
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
         _ => usage("sidebar action"),
     }
 }
 
-fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_plugin(
+    words: &[&str],
+    flags: &mut Flags,
+    kind: crate::plugin_manager::PluginKind,
+) -> Result<CommandPlan, UsageError> {
     let mut positionals = vec![];
     let mut builtin = false;
     match words {
@@ -1471,13 +1691,14 @@ fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageE
             positionals.push("remove".into());
             positionals.push((*name).into());
         }
-        _ => return usage("sidebar plugin action"),
+        _ => return usage("plugin action"),
     }
     let plan = PluginPlan {
         positionals,
         name: flags.take("name"),
         force: flags.boolean("force"),
         builtin,
+        kind,
     };
     Ok(CommandPlan::Plugin(plan))
 }
@@ -1554,9 +1775,7 @@ fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageE
         [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
     {
         let value = flags.required(flag)?;
-        if value.is_empty() || value.len() > 128 {
-            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
-        }
+        validate_bounded_text(&format!("--{flag}"), &value)?;
         params.insert(field.into(), Value::String(value));
     }
     if let Some(revision) = flags.take("expected-projection-revision") {
@@ -1594,7 +1813,10 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         if !request.is_object() {
             return Err(UsageError::new("--request-json must be a JSON object"));
         }
-        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request }));
+        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan {
+            request,
+            stream: flags.boolean("stream"),
+        }));
     }
     let operation = match refs.as_slice() {
         ["operation", operation] => *operation,
@@ -1685,6 +1907,14 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
         Err(UsageError::new("correlation key cannot be empty"))
     } else if value.len() > 128 {
         Err(UsageError::new("correlation key cannot exceed 128 UTF-8 bytes"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.is_empty() || value.len() > 128 {
+        Err(UsageError::new(format!("{flag} must contain 1 to 128 UTF-8 bytes")))
     } else {
         Ok(())
     }
@@ -2021,6 +2251,17 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("name".into(), Value::String(flags.required("name")?));
+    if operation == ResourceOperation::TabRename {
+        if let Some(source) = flags.take("source") {
+            validate_one_of("--source", &source, &["user", "auto"])?;
+            params.insert("source".into(), Value::String(source));
+        }
+        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
+        if let Some(revision) = flags.take("expected-name-revision") {
+            validate_decimal("--expected-name-revision", &revision)?;
+            params.insert("expected_name_revision".into(), Value::String(revision));
+        }
+    }
     request(operation, selectors, flags, params)
 }
 
@@ -2051,6 +2292,19 @@ fn run_params(
     }
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
+    }
+    if let Some(policy) = flags.take("on-exit") {
+        match policy.as_str() {
+            "close" | "keep" => {
+                params.insert("on_exit".into(), Value::String(policy));
+            }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
+            _ => {
+                return Err(UsageError::new("--on-exit must be close or keep"));
+            }
+        }
     }
     Ok(params)
 }
@@ -2553,6 +2807,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
             force: plan.force,
             builtin: plan.builtin,
         },
+        plan.kind,
     ) {
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
@@ -2651,7 +2906,7 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
     }
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
-            Some(path) => path,
+            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
             None => {
                 return super::wire::print_local_error(
                     &json!({
@@ -2840,6 +3095,41 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in BOOLEAN_FLAGS {
+            assert!(is_boolean_flag(name));
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(*name));
+            assert_eq!(tokens.flags.values[*name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn server_stats_typo_suggests_stats_action() {
+        let error = match parse(&strings(&["server", "stat"])) {
+            Err(error) => error,
+            Ok(_) => panic!("unknown server action must be rejected"),
+        };
+        assert!(error.0.contains("Did you mean `stats`?"), "{error}");
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
     }
 
     fn protocol(values: &[&str]) -> RequestPlan {
@@ -3092,6 +3382,100 @@ mod tests {
         ] {
             assert!(parse(&strings(&unreachable)).is_err(), "{unreachable:?}");
         }
+    }
+
+    #[test]
+    fn cloud_rename_authority_validates_name_source_and_revision() {
+        const TAB: &str = "tab_00000000000000000000000000000007";
+        for source in ["user", "auto"] {
+            for revision in ["0", "18446744073709551615"] {
+                let plan = protocol(&[
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    source,
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    revision,
+                ]);
+                assert_eq!(operation(&plan), "tab.rename");
+                assert_eq!(plan.params["source"], source);
+                assert_eq!(plan.params["expected_generation"], "daemon");
+                assert_eq!(plan.params["expected_name_revision"], revision);
+            }
+        }
+
+        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
+        }
+
+        for invalid in ["", "process", "USER"] {
+            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid source {invalid:?}");
+        }
+    }
+
+    #[test]
+    fn notify_matches_the_local_cmux_notify_signature() {
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let plain = protocol(&[
+            "notify",
+            "--title",
+            "Build done",
+            "--subtitle",
+            "api",
+            "--body",
+            "ok",
+            "--surface",
+            TERMINAL,
+            "--id-format",
+            "both",
+            "--window",
+            "1",
+        ]);
+        assert_eq!(plain.operation.name().unwrap(), "notification.create");
+        assert_eq!(plain.params["title"], "Build done");
+        assert_eq!(plain.params["subtitle"], "api");
+        assert_eq!(plain.params["body"], "ok");
+        assert_eq!(plain.params["terminal_id"], TERMINAL);
+
+        // Defaults match the local CLI: title "Notification", empty body.
+        let defaults = protocol(&["notify", "--workspace", "current"]);
+        assert_eq!(defaults.params["title"], "Notification");
+        assert_eq!(defaults.params["body"], "");
+        assert!(defaults.params.get("terminal_id").is_none(), "a workspace notify has no terminal");
+
+        let clear = protocol(&["notify", "--clear", "--surface", TERMINAL]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["terminal_id"], TERMINAL);
+        let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(clear_all.params.get("terminal_id").is_none());
+
+        assert!(
+            parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
+            "no reply channel across the link"
+        );
+        if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
+            assert!(
+                parse(&strings(&["notify", "--clear"])).is_err(),
+                "no implicit whole-session clear"
+            );
+            assert!(parse(&strings(&["notify", "--surface", "current"])).is_err());
+        }
+        assert!(parse(&strings(&["notify", "--title", ""])).is_err());
+        assert!(
+            parse(&strings(&["notify", "--surface", "not-a-terminal"])).is_err(),
+            "only this session's terminal ids"
+        );
+        assert!(parse(&strings(&["notify", "extra"])).is_err());
+        let long = "x".repeat(4097);
+        assert!(parse(&strings(&["notify", "--body", &long])).is_err());
     }
 
     #[test]
@@ -3379,6 +3763,63 @@ mod tests {
         assert_eq!(empty_argument.params["argv"], json!(["printf", ""]));
         assert!(parse(&strings(&["pane", "current", "run", "--", "", "argument"])).is_err());
         assert!(parse(&strings(&["pane", "current", "run", "echo ok"])).is_err());
+    }
+
+    #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
     }
 
     #[test]
@@ -3692,6 +4133,25 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_management_stays_local_and_can_be_disabled() {
+        let cases = [
+            (vec!["agent", "plugin", "list"], false),
+            (vec!["agent", "plugin", "install", "https://example.com/plugin.git"], false),
+            (vec!["agent", "plugin", "use", "screen-detector"], false),
+            (vec!["agent", "plugin", "update", "screen-detector"], false),
+            (vec!["agent", "plugin", "remove", "screen-detector"], false),
+            (vec!["agent", "plugin", "use", "--builtin"], true),
+        ];
+        for (args, builtin) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("agent plugin command did not stay local: {args:?}");
+            };
+            assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
+            assert_eq!(plan.builtin, builtin);
+        }
+    }
+
+    #[test]
     fn every_safe_transport_operation_has_a_noun_first_path() {
         const MACHINE: &str = "machine_00000000000000000000000000000001";
         const SESSION: &str = "session_00000000000000000000000000000002";
@@ -3921,6 +4381,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4044,6 +4506,8 @@ mod tests {
                     "90",
                     "--rows",
                     "30",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4090,7 +4554,22 @@ mod tests {
                 ],
                 "tab.create_browser",
             ),
-            (vec!["tab", TAB, "rename", "--name", "logs"], "tab.rename"),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    "auto",
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    "0",
+                ],
+                "tab.rename",
+            ),
             (
                 vec![
                     "tab",
@@ -4141,6 +4620,19 @@ mod tests {
                 "terminal.history.read",
             ),
             (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
             (
                 vec![
                     "terminal",
@@ -4285,6 +4777,8 @@ mod tests {
                 vec![
                     "notification",
                     "create",
+                    "--subtitle",
+                    "api",
                     "--title",
                     "done",
                     "--body",
@@ -4324,11 +4818,30 @@ mod tests {
                 "sidebar_view.resize",
             ),
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
+            (
+                vec![
+                    "notification",
+                    "ack",
+                    "notification_00000000000000000000000000000041",
+                    "--client",
+                    "mac-1",
+                ],
+                "notification.ack",
+            ),
+            (
+                vec![
+                    "notification",
+                    "clear",
+                    "--terminal",
+                    "term_00000000000000000000000000000041",
+                ],
+                "notification.clear",
+            ),
         ];
 
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 120);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

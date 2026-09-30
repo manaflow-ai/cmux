@@ -1,6 +1,6 @@
 # Machine Agent Contract
 
-The machine agent exposes one existing local cmux session to an authenticated cmux.cloud broker without a public listener. The selected session continues to speak mux protocol v11. The agent adds a separately versioned byte-stream tunnel around that session.
+The machine agent exposes one existing local cmux session to an authenticated cmux.cloud broker without a public listener. The selected session continues to speak mux protocol v12. The agent adds a separately versioned byte-stream tunnel around that session.
 
 ## Process and transport
 
@@ -12,7 +12,7 @@ cmux machine-agent [--session <name>] [--socket <path>]
   [--cloud-port <port>] [--cloud-identity <path>]
 ```
 
-Packaged builds expose the same mode as `npx cmux machine-agent`. The agent first probes the selected socket with `identify` and requires protocol v11. It then invokes OpenSSH with an outbound stdio channel whose remote exec command is exactly:
+Packaged builds expose the same mode as `npx cmux machine-agent`. The agent first probes the selected socket with `identify` and requires protocol v12. It then invokes OpenSSH with an outbound stdio channel whose remote exec command is exactly:
 
 ```text
 cmux machine register
@@ -46,7 +46,7 @@ On first registration, the broker must atomically bind the machine id and secret
 
 ## Stream multiplexing
 
-The broker sends `open` with a nonzero stream id, a generation-independent replay id, and initial agent-to-broker credit. The agent opens a fresh connection to the selected local protocol-v11 socket and replies with `opened` plus broker-to-agent credit, or `reject` with a stable failure code.
+The broker sends `open` with a nonzero stream id, a generation-independent replay id, and initial agent-to-broker credit. The agent opens a fresh connection to the selected local protocol-v12 socket and replies with `opened` plus broker-to-agent credit, or `reject` with a stable failure code.
 
 `data` carries at most 24 KiB as unpadded base64. `window` replenishes byte credit. A zero-length `data`, zero-byte `window`, credit overflow, or data beyond available credit closes that stream with `flow_control`. A local read or write failure closes only its stream. `close` is idempotent.
 

@@ -1,7 +1,9 @@
 import Foundation
 
-/// Known coding-agent CLIs the composer can offer model choices for, each
-/// owning its curated model list and model-flag spelling.
+/// Known coding-agent CLIs the composer can offer model choices for.
+///
+/// Model catalogs are supplied at runtime by the selected Mac or cmux's
+/// backend. This type owns only provider detection and model-flag spelling.
 public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// Anthropic's Claude Code CLI.
     case claude
@@ -36,44 +38,6 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
         }
     }
 
-    /// The curated models offered for this provider, in display order.
-    public var models: [MobileTaskAgentModel] {
-        switch self {
-        case .claude:
-            [
-                MobileTaskAgentModel(id: "claude-fable-5", displayName: "Fable 5"),
-                MobileTaskAgentModel(id: "claude-opus-4-8", displayName: "Opus 4.8"),
-                MobileTaskAgentModel(id: "claude-sonnet-5", displayName: "Sonnet 5"),
-                MobileTaskAgentModel(id: "claude-haiku-4-5", displayName: "Haiku 4.5"),
-            ]
-        case .codex:
-            [
-                MobileTaskAgentModel(id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna"),
-                MobileTaskAgentModel(id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol"),
-                MobileTaskAgentModel(id: "gpt-5.5", displayName: "GPT-5.5"),
-            ]
-        case .openCode:
-            [
-                MobileTaskAgentModel(
-                    id: "anthropic/claude-sonnet-5",
-                    displayName: "Claude Sonnet 5"
-                ),
-                MobileTaskAgentModel(
-                    id: "anthropic/claude-opus-4-8",
-                    displayName: "Claude Opus 4.8"
-                ),
-                MobileTaskAgentModel(id: "openai/gpt-5.5", displayName: "GPT-5.5"),
-            ]
-        }
-    }
-
-    /// Validates a model identifier against this provider's curated list.
-    /// - Parameter id: CLI model identifier to validate.
-    /// - Returns: The matching curated model, or `nil` when it is unavailable.
-    public func model(id: String) -> MobileTaskAgentModel? {
-        models.first { $0.id == id }
-    }
-
     /// Applies a model selection to the command.
     ///
     /// When the first simple command already carries one of this provider's
@@ -91,10 +55,46 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     ///   - command: User-authored task-template command.
     /// - Returns: The command running the selected model.
     public func command(applying modelID: String, to command: String) -> String {
+        applyingOption(
+            applyingOptionValue: modelID,
+            flagSpellings: modelFlagSpellings,
+            to: command
+        )
+    }
+
+    /// Applies one model-specific effort selection to the command.
+    ///
+    /// The effort value is supplied by the selected model's live catalog.
+    /// This type owns only each provider's CLI spelling and never invents a
+    /// provider-wide set of possible values.
+    public func command(applyingEffort effortID: String, to command: String) -> String {
+        switch self {
+        case .claude:
+            applyingOption(
+                applyingOptionValue: effortID,
+                flagSpellings: ["--effort"],
+                to: command
+            )
+        case .codex:
+            applyingCodexEffort(effortID, to: command)
+        case .openCode:
+            applyingOption(
+                applyingOptionValue: effortID,
+                flagSpellings: ["--variant"],
+                to: command
+            )
+        }
+    }
+
+    private func applyingOption(
+        applyingOptionValue optionValue: String,
+        flagSpellings: [String],
+        to command: String
+    ) -> String {
         guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
             return command
         }
-        let quotedID = "'\(modelID.replacingOccurrences(of: "'", with: "'\\''"))'"
+        let quotedValue = Self.shellQuoted(optionValue)
 
         // Collect edits against the immutable command, then apply back to
         // front so earlier ranges stay valid.
@@ -115,10 +115,10 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
             // syntax that must be processed so the stale value cannot win.
             let boundary = Self.unquotedCommandBoundaryIndex(in: text)
             let word = boundary.map { text[..<$0] } ?? text
-            if modelFlagSpellings.contains(where: { word == $0 }) {
+            if flagSpellings.contains(where: { word == $0 }) {
                 if let boundary {
                     // `--model;`: supply the value before the separator.
-                    edits.append((boundary..<boundary, " \(quotedID)"))
+                    edits.append((boundary..<boundary, " \(quotedValue)"))
                     break
                 }
                 if let value = Self.tokenRange(in: command, from: token.upperBound),
@@ -128,20 +128,20 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
                     if let valueBoundary = Self.unquotedCommandBoundaryIndex(in: valueText) {
                         // `--model old;`: replace only the value before the
                         // separator so no stale positional argument remains.
-                        edits.append((value.lowerBound..<valueBoundary, quotedID))
+                        edits.append((value.lowerBound..<valueBoundary, quotedValue))
                         break
                     }
-                    edits.append((value, quotedID))
+                    edits.append((value, quotedValue))
                     searchStart = value.upperBound
                 } else {
                     // Dangling flag (at the end of the simple command):
                     // supply the value right after the flag token.
-                    edits.append((token.upperBound..<token.upperBound, " \(quotedID)"))
+                    edits.append((token.upperBound..<token.upperBound, " \(quotedValue)"))
                 }
                 continue
             }
-            if let spelling = modelFlagSpellings.first(where: { word.hasPrefix("\($0)=") }) {
-                edits.append((token.lowerBound..<word.endIndex, "\(spelling)=\(quotedID)"))
+            if let spelling = flagSpellings.first(where: { word.hasPrefix("\($0)=") }) {
+                edits.append((token.lowerBound..<word.endIndex, "\(spelling)=\(quotedValue)"))
             }
             if boundary != nil { break }
         }
@@ -153,8 +153,53 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
             return replaced
         }
 
-        let flag = modelFlagSpellings[0]
-        return "\(command[..<firstToken.upperBound]) \(flag) \(quotedID)\(command[firstToken.upperBound...])"
+        let flag = flagSpellings[0]
+        return "\(command[..<firstToken.upperBound]) \(flag) \(quotedValue)\(command[firstToken.upperBound...])"
+    }
+
+    private func applyingCodexEffort(_ effortID: String, to command: String) -> String {
+        guard let firstToken = Self.tokenRange(in: command, from: command.startIndex) else {
+            return command
+        }
+        let replacement = "model_reasoning_effort=\(Self.shellQuoted(effortID))"
+        var edits: [(range: Range<String.Index>, replacement: String)] = []
+        var searchStart = firstToken.upperBound
+        while let token = Self.tokenRange(in: command, from: searchStart) {
+            if command[searchStart..<token.lowerBound].contains(where: \.isNewline) { break }
+            searchStart = token.upperBound
+            let text = command[token]
+            if text == "--" || text.hasPrefix("#") { break }
+            let boundary = Self.unquotedCommandBoundaryIndex(in: text)
+            let word = boundary.map { text[..<$0] } ?? text
+            if word.hasPrefix("--config=model_reasoning_effort=") {
+                edits.append((token.lowerBound..<word.endIndex, "--config=\(replacement)"))
+            }
+            if boundary != nil { break }
+            guard text == "-c" || text == "--config" else { continue }
+            guard let value = Self.tokenRange(in: command, from: token.upperBound),
+                  !command[token.upperBound..<value.lowerBound].contains(where: \.isNewline)
+            else { break }
+            let valueText = command[value]
+            let valueBoundary = Self.unquotedCommandBoundaryIndex(in: valueText)
+            let valueWord = valueBoundary.map { valueText[..<$0] } ?? valueText
+            if valueWord.hasPrefix("model_reasoning_effort=") {
+                edits.append((value.lowerBound..<valueWord.endIndex, replacement))
+            }
+            searchStart = value.upperBound
+            if valueBoundary != nil { break }
+        }
+        if !edits.isEmpty {
+            var replaced = command
+            for edit in edits.reversed() {
+                replaced.replaceSubrange(edit.range, with: edit.replacement)
+            }
+            return replaced
+        }
+        return "\(command[..<firstToken.upperBound]) -c \(replacement)\(command[firstToken.upperBound...])"
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     /// Model-flag spellings this provider's CLI accepts; the first is used
@@ -260,13 +305,42 @@ public struct MobileTaskAgentModel: Equatable, Sendable, Identifiable {
     public let id: String
     /// Product name displayed verbatim in the composer.
     public let displayName: String
+    /// Effort values reported for this exact model, in provider order.
+    public let efforts: [MobileTaskAgentEffort]
+    /// Provider-reported default effort, when it names one of `efforts`.
+    public let defaultEffortID: String?
 
     /// Creates a selectable coding-agent model.
     /// - Parameters:
     ///   - id: CLI identifier passed to the provider's model flag.
     ///   - displayName: Product name displayed verbatim in the composer.
-    public init(id: String, displayName: String) {
+    public init(
+        id: String,
+        displayName: String,
+        efforts: [MobileTaskAgentEffort] = [],
+        defaultEffortID: String? = nil
+    ) {
         self.id = id
         self.displayName = displayName
+        self.efforts = efforts
+        self.defaultEffortID = efforts.contains { $0.id == defaultEffortID }
+            ? defaultEffortID
+            : nil
+    }
+}
+
+/// One effort choice reported for one exact coding-agent model.
+public struct MobileTaskAgentEffort: Equatable, Sendable, Identifiable {
+    /// CLI value passed to the provider's effort or variant flag.
+    public let id: String
+    /// Product name displayed verbatim in the composer.
+    public let displayName: String
+    /// Optional provider-authored explanation of the tradeoff.
+    public let description: String?
+
+    public init(id: String, displayName: String, description: String? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.description = description
     }
 }

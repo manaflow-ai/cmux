@@ -16,6 +16,13 @@ struct PendingReplyState: Sendable {
         pending = nil
     }
 
+    /// Consumes the pending reply only if it is still the given one, so a
+    /// newer reply parked while an async send/relay was in flight survives.
+    mutating func discardIfMatching(replyId: String) {
+        guard pending?.replyId == replyId else { return }
+        pending = nil
+    }
+
     /// Evaluates expiry and all prerequisites without depending on UIKit or a live shell store.
     mutating func evaluate(
         now: Date,

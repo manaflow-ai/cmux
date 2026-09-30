@@ -1,9 +1,11 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSettings
 import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -82,10 +84,17 @@ struct DetectedSSHSession: Equatable {
     }
 #endif
 
-    private func uploadDroppedFilesSync(
+    func uploadDroppedFilesSync(
         _ fileURLs: [URL],
-        operation: TerminalImageTransferOperation
+        operation: TerminalImageTransferOperation,
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()
     ) throws -> [String] {
+        // `DisableFileTransfer` (MDM): the detected-SSH transfer is cmux
+        // mediating an upload, so it fails closed. A user's own `scp` typed
+        // into the same terminal is deliberately out of scope.
+        guard !managedDevicePolicy.isEnforced(.disableFileTransfer) else {
+            throw ManagedFileTransferPolicy.refusalError()
+        }
         guard !fileURLs.isEmpty else { return [] }
 
         var uploadedRemotePaths: [String] = []
@@ -110,11 +119,30 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: String(
+                    // scp's own stderr is the only thing that says WHY, and it is
+                    // often the whole answer — "Permission denied
+                    // (keyboard-interactive)" for a host whose 2FA this transport
+                    // cannot answer, say, which the generic "check the host is
+                    // reachable" actively misdirects away from. It is already
+                    // captured, so carry it.
+                    let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let message: String
+                    if detail.isEmpty {
+                        message = String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
                             defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
-                        ),
+                        )
+                    } else {
+                        message = String.localizedStringWithFormat(
+                            String(
+                                localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                                defaultValue: "Couldn't upload the file to the remote session: %@"
+                            ),
+                            detail
+                        )
+                    }
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: message,
                     ])
                 }
 
@@ -137,14 +165,15 @@ struct DetectedSSHSession: Equatable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -169,11 +198,14 @@ struct DetectedSSHSession: Equatable {
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
-        for option in sshOptions {
+        let nonInteractiveSSHOptions = SSHAgentSocketResolver().nonInteractiveOptions(
+            from: sshOptions
+        )
+        for option in nonInteractiveSSHOptions {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        args += ["--", localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -186,14 +218,15 @@ struct DetectedSSHSession: Equatable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -222,7 +255,7 @@ struct DetectedSSHSession: Equatable {
             args += ["-o", option]
         }
 
-        args += [destination, command]
+        args += ["--", destination, command]
         return args
     }
 
@@ -386,6 +419,10 @@ struct DetectedSSHSession: Equatable {
 }
 
 enum TerminalSSHSessionDetector {
+    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+
     struct ProcessSnapshot: Equatable {
         let pid: Int32
         let pgid: Int32
@@ -431,8 +468,13 @@ enum TerminalSSHSessionDetector {
 
         for candidate in candidates {
             guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
-                  let session = parseCommandLine(arguments, for: transport) else {
+                  let arguments = argumentsByPID[candidate.pid] else {
+                continue
+            }
+            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+                continue
+            }
+            guard let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
             return session
@@ -441,11 +483,65 @@ enum TerminalSSHSessionDetector {
         return nil
     }
 
-    private static let psPath = "/bin/ps"
-    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
-    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+    /// Builds a restore binding for a foreground, interactive plain-SSH
+    /// process. Managed `cmux ssh` wrappers are excluded because their stable
+    /// remote PTY binding is authoritative; this path is only the muscle-memory
+    /// `ssh host` command typed into a local pane.
+    static func resumeBinding(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
+    ) -> SurfaceResumeBindingSnapshot? {
+        let executableName = processPath ?? processName
+        guard let transport = RemoteShellTransport(executableName: executableName),
+              case .ssh = transport,
+              !isManagedSSHWrapper(environment: environment),
+              isInteractiveSSHArguments(arguments),
+              let session = parseSSHCommandLine(arguments) else {
+            return nil
+        }
 
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+        // libproc's argv[0] is often the bare `ssh` name even when the
+        // process was launched from a company wrapper or an absolute path.
+        // Preserve the resolved executable path so restore does not silently
+        // switch binaries (or fail when that bare name is not on PATH).
+        let resolvedExecutable = processPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        let launchArguments: [String] = {
+            guard let resolvedExecutable, !arguments.isEmpty else { return arguments }
+            return [resolvedExecutable] + arguments.dropFirst()
+        }()
+        let command = launchArguments
+            .map(SurfaceResumeBindingSnapshot.shellSingleQuoted)
+            .joined(separator: " ")
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(command) else {
+            return nil
+        }
+        let cwd = environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]
+        return SurfaceResumeBindingSnapshot(
+            name: "ssh \(session.destination)",
+            kind: "ssh",
+            command: command,
+            cwd: cwd,
+            source: "process-detected",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: resolvedExecutable ?? launchArguments.first,
+                arguments: launchArguments,
+                workingDirectory: cwd,
+                environment: nil,
+                capturedAt: capturedAt,
+                source: "process-detected"
+            ),
+            autoResume: true,
+            updatedAt: capturedAt
+        )
+    }
+
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -454,7 +550,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
@@ -462,50 +558,88 @@ enum TerminalSSHSessionDetector {
             process.pgid == process.tpgid
     }
 
-    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: psPath)
-        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return []
+    private static func isManagedSSHWrapper(environment: [String: String]) -> Bool {
+        [
+            "CMUX_SSH_PTY_SESSION_ID",
+            "CMUX_REMOTE_PTY_SESSION_ID",
+            "CMUX_SSH_ATTEMPT_ID",
+            "CMUX_SSH_STARTUP_PID",
+        ].contains { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap(parseProcessSnapshot)
     }
 
-    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
-        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
-        guard parts.count == 5,
-              let pid = Int32(parts[0]),
-              let pgid = Int32(parts[1]),
-              let tpgid = Int32(parts[2]) else {
-            return nil
-        }
+    private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
+        guard !arguments.isEmpty else { return false }
+        var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return index + 2 >= arguments.count
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return index == arguments.count - 1
+            }
 
-        return ProcessSnapshot(
-            pid: pid,
-            pgid: pgid,
-            tpgid: tpgid,
-            tty: String(parts[3]),
-            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
+            if argument.count > 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                // -W host:port is a stream forward, not an interactive shell.
+                if option == "W" { return false }
+                if option == "o",
+                   isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
+                    return false
+                }
+                index += 1
+                continue
+            }
+            if argument.count == 2,
+               let option = argument.dropFirst().first,
+               valueArgumentFlags.contains(option) {
+                if option == "W" { return false }
+                if option == "o",
+                   index + 1 < arguments.count,
+                   isNonInteractiveSSHOption(arguments[index + 1]) {
+                    return false
+                }
+                index += 2
+                continue
+            }
+
+            let flags = Array(argument.dropFirst())
+            guard !flags.isEmpty, flags.allSatisfy({ noArgumentFlags.contains($0) }) else {
+                return false
+            }
+            if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
+                return false
+            }
+            index += 1
+        }
+        return false
+    }
+
+    private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
+        let parts = rawOption
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        let key = parts.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let value = parts.count == 2
+            ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            : nil
+        if key == "remotecommand" {
+            // `RemoteCommand=none` is OpenSSH's explicit request for the
+            // normal interactive shell and is safe to resume.
+            return value != "none"
+        }
+        if key == "requesttty" {
+            return value == "no" || value == "false"
+        }
+        if key == "stdinnull" {
+            return value == "yes" || value == "true"
+        }
+        return key == "sessiontype" && value == "none"
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

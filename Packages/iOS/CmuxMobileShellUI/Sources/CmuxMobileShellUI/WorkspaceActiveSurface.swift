@@ -1,22 +1,19 @@
+import CmuxMobileShellModel
 import Foundation
 
 enum WorkspaceActiveSurface: Equatable {
     case terminal
-    case chat
     case browser
     case browserStream
     case simulatorStream
+    case macSurface(MobileSurfacePreview)
 
     static func derive(
-        isChatMode: Bool,
-        hasChosenChatSession: Bool,
         hasActiveBrowser: Bool,
         hasActiveBrowserStream: Bool = false,
-        hasActiveSimulatorStream: Bool = false
+        hasActiveSimulatorStream: Bool = false,
+        selectedMacSurface: MobileSurfacePreview? = nil
     ) -> Self {
-        if isChatMode, hasChosenChatSession {
-            return .chat
-        }
         if hasActiveBrowser {
             return .browser
         }
@@ -26,10 +23,11 @@ enum WorkspaceActiveSurface: Equatable {
         if hasActiveSimulatorStream {
             return .simulatorStream
         }
+        if let selectedMacSurface { return .macSurface(selectedMacSurface) }
         return .terminal
     }
 
-    /// The terminal to refocus when chrome (chat/browser) returns to the
+    /// The terminal to refocus when chrome (browser/stream) returns to the
     /// terminal surface, or nil when autofocus must stay suppressed.
     ///
     /// The terminal stays mounted under chrome (an opacity swap, not a

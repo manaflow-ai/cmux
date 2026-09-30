@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /
@@ -10,6 +11,19 @@ import CmuxTerminal
 /// `surface_health`): the exact bodies the former `TerminalController` v1
 /// handlers ran.
 extension TerminalController {
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings {
+        ControlSidebarCloseStrings(
+            failed: String(
+                localized: "socket.sidebar.closeSurface.failed",
+                defaultValue: "Failed to close surface"
+            ),
+            confirmationRequired: String(
+                localized: "socket.sidebar.closeSurface.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with --force"
+            )
+        )
+    }
+
     // MARK: - Pane listings / focus
 
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? {
@@ -110,6 +124,12 @@ extension TerminalController {
         // pre-pass), minting into the same coordinator-owned registry.
         guard let app = AppDelegate.shared else { return }
 
+        // #2751: same guard as the v2 twin. This runs on the
+        // `drag_surface_to_split` v1 path and iterates the same structures, so
+        // skip the pre-mint pass while session restore is pending or in flight
+        // to avoid faulting on a half-built tree; refs mint lazily otherwise.
+        guard app.didCompleteInitialSessionRestore else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)
@@ -189,6 +209,12 @@ extension TerminalController {
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
+            // Terminal splits check the minimum pane size in
+            // `newTerminalSplitOutcome` (#15371).
+            if !tab.isRemoteTmuxMirror,
+               tab.splitSpaceVerdict(splittingPanel: focusedPanelId, orientation: orientation) == .noSpace {
+                return .noSpace
+            }
             guard let id = tab.newBrowserSplit(
                 from: focusedPanelId,
                 orientation: orientation,
@@ -217,6 +243,8 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
+        case .noSpace:
+            return .noSpace
         case .failed:
             return .failed
         }
@@ -272,12 +300,12 @@ extension TerminalController {
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
-        case .failed:
+        case .failed, .noSpace:
             return .failed
         }
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool = false) -> ControlSidebarCloseSurfaceResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -301,8 +329,10 @@ extension TerminalController {
             return .lastSurface
         }
 
-        // Socket commands must be non-interactive: bypass close-confirmation gating.
-        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true) else {
+        if !force, tab.panelNeedsConfirmClose(panelId: targetSurfaceId) {
+            return .confirmationRequired
+        }
+        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: force) else {
             return .closeFailed
         }
         return .closed
@@ -355,18 +385,25 @@ extension TerminalController {
 
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
+        /// Runs after surface propagation completes.
         completion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        /// Runs as soon as the validated app configuration commits. `false`
+        /// means preparation failed and no new configuration was committed.
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
-                completion: completion
+                completion: completion,
+                commitCompletion: commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 
@@ -381,8 +418,9 @@ extension TerminalController {
         // (resets cached metrics so the Metal layer drawable resizes correctly)
         var refreshedCount = 0
         for panel in tab.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
+            if panel is TerminalPanel,
+               let target = tab.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                 refreshedCount += 1
             }
         }

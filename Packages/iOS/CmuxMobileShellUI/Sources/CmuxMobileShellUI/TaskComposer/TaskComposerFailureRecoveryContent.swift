@@ -2,7 +2,7 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Shared failure and completed-operation recovery controls for both layouts.
+/// Failure and completed-operation recovery controls above the keyboard row.
 struct TaskComposerFailureRecoveryContent: View {
     let isSubmitting: Bool
     let failureTitle: String

@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import Combine
@@ -297,7 +298,7 @@ struct CmuxDurableDeepLinkRestoreTests {
                 inPane: dockPane
             )
         )
-        dock.surfaceIdToPanelId[dockTabId] = dockPanel.id
+        dock.bindSurface(dockTabId, toPanelId: dockPanel.id)
 
         var snapshot = try #require(
             workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
