@@ -85,6 +85,10 @@ final class TerminalAccessibilityText {
     /// so when `newValue` is an edit of a recently vended value, only the
     /// edited middle is returned. Anything else is taken literally, which is
     /// how clients that set just the dictated text have always worked.
+    /// Vended values remain eligible for 30 seconds since their last AX read,
+    /// including cached reads. History is capped at 4 MiB of UTF-8 text,
+    /// evicting the least recently vended values first when it exceeds the cap.
+    /// A single value larger than the cap is not retained.
     func insertedText(
         settingValue newValue: String,
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
@@ -101,6 +105,10 @@ final class TerminalAccessibilityText {
     private func recordVendedValue(_ value: String, at now: TimeInterval) {
         pruneVendedValues(at: now)
         guard !value.isEmpty else { return }
+        if vendedValueHistory.last?.value == value {
+            vendedValueHistory[vendedValueHistory.count - 1].lastVendedAt = now
+            return
+        }
         let byteCount = value.utf8.count
         guard byteCount <= Self.vendedValueHistoryByteLimit else { return }
         vendedValueHistory.removeAll { $0.value == value }

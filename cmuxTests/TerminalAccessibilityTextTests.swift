@@ -56,6 +56,34 @@ struct TerminalAccessibilityTextTests {
         #expect(text.insertedText(settingValue: screen + "git status", now: expiredAt) == screen + "git status")
     }
 
+    @Test("A cached AX read renews the edit window without rereading the screen")
+    func cachedReadRenewsEditWindow() {
+        let text = model(vending: [screen])
+        #expect(text.value(now: testNow + 0.25, read: { "unexpected fresh screen" }) == screen)
+        _ = text.value(now: testNow + 1, read: { "newer screen\n$ " })
+        let originalExpiry = testNow + TerminalAccessibilityText.vendedValueHistoryLifetime
+        #expect(text.insertedText(settingValue: screen + "git status", now: originalExpiry) == "git status")
+        #expect(text.insertedText(settingValue: screen + "git status", now: originalExpiry + 0.25) == screen + "git status")
+    }
+
+    @Test("The UTF-8 byte budget evicts the least recently vended value first")
+    func byteBudgetEvictsLeastRecentlyVendedValue() {
+        let byteLimit = TerminalAccessibilityText.vendedValueHistoryByteLimit
+        let older = String(repeating: "a", count: byteLimit / 2)
+        let newer = String(repeating: "😀", count: byteLimit / 8)
+        let text = model(vending: [older, newer, older, "last"])
+        #expect(text.vendedValues == [older, "last"])
+        #expect(text.vendedValues.reduce(0) { $0 + $1.utf8.count } <= byteLimit)
+    }
+
+    @Test("A value larger than the history budget does not evict retained reads")
+    func oversizedValueIsNotRetained() {
+        let oversized = String(repeating: "a", count: TerminalAccessibilityText.vendedValueHistoryByteLimit + 1)
+        let text = model(vending: [screen, oversized])
+        #expect(text.vendedValues == [screen])
+        #expect(text.insertedText(settingValue: screen + "git status", now: testNow + 1) == "git status")
+    }
+
     @Test("A value that doesn't keep the text the client read is inserted as is")
     func unrelatedValueIsLiteral() {
         #expect(model(vending: [screen]).insertedText(settingValue: "hello world", now: testNow) == "hello world")
