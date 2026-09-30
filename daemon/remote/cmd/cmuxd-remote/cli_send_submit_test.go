@@ -163,7 +163,7 @@ func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
 	}
-	if len(mock.methods()) != 8 { // preflight + paste + 3*(key,state)
+	if len(mock.methods()) != 9 { // preflight (input_state + screen) + paste + 3*(key,state)
 		t.Fatalf("method sequence = %v", mock.methods())
 	}
 }

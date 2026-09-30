@@ -217,7 +217,7 @@ var commands = []commandSpec{
 	{
 		name:          "send",
 		v2Method:      "surface.send_text",
-		flagKeys:      []string{"surface", "workspace", "window"},
+		flagKeys:      []string{"surface", "workspace", "window", "submit", "force"},
 		positionalKey: "text",
 	},
 	{

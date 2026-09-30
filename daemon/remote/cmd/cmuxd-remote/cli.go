@@ -191,6 +191,8 @@ doneFlags:
 		switch cmdName {
 		case "new-workspace":
 			return runNewWorkspaceRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+		case "send":
+			return runSendRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
 		}
 	}
 
