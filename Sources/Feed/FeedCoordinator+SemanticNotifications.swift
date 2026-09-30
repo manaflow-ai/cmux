@@ -60,7 +60,8 @@ extension FeedCoordinator {
     @MainActor
     func observeSemanticLifecycle(_ event: WorkstreamEvent) {
         switch event.hookEventName {
-        case .sessionStart, .sessionEnd, .userPromptSubmit, .subagentStart, .subagentStop, .postToolUse:
+        case .sessionStart, .sessionEnd, .userPromptSubmit, .preToolUse, .postToolUse,
+             .postToolUseFailure, .subagentStart, .subagentStop:
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: event,
                 agentKey: Self.lifecycleStatusKey(forSource: event.source)))
         default:
