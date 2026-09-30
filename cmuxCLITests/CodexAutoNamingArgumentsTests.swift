@@ -65,7 +65,7 @@ struct CodexAutoNamingArgumentsTests {
         [model_providers.subrouter.http_headers]
         X-Subrouter-Agent = "sr"
         [model_providers.subrouter."http_headers"]
-        X-Org-ID = "sensitive-value"
+        X-Org-ID = "sensitive-value" # trailing comment
         [model_providers.subrouter-extra]
         base_url = "http://127.0.0.1:9999/v1"
         """)
@@ -77,6 +77,18 @@ struct CodexAutoNamingArgumentsTests {
         #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
         #expect(!args.joined(separator: " ").contains("secret"))
         #expect(!args.joined(separator: " ").contains("api-secret"))
+    }
+
+    @Test func nonTemporaryConfigDropsHeaderSectionsWithTrailingComments() {
+        let args = CodexAutoNamingArguments.build(configToml: """
+        model = "gpt-5-codex"
+        model_provider = "subrouter"
+        [model_providers.subrouter.http_headers] # trailing comment
+        Authorization = "Bearer sensitive-value"
+        """)
+        let overrides = configOverrides(args)
+        #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
+        #expect(!args.joined(separator: " ").contains("sensitive-value"))
     }
 
     @Test func nonTemporaryConfigDropsUnicodeEscapedHeaderSections() {

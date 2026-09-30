@@ -240,12 +240,38 @@ struct CodexAutoNamingArguments: Sendable {
     }
 
     private static func providerOverrides(from toml: String, usesTemporaryConfig: Bool) -> [String] {
+
+        func removingComment(from rawLine: Substring) -> Substring {
+            var quote: Character?
+            var escaped = false
+            for index in rawLine.indices {
+                let character = rawLine[index]
+                if quote == "\"" {
+                    if escaped {
+                        escaped = false
+                    } else if character == "\\" {
+                        escaped = true
+                    } else if character == "\"" {
+                        quote = nil
+                    }
+                } else if quote == "'" {
+                    if character == "'" {
+                        quote = nil
+                    }
+                } else if character == "\"" || character == "'" {
+                    quote = character
+                } else if character == "#" {
+                    return rawLine[..<index]
+                }
+            }
+            return rawLine
+        }
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
         var section = ""
         for rawLine in toml.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = removingComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
             if line.first == "[", line.last == "]" {
                 section = String(line.dropFirst().dropLast())
