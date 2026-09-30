@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable set-client-info request. Protocol v6; authority: control. */
 public final class SetClientInfoRequest implements WireValue {
     private final Field<List<String>> capabilities;
+    private final Field<String> deviceId;
     private final Field<String> deviceKind;
     private final Field<String> deviceName;
     private final Field<String> displayName;
@@ -22,6 +23,7 @@ public final class SetClientInfoRequest implements WireValue {
 
     private SetClientInfoRequest(Builder builder) {
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
+        this.deviceId = builder.deviceId;
         this.deviceKind = builder.deviceKind;
         this.deviceName = builder.deviceName;
         this.displayName = builder.displayName;
@@ -33,6 +35,7 @@ public final class SetClientInfoRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<List<String>> capabilities() { return capabilities; }
+    public Field<String> deviceId() { return deviceId; }
     public Field<String> deviceKind() { return deviceKind; }
     public Field<String> deviceName() { return deviceName; }
     public Field<String> displayName() { return displayName; }
@@ -46,6 +49,10 @@ public final class SetClientInfoRequest implements WireValue {
         Object rawCapabilities = Wire.optional(object, "capabilities");
         if (!Wire.isMissing(rawCapabilities)) {
             builder.capabilities(rawCapabilities == null ? null : Wire.array(rawCapabilities, "SetClientInfoRequest.capabilities", item -> Wire.string(item, "SetClientInfoRequest.capabilities item")));
+        }
+        Object rawDeviceId = Wire.optional(object, "device_id");
+        if (!Wire.isMissing(rawDeviceId)) {
+            builder.deviceId(rawDeviceId == null ? null : Wire.string(rawDeviceId, "SetClientInfoRequest.device_id"));
         }
         Object rawDeviceKind = Wire.optional(object, "device_kind");
         if (!Wire.isMissing(rawDeviceKind)) {
@@ -78,6 +85,7 @@ public final class SetClientInfoRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "capabilities", capabilities);
+        Wire.put(object, "device_id", deviceId);
         Wire.put(object, "device_kind", deviceKind);
         Wire.put(object, "device_name", deviceName);
         Wire.put(object, "display_name", displayName);
@@ -90,17 +98,18 @@ public final class SetClientInfoRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetClientInfoRequest that)) return false;
-        return Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(userId, that.userId);
+        return Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(userId, that.userId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(capabilities, deviceKind, deviceName, displayName, kind, name, userId); }
+    public int hashCode() { return Objects.hash(capabilities, deviceId, deviceKind, deviceName, displayName, kind, name, userId); }
 
     @Override
     public String toString() { return "SetClientInfoRequest" + toWire(); }
 
     public static final class Builder {
         private Field<List<String>> capabilities = Field.omitted();
+        private Field<String> deviceId = Field.omitted();
         private Field<String> deviceKind = Field.omitted();
         private Field<String> deviceName = Field.omitted();
         private Field<String> displayName = Field.omitted();
@@ -110,6 +119,10 @@ public final class SetClientInfoRequest implements WireValue {
 
         public Builder capabilities(List<String> value) {
             this.capabilities = Field.ofNullable(value);
+            return this;
+        }
+        public Builder deviceId(String value) {
+            this.deviceId = Field.ofNullable(value);
             return this;
         }
         public Builder deviceKind(String value) {

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+import json
+import signal
 import subprocess
 import sys
 import textwrap
@@ -24,6 +26,25 @@ RESTART = (
 )
 RESTART_BUDGET_EXIT_CODE = 123
 STARTUP_HANG_EXIT_CODE = 122
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def test_startup_deadline() -> None:
@@ -48,6 +69,52 @@ def test_startup_deadline() -> None:
     result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", connected],
                             env=env, capture_output=True, text=True, timeout=12)
     assert result.returncode == 0, (result.returncode, result.stderr)
+
+
+def test_sigterm_cleans_up_detached_test_descendant() -> None:
+    """Cancellation must stop app-host descendants outside xcodebuild's group."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        record = root / "tree.json"
+        child = root / "fake_xcodebuild.py"
+        child.write_text(
+            textwrap.dedent(
+                f"""
+                import json, os, signal, subprocess, sys, time
+                helper = subprocess.Popen(
+                    [sys.executable, "-c", "import pathlib,signal; signal.signal(signal.SIGTERM,signal.SIG_IGN); pathlib.Path({str(record) + '.ready'!r}).touch(); signal.pause()"],
+                    start_new_session=True,
+                )
+                while not os.path.exists({str(record) + '.ready'!r}): time.sleep(0.01)
+                with open({str(record)!r} + ".tmp", "w") as handle:
+                    json.dump({{"helper": helper.pid}}, handle)
+                os.rename({str(record)!r} + ".tmp", {str(record)!r})
+                signal.pause()
+                """
+            ),
+            encoding="utf-8",
+        )
+        wrapper = subprocess.Popen(
+            [sys.executable, str(HELPER), sys.executable, str(child)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        helper = None
+        try:
+            deadline = time.monotonic() + 5
+            while not record.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert record.exists(), "fake xcodebuild did not start"
+            helper = int(json.loads(record.read_text())["helper"])
+            os.kill(wrapper.pid, signal.SIGTERM)
+            assert wrapper.wait(timeout=10) == 124
+            assert _wait_for_exit(helper), "SIGTERM orphaned the detached test helper"
+        finally:
+            if wrapper.poll() is None:
+                wrapper.kill()
+                wrapper.wait()
+            if helper is not None and _pid_alive(helper):
+                os.kill(helper, signal.SIGKILL)
 
 
 def test_compiler_timeout_evidence() -> None:
@@ -92,6 +159,7 @@ def test_compiler_timeout_evidence() -> None:
 
 
 def main() -> int:
+    test_sigterm_cleans_up_detached_test_descendant()
     test_compiler_timeout_evidence()
     test_startup_deadline()
     child = textwrap.dedent(
