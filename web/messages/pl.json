@@ -139,7 +139,9 @@
     "backToBlog": "Powrót do bloga",
     "readTheDocs": "Przeczytaj dokumentację",
     "viewChangelog": "Zobacz dziennik zmian",
-    "otherPlatforms": "Inne platformy"
+    "otherPlatforms": "Inne platformy",
+    "copyCode": "Kopiuj kod",
+    "copied": "Skopiowano"
   },
   "nav": {
     "docs": "Dokumentacja",
@@ -1540,7 +1542,6 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z).",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",
@@ -2325,6 +2326,28 @@
       "fixTransferDisabled": "Zasada zarządzana wyłącza przesyłanie plików. Skontaktuj się z administratorem.",
       "supportTitle": "Uzyskiwanie pomocy",
       "supportDesc": "Jeśli tworzenie się nie powiedzie, użyj Copy Error w powiadomieniu i dołącz błąd, wraz z identyfikatorem śledzenia, jeśli jest dostępny, gdy kontaktujesz się z pomocą techniczną."
+    },
+    "ui": {
+      "onThisPage": "Na tej stronie",
+      "copyPage": "Kopiuj stronę",
+      "copyPageDesc": "Kopiuj stronę jako Markdown dla LLM",
+      "copied": "Skopiowano",
+      "pageActions": "Więcej akcji strony",
+      "openInChatGPT": "Otwórz w ChatGPT",
+      "openInClaude": "Otwórz w Claude",
+      "openInDesc": "Zadaj pytania o tę stronę",
+      "askPrompt": "Przeczytaj {url}, abym mógł zadawać pytania na jej temat.",
+      "previous": "Poprzednia",
+      "next": "Następna",
+      "helpful": "Czy ta strona była pomocna?",
+      "yes": "Tak",
+      "no": "Nie",
+      "thanks": "Dziękujemy za opinię.",
+      "raiseIssue": "Zgłoś problem",
+      "openNavigation": "Otwórz nawigację",
+      "closeNavigation": "Zamknij nawigację",
+      "searchShortcut": "Szukaj w dokumentacji (⌘K)",
+      "navigation": "Dokumentacja"
     }
   },
   "legal": {
