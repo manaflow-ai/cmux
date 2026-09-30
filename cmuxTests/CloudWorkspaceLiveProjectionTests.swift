@@ -262,6 +262,30 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [first.projection])
     }
 
+    /// Reconcile reprojects through `project`, so a reuse that rewrites unchanged
+    /// coordinates would request its own next pass and spin the main actor.
+    @Test("Reusing a projection at its current placement changes nothing")
+    func reusingCurrentPlacementIsNoOp() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let projection = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        let view = try #require(try catalog.remoteView(for: projection.resource, tabID: projection.remoteTabID, workspaceID: "a"))
+        let version = catalog.projectionVersions[machine]
+
+        let reused = try await catalog.project(
+            projection.resource, into: .workspace(id: fixture.workspace.id, placement: .tab),
+            focus: false, reuseExisting: true, reuseInWorkspace: fixture.workspace.id, remoteView: view
+        )
+
+        #expect(reused.reused)
+        #expect(reused.projection == projection)
+        #expect(catalog.projectionVersions[machine] == version)
+    }
+
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
         let live = LiveWorkspaceFixture()
