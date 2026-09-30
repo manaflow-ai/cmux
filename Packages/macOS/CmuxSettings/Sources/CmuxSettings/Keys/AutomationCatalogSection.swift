@@ -64,7 +64,6 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
-<<<<<<< HEAD
     /// Sends `continue` to a cmux-launched agent whose turn ended on a
     /// retryable upstream error (model at capacity, overloaded, connection
     /// lost), with backoff. Turns waiting on a human are never resumed.
@@ -72,7 +71,8 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.agentAutoResume",
         defaultValue: true,
         userDefaultsKey: "agentAutoResumeEnabled"
-=======
+    )
+
     /// When enabled, native agent-session panels receive a cmux-owned,
     /// per-session `TMPDIR` under `~/.local/state/cmux/agent-artifacts`.
     /// This gives cmux a bounded ownership boundary for future retention and
@@ -81,7 +81,6 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         id: "automation.canonicalAgentScratch",
         defaultValue: false,
         userDefaultsKey: "canonicalAgentScratchEnabled"
->>>>>>> origin/main
     )
 
     // Several agent-integration toggles are intentionally exposed under both

@@ -18,11 +18,8 @@ public struct AutomationSection: View {
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
-<<<<<<< HEAD
     @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
-=======
     @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
->>>>>>> origin/main
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -79,11 +76,8 @@ public struct AutomationSection: View {
         ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
-<<<<<<< HEAD
         _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
-=======
         _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
->>>>>>> origin/main
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -105,11 +99,8 @@ public struct AutomationSection: View {
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
-<<<<<<< HEAD
             agentAutoResumeCard
-=======
             canonicalAgentScratchCard
->>>>>>> origin/main
             ampCard
             cursorCard
             geminiCard
@@ -147,11 +138,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-<<<<<<< HEAD
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
-=======
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
->>>>>>> origin/main
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()

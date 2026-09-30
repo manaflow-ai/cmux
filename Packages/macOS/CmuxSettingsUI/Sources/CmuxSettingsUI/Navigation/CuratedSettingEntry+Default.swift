@@ -25,7 +25,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "claude-path", title: String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), synonyms: "Claude Binary Path automation.claudeBinaryPath claude binary executable path cli command custom"),
             .init(section: .automation, id: "ripgrep-path", title: String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), synonyms: "Ripgrep Binary Path automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
             .init(section: .automation, id: "subagent-notifications", title: String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), synonyms: "Suppress Subagent Notifications automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
-<<<<<<< HEAD
             .init(
                 section: .automation,
                 id: "agent-error-auto-resume",
@@ -38,9 +37,7 @@ extension Array where Element == CuratedSettingEntry {
                 ),
                 anchorPath: "automation.agentAutoResume"
             ),
-=======
             .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
->>>>>>> origin/main
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
 
