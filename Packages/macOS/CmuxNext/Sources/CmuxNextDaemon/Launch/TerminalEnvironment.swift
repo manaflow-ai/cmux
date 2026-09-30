@@ -26,8 +26,24 @@ public enum TerminalEnvironment {
     public static let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
 
     public static func isAllowed(_ key: String) -> Bool {
-        guard !LoginEnvironment.excludedKeys.contains(key) else { return false }
+        guard !LoginEnvironment.excludedKeys.contains(key), !isCredential(key) else { return false }
         return allowedKeys.contains(key) || allowedPrefixes.contains { key.hasPrefix($0) }
+    }
+
+    /// Name parts that mark a credential. A key is allowed by prefix
+    /// (`CMUX_`, `XDG_`, `LC_`), so a secret under an allowed prefix
+    /// (`CMUX_DOGFOOD_STACK_PASSWORD`, `CMUX_SOCKET_PASSWORD`, a token or
+    /// a credentials file) would otherwise reach every program in every
+    /// terminal and the daemon's persisted terminal env.
+    static let credentialParts: Set<String> = [
+        "PASSWORD", "PASSWD", "PASS", "TOKEN", "SECRET", "CREDENTIAL", "CREDENTIALS", "APIKEY", "PRIVATE",
+    ]
+
+    /// Whether `key` names a credential: one of its `_`-separated parts is
+    /// a credential word, or it ends in `_KEY` (`API_KEY`, `ACCESS_KEY`).
+    static func isCredential(_ key: String) -> Bool {
+        let parts = key.uppercased().split(separator: "_").map(String.init)
+        return parts.contains(where: credentialParts.contains) || parts.last == "KEY"
     }
 
     /// The allowlisted subset of `environment`.
