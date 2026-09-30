@@ -895,8 +895,8 @@ private struct AgentFeedQuestionControls: View {
                 HStack(spacing: 0) {
                     ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
                         questionPage(question, index: index)
-                            .fixedSize(horizontal: false, vertical: true)
                             .frame(width: geometry.size.width, alignment: .top)
+                            .fixedSize(horizontal: false, vertical: true)
                             .allowsHitTesting(index == pageIndex)
                             .accessibilityHidden(index != pageIndex)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
