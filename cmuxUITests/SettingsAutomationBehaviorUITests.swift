@@ -39,6 +39,7 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         "claudeCodeCustomClaudePath",
         "ripgrepCustomBinaryPath",
         "suppressSubagentNotifications",
+        "agentAutoResumeEnabled",
         "cursorHooksEnabled",
         "geminiHooksEnabled",
         "cmuxPortBase",

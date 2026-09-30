@@ -121,7 +121,7 @@ struct ConfiguredShortcutMatcher {
     }
 
     func matchesTab(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         return event.keyCode == 48 && flags == stroke.modifierFlags
     }
 

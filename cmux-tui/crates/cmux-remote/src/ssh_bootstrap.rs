@@ -202,6 +202,69 @@ impl SshBootstrapper {
         if !self.config.package_installable {
             return self.install_local_binary().await;
         }
+        let pinned = match self.config.local_binary.as_deref() {
+            Some(executable) => crate::ssh_artifacts::PinnedArtifacts::load(
+                executable,
+                &self.config.build_identity,
+            )?,
+            None => None,
+        };
+        if let Some(pinned) = pinned {
+            let remote = self.remote_platform().await?;
+            if let Some(platform) = pinned.platform(&remote.os, &remote.arch)? {
+                return self.install_pinned_package(&platform).await;
+            }
+        }
+        self.install_unpinned_package().await
+    }
+
+    /// Downloads the remote platform's npm package without running any of
+    /// its code, checks the binary against the digest this build pins, and
+    /// only then probes and installs it. A mismatch removes the download.
+    async fn install_pinned_package(
+        &self,
+        platform: &crate::ssh_artifacts::PinnedPlatform,
+    ) -> Result<BootstrapOutcome, BootstrapError> {
+        let deadline = Instant::now() + self.config.timeout;
+        let temporary_dir = self.temporary_upload_path();
+        let temporary = format!("{temporary_dir}/payload");
+        self.create_remote_staging(self.remote_parent(), &temporary_dir).await?;
+        let package = format!("{}@{}", platform.npm_package, self.config.package_version);
+        let command = pinned_package_command(&temporary_dir, &package);
+        let output = match self.run_remote_script(&command).await {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_remote_staging(&temporary_dir, deadline).await;
+                return Err(error);
+            }
+        };
+        if output.status != 0 {
+            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        let Some(actual) = pinned_package_digest(&output.stdout) else {
+            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: format!(
+                    "the remote host did not report one SHA-256 digest for {package}; the download was removed"
+                ),
+            });
+        };
+        if actual != platform.sha256 {
+            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            return Err(BootstrapError::ChecksumMismatch { package });
+        }
+        self.promote_staged(&temporary, &temporary_dir, deadline).await
+    }
+
+    /// Builds without a pinned manifest (for example, a PyPI wheel or a
+    /// custom build stamped with an npm version) still install through npx.
+    /// Only the probe vouches for that binary; install scripts never run.
+    async fn install_unpinned_package(&self) -> Result<BootstrapOutcome, BootstrapError> {
         let npm_package = &self.config.npm_package;
         let package_version = &self.config.package_version;
         let package = format!("{npm_package}@{package_version}");
@@ -209,6 +272,7 @@ impl SshBootstrapper {
             .run_remote([
                 "npx",
                 "--yes",
+                "--ignore-scripts",
                 package.as_str(),
                 "install-self",
                 "--destination",
@@ -276,16 +340,11 @@ impl SshBootstrapper {
         let source = artifact.as_deref().unwrap_or(source);
         let temporary_dir = self.temporary_upload_path();
         let temporary = format!("{temporary_dir}/payload");
-        let parent = self
-            .config
-            .remote_binary
-            .rsplit_once('/')
-            .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
         // Create the directory in a separate, exclusive command. Cleanup is
         // allowed only after this command reports success, which proves that
         // this upload owns the staging directory. A failed or timed-out mkdir
         // is intentionally left untouched because ownership is unknown.
-        let encoding = self.create_remote_staging(parent, &temporary_dir).await?;
+        let encoding = self.create_remote_staging(self.remote_parent(), &temporary_dir).await?;
         let command = upload_command(&temporary, encoding);
         let output = match self.run_remote_with_input(&command, source, encoding).await {
             Ok(output) => output,
@@ -301,22 +360,40 @@ impl SshBootstrapper {
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
-        let probe = match self.probe_binary(&temporary).await {
+        self.promote_staged(&temporary, &temporary_dir, deadline).await
+    }
+
+    fn remote_parent(&self) -> &str {
+        self.config
+            .remote_binary
+            .rsplit_once('/')
+            .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent })
+    }
+
+    /// Probes a verified staged binary, then moves it over the installed one.
+    /// A staged binary that fails the probe is removed and never installed.
+    async fn promote_staged(
+        &self,
+        temporary: &str,
+        temporary_dir: &str,
+        deadline: Instant,
+    ) -> Result<BootstrapOutcome, BootstrapError> {
+        let probe = match self.probe_binary(temporary).await {
             Ok(Some(probe)) => probe,
             Ok(None) => {
-                self.cleanup_remote_staging(&temporary_dir, deadline).await;
+                self.cleanup_remote_staging(temporary_dir, deadline).await;
                 return Err(BootstrapError::Install {
                     status: 126,
-                    stderr: "uploaded binary could not run remote-probe".into(),
+                    stderr: "staged binary could not run remote-probe".into(),
                 });
             }
             Err(error) => {
-                self.cleanup_remote_staging(&temporary_dir, deadline).await;
+                self.cleanup_remote_staging(temporary_dir, deadline).await;
                 return Err(error);
             }
         };
         if !self.compatible(&probe) {
-            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            self.cleanup_remote_staging(temporary_dir, deadline).await;
             return Err(BootstrapError::Incompatible {
                 version: probe.version,
                 protocol: probe.remote_protocol,
@@ -328,15 +405,15 @@ impl SshBootstrapper {
             "mv -f -- {temporary} {} && {{ rmdir -- {temporary_dir} 2>/dev/null || true; }}",
             self.config.remote_binary
         );
-        let output = match self.run_remote([command.as_str()]).await {
+        let output = match self.run_remote_script(&command).await {
             Ok(output) => output,
             Err(error) => {
-                self.cleanup_remote_staging(&temporary_dir, deadline).await;
+                self.cleanup_remote_staging(temporary_dir, deadline).await;
                 return Err(error);
             }
         };
         if output.status != 0 {
-            self.cleanup_remote_staging(&temporary_dir, deadline).await;
+            self.cleanup_remote_staging(temporary_dir, deadline).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
@@ -345,7 +422,7 @@ impl SshBootstrapper {
         let Some(probe) = self.probe().await? else {
             return Err(BootstrapError::Install {
                 status: 0,
-                stderr: "upload completed but the remote binary is absent".into(),
+                stderr: "install completed but the remote binary is absent".into(),
             });
         };
         if !self.compatible(&probe) {
@@ -377,7 +454,7 @@ impl SshBootstrapper {
             "mkdir -p -- {parent} && mkdir -m 700 -- {temporary_dir} && \
              {{ command -v gzip >/dev/null 2>&1 && echo {GZIP_UPLOAD_MARKER}; true; }}"
         );
-        let output = self.run_remote([command.as_str()]).await?;
+        let output = self.run_remote_script(&command).await?;
         if output.status != 0 {
             return Err(BootstrapError::Install {
                 status: output.status,
@@ -512,6 +589,16 @@ impl SshBootstrapper {
         self.run_remote_with_timeout(remote_arguments, self.config.timeout).await
     }
 
+    /// Runs a POSIX `sh` script on the remote. OpenSSH hands the command
+    /// string to the user's login shell, which may be fish or tcsh, so any
+    /// script with `$?`, `{ ...; }`, `[ ... ]`, subshells or redirections
+    /// must go through `sh -c`. Plain argument lists that every shell parses
+    /// the same way keep using [`Self::run_remote`].
+    async fn run_remote_script(&self, script: &str) -> Result<RemoteOutput, BootstrapError> {
+        let command = posix_shell_command(script);
+        self.run_remote([command.as_str()]).await
+    }
+
     async fn run_remote_with_timeout<const N: usize>(
         &self,
         remote_arguments: [&str; N],
@@ -624,7 +711,7 @@ impl SshBootstrapper {
     ) -> Result<RemoteOutput, BootstrapError> {
         let mut command = Command::new(&self.config.ssh_binary);
         self.configure_ssh_command(&mut command);
-        command.arg(remote_command);
+        command.arg(posix_shell_command(remote_command));
         match encoding {
             UploadEncoding::Raw => {
                 let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
@@ -636,6 +723,22 @@ impl SshBootstrapper {
             }
         }
     }
+}
+
+/// Wraps a POSIX script as one `sh -c '<script>'` command that any remote
+/// login shell (sh, bash, zsh, fish, tcsh) parses as the same three words.
+/// Single quotes keep `$`, `{`, `[`, `;` and redirections away from the login
+/// shell. An embedded quote becomes `'\''`, which each of those shells reads
+/// as a literal quote. Scripts must not contain backslashes (fish unescapes
+/// them inside single quotes), newlines (tcsh rejects them inside quotes) or
+/// `!` (csh history), so every caller builds its script from validated,
+/// shell-safe values on one line.
+fn posix_shell_command(script: &str) -> String {
+    debug_assert!(
+        !script.contains(['\\', '\n', '!']),
+        "remote script is not portable across login shells: {script}"
+    );
+    format!("sh -c '{}'", script.replace('\'', r"'\''"))
 }
 
 /// How the payload travels to the remote staging file.
@@ -660,6 +763,49 @@ fn upload_command(temporary: &str, encoding: UploadEncoding) -> String {
     // binary directory and cannot begin with `-`. macOS chmod does not accept
     // the GNU `--` separator, so keep this command portable across Unix hosts.
     format!("umask 077; (set -C; exec 3> {temporary} && {writer} >&3) && chmod 755 {temporary}")
+}
+
+/// Build the remote command that downloads a published platform package into
+/// the exclusive staging directory and prints the extracted binary's SHA-256.
+/// `npm pack` only fetches the tarball: no package code or install script
+/// runs before the caller compares the digest. The package name and version
+/// are validated and unscoped, so the tarball name is known in advance and no
+/// glob is needed.
+fn pinned_package_command(temporary_dir: &str, package: &str) -> String {
+    let tarball = format!("{}.tgz", package.replacen('@', "-", 1));
+    format!(
+        "umask 077; cd {temporary_dir} || exit 1; \
+         npm pack --ignore-scripts --silent {package} >/dev/null && \
+         tar -xzf {tarball} package/bin/cmux-tui && \
+         mv package/bin/cmux-tui payload && chmod 755 payload; rc=$?; \
+         rm -f {tarball} package/bin/cmux-tui; rmdir package/bin package 2>/dev/null; \
+         [ \"$rc\" -eq 0 ] || exit \"$rc\"; \
+         digest=$(sha256sum payload 2>/dev/null || shasum -a 256 payload 2>/dev/null || \
+         openssl dgst -sha256 -r payload 2>/dev/null) || \
+         {{ echo \"cannot verify the npm package: the remote host has no sha256sum, shasum or openssl\" >&2; exit 1; }}; \
+         echo \"{PINNED_DIGEST_MARKER}${{digest%% *}}\""
+    )
+}
+
+/// Prefix of the one stdout line on which [`pinned_package_command`]
+/// reports the payload's SHA-256. npm or the remote shell can print notices
+/// on stdout too, so only this line is read.
+const PINNED_DIGEST_MARKER: &str = "cmux-sha256 ";
+
+/// The digest [`pinned_package_command`] reported: exactly one marker line
+/// carrying 64 lowercase hex digits. Anything else is `None`, and the
+/// download is refused.
+fn pinned_package_digest(stdout: &[u8]) -> Option<String> {
+    let stdout = std::str::from_utf8(stdout).ok()?;
+    let mut digests = stdout.lines().filter_map(|line| line.strip_prefix(PINNED_DIGEST_MARKER));
+    let digest = digests.next()?.trim_end_matches('\r');
+    if digests.next().is_some()
+        || digest.len() != 64
+        || !digest.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return None;
+    }
+    Some(digest.to_owned())
 }
 
 /// Compressed upload bytes, in order, or the read error that ended them.
@@ -834,6 +980,7 @@ pub enum BootstrapError {
     LocalBinaryIncompatible { local: String, remote: String },
     WindowsRequiresWsl,
     Incompatible { version: String, protocol: u8 },
+    ChecksumMismatch { package: String },
 }
 
 impl fmt::Display for BootstrapError {
@@ -864,6 +1011,10 @@ impl fmt::Display for BootstrapError {
             ),
             Self::WindowsRequiresWsl => formatter.write_str(
                 "native Windows cannot host the cmux-tui remote daemon yet; install a WSL 2 Linux distro with `wsl --install -d Ubuntu`, then connect through that Linux environment"
+            ),
+            Self::ChecksumMismatch { package } => write!(
+                formatter,
+                "npm package {package} does not match the SHA-256 checksum this cmux-tui build pins; the download was removed"
             ),
             Self::Incompatible { version, protocol } => write!(
                 formatter,
@@ -918,6 +1069,121 @@ mod tests {
         let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
         fifo.to_string_lossy().into_owned()
+    }
+
+    /// Runs the real staging command in `sh` against a stand-in `npm` that
+    /// only writes a tarball, as `npm pack` does. The command must extract
+    /// the binary without running it, report its SHA-256 and leave nothing
+    /// but the payload behind.
+    #[cfg(unix)]
+    #[test]
+    fn pinned_package_command_extracts_and_hashes_without_running_the_package() {
+        use sha2::{Digest, Sha256};
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let bin = directory.path().join("fake-bin");
+        let source = directory.path().join("source");
+        let staging = directory.path().join("staging");
+        fs::create_dir_all(source.join("package/bin")).unwrap();
+        fs::create_dir(&bin).unwrap();
+        fs::create_dir(&staging).unwrap();
+        let marker = directory.path().join("package-ran");
+        let binary = format!("#!/bin/sh\ntouch '{}'\n", marker.display());
+        fs::write(source.join("package/bin/cmux-tui"), &binary).unwrap();
+        fs::set_permissions(source.join("package/bin/cmux-tui"), fs::Permissions::from_mode(0o755))
+            .unwrap();
+        fs::write(source.join("package/package.json"), b"{}").unwrap();
+        fs::write(
+            bin.join("npm"),
+            format!(
+                "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'pack --ignore-scripts --silent cmux-tui-linux-arm64@9.9.9' ] || exit 9\ntar -czf cmux-tui-linux-arm64-9.9.9.tgz -C '{}' package\n",
+                source.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(bin.join("npm"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let command =
+            pinned_package_command(&staging.to_string_lossy(), "cmux-tui-linux-arm64@9.9.9");
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&command)
+            .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+            .output()
+            .unwrap();
+
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(
+            pinned_package_digest(&output.stdout),
+            Some(format!("{:x}", Sha256::digest(binary.as_bytes())))
+        );
+        let entries = fs::read_dir(&staging)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(entries, ["payload"]);
+        assert_eq!(fs::read(staging.join("payload")).unwrap(), binary.as_bytes());
+        assert_eq!(
+            fs::metadata(staging.join("payload")).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert!(!marker.exists(), "the downloaded package ran before verification");
+    }
+
+    /// Only one marker line with a full lowercase SHA-256 is a digest;
+    /// notices around it are ignored and anything ambiguous fails closed.
+    #[test]
+    fn pinned_package_digest_reads_only_one_marker_line() {
+        let digest = "0123456789abcdef".repeat(4);
+        assert_eq!(
+            pinned_package_digest(
+                format!("npm notice New major version of npm available!\ncmux-sha256 {digest}\nnpm notice done\n")
+                    .as_bytes()
+            ),
+            Some(digest.clone())
+        );
+        assert_eq!(
+            pinned_package_digest(format!("cmux-sha256 {digest}\r\n").as_bytes()),
+            Some(digest.clone())
+        );
+        for rejected in [
+            String::new(),
+            format!("{digest}  payload\n"),
+            format!("cmux-sha256 {digest}\ncmux-sha256 {digest}\n"),
+            format!("cmux-sha256 {}\n", digest.to_ascii_uppercase()),
+            format!("cmux-sha256 {}\n", &digest[1..]),
+            format!("cmux-sha256 {digest}0\n"),
+            format!("cmux-sha256 {digest} payload\n"),
+            format!("cmux-sha256 {}g\n", &digest[1..]),
+        ] {
+            assert_eq!(pinned_package_digest(rejected.as_bytes()), None, "{rejected:?}");
+        }
+    }
+
+    /// The login shell must see exactly `sh`, `-c` and the unchanged script,
+    /// including a script that itself contains single quotes.
+    #[cfg(unix)]
+    #[test]
+    fn posix_shell_command_hands_sh_the_exact_script() {
+        let script = "rc=0; { printf '%s|' \"a b\" $rc; }; [ \"$rc\" -eq 0 ] || exit 1";
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "set -- {}; printf '%s\\n' \"$#\" \"$1\" \"$2\" \"$3\"",
+                posix_shell_command(script)
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), format!("3\nsh\n-c\n{script}\n"));
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(posix_shell_command(script))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"a b|0|");
     }
 
     #[test]

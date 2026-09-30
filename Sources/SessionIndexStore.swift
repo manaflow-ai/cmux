@@ -629,12 +629,12 @@ final class SessionIndexStore: ObservableObject {
         return ordered
     }
 
-    private struct LoadedAgentOrder: Sendable {
+    struct LoadedAgentOrder: Sendable {
         let agents: [SessionAgent]
         let registry: CmuxVaultAgentRegistry
     }
 
-    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
+    nonisolated static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
         await Task.detached(priority: .utility) {
             defaultAgentOrderSync(workingDirectory: workingDirectory)
         }.value
@@ -1449,7 +1449,7 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    nonisolated private static func loadAgents(
+    nonisolated static func loadAgents(
         _ agents: [SessionAgent],
         registry: CmuxVaultAgentRegistry,
         ampSessionRepository: any AmpHookSessionReading,

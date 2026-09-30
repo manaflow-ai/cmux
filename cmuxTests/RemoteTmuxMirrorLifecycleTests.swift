@@ -191,7 +191,8 @@ struct RemoteTmuxMirrorLifecycleTests {
                 surfaceID: nil,
                 paneID: nil
             ),
-            workspaceID: mirrorWorkspace.id
+            workspaceID: mirrorWorkspace.id,
+            force: false
         )
 
         #expect(resolution == .resolved(windowID: windowId))

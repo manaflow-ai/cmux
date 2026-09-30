@@ -744,6 +744,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.reattach",
+             "mobile.terminal.size_policy.set",
+             "mobile.terminal.participant.disconnect",
              "mobile.terminal.artifact.scan",
              "mobile.terminal.artifact.stat",
              "mobile.terminal.artifact.fetch",
@@ -757,7 +760,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.events.probe":
             return false
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read":
+             "notification.feed.mark_all_read",
+             "feed.list", "feed.text", "feed.permission.reply", "feed.question.reply",
+             "feed.exit_plan.reply":
             // Feed authority is the authenticated account/peer connection, not
             // a workspace-selection ticket. Omit an irrelevant scoped attach
             // token so legacy pairings cannot accidentally narrow the global
