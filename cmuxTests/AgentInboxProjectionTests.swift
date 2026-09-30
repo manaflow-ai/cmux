@@ -208,10 +208,13 @@ func agentInboxOpenRequestRejectsStaleResults() {
 @Test("reply submission gate rejects duplicate in-flight submissions")
 func agentInboxReplySubmissionGateIsIdempotent() {
     var gate = AgentInboxReplySubmissionGate()
-    #expect(gate.begin())
-    #expect(!gate.begin())
+    let firstBegin = gate.begin()
+    #expect(firstBegin)
+    let duplicateBegin = gate.begin()
+    #expect(!duplicateBegin)
     gate.finish()
-    #expect(gate.begin())
+    let beginAfterFinish = gate.begin()
+    #expect(beginAfterFinish)
 }
 
 @Test("finished-turn read state survives a new inbox view")
