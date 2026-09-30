@@ -87,6 +87,7 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextRemoteLocalhost",
                 "CmuxNextBridge",
                 "CmuxNextControl",
                 "CmuxNextSettings",
@@ -341,6 +342,17 @@ let package = Package(
             name: "CmuxNextBrowserTests",
             dependencies: ["CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextRemoteLocalhost",
+            dependencies: ["CmuxNextWakeups"],
+            resources: [.process("Resources")],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteLocalhostTests",
+            dependencies: ["CmuxNextRemoteLocalhost"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextSettings",
