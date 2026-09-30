@@ -52,32 +52,65 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
     /// Records a settled location. Returns true when the trail changed.
     @discardableResult
     public mutating func record(_ location: HistoryLocation, at time: Date) -> Bool {
-        false
+        if let target = pending {
+            pending = nil
+            if location.key == target {
+                refreshCurrent(location)
+                return false
+            }
+        }
+        if let current, current.location.key == location.key {
+            let changed = current.location != location
+            refreshCurrent(location)
+            return changed
+        }
+        let atEnd = cursor == entries.count - 1
+        if atEnd, let recordedAt, time.timeIntervalSince(recordedAt) < coalesceInterval, cursor >= 0 {
+            // A quick sweep: the current entry was only passed through.
+            entries.remove(at: cursor)
+            cursor -= 1
+            if let previous = self.current, previous.location.key == location.key {
+                refreshCurrent(location)
+                self.recordedAt = nil
+                lastMove = .record
+                return true
+            }
+        }
+        if cursor < entries.count - 1 { entries.removeSubrange((cursor + 1)...) }
+        entries.append(Entry(location: location, enteredAt: time))
+        if entries.count > capacity { entries.removeFirst(entries.count - capacity) }
+        cursor = entries.count - 1
+        recordedAt = time
+        lastMove = .record
+        return true
     }
 
     /// Moves to the newest older entry that `isAvailable`, marks it pending,
     /// and returns it (nil: nothing to go back to).
     public mutating func back(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Entry? {
-        nil
+        guard let index = olderIndex(isAvailable) else { return nil }
+        return move(to: index, .back)
     }
 
     /// Moves to the oldest newer entry that `isAvailable`.
     public mutating func forward(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Entry? {
-        nil
+        guard let index = newerIndex(isAvailable) else { return nil }
+        return move(to: index, .forward)
     }
 
     /// Go to Last Location: toggles between the current entry and the one
     /// the user came from (Back, or Forward right after a Back).
     public mutating func last(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Entry? {
-        nil
+        if lastMove == .back, let entry = forward(isAvailable: isAvailable) { return entry }
+        return back(isAvailable: isAvailable)
     }
 
     public func canGoBack(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Bool {
-        false
+        olderIndex(isAvailable) != nil
     }
 
     public func canGoForward(isAvailable: (HistoryLocation) -> Bool = { _ in true }) -> Bool {
-        false
+        newerIndex(isAvailable) != nil
     }
 
     /// Clears a pending navigation that could not land (the tab vanished).
@@ -87,14 +120,56 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
 
     /// Refreshes the stored context (title, pane, window) of every entry of
     /// `key`, since titles change without a new location.
-    public mutating func refresh(_ location: HistoryLocation) {}
+    public mutating func refresh(_ location: HistoryLocation) {
+        for index in entries.indices where entries[index].location.key == location.key {
+            entries[index].location = location
+        }
+    }
 
     /// Drops matching entries, keeping the cursor on the same entry when it
     /// survives, else on the newest older survivor.
-    public mutating func removeAll(where shouldRemove: (Entry) -> Bool) {}
+    public mutating func removeAll(where shouldRemove: (Entry) -> Bool) {
+        var kept: [Entry] = []
+        var newCursor = -1
+        for (index, entry) in entries.enumerated() {
+            if !shouldRemove(entry) { kept.append(entry) }
+            if index == cursor { newCursor = kept.count - 1 }
+        }
+        if newCursor < 0, !kept.isEmpty { newCursor = 0 }
+        entries = kept
+        cursor = kept.isEmpty ? -1 : newCursor
+        if let target = pending, !kept.contains(where: { $0.location.key == target }) { pending = nil }
+        if current == nil { recordedAt = nil }
+    }
 
     /// The trail without incognito entries: what may be written to disk.
     public var persistable: LocationTrail {
-        self
+        var copy = self
+        copy.pending = nil
+        copy.removeAll { $0.location.isIncognito }
+        return copy
+    }
+
+    private mutating func refreshCurrent(_ location: HistoryLocation) {
+        guard entries.indices.contains(cursor) else { return }
+        entries[cursor].location = location
+    }
+
+    private mutating func move(to index: Int, _ direction: Move) -> Entry {
+        cursor = index
+        pending = entries[index].location.key
+        recordedAt = nil
+        lastMove = direction
+        return entries[index]
+    }
+
+    private func olderIndex(_ isAvailable: (HistoryLocation) -> Bool) -> Int? {
+        guard cursor > 0 else { return nil }
+        return (0..<cursor).reversed().first { isAvailable(entries[$0].location) && entries[$0].location.key != current?.location.key }
+    }
+
+    private func newerIndex(_ isAvailable: (HistoryLocation) -> Bool) -> Int? {
+        guard cursor + 1 < entries.count else { return nil }
+        return ((cursor + 1)..<entries.count).first { isAvailable(entries[$0].location) && entries[$0].location.key != current?.location.key }
     }
 }
