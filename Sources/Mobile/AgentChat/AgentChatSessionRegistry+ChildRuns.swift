@@ -40,7 +40,9 @@ extension AgentChatSessionRegistry {
                 label: taskLabel(from: event.toolInputJSON),
                 at: event.receivedAt
             )
-        case .subagentStop:
+        // Claude's SubagentStop duplicates the spawn tool's PostToolUse. Its
+        // requestId is nil, so processing it would FIFO-close a sibling.
+        case .subagentStop where event.source != "claude":
             closeChild(&record, id: event.requestId, at: event.receivedAt)
         case .stop, .sessionEnd:
             // The parent finished its turn (or ended); foreground children
