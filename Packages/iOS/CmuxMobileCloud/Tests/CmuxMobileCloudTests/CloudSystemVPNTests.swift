@@ -1071,4 +1071,26 @@ import Testing
             )
         }
     }
+
+    @Test func legacyPersistedRevocationsMigrateWithinTheOutboxBound() async {
+        let suiteName = "cmux.cloud-system-vpn.pending-revocation-legacy"
+        let key = "pending-revocations-legacy-test"
+        let defaults = UserDefaults(suiteName: suiteName)
+        defaults?.removePersistentDomain(forName: suiteName)
+        defer { defaults?.removePersistentDomain(forName: suiteName) }
+        defaults?.set(
+            [
+                "scope-large": (0..<10_000).map { "legacy-\($0)" }
+            ],
+            forKey: key
+        )
+        let store = UserDefaultsCloudSystemVPNPendingRevocationStore(
+            suiteName: suiteName,
+            key: key
+        )
+
+        let migrated = await store.load(scope: "scope-large")
+
+        #expect(migrated.count == 4096)
+    }
 }

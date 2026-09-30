@@ -59,21 +59,6 @@ public extension CloudVMServing {
     func listMachineCatalog() async throws -> CloudMachineCatalog {
         CloudMachineCatalog(machines: try await listMachines(), availableKinds: nil)
     }
-
-    func enrollTunnel(
-        clientPublicKey: String,
-        deviceFingerprint: String,
-        tunnelPurpose: CloudTunnelPurpose,
-        deviceName: String?,
-        credentials: CloudAPITokenSource.TokenContext?
-    ) async throws -> CloudTunnelEnrollment {
-        try await enrollTunnel(
-            clientPublicKey: clientPublicKey,
-            deviceFingerprint: deviceFingerprint,
-            tunnelPurpose: tunnelPurpose,
-            deviceName: deviceName
-        )
-    }
 }
 
 /// The `/api/vm` list and the machine shapes that can be created right now.

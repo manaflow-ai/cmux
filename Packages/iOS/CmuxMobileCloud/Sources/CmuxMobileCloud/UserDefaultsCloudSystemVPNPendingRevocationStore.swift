@@ -103,11 +103,22 @@ public import Foundation
         // Migrate the dictionary written by earlier builds into the bounded
         // FIFO format on the next save.
         let legacy = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
-        let entries = legacy.keys.sorted().flatMap { scope in
-            legacy[scope, default: []].sorted().map {
-                (scope: scope, fingerprint: $0, teamID: Optional<String>.none)
+        var entries: [(
+            scope: String,
+            fingerprint: String,
+            teamID: String?
+        )] = []
+        entries.reserveCapacity(min(Self.maxPersistedEntries, legacy.count))
+        for scope in legacy.keys.sorted() {
+            for fingerprint in legacy[scope, default: []] {
+                guard entries.count < Self.maxPersistedEntries else {
+                    return entries
+                }
+                entries.append(
+                    (scope: scope, fingerprint: fingerprint, teamID: nil)
+                )
             }
         }
-        return Array(entries.prefix(Self.maxPersistedEntries))
+        return entries
     }
 }
