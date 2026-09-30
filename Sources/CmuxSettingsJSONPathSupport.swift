@@ -308,6 +308,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
+            jsonKey: "predictiveLocalEcho",
+            defaultsKey: terminal.predictiveLocalEcho.userDefaultsKey,
+            invalidPath: terminal.predictiveLocalEcho.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
