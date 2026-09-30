@@ -45,6 +45,8 @@ Cases:
   (u) A contribution whose argument list will not parse fails, and so does a
       source tree with contributions the scan cannot see. Blindness here has to
       be loud, since this rule reads the constructions the id scan avoids.
+  (v) A non-string id in a bucket is reported as a violation, not raised as a
+      traceback, so a typo in the inventory names its own line.
 """
 
 import json
@@ -393,6 +395,14 @@ def case_u_blind_scan(tmp):
                    "found no `CommandPaletteCommandContribution(` constructions")
 
 
+def case_v_non_string_entry(tmp):
+    inventory = fixture_inventory()
+    inventory["listedCommandIds"] = ["palette.newWorkspace", None]
+    root = make_fixture_root(os.path.join(tmp, "v"), inventory=inventory)
+    expect_failure(root, "(v) non-string entry",
+                   "listedCommandIds entry None must be a string")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="palette-agent-surface-guard-") as tmp:
         case_a_real_repo()
@@ -416,6 +426,7 @@ def main():
         case_s_marker_drift(tmp)
         case_t_missing_bucket(tmp)
         case_u_blind_scan(tmp)
+        case_v_non_string_entry(tmp)
     print("test_ci_command_palette_agent_surface_guard: ok")
     return 0
 

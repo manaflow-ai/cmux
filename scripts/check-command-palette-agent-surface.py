@@ -413,6 +413,15 @@ def check(
         if not isinstance(entries, list):
             violations.append("{0} must be a list".format(name))
             continue
+        # A non-string entry cannot be compared, sorted or matched against the
+        # sources, so it is reported here and left out of the rest: a guard that
+        # dies on a typo in its own inventory tells nobody which line to fix.
+        nonstrings = [entry for entry in entries if not isinstance(entry, str)]
+        for entry in nonstrings:
+            violations.append(
+                "{0} entry {1!r} must be a string".format(name, entry)
+            )
+        entries = [entry for entry in entries if isinstance(entry, str)]
         duplicates = sorted({entry for entry in entries if entries.count(entry) > 1})
         for entry in duplicates:
             violations.append("{0} lists {1} more than once".format(name, entry))
@@ -471,9 +480,12 @@ def check(
             continue
         universe.setdefault(prefix, files)
 
+    def string_entries(value):
+        return {entry for entry in value if isinstance(entry, str)} if isinstance(value, list) else set()
+
     buckets = {
-        "listedCommandIds": set(listed if isinstance(listed, list) else []),
-        "excludedCommandIds": set(excluded if isinstance(excluded, list) else []),
+        "listedCommandIds": string_entries(listed),
+        "excludedCommandIds": string_entries(excluded),
         "dynamicFamilies": set(families),
         "notCommandIds": set(not_commands),
     }
