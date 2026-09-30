@@ -122,7 +122,7 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…")
+                String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…", bundle: .module)
             ) {
                 Menu {
                     ForEach(onboardingAssets.templates) { template in
@@ -130,15 +130,15 @@ public struct CustomSidebarsSection: View {
                             applyOnboardingResult(hostActions.installCustomSidebarTemplate(id: template.id))
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(String(localized: template.displayNameKey, defaultValue: template.displayName))
-                                Text(String(localized: template.descriptionKey, defaultValue: template.description))
+                                Text(String(localized: template.displayNameKey, defaultValue: template.displayName, bundle: .module))
+                                Text(String(localized: template.descriptionKey, defaultValue: template.description, bundle: .module))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 } label: {
-                    Text(String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…"))
+                    Text(String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…", bundle: .module))
                 }
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsCustomSidebarsTemplatesMenu")

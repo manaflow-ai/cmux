@@ -26,6 +26,23 @@ struct CustomSidebarTemplateCatalogTests {
         #expect(bundledFiles == exampleFiles)
         #expect(catalog.templates.count == 19)
         for descriptor in catalog.templates {
+            let exampleSource = try String(
+                contentsOf: examplesDirectory.appendingPathComponent(descriptor.file),
+                encoding: .utf8
+            )
+            let bundledSource = try String(
+                contentsOf: URL(fileURLWithPath: #filePath)
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Packages/macOS/CmuxSettings/Sources/CmuxSettings/Resources/CustomSidebarTemplates")
+                    .appendingPathComponent(descriptor.file),
+                encoding: .utf8
+            )
+            #expect(exampleSource == bundledSource)
             #expect(catalog.template(id: descriptor.id)?.source.isEmpty == false)
             #expect(CustomSidebarTemplateCatalog.isValidInstallationName(descriptor.id))
         }
