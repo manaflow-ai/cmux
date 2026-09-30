@@ -7131,7 +7131,7 @@ struct ContentView: View {
         var nextRank = 0
 
         for contribution in contributions {
-            guard CommandPaletteCloudCapabilityPolicy.allows(
+            guard CommandPaletteCloudCapabilityPolicy().allows(
                 commandId: contribution.commandId,
                 context: context
             ) else { continue }

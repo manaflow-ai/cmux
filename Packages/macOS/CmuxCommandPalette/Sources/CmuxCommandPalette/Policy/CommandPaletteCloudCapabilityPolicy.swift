@@ -15,10 +15,13 @@ public enum CommandPaletteCloudCapability: Equatable, Sendable {
 /// Classifies built-in command-palette actions before they are materialized.
 /// The app owns command contributions and handlers; this package owns the
 /// pure capability decision so it can be tested without app singletons.
-public enum CommandPaletteCloudCapabilityPolicy {
+public struct CommandPaletteCloudCapabilityPolicy: Sendable {
+    /// Creates the stateless capability policy.
+    public init() {}
+
     /// Returns the Cloud capability for a built-in command ID. Unknown and
     /// user-configured actions remain shared unless they add their own gate.
-    public static func capability(for commandId: String) -> CommandPaletteCloudCapability {
+    public func capability(for commandId: String) -> CommandPaletteCloudCapability {
         if commandId.hasPrefix("palette.terminalOpenDirectory.") {
             return .localOnly
         }
@@ -58,7 +61,7 @@ public enum CommandPaletteCloudCapabilityPolicy {
     /// Returns whether a command can be materialized for the supplied context.
     /// Cloud-only commands require the selected Cloud workspace; local-only
     /// commands are omitted while a Cloud workspace is selected.
-    public static func allows(
+    public func allows(
         commandId: String,
         context: CommandPaletteContextSnapshot
     ) -> Bool {

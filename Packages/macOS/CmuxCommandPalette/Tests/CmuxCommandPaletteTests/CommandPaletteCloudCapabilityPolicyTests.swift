@@ -3,34 +3,36 @@ import Testing
 
 @Suite("Command palette Cloud capability policy")
 struct CommandPaletteCloudCapabilityPolicyTests {
+    private let policy = CommandPaletteCloudCapabilityPolicy()
+
     @Test("classifies representative shared, Cloud-only, and local-only commands")
     func representativeCommandsHaveExpectedCapabilities() {
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.newTerminalTab") == .shared
+            policy.capability(for: "palette.newTerminalTab") == .shared
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.terminalSplitRight") == .shared
+            policy.capability(for: "palette.terminalSplitRight") == .shared
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.browserBack") == .shared
+            policy.capability(for: "palette.browserBack") == .shared
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.cloud.status") == .cloudOnly
+            policy.capability(for: "palette.cloud.status") == .cloudOnly
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.cloud.fork") == .cloudOnly
+            policy.capability(for: "palette.cloud.fork") == .cloudOnly
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.cloud.newMachine") == .shared
+            policy.capability(for: "palette.cloud.newMachine") == .shared
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.browserSplitRight") == .localOnly
+            policy.capability(for: "palette.browserSplitRight") == .localOnly
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.openDirectoryDiffViewer") == .localOnly
+            policy.capability(for: "palette.openDirectoryDiffViewer") == .localOnly
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.capability(for: "palette.terminalOpenDirectory.finder") == .localOnly
+            policy.capability(for: "palette.terminalOpenDirectory.finder") == .localOnly
         )
     }
 
@@ -41,37 +43,37 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
 
         #expect(
-            CommandPaletteCloudCapabilityPolicy.allows(
+            policy.allows(
                 commandId: "palette.terminalSplitRight",
                 context: localContext
             )
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.allows(
+            policy.allows(
                 commandId: "palette.terminalSplitRight",
                 context: cloudContext
             )
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.allows(
+            policy.allows(
                 commandId: "palette.cloud.status",
                 context: cloudContext
             )
         )
         #expect(
-            !CommandPaletteCloudCapabilityPolicy.allows(
+            !policy.allows(
                 commandId: "palette.cloud.status",
                 context: localContext
             )
         )
         #expect(
-            !CommandPaletteCloudCapabilityPolicy.allows(
+            !policy.allows(
                 commandId: "palette.browserSplitRight",
                 context: cloudContext
             )
         )
         #expect(
-            CommandPaletteCloudCapabilityPolicy.allows(
+            policy.allows(
                 commandId: "palette.browserSplitRight",
                 context: localContext
             )
