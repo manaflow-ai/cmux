@@ -7212,6 +7212,242 @@
           }
         }
       }
+    },
+    "settings.terminal.settledSessionAutoClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-close Settled Sessions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erledigte Sitzungen automatisch schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer automatiquement les sessions terminées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق الجلسات المستقرة تلقائيًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar automáticamente las sesiones asentadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動關閉已完成的工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动关闭已完成的会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정착된 세션 자동 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したセッションを自動で閉じる"
+          }
+        }
+      }
+    },
+    "settings.terminal.settledSessionAutoClose.idleHours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close After Idle Hours"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Leerlaufstunden schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer après des heures d’inactivité"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإغلاق بعد ساعات الخمول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar después de horas de inactividad"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置數小時後關閉"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "闲置数小时后关闭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 시간 후 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル時間後に閉じる"
+          }
+        }
+      }
+    },
+    "settings.terminal.settledSessionAutoClose.idleHours.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The minimum idle time before a settled session can be closed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Mindestleerlaufzeit, bevor eine erledigte Sitzung geschlossen werden kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps d’inactivité minimal avant de pouvoir fermer une session terminée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحد الأدنى من وقت الخمول قبل إغلاق جلسة مستقرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo mínimo de inactividad antes de cerrar una sesión asentada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成工作階段可關閉前的最短閒置時間。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成的会话可关闭前的最短闲置时间。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정착된 세션을 닫기 전 필요한 최소 유휴 시간입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したセッションを閉じるまでの最小アイドル時間です。"
+          }
+        }
+      }
+    },
+    "settings.terminal.settledSessionAutoClose.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default. Closes sessions only after their turn finished, their output is idle, and linked pull requests are closed or merged."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmäßig aus. Schließt Sitzungen erst, wenn der Durchlauf beendet und die Ausgabe inaktiv ist und verknüpfte Pull Requests geschlossen oder zusammengeführt sind."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé par défaut. Ferme les sessions seulement une fois le tour terminé, la sortie inactive et les pull requests liées fermées ou fusionnées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف افتراضيًا. يغلق الجلسات بعد انتهاء الدور وخمول المخرجات وإغلاق أو دمج طلبات السحب المرتبطة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado de forma predeterminada. Cierra las sesiones cuando termina el turno, la salida está inactiva y las solicitudes enlazadas están cerradas o fusionadas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設關閉。只有在回合完成、輸出閒置，且連結的提取要求已關閉或合併後才會關閉工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认关闭。仅在回合完成、输出处于闲置状态且关联的拉取请求已关闭或合并后关闭会话。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값은 꺼짐입니다. 턴이 끝나고 출력이 유휴 상태이며 연결된 풀 리퀘스트가 닫히거나 병합된 후에만 세션을 닫습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトではオフです。ターンが終了し、出力がアイドル状態で、リンクされたプルリクエストが閉じられるかマージされた後にのみセッションを閉じます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
