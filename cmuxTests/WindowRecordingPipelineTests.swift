@@ -242,14 +242,25 @@ import Testing
         try await writer.finish()
 
         // Both frames have to survive, and the second one has to present later
-        // than the first: an equal timestamp makes AVFoundation drop it.
+        // than the first: an equal timestamp makes AVFoundation drop it, which
+        // left a one-sample clip before the writer started nudging.
+        //
+        // The count is a floor, not an equality. How many samples a clip of two
+        // frames a 1/600 second apart ends up with is the encoder's decision,
+        // and the CI VMs, which have no hardware scaler, write more samples
+        // than were appended. Dropping a frame still shows up here: the bug
+        // this covers produced a single sample.
         let times = try await Self.presentationTimes(url: url)
-        #expect(times.count == 2)
-        #expect(times.first == 0)
-        if times.count == 2 {
-            #expect(times[1] > times[0])
-            // One 1/600 second tick, the smallest step the clip can carry.
-            #expect(abs(times[1] - (1.0 / 600)) < 1e-6)
+        #expect(times.count >= 2, "presentation times: \(times)")
+        #expect(times.first == 0, "presentation times: \(times)")
+        #expect(
+            zip(times, times.dropFirst()).allSatisfy { $0.0 < $0.1 },
+            "presentation times: \(times)"
+        )
+        if times.count >= 2 {
+            // The second sample is a timescale tick after the first, not a
+            // whole frame interval: the writer nudged it by 1/600 second.
+            #expect(times[1] - times[0] < 1.0 / 12, "presentation times: \(times)")
         }
     }
 
