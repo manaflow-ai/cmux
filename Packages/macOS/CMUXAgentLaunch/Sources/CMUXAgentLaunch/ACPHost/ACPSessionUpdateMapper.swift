@@ -173,19 +173,22 @@ public struct ACPSessionUpdateMapper {
         identifier: String,
         cwd: String?
     ) -> [String: Any] {
-        let path = Self.text(kind["file_path"]) ?? "(file)"
+        let recordedPath = Self.text(kind["file_path"])
         let operation = (kind["operation"] as? String) ?? "edit"
         var update: [String: Any] = [
             "sessionUpdate": "tool_call",
+            // `(file)` is a title placeholder only. The location below is
+            // derived from the recorded path, so a message with no `file_path`
+            // gets no location rather than one pointing at `<cwd>/(file)`.
+            "title": "\(operation) \(recordedPath ?? "(file)")",
             "toolCallId": identifier,
-            "title": "\(operation) \(path)",
             "kind": operation == "delete" ? "delete" : "edit",
             // An edit is in the transcript because it already happened, so
             // there is no state in which replaying it is still pending.
             "status": "completed",
         ]
-        if let absolutePath = Self.absolutePath(path, cwd: cwd) {
-            update["locations"] = [["path": absolutePath]]
+        if let location = Self.absolutePath(recordedPath, cwd: cwd) {
+            update["locations"] = [["path": location]]
         }
         // ACP's diff content block wants the file's before and after text.
         // cmux records a unified diff, so sending it as text is accurate where
@@ -193,7 +196,8 @@ public struct ACPSessionUpdateMapper {
         if let diff = Self.text(kind["unified_diff"]) {
             update["content"] = [["type": "content", "content": Self.textBlock(diff)]]
         }
-        var raw: [String: Any] = ["path": path, "operation": operation]
+        var raw: [String: Any] = ["operation": operation]
+        if let recordedPath { raw["path"] = recordedPath }
         if let additions = kind["additions"] as? Int { raw["additions"] = additions }
         if let deletions = kind["deletions"] as? Int { raw["deletions"] = deletions }
         update["rawInput"] = raw
@@ -282,13 +286,22 @@ public struct ACPSessionUpdateMapper {
     /// Returns an absolute path, resolving a relative path against a known cwd.
     /// A relative path without a cwd is omitted because ACP locations require
     /// absolute paths.
+    ///
+    /// Two shapes are dropped rather than repaired. A `~` path is not absolute
+    /// and this host cannot know whose home directory it meant, so expanding it
+    /// against the running user would invent a location. A relative path that
+    /// climbs out of the session cwd is dropped too: a location is meant to
+    /// point inside the session, and `../../../../etc/passwd` resolved against
+    /// the cwd would hand a client a path the session never touched.
     private static func absolutePath(_ raw: Any?, cwd: String?) -> String? {
         guard let path = Self.text(raw) else { return nil }
+        if path.hasPrefix("~") { return nil }
         if path.hasPrefix("/") { return URL(fileURLWithPath: path).standardizedFileURL.path }
         guard let cwd, cwd.hasPrefix("/") else { return nil }
-        return URL(fileURLWithPath: cwd, isDirectory: true)
-            .appendingPathComponent(path)
-            .standardizedFileURL
-            .path
+        let base = URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL
+        let resolved = base.appendingPathComponent(path).standardizedFileURL
+        let enclosing = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard resolved.path == base.path || resolved.path.hasPrefix(enclosing) else { return nil }
+        return resolved.path
     }
 }
