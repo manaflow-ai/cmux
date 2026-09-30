@@ -224,7 +224,9 @@ public final class LayoutRootView: NSView {
         if highlight.step(dt) { moving = true }
         updateVisibility()
         syncOverlay()
-        return moving || model.isGestureActive || model.hasPendingGestureIntents
+        // A gesture requests frames on each pointer change (pending intents);
+        // an active gesture with a still pointer needs none.
+        return moving || model.hasPendingGestureIntents
     }
 
     func updateVisibility() {
