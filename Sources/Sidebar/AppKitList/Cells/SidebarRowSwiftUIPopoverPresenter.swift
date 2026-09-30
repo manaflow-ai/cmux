@@ -32,6 +32,14 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     private var popover: NSPopover?
     private var presentationCount = 0
     private var closingProgrammatically = false
+    /// Completes a close whose `popoverDidClose` never arrives; see
+    /// `scheduleCloseCompletionFallback(for:)`.
+    private var closeCompletionFallback: DispatchWorkItem?
+
+    /// How long an animated close may take before the presenter completes
+    /// it itself: NSPopover's close fade (about 0.2 s) plus a wide margin
+    /// for a busy main thread.
+    static let closeCompletionTimeout: TimeInterval = 1.0
     /// Visible refreshes arrive from the table's configure pass (inside a
     /// representable update turn); defer + coalesce them like
     /// `SidebarWorkspaceTodoPopoverHost` does instead of forcing synchronous
@@ -140,10 +148,55 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     }
 
     func popoverWillClose(_ notification: Notification) {
+        guard isCurrentPopover(notification) else { return }
         isClosing = true
+        if let popover {
+            scheduleCloseCompletionFallback(for: popover)
+        }
     }
 
     func popoverDidClose(_ notification: Notification) {
+        guard isCurrentPopover(notification) else { return }
+        finishClose()
+    }
+
+    /// A notification from a popover this presenter already gave up on (see
+    /// the fallback below) must not tear down the one presented since.
+    private func isCurrentPopover(_ notification: Notification) -> Bool {
+        guard let sender = notification.object as? NSPopover else { return true }
+        return sender === popover
+    }
+
+    /// An animated close reaches `popoverDidClose` only when its animation
+    /// finishes, and on some owned Mac minis that never happens (#14895).
+    /// The popover then stays `isShown` and the presenter stays closing, so
+    /// every later toggle closes the stuck popover again instead of showing
+    /// a new one, and a click-away is never written back to the container.
+    /// If the close hasn't finished within the timeout, finish it here:
+    /// detach from the stuck popover, take its window down, and run the same
+    /// completion `popoverDidClose` would have.
+    private func scheduleCloseCompletionFallback(for closing: NSPopover) {
+        closeCompletionFallback?.cancel()
+        let fallback = DispatchWorkItem { [weak self, weak closing] in
+            guard let self, let closing, closing === self.popover, self.isClosing else { return }
+            closing.delegate = nil
+            closing.animates = false
+            if closing.isShown {
+                closing.close()
+            }
+            closing.contentViewController?.view.window?.orderOut(nil)
+            self.finishClose()
+        }
+        closeCompletionFallback = fallback
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.closeCompletionTimeout,
+            execute: fallback
+        )
+    }
+
+    private func finishClose() {
+        closeCompletionFallback?.cancel()
+        closeCompletionFallback = nil
         isClosing = false
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
