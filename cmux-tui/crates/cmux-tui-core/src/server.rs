@@ -16242,6 +16242,10 @@ mod personal_tests;
 mod personal_terminal_tests;
 
 #[cfg(test)]
+#[path = "server/remote_terminal_tabs_tests.rs"]
+mod remote_terminal_tabs_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
