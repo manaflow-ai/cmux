@@ -553,6 +553,13 @@ export function codexSetSharedServerForTest(srv: unknown): void {
   shared = (srv as AppServer | null) ?? null;
 }
 
+/** Stops the shared child used by an isolated adapter lifecycle test. */
+export function codexStopSharedServerForTest(): void {
+  const srv = shared;
+  shared = null;
+  srv?.proc.kill();
+}
+
 function waitForTurnId(st: CodexState): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
   return new Promise((resolve) => {
