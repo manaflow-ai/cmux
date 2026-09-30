@@ -157,12 +157,11 @@ minutes; without them, everything the runs holding the pool will need at
 their peak. With live runners, a missing or stale snapshot no longer skips
 the fleet: the owned pools are decided live, and a run none takes keeps its
 default route. A pool's
-capacity is the measured Blacksmith account limit: queue-to-start stayed low
-until about 24 concurrent macOS jobs account-wide (the 2026-09-25 through
-2026-09-27 fleet observations had a weekly p90 of 15).
-The pools share that account-wide queue, so a run takes the shortest expected
-wait after all Blacksmith queued and running jobs are counted together. The
-macOS 15 pool counts one round more
+capacity is set independently by the Blacksmith plan: 5 machines for
+`blacksmith-12vcpu-macos-26`, 10 for `blacksmith-6vcpu-macos-26`, and 10 for
+`blacksmith-6vcpu-macos-15`. Each label's expected wait uses only its own
+queued and running jobs, including the young-run charges used by the picker.
+The macOS 15 pool counts one round more
 (`COLD_ROUNDS`): the DerivedData seed exists only for the lane's Xcode, so a
 run there compiles cold, 10 to 20 minutes longer, about one job's length.
 
@@ -684,8 +683,9 @@ a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 ## Background lane
 
 `MACOS_RUNNER_BACKGROUND` moves macOS work that nobody is waiting on off the
-shared macOS pool. Every other macOS job shares one Blacksmith pool (with paid
-Warp as overflow), and pull request CI queues on it for 30-60+ minutes at peak.
+Blacksmith pools. Every other macOS job uses the label selected for its lane
+(with paid Warp as overflow), and pull request CI queues on those labels for
+30-60+ minutes at peak.
 The repository is public, so standard GitHub-hosted macOS runners are free with
 unlimited minutes (about five concurrent jobs, 3-core M1, 7 GB RAM). They are
 slower per job, which is fine for work that is not on a merge path.
