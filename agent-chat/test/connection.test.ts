@@ -5,17 +5,19 @@ class FakeSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: (() => void) | null = null;
   closed = false;
-  close() { this.closed = true; this.onclose?.(); }
+  closes = 0;
+  close() { this.closed = true; this.closes++; this.onclose?.(); }
   asWebSocket() { return this as unknown as WebSocket; }
 }
 
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 const timers = new Map<number, () => void>();
+const delays: number[] = [];
 let timerId = 0;
 const timerCount = () => timers.size;
 globalThis.setTimeout = ((callback: () => void, delay: number) => {
-  if (delay !== 800) throw new Error(`unexpected reconnect delay: ${delay}`);
+  delays.push(delay);
   const id = ++timerId;
   timers.set(id, callback);
   return id;
@@ -28,17 +30,17 @@ function flushTimers() {
   for (const callback of pending) callback();
 }
 
-function client() {
+function client(createSocket?: () => WebSocket) {
   const sockets: FakeSocket[] = [];
   let current: WebSocket | null = null;
   let opens = 0;
   const messages: string[] = [];
   const disconnect = openSessionConnection({
-    createSocket: () => {
+    createSocket: createSocket ?? (() => {
       const socket = new FakeSocket();
       sockets.push(socket);
       return socket.asWebSocket();
-    },
+    }),
     onSocket: (socket) => { current = socket; },
     onOpen: () => { opens++; },
     onMessage: (event) => { messages.push(event.data); },
@@ -50,14 +52,7 @@ try {
   const disposed = client();
   disposed.sockets[0].close();
   disposed.disconnect();
-  const leakedTimers = timerCount();
-  // Drain even a leaked retry to demonstrate that it must not open a socket.
-  flushTimers();
-  if (disposed.sockets.length !== 1) {
-    throw new Error("disposed chat reopened a WebSocket from a pending reconnect");
-  }
-  if (leakedTimers !== 0) throw new Error("disposed chat retained its reconnect timer");
-  if (disposed.current() !== null) throw new Error("disposed chat retained a sendable socket reference");
+  if (timerCount() !== 0) throw new Error("disposed chat retained its reconnect timer");
 
   const recovering = client();
   const first = recovering.sockets[0];
@@ -98,10 +93,40 @@ try {
   if (timerCount() !== 0 || recovering.current() !== null) throw new Error("connection cleanup left owned state behind");
 
   const mounted = client();
+  const only = mounted.sockets[0];
   mounted.disconnect();
+  // Detached before closing: these handlers capture the whole session closure
+  // graph, and the socket outlives cleanup until the close handshake finishes.
+  if (only.onopen !== null || only.onmessage !== null || only.onclose !== null) {
+    throw new Error("cleanup left handlers attached to the disposed socket");
+  }
   mounted.disconnect();
-  if (!mounted.sockets[0].closed || timerCount() !== 0 || mounted.current() !== null) {
+  if (!only.closed || only.closes !== 1) throw new Error("cleanup did not close the socket exactly once");
+  if (timerCount() !== 0 || mounted.current() !== null) {
     throw new Error("normal connection cleanup failed or scheduled a retry");
+  }
+
+  // A throwing constructor is the one failure that can strand the view: the
+  // retry timer is the only thing that calls connect(), so if the throw
+  // escapes it there is no socket and no timer left to recover from.
+  let attempts = 0;
+  const flakySockets: FakeSocket[] = [];
+  const flaky = client(() => {
+    attempts++;
+    if (attempts === 1) throw new Error("SecurityError");
+    const socket = new FakeSocket();
+    flakySockets.push(socket);
+    return socket.asWebSocket();
+  });
+  if (flaky.current() !== null) throw new Error("a failed connect published a socket");
+  if (timerCount() !== 1) throw new Error("a throwing constructor left no retry armed");
+  flushTimers();
+  if (attempts !== 2 || flakySockets.length !== 1) throw new Error("the retry after a throw did not reconnect");
+  if (flaky.current() !== flakySockets[0].asWebSocket()) throw new Error("the recovered socket was not published");
+  flaky.disconnect();
+
+  if (delays.length === 0 || delays.some((delay) => delay !== 800)) {
+    throw new Error(`reconnect delay changed: ${[...new Set(delays)].join(",")}`);
   }
   console.log("session connection lifecycle assertions passed");
 } finally {
