@@ -19270,6 +19270,8 @@ impl App {
                     return;
                 };
                 let Some(bytes) = cd_command(&path.to_string_lossy()) else {
+                    let message = localization::catalog().sidebar.file_path_has_control_characters;
+                    self.sidebar_files.set_message(message);
                     return;
                 };
                 if self.write_pty_bytes(

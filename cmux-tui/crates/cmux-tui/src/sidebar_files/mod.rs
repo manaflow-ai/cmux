@@ -341,8 +341,13 @@ pub fn shell_single_quote(value: &str) -> String {
 }
 
 /// The bytes typed into the focused shell to `cd` into `path`, or `None`
-/// when they cannot be typed safely.
+/// when they cannot be typed safely: a line editor acts on control
+/// characters even inside quotes (Ctrl-U erases the typed `cd '`), and a
+/// directory name is attacker-chosen, so such a path is never typed.
 pub fn cd_command(path: &str) -> Option<String> {
+    if path.chars().any(char::is_control) {
+        return None;
+    }
     Some(format!("cd {}\n", shell_single_quote(path)))
 }
 
