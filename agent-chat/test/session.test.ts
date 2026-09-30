@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptHandoffResponse } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, readComposerDraft, restoreComposerDraft, shouldAcceptHandoffResponse, writeComposerDraft } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 const { draftStorage } = await import("../src/browser-storage");
 
@@ -34,6 +34,26 @@ try {
   if (originalSessionStorage) Object.defineProperty(globalThis, "sessionStorage", originalSessionStorage);
   else Reflect.deleteProperty(globalThis, "sessionStorage");
 }
+
+const draftValues: Record<string, string> = {};
+const draftStorage = {
+  getItem: (key: string) => draftValues[key] ?? null,
+  setItem: (key: string, value: string) => { draftValues[key] = value; },
+  removeItem: (key: string) => { delete draftValues[key]; },
+};
+writeComposerDraft(draftStorage, "typed while Cloud was reconnecting");
+if (readComposerDraft(draftStorage) !== "typed while Cloud was reconnecting") {
+  throw new Error("a live composer draft was not recoverable from session storage");
+}
+writeComposerDraft(draftStorage, "");
+if (readComposerDraft(draftStorage) !== "") throw new Error("clearing a submitted draft did not remove it");
+const unavailableStorage = {
+  getItem() { throw new Error("storage unavailable"); },
+  setItem() { throw new Error("storage unavailable"); },
+  removeItem() { throw new Error("storage unavailable"); },
+};
+writeComposerDraft(unavailableStorage, "still usable");
+if (readComposerDraft(unavailableStorage) !== "") throw new Error("storage failures should not break draft access");
 
 const repeated = [
   { kind: "user" as const, text: "same" },
