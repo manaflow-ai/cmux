@@ -39,9 +39,20 @@ interface CodexState {
   currentTurnId?: string;
   turnActive: boolean;
   activeGeneration?: number;
-  turnWaiters: ((id: string | null) => void)[];
+  turnWaiters: TurnWaiter[];
   commands: CommandEntry[];
 }
+
+interface TurnWaiter {
+  resolve: (id: string | null) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+// Keep a startup cancellation waiter alive for the same bounded period as the
+// turn/start RPC. A delayed turn/started notification is still actionable
+// while that request is in flight.
+const TURN_START_WAIT_TIMEOUT_MS = 30_000;
 
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
@@ -170,9 +181,13 @@ export const codexAdapter: Adapter = {
 
     void waitForTurnId(st).then((turnId) => {
       if (turnId) interrupt(turnId);
+    }).catch((err) => {
+      sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
     });
   },
   dispose(sess) {
+    const st = sess.internal.codex as CodexState | undefined;
+    if (st) resolveTurnWaiters(st, null);
     const threadId = sess.internal.threadId as string | undefined;
     if (threadId && shared) shared.sessionsByThread.delete(threadId);
   },
@@ -573,22 +588,25 @@ export function codexStopSharedServerForTest(): void {
 
 function waitForTurnId(st: CodexState): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      st.turnWaiters = st.turnWaiters.filter((r) => r !== done);
-      resolve(null);
-    }, 5_000);
-    const done = (id: string | null) => {
-      clearTimeout(timer);
-      resolve(id);
+  return new Promise((resolve, reject) => {
+    const waiter: TurnWaiter = {
+      resolve,
+      reject,
+      timer: setTimeout(() => {
+        st.turnWaiters = st.turnWaiters.filter((candidate) => candidate !== waiter);
+        reject(new Error("codex turn did not start before the stop deadline"));
+      }, TURN_START_WAIT_TIMEOUT_MS),
     };
-    st.turnWaiters.push(done);
+    st.turnWaiters.push(waiter);
   });
 }
 
 function resolveTurnWaiters(st: CodexState, id: string | null) {
   const waiters = st.turnWaiters.splice(0);
-  for (const resolve of waiters) resolve(id);
+  for (const waiter of waiters) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(id);
+  }
 }
 
 function codexState(sess: SessionCtx): CodexState {

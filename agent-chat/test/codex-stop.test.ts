@@ -27,7 +27,7 @@ type CodexTestState = {
   turnActive: boolean;
   currentTurnId?: string;
   activeGeneration?: number;
-  turnWaiters: ((id: string | null) => void)[];
+  turnWaiters: { resolve: (id: string | null) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }[];
 };
 
 function session(threadId: string | undefined, st: Partial<CodexTestState>): { sess: SessionCtx; state: CodexTestState; errors: string[] } {
@@ -60,7 +60,10 @@ function session(threadId: string | undefined, st: Partial<CodexTestState>): { s
 // notification does, then lets stop()'s .then() callback run.
 async function deliverTurnId(state: CodexTestState, id: string | null) {
   state.currentTurnId = id ?? undefined;
-  for (const resolve of state.turnWaiters.splice(0)) resolve(id);
+  for (const waiter of state.turnWaiters.splice(0)) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(id);
+  }
   await Promise.resolve();
   await Promise.resolve();
 }
@@ -97,6 +100,26 @@ async function deliverTurnId(state: CodexTestState, id: string | null) {
   await deliverTurnId(state, "turn-2");
   if (sent.length !== 1 || JSON.stringify(sent[0].params) !== JSON.stringify({ threadId: "thread-2", turnId: "turn-2" })) {
     throw new Error(`A late turn ID must produce one complete interrupt: ${JSON.stringify(sent)}`);
+  }
+}
+
+// 2b. If the turn finishes before its startup notification, the pending Stop
+// must settle without sending a stale interrupt or reporting a failure.
+{
+  const sent: Sent[] = [];
+  codexSetSharedServerForTest(fakeServer(sent));
+  const { sess, state, errors } = session("thread-2b", { currentTurnId: undefined });
+  codexAdapter.stop(sess);
+  state.turnActive = false;
+  state.activeGeneration = undefined;
+  for (const waiter of state.turnWaiters.splice(0)) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(null);
+  }
+  await Promise.resolve();
+  await Promise.resolve();
+  if (sent.length !== 0 || errors.length !== 0) {
+    throw new Error(`A completed startup must settle Stop quietly: ${JSON.stringify({ sent, errors })}`);
   }
 }
 
