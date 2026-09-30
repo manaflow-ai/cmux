@@ -530,50 +530,21 @@ extension RemoteTmuxControlConnection {
     /// genuine paste, so the remote app recognizes it (e.g. claude → `[Image #N]`)
     /// instead of seeing the plain keystrokes that ``sendKeys(paneId:data:)`` would
     /// deliver. Uses a dedicated, immediately-deleted (`-d`) per-pane buffer so
-    /// there's no buffer-name collision. CRLF is normalized to LF and standalone
-    /// carriage returns are rejected because they would terminate a control-mode
-    /// command; line breaks use tmux's double-quoted C escapes so the control
-    /// stream remains line-oriented.
+    /// there's no buffer-name collision. `text` must be a single line (callers route
+    /// only single-line content — e.g. file/image paths — here).
     func pastePane(paneId: Int, text: String) -> Bool {
-        guard !text.isEmpty else { return false }
-        let normalizedText = text.replacingOccurrences(of: "\r\n", with: "\n")
-        guard !normalizedText.contains("\r") else { return false }
-        let buffer = "cmux-paste-\(paneId)"
-        let setBuffer = "set-buffer -b \(buffer) -- \(Self.tmuxDoubleQuoted(normalizedText))"
-        return send(setBuffer)
-            && send("paste-buffer -p -d -b \(buffer) -t %\(paneId)")
+        guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
+        return send(commands.setBuffer) && send(commands.pasteBuffer)
     }
 
     nonisolated static func pastePaneCommands(paneId: Int, text: String)
         -> (setBuffer: String, pasteBuffer: String)?
     {
-        guard !text.isEmpty, !text.contains(where: { $0 == "\r" || $0 == "\n" }) else { return nil }
+        guard !text.isEmpty else { return nil }
         let buffer = "cmux-paste-\(paneId)"
         return (
             setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
             pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
         )
-    }
-
-    /// Quotes text for tmux's double-quoted argument grammar, preserving line
-    /// breaks without putting literal newlines on its line-oriented control
-    /// stream.
-    nonisolated private static func tmuxDoubleQuoted(_ text: String) -> String {
-        var quoted = "\""
-        quoted.reserveCapacity(text.utf8.count + 2)
-        for character in text {
-            switch character {
-            case "\\": quoted += "\\\\"
-            case "\"": quoted += "\\\""
-            case "$": quoted += "\\$"
-            case "`": quoted += "\\`"
-            case "\n": quoted += "\\n"
-            case "\t": quoted += "\\t"
-            case "\r": quoted += "\\r"
-            default: quoted.append(character)
-            }
-        }
-        quoted.append("\"")
-        return quoted
     }
 }

@@ -9,7 +9,6 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         completion: @escaping (Bool) -> Void
     ) -> Bool
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool
-    func sendPaste(toPane tmuxPaneID: Int, text: String) -> Bool
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String

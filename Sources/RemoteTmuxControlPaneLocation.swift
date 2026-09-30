@@ -18,10 +18,6 @@ struct RemoteTmuxControlPaneLocation {
         owner.sendInput(toPane: pane.tmuxPaneID, text: text)
     }
 
-    func sendPaste(_ text: String) -> Bool {
-        owner.sendPaste(toPane: pane.tmuxPaneID, text: text)
-    }
-
     func sendKey(_ name: String) -> RemoteTmuxControlKeySendResult {
         owner.sendKey(toPane: pane.tmuxPaneID, name: name)
     }

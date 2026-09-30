@@ -16142,36 +16142,11 @@ class TerminalController {
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
-        let routing = ControlRoutingSelectors(
-            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
-            windowID: v2UUID(params, "window_id"),
-            groupID: v2UUID(params, "group_id"),
-            workspaceID: v2UUID(params, "workspace_id"),
-            surfaceID: v2UUID(params, "surface_id")
-                ?? v2UUID(params, "terminal_id")
-                ?? v2UUID(params, "tab_id"),
-            paneID: v2UUID(params, "pane_id"),
-            remoteRelayOwnerWorkspaceID: v2UUID(
-                params,
-                WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
-            ),
-            remoteRelayConnectionID: v2UUID(
-                params,
-                WorkspaceRemoteRelayCommandRewriter.connectionIDKey
-            )
-        )
-        guard remoteRelayTargetIsCurrent(
-            routing: routing,
-            workspace: resolved.workspace,
-            surfaceID: surfaceId
-        ) else {
-            return mobileInputNotFound(params: params)
-        }
-        let remotePane = resolved.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
         let delivery = mobileInputDelivery(params: params)
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
         }
+
         guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
             return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
         }
@@ -16197,11 +16172,7 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        let textResult: TerminalSurface.TextSendResult = if let remotePane {
-            remotePane.sendPaste(text) ? .sent : .surfaceUnavailable
-        } else {
-            terminalTarget.sendTextResult(text)
-        }
+        let textResult = terminalTarget.sendTextResult(text)
         // The paste and its submit key are one unit: once the text is
         // accepted the unit counts as applied, even if the submit key fails
         // (reported below), so a resend never pastes the block twice.
@@ -16229,58 +16200,51 @@ class TerminalController {
         // tell the user the submit keypress is still needed.
         var submitted = false
         var submitError: String?
-        let pasteSurfaceGeneration = terminalTarget.surface.runtimeSurfaceGeneration
         if let submitKeyName {
-            // Keep paste and submit in separate input turns for editors that
-            // briefly protect the composer after a paste.
-            do { try await Task.sleep(for: .milliseconds(150)) } catch {
-                return .ok(["workspace_id": resolved.workspace.id.uuidString, "surface_id": surfaceId.uuidString, "submitted": false, "submit_error": "cancelled"])
+            // Gemini's editor treats Enter during its 40 ms paste-protection
+            // window as a newline. React-based editors can also process paste
+            // and Enter in one render with a stale, empty input buffer. Keep a
+            // separate input turn, with margin for the documented cooldown,
+            // and await it before acknowledging submission to the phone.
+            let generation = terminalTarget.surface.runtimeSurfaceGeneration
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch {
+                return .ok([
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "submitted": false,
+                    "submit_error": "cancelled",
+                ])
             }
-            guard let refreshed = mobileCanonicalTerminalTarget(params: params),
-                  refreshed.surfaceID == surfaceId,
-                  refreshed.target.surface === terminalTarget.surface,
-                  refreshed.target.surface.runtimeSurfaceGeneration == pasteSurfaceGeneration,
-                  remoteRelayTargetIsCurrent(
-                      routing: routing,
-                      workspace: refreshed.workspace,
-                      surfaceID: refreshed.surfaceID
-                  ) else {
-                return .ok(["workspace_id": resolved.workspace.id.uuidString, "surface_id": surfaceId.uuidString, "submitted": false, "submit_error": "surface_unavailable"])
+            // Closing/replacing a terminal during the suspension must never
+            // send Enter into a different process or a newly created surface.
+            guard let current = mobileCanonicalTerminalTarget(params: params)?.target,
+                  current.surface === terminalTarget.surface,
+                  current.surface.runtimeSurfaceGeneration == generation else {
+                return .ok([
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "submitted": false,
+                    "submit_error": "surface_changed",
+                ])
             }
-            let submitTarget = refreshed.target
-            let submitRemotePane = refreshed.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
-            let keyAccepted: Bool
-            let keyFailure: String?
-            if let submitRemotePane {
-                switch submitRemotePane.sendKey(submitKeyName) {
-                case .sent:
-                    keyAccepted = true
-                    keyFailure = nil
-                case .rejected:
-                    keyAccepted = false
-                    keyFailure = "surface_unavailable"
-                case .unknownKey:
-                    keyAccepted = false
-                    keyFailure = "unknown_key"
-                }
-            } else {
-                let keyResult = submitTarget.sendNamedKeyResult(submitKeyName)
-                keyAccepted = keyResult.accepted
-                if keyResult.accepted {
-                    keyFailure = nil
-                } else {
-                    switch keyResult {
-                    case .inputQueueFull: keyFailure = "input_queue_full"
-                    case .surfaceUnavailable: keyFailure = "surface_unavailable"
-                    case .processExited: keyFailure = "process_exited"
-                    case .unknownKey, .sent, .queued: keyFailure = "unknown_key"
-                    }
-                }
-            }
-            if keyAccepted {
+            let keyResult = current.sendNamedKeyResult(submitKeyName)
+            if keyResult.accepted {
                 submitted = true
             } else {
-                submitError = keyFailure
+                switch keyResult {
+                case .inputQueueFull:
+                    submitError = "input_queue_full"
+                case .surfaceUnavailable:
+                    submitError = "surface_unavailable"
+                case .processExited:
+                    submitError = "process_exited"
+                case .unknownKey, .sent, .queued:
+                    // .sent / .queued are accepted results and unreachable in this
+                    // else-branch; grouped here only to keep the switch exhaustive.
+                    submitError = "unknown_key"
+                }
             }
         }
 

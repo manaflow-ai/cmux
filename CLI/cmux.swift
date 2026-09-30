@@ -7654,25 +7654,10 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-            let (usesPaste, submit, force, textArgs) = Self.splitSendPasteFlag(rem2)
+            let (usesPaste, force, textArgs) = Self.splitSendPasteFlag(rem2)
             let rawText = textArgs.dropFirst(textArgs.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
-            if submit {
-                // `--submit` always uses the paste path, even without an
-                // explicit `--paste`: the submit key must be a separate socket
-                // event so bracketed-paste mode cannot swallow it.
-                try deliverSendSubmit(
-                    text: rawText,
-                    command: "send",
-                    workspace: wsArg,
-                    surface: sfArg,
-                    windowRaw: windowRaw,
-                    force: force,
-                    client: client,
-                    jsonOutput: jsonOutput,
-                    idFormat: idFormat
-                )
-            } else if usesPaste {
+            if usesPaste {
                 // Same path as `cmux paste`: the text goes out unchanged, so
                 // `\n`-style escapes are not rewritten.
                 try deliverTerminalPaste(
@@ -7728,8 +7713,7 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let (force, rem3) = Self.splitLeadingForceFlag(rem2)
             let keyArgs = rem3.first == "--" ? Array(rem3.dropFirst()) : rem3
-            guard let rawKey = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
-            let key = (rawKey == "\r" || rawKey == "\n") ? "return" : rawKey
+            guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             if keyArgs.count > 1 {
                 let trailing = keyArgs.dropFirst().joined(separator: " ")
                 throw CLIError(message: String(
