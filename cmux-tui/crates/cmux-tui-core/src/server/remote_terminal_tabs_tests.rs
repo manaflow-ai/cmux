@@ -376,6 +376,7 @@ fn cmux_next_detached_create_terminal_is_kept_with_no_tab() {
     assert!(created["generation"].is_string(), "{created}");
     assert!(created["registry_id"].is_string(), "{created}");
     assert_eq!(created["replayed"], false, "{created}");
+    assert_eq!(created["key"], "detached", "{created}");
 
     assert_eq!(tab_count(&mux), tabs_before, "a detached terminal adds no tab");
     assert_eq!(mux.with_state(|state| state.workspaces.len()), 1, "no new workspace");
