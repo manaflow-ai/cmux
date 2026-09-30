@@ -129,6 +129,15 @@ public final class AcpmuxChatSessionModel {
         }
     }
 
+    /// Returns the daemon's authenticated WebSocket endpoint for a direct web renderer.
+    /// The model still owns daemon startup and reconnect; the web view owns the ACP stream.
+    public func webSocketEndpoint() async throws -> AcpmuxWebSocketEndpoint {
+        guard let api else {
+            throw JSONRPCError(code: -32001, message: "acpmux is not connected")
+        }
+        return try await api.webSocketEndpoint()
+    }
+
     /// Disconnects and stops reconnecting.
     public func stop() {
         connectionTask?.cancel()
