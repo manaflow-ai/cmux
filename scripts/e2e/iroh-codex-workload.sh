@@ -39,6 +39,8 @@ read_screen() {
 
 declare -a WORKSPACES=()
 declare -a SURFACES=()
+declare -a READY_SESSIONS=()
+declare -a ITERATION_COUNTS=()
 TASK_ROOT="/tmp/cmux-iroh-mario"
 for ((index=1; index<=COUNT+2; index++)); do
   workdir="$TASK_ROOT-$index"
@@ -58,6 +60,8 @@ for ((index=1; index<=COUNT+2; index++)); do
   [[ -n "$surface" ]] || { echo "surface lookup failed: $surfaces_json" >&2; exit 1; }
   WORKSPACES+=("$workspace")
   SURFACES+=("$surface")
+  READY_SESSIONS+=(0)
+  ITERATION_COUNTS+=(0)
   printf '{"event":"session_started","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
     "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
@@ -66,13 +70,51 @@ deadline=$(( $(date +%s) + DURATION_SECONDS ))
 while (( $(date +%s) < deadline )); do
   for index in "${!WORKSPACES[@]}"; do
     screen="$(read_screen "${WORKSPACES[$index]}" "${SURFACES[$index]}")"
-    marker="CMUX_CODEX_$((index + 1))_"
-    if grep -q "$marker\\|CMUX_SUPPORT_" <<<"$screen"; then
+    session_number=$((index + 1))
+    marker_seen=0
+    if (( session_number <= COUNT )); then
+      ready_marker="CMUX_CODEX_${session_number}_READY"
+      if grep -qF "$ready_marker" <<<"$screen"; then
+        READY_SESSIONS[$index]=1
+        marker_seen=1
+      fi
+      iteration_count="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$screen" \
+        | sed -E 's/.*_ITER_//' | sort -nu | wc -l | tr -d ' ' || true)"
+      if [[ "$iteration_count" =~ ^[0-9]+$ ]] \
+         && (( iteration_count > ITERATION_COUNTS[index] )); then
+        ITERATION_COUNTS[$index]="$iteration_count"
+        marker_seen=1
+      fi
+      if (( READY_SESSIONS[index] == 0 )) \
+         && grep -Eqi 'command not found|login required|authentication required' <<<"$screen"; then
+        echo "error: Codex session $session_number exited or needs authentication before its ready marker" >&2
+        exit 1
+      fi
+    elif grep -qF "CMUX_SUPPORT_" <<<"$screen"; then
+      marker_seen=1
+    fi
+    if (( marker_seen == 1 )); then
       printf '{"event":"session_output","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","observed_at":"%s","marker_seen":true}\n' \
-        "$((index + 1))" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+        "$session_number" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
     fi
   done
   sleep 15
+done
+
+for index in "${!WORKSPACES[@]}"; do
+  session_number=$((index + 1))
+  if (( session_number <= COUNT )); then
+    if (( READY_SESSIONS[index] != 1 )); then
+      echo "error: Codex session $session_number never emitted CMUX_CODEX_${session_number}_READY" >&2
+      exit 1
+    fi
+    if (( ITERATION_COUNTS[index] < 10 )); then
+      echo "error: Codex session $session_number emitted only ${ITERATION_COUNTS[index]} iterations, expected at least 10" >&2
+      exit 1
+    fi
+    printf '{"event":"session_verified","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","iterations":%d,"observed_at":"%s"}\n' \
+      "$session_number" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "${ITERATION_COUNTS[index]}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+  fi
 done
 
 for index in "${!WORKSPACES[@]}"; do
