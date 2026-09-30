@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { agentChatText } from "./i18n";
 import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
@@ -255,6 +256,7 @@ export interface SessionState {
   filesByCwd: Record<string, string[]>;
   cwdChecks: Record<string, { ok: boolean; message?: string }>;
   fileDiffs: Record<string, string>;
+  fileDiffErrors: Record<string, string>;
   lastError: string;
   forkPending: boolean;
   handoffPending: boolean;
@@ -302,6 +304,7 @@ const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const routedToTranscript = routedSessionId?.startsWith("t-") ?? false;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
+const FILE_DIFF_TIMEOUT_MS = 30_000;
 
 function newClientRequestId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -353,6 +356,7 @@ export function useSession(): SessionState {
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
   const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
+  const [fileDiffErrors, setFileDiffErrors] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
   const [handoffPending, setHandoffPending] = useState(false);
@@ -363,7 +367,7 @@ export function useSession(): SessionState {
   const pendingHandoffSourceSessionRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
-  const pendingFileDiffRequestsRef = useRef(new Map<string, { sessionId: string; key: string }>());
+  const pendingFileDiffRequestsRef = useRef(new Map<string, { sessionId: string; key: string; timer: number }>());
   const pendingStartRef = useRef<{
     requestId: string;
     conversationId: string;
@@ -376,10 +380,23 @@ export function useSession(): SessionState {
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
+  const discardFileDiffRequests = useCallback(() => {
+    for (const request of pendingFileDiffRequestsRef.current.values()) window.clearTimeout(request.timer);
+    pendingFileDiffRequestsRef.current.clear();
+  }, []);
+  const failFileDiffRequests = useCallback(() => {
+    const errors: Record<string, string> = {};
+    for (const request of pendingFileDiffRequestsRef.current.values()) {
+      if (request.sessionId === sessionIdRef.current) errors[request.key] = agentChatText("diffUnavailable");
+    }
+    discardFileDiffRequests();
+    if (Object.keys(errors).length) setFileDiffErrors((current) => ({ ...current, ...errors }));
+  }, [discardFileDiffRequests]);
   const takeFileDiffRequest = useCallback((msg: { requestId?: unknown; sessionId?: unknown }) => {
     if (typeof msg.requestId !== "string" || msg.sessionId !== sessionIdRef.current) return null;
     const request = pendingFileDiffRequestsRef.current.get(msg.requestId);
     if (!request || request.sessionId !== msg.sessionId) return null;
+    window.clearTimeout(request.timer);
     pendingFileDiffRequestsRef.current.delete(msg.requestId);
     return request;
   }, []);
@@ -421,11 +438,12 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffRequestsRef.current.clear();
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
@@ -446,7 +464,10 @@ export function useSession(): SessionState {
   useEffect(() => {
     const disconnect = openSessionConnection({
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
-      onSocket: (ws) => { wsRef.current = ws; },
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) failFileDiffRequests();
+      },
       onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
@@ -501,8 +522,9 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffRequestsRef.current.clear();
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("chat");
             break;
           case "history":
@@ -523,8 +545,9 @@ export function useSession(): SessionState {
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
-            pendingFileDiffRequestsRef.current.clear();
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("chat");
             break;
           case "no-session":
@@ -537,8 +560,9 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffRequestsRef.current.clear();
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("composer");
             optimisticUsersRef.current = [];
             break;
@@ -657,18 +681,19 @@ export function useSession(): SessionState {
             }
             if (msg.op === "get-file-diff") {
               const request = takeFileDiffRequest(msg);
-              if (request) setFileDiffs((m) => ({ ...m, [request.key]: String(msg.message ?? "Failed to load diff") }));
+              if (request) setFileDiffErrors((m) => ({ ...m, [request.key]: String(msg.message ?? agentChatText("diffUnavailable")) }));
             }
             break;
         }
       },
     });
     return () => {
+      discardFileDiffRequests();
       disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw, takeFileDiffRequest]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, discardFileDiffRequests, failFileDiffRequests, failPendingStart, sendRaw, takeFileDiffRequest]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -698,11 +723,12 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffRequestsRef.current.clear();
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setPhase("chat");
     return true;
-  }, [armPendingStartTimeout, sendRaw]);
+  }, [armPendingStartTimeout, discardFileDiffRequests, sendRaw]);
   const compose = useCallback(() => {
     clearPendingStartTimeout();
     closeHandoffWindow();
@@ -717,10 +743,11 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffRequestsRef.current.clear();
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, closeHandoffWindow]);
+  }, [clearPendingStartTimeout, closeHandoffWindow, discardFileDiffRequests]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -785,10 +812,29 @@ export function useSession(): SessionState {
   const requestFileDiff = useCallback((sessionId: string, path: string) => {
     if (sessionId !== sessionIdRef.current) return;
     const request = decodeFileDiffRequest(path);
-    const requestId = newClientRequestId("diff");
-    if (sendRaw({ op: "get-file-diff", sessionId, path: request.path, requestId })) {
-      pendingFileDiffRequestsRef.current.set(requestId, { sessionId, key: request.key });
+    for (const pending of pendingFileDiffRequestsRef.current.values()) {
+      if (pending.sessionId === sessionId && pending.key === request.key) return;
     }
+    const requestId = newClientRequestId("diff");
+    if (!sendRaw({ op: "get-file-diff", sessionId, path: request.path, requestId })) {
+      setFileDiffErrors((current) => ({ ...current, [request.key]: agentChatText("diffUnavailable") }));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const pending = pendingFileDiffRequestsRef.current.get(requestId);
+      if (!pending) return;
+      pendingFileDiffRequestsRef.current.delete(requestId);
+      if (pending.sessionId === sessionIdRef.current) {
+        setFileDiffErrors((current) => ({ ...current, [pending.key]: agentChatText("diffUnavailable") }));
+      }
+    }, FILE_DIFF_TIMEOUT_MS);
+    pendingFileDiffRequestsRef.current.set(requestId, { sessionId, key: request.key, timer });
+    setFileDiffErrors((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, request.key)) return current;
+      const next = { ...current };
+      delete next[request.key];
+      return next;
+    });
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -820,6 +866,7 @@ export function useSession(): SessionState {
     filesByCwd,
     cwdChecks,
     fileDiffs,
+    fileDiffErrors,
     lastError,
     forkPending,
     handoffPending,

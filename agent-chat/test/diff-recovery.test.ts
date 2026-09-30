@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
-const globalKeys = ["window", "document", "location", "history", "sessionStorage", "WebSocket", "setTimeout", "clearTimeout", "IS_REACT_ACT_ENVIRONMENT"];
+const globalKeys = ["window", "document", "location", "history", "sessionStorage", "navigator", "WebSocket", "setTimeout", "clearTimeout", "IS_REACT_ACT_ENVIRONMENT"];
 const descriptors = new Map(globalKeys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 const timers = new Map<number, { callback: () => void; delay: number }>();
 const sockets: FakeSocket[] = [];
@@ -28,6 +28,7 @@ const timerApi = {
 for (const [key, value] of Object.entries({
   window: timerApi, ...timerApi,
   document: { title: "cmux agent" }, location,
+  navigator: { languages: ["en"], language: "en" },
   history: { replaceState(_state: unknown, _unused: string, path: string) { location.pathname = path; } },
   sessionStorage: { setItem() {} }, WebSocket: FakeSocket, IS_REACT_ACT_ENVIRONMENT: true,
 })) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -124,6 +125,62 @@ try {
   assert.equal(renders, disposedRenders);
   assert.equal(timers.size, 0, "unmount must release every owned deadline");
   console.log("diff timeout, retry, disconnect, history replacement, and unmount recovery: OK");
+
+  const { FileDiffView } = await import("../src/components/FileDiffView");
+  const { cacheHtmlForTest } = await import("../src/ChatMarkdown");
+  cacheHtmlForTest("diff\0+recovered", "<pre><code>+recovered</code></pre>");
+  let requests = 0;
+  const onRequest = () => { requests++; };
+  await act(async () => { renderer = create(createElement(FileDiffView, { diff: "+recovered", onRequest })); });
+  assert.equal(requests, 0, "a cached diff must not request another load");
+  await update(() => renderer!.update(createElement(FileDiffView, { onRequest })));
+  assert.equal(requests, 1, "an expanded diff must reload when reconnect clears its cache");
+  assert.equal(renderer.root.findByProps({ className: "diff-loading" }).props.role, "status");
+  await update(() => renderer!.update(createElement(FileDiffView, { error: "Couldn't load this file", onRequest })));
+  assert.equal(requests, 1, "a failed load waits for an explicit retry");
+  assert.equal(renderer.root.findByProps({ className: "diff-error" }).props.role, "status");
+  const retryButton = renderer.root.findByType("button");
+  assert.equal(retryButton.children.join(""), "Retry");
+  await update(() => retryButton.props.onClick());
+  assert.equal(requests, 2, "the visible Retry button invokes the load action");
+  await update(() => renderer!.update(createElement(FileDiffView, { diff: "+recovered", onRequest })));
+  assert.equal(requests, 2);
+  assert.equal(renderer.root.findAllByProps({ className: "diff-error" }).length, 0);
+  await act(async () => { renderer!.unmount(); });
+  renderer = undefined;
+  console.log("expanded diff cache recovery and visible Retry interaction: OK");
+
+  let live: ReturnType<typeof useSession>;
+  function IntegratedDiff() {
+    live = useSession();
+    return createElement(FileDiffView, {
+      diff: live.fileDiffs[key], error: live.fileDiffErrors[key],
+      onRequest: () => live.requestFileDiff("current", key),
+    });
+  }
+  await act(async () => { renderer = create(createElement(IntegratedDiff)); });
+  ws = sockets.at(-1)!;
+  await update(() => ws.open());
+  await history();
+  const diffRequests = () => ws.sent.filter((message) => message.op === "get-file-diff");
+  assert.equal(diffRequests().length, 1, "an open view starts one load after history becomes available");
+  await fire(deadlines()[0]![0]);
+  await update(() => renderer!.root.findByProps({ className: "diff-retry" }).props.onClick());
+  assert.equal(diffRequests().length, 2, "clicking Retry plus the view effect must share one new request");
+  assert.equal(renderer.root.findAllByProps({ className: "diff-error" }).length, 0);
+  await receive({ kind: "file-diff", sessionId: "current", path: "tracked.txt", requestId: diffRequests().at(-1).requestId, diff: "+recovered" });
+  assert.equal(live.fileDiffs[key], "+recovered");
+  await update(() => ws.close());
+  await fire([...timers.entries()].find(([, timer]) => timer.delay === 800)![0]);
+  ws = sockets.at(-1)!;
+  await update(() => ws.open());
+  await history();
+  assert.equal(diffRequests().length, 1, "reconnect reloads an already-open diff on the new socket");
+  assert.equal(deadlines().length, 1);
+  await act(async () => { renderer!.unmount(); });
+  renderer = undefined;
+  assert.equal(timers.size, 0);
+  console.log("Retry and reconnect drive the real session from the mounted diff view: OK");
 } finally {
   if (renderer) await act(async () => { renderer!.unmount(); });
   for (const [key, descriptor] of descriptors) {
