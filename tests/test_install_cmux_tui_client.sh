@@ -295,3 +295,63 @@ if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arc
 fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
+
+# --- Stalled download -----------------------------------------------------------
+# To curl, a dead HTTP/2 stream is a server that answers and then sends nothing.
+# With no stall bound one Release job waited twenty minutes per attempt for the
+# server to reset the stream and hit its job timeout (CI run 36685498203). Serve
+# exactly that over TLS and require the real installer and the real curl to give
+# up within the attempt budget instead of hanging.
+STALL_DIR="$TEST_DIR/stall"
+mkdir -p "$STALL_DIR"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+  -keyout "$STALL_DIR/key.pem" -out "$STALL_DIR/cert.pem" > "$STALL_DIR/openssl.log" 2>&1
+# The server certificate is self-signed; this test is about stalls, not trust.
+printf 'insecure\n' > "$STALL_DIR/.curlrc"
+python3 - "$STALL_DIR" <<'PY' &
+import os, socket, ssl, sys, threading, time
+root = sys.argv[1]
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(f"{root}/cert.pem", f"{root}/key.pem")
+listener = socket.create_server(("127.0.0.1", 0))
+with open(f"{root}/port.tmp", "w") as handle:
+    handle.write(str(listener.getsockname()[1]))
+os.rename(f"{root}/port.tmp", f"{root}/port")
+def stall(connection):
+    try:
+        with context.wrap_socket(connection, server_side=True) as tls:
+            tls.recv(65536)
+            tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n{")
+            time.sleep(3600)
+    except OSError:
+        pass
+while True:
+    connection, _ = listener.accept()
+    threading.Thread(target=stall, args=(connection,), daemon=True).start()
+PY
+STALL_SERVER_PID=$!
+trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
+for _ in $(seq 1 100); do [[ -s "$STALL_DIR/port" ]] && break; sleep 0.1; done
+STALL_PORT="$(cat "$STALL_DIR/port")"
+mkdir -p "$TEST_DIR/Stalled.app/Contents"
+stall_status=0
+started=$SECONDS
+CURL_HOME="$STALL_DIR" CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS=2 CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS=2 \
+  python3 -c 'import os, signal, subprocess, sys
+child = subprocess.Popen(sys.argv[1:], start_new_session=True)
+try:
+    sys.exit(child.wait(timeout=60))
+except subprocess.TimeoutExpired:
+    os.killpg(child.pid, signal.SIGKILL)
+    sys.exit(124)' \
+  /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/Stalled.app" --allow-unattested \
+  --cache-dir "$STALL_DIR/cache" --manifest-url "https://127.0.0.1:$STALL_PORT/manifest.json" \
+  > "$TEST_DIR/stalled.log" 2>&1 || stall_status=$?
+if [[ "$stall_status" -eq 124 ]]; then
+  echo "FAIL: a stalled download hung the installer for 60 s" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1
+fi
+if [[ "$stall_status" -eq 0 ]]; then
+  echo "FAIL: installed from a stalled download" >&2; exit 1
+fi
+[[ ! -e "$TEST_DIR/Stalled.app/Contents/Resources/bin/cmux-tui" ]]
+echo "PASS: a stalled download fails after $((SECONDS - started)) s instead of hanging"
