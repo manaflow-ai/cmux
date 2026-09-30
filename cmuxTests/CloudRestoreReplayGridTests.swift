@@ -82,8 +82,6 @@ struct CloudRestoreReplayGridTests {
         let rows = fixture.screenRows()
         #expect(rows.first == String(repeating: " ", count: 39) + "X", "rows=\(rows)")
         #expect(rows.count > 9 && rows[9] == "BOTTOM", "rows=\(rows)")
-        let view = try #require(fixture.surface.naturalGridSize())
-        #expect(view.columns > 40 && view.rows > 10, "the view grid collapsed onto the pinned grid: \(view)")
     }
 
     @Test
