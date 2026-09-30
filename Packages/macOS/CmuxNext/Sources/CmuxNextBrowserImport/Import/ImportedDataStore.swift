@@ -54,12 +54,28 @@ public actor ImportedDataStore {
     /// Sources whose data still sits in the default profile (imports made
     /// before browser profiles existed).
     public func sourcesInDefaultProfile() -> [ImportSourceRecord] {
-        [] // stub
+        sources().filter { $0.targetProfileID == "default" }
     }
 
     /// Moves one source's saved batch into `profile` and records the new
     /// target. An unknown source is a no-op.
-    public func retarget(_ sourceKey: String, to profile: String) throws {}
+    public func retarget(_ sourceKey: String, to profile: String) throws {
+        var records = sources()
+        guard let index = records.firstIndex(where: { $0.sourceKey == sourceKey }) else { return }
+        let old = records[index]
+        guard old.targetProfileID != profile else { return }
+        var moved = old
+        moved.targetProfileID = profile
+        let from = batchFile(old), to = batchFile(moved)
+        if let data = try? Data(contentsOf: from), var batch = try? decoder.decode(ImportBatch.self, from: data) {
+            batch.source = moved
+            try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try encoder.encode(batch).write(to: to, options: .atomic)
+            try? FileManager.default.removeItem(at: from)
+        }
+        records[index] = moved
+        try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+    }
 
     /// Every batch imported into `profile`.
     public func batches(profile: String) -> [ImportBatch] {

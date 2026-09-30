@@ -15,13 +15,25 @@ public nonisolated struct BrowserProfileStorageCleanup: Sendable {
 
     /// Directory names of `id`'s Chromium stores among `names`.
     public static func chromiumDirectories(for id: String, in names: [String]) -> [String] {
-        [] // stub
+        guard id != BrowserProfileRecord.defaultID, let profile = BrowserProfileRecord.engineProfile(for: id) else { return [] }
+        let base = "Profile-" + profile.rawValue.uuidString
+        return names.filter { $0 == base || $0.hasPrefix(base + "-m-") }
     }
 
     /// Removes the Chromium stores of `ids`; returns the ids whose data is
     /// gone (nothing left to remove). `default` and invalid ids are skipped.
     @discardableResult
     public func removeChromiumData(for ids: [String]) -> [String] {
-        [] // stub
+        let manager = FileManager.default
+        let names = (try? manager.contentsOfDirectory(atPath: chromiumRoot.path)) ?? []
+        var removed: [String] = []
+        for id in ids where id != BrowserProfileRecord.defaultID && BrowserProfileRecord.engineProfile(for: id) != nil {
+            var failed = false
+            for name in Self.chromiumDirectories(for: id, in: names) {
+                do { try manager.removeItem(at: chromiumRoot.appending(path: name)) } catch { failed = true }
+            }
+            if !failed { removed.append(id) }
+        }
+        return removed
     }
 }

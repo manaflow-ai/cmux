@@ -55,21 +55,70 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
     /// valid id this book does not know (a tab made on another Mac) keeps
     /// its own store.
     public func engineProfile(for wireID: String?) -> BrowserProfileID {
-        .default // stub
+        guard let wireID, !pendingCleanup.contains(wireID) else { return .default }
+        return BrowserProfileRecord.engineProfile(for: wireID) ?? .default
     }
 
+    /// Adds a profile. An existing id returns its record unchanged, so a
+    /// retried import finds the profile it made before.
     @discardableResult
     public mutating func create(id: String = BrowserProfileRecord.newID(), name: String, color: String?, icon: String?,
                                 source: [String: String]? = nil) throws -> BrowserProfileRecord {
-        BrowserProfileRecord(id: id, name: name) // stub
+        guard BrowserProfileRecord.isValidID(id) else { throw BrowserProfileBookError.invalidID }
+        if let existing = record(id) { return existing }
+        let record = BrowserProfileRecord(id: id, name: try Self.validName(name), color: try Self.validColor(color),
+                                          icon: try Self.validIcon(icon), position: (profiles.map(\.position).max() ?? 0) + 1,
+                                          source: source)
+        profiles.append(record)
+        pendingCleanup.removeAll { $0 == id }
+        return record
     }
 
-    public mutating func rename(_ id: String, to name: String) throws {}
-    public mutating func setColor(_ id: String, _ color: String?) throws {}
-    public mutating func setIcon(_ id: String, _ icon: String?) throws {}
-    public mutating func move(_ id: String, to index: Int) throws {}
-    public mutating func delete(_ id: String) throws {}
-    public mutating func finishCleanup(_ ids: [String]) {}
+    public mutating func rename(_ id: String, to name: String) throws {
+        let name = try Self.validName(name)
+        try edit(id) { $0.name = name }
+    }
+
+    public mutating func setColor(_ id: String, _ color: String?) throws {
+        let color = try Self.validColor(color)
+        try edit(id) { $0.color = color }
+    }
+
+    public mutating func setIcon(_ id: String, _ icon: String?) throws {
+        let icon = try Self.validIcon(icon)
+        try edit(id) { $0.icon = icon }
+    }
+
+    /// Moves a profile to `index` in display order.
+    public mutating func move(_ id: String, to index: Int) throws {
+        var order = ordered
+        guard let from = order.firstIndex(where: { $0.id == id }) else { throw BrowserProfileBookError.unknownProfile }
+        let moved = order.remove(at: from)
+        order.insert(moved, at: min(max(index, 0), order.count))
+        for (position, record) in order.enumerated() {
+            if let slot = profiles.firstIndex(where: { $0.id == record.id }) { profiles[slot].position = position }
+        }
+    }
+
+    /// Removes a profile and every workspace default naming it, and queues
+    /// its engine data for removal. The caller moves its tabs first.
+    public mutating func delete(_ id: String) throws {
+        guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
+        guard contains(id) else { throw BrowserProfileBookError.unknownProfile }
+        profiles.removeAll { $0.id == id }
+        workspaceDefaults = workspaceDefaults.filter { $0.value != id }
+        if !pendingCleanup.contains(id) { pendingCleanup.append(id) }
+    }
+
+    /// The engine data of `ids` is gone.
+    public mutating func finishCleanup(_ ids: [String]) {
+        pendingCleanup.removeAll { ids.contains($0) }
+    }
+
+    private mutating func edit(_ id: String, _ change: (inout BrowserProfileRecord) -> Void) throws {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { throw BrowserProfileBookError.unknownProfile }
+        change(&profiles[index])
+    }
 
     static func validName(_ name: String) throws -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

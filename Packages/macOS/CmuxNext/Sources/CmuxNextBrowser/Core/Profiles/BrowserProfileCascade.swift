@@ -9,15 +9,18 @@ public nonisolated enum BrowserProfileCascade {
     /// profile, its room's; else `default`. There is no window level: a
     /// window's browser profile is its room's.
     public static func resolve(explicit: String?, workspace: String?, room: String?, known: (String) -> Bool) -> String {
-        BrowserProfileRecord.defaultID // stub
+        for candidate in [explicit, workspace, room] {
+            if let candidate, !candidate.isEmpty, known(candidate) { return candidate }
+        }
+        return BrowserProfileRecord.defaultID
     }
 
     /// A tab shows a profile dot when its profile differs from the one new
     /// tabs of its workspace get (a record without an id is `default`).
     public static func showsTabBadge(tabProfile: String?, workspaceEffective: String) -> Bool {
-        false // stub
+        (tabProfile ?? BrowserProfileRecord.defaultID) != workspaceEffective
     }
 
     /// The omnibar shows the tab's profile once more than one exists.
-    public static func showsOmnibarBadge(profileCount: Int) -> Bool { false } // stub
+    public static func showsOmnibarBadge(profileCount: Int) -> Bool { profileCount > 1 }
 }
