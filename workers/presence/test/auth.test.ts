@@ -135,7 +135,7 @@ describe("verifyRequest negative cache", () => {
     const realFetch = globalThis.fetch;
     let revoked = false;
     const token = "opaque-live-token-" + Math.random().toString(36).slice(2);
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
       if (revoked) return new Response("unauthorized", { status: 401 });
       const url = String(input);
       return Response.json(url.includes("/teams") ? { items: [] } : { id: "user-1" });
