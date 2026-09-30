@@ -45,6 +45,10 @@ struct CLISendDraftGuardTests {
         #expect(run.result.status != 0)
         #expect(writes(run).isEmpty, Comment(rawValue: "\(writes(run))"))
         #expect(run.result.stderr.contains("--force"), Comment(rawValue: run.result.stderr))
+        #expect(
+            run.result.stderr.contains("cmux agent message \(Self.targetSurfaceRef) \"...\""),
+            Comment(rawValue: run.result.stderr)
+        )
         let probe = try #require(run.requests.first { $0["method"] as? String == "surface.input_state" })
         let params = try #require(probe["params"] as? [String: Any])
         #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
@@ -62,6 +66,10 @@ struct CLISendDraftGuardTests {
                 let label = "\(arguments.joined(separator: " ")) / \(state["state"] ?? "")"
                 #expect(run.result.status != 0, Comment(rawValue: label))
                 #expect(writes(run).isEmpty, Comment(rawValue: label))
+                #expect(
+                    run.result.stderr.contains("cmux agent message \(Self.targetSurfaceRef) \"...\""),
+                    Comment(rawValue: label + ": " + run.result.stderr)
+                )
             }
         }
     }
