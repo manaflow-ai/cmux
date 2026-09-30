@@ -407,6 +407,34 @@ import Testing
         #expect(target?.panelID == selectedPane)
     }
 
+    @MainActor @Test func duplicateTerminalProjectionsPreferTheRemoteWorkspaceIdentity() {
+        let localWorkspace = UUID(), cloudWorkspace = UUID()
+        let localPane = UUID(), cloudPane = UUID()
+        let local = Self.projection(
+            Self.terminalID,
+            workspace: localWorkspace,
+            panel: localPane
+        )
+        let cloud = Self.projection(
+            Self.terminalID,
+            workspace: cloudWorkspace,
+            panel: cloudPane
+        )
+        let remoteWorkspaceID = "remote-cloud-workspace"
+        var cloudProjection = cloud
+        cloudProjection.remoteWorkspaceID = remoteWorkspaceID
+        let resolver = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { _ in [local, cloudProjection] },
+            remoteWorkspaceID: { _ in remoteWorkspaceID },
+            boundWorkspaces: { [] }
+        )
+
+        let target = resolver.target(for: Self.notificationRow(terminalID: Self.terminalID))
+        #expect(target?.workspaceID == cloudWorkspace)
+        #expect(target?.panelID == cloudPane)
+    }
+
     // MARK: Link pipe
 
     @Test("The real pipe reader discards oversized lines and preserves later frames", .timeLimit(.minutes(1)))
