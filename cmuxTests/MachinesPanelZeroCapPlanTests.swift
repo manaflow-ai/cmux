@@ -129,4 +129,35 @@ struct MachinesPanelZeroCapPlanTests {
         #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: granted) == false)
         #expect(NewMachineSheetPresenter.shouldPresentUpgrade(for: unentitled))
     }
+
+    @Test("A non-granted plan preserves the server's machine expiry")
+    func serverExpirySurvivesPlanProjection() throws {
+        let createdAt = now.addingTimeInterval(-2 * 86_400)
+        let serverExpiry = now.addingTimeInterval(10 * 86_400)
+        let summary = VMSummary(
+            id: "machine-server-expiry",
+            provider: "freestyle",
+            status: "running",
+            image: "cmuxd",
+            createdAt: Int64(createdAt.timeIntervalSince1970 * 1000),
+            freeAccessExpiresAt: Int64(serverExpiry.timeIntervalSince1970 * 1000)
+        )
+        let snapshot = MachineSnapshotBuilder.snapshot(
+            from: summary,
+            freeAccessWindowDays: 7,
+            now: now
+        )
+        let plan = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 1,
+            limits: limits(maxActiveVms: 1),
+            machines: [snapshot],
+            now: now
+        ))
+        let projected = MachineSnapshotBuilder.applyingFreeAccess(
+            to: [snapshot],
+            plan: plan,
+            now: now
+        )
+        #expect(projected[0].freeAccess == .active(daysLeft: 10))
+    }
 }
