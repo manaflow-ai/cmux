@@ -55,6 +55,21 @@ struct DefaultChromiumTests {
         #expect(log.notified)
     }
 
+    /// The live availability closure: an embedded runtime that has not
+    /// started yet is available; only a missing layout is `notBundled`.
+    @Test func embeddedRuntimeIsAvailableBeforeItStarts() {
+        let root = URL(fileURLWithPath: "/tmp/cmux-test-cef")
+        let layout = CEFRuntimeLayout(frameworksDirectory: root, mainBundle: root, helperApp: root.appending(path: "cmux Helper.app"))
+        let services = ActionBindingCoverageTests.boundServices()
+        let engine = CEFEngine(layout: layout), noEngine = CEFEngine(layout: nil)
+        let embedded = BrowserTabService(daemon: services.daemon, cef: engine)
+        #expect(embedded.cefUnavailable() == nil)
+        #expect(embedded.cefAvailable())
+        let missing = BrowserTabService(daemon: services.daemon, cef: noEngine)
+        #expect(missing.cefUnavailable() == .notBundled)
+        withExtendedLifetime((services, engine, noEngine)) {}
+    }
+
     // MARK: Entrypoints
 
     struct Harness {
