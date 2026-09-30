@@ -63,3 +63,34 @@ owns data. Next only serves the shell, the API routes, and
   routes, which return only what the screen shows.
 - Strings use `next-intl` `useTranslations`; the global provider already
   carries every dashboard namespace.
+
+## Page states
+
+Every page has four states, and each uses one shared component, so the same
+outage or wait looks the same on every page.
+
+- **Frame first.** The page header (title, description) and any tabs or
+  subnav are static, so they render at once in every state. Only the data
+  region below them loads, fails, or is empty. No route skeleton hides the
+  header.
+- **Loading.** The data region shows a skeleton with the shape of what will
+  appear: a settings-row skeleton for settings forms, a table skeleton with
+  the real column count for tables, a card skeleton only for card grids.
+  It appears after `pendingMs` and stays at least `pendingMinMs`, as now.
+  No plain "Loading…" text.
+- **Error.** `SectionError` in the data region: a bordered panel titled
+  "Couldn't load <section>", one sentence from the declared refusal (network:
+  check your connection; 5xx: temporarily unavailable; 403: no access; 404:
+  not found), and a "Try again" button that refetches only that data and shows
+  "Retrying…" while it runs. Never "Go to homepage", never a centered page-wide
+  message, and never the sign-in recovery screen unless the session itself
+  failed. A declared 5xx or a network error is retried once, after about one
+  second, before the error shows; a declared 4xx shows at once.
+- **Empty.** `EmptyState`: a one-line title, one sentence on what fills it,
+  and the primary action when the viewer can take one.
+- **Writes.** Buttons show their pending label and are disabled while a
+  write runs; failures show `InlineError` next to the control that failed.
+
+Row actions in tables use `ActionMenu` (the "…" trigger), not inline selects.
+An action the viewer cannot take stays in the menu, disabled, with its reason
+(for example, "A team needs at least one admin").
