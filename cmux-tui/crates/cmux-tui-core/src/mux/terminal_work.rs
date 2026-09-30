@@ -309,9 +309,12 @@ mod tests {
 
     #[test]
     fn terminal_work_pool_survives_panicking_jobs() {
+        fn failing_job() -> usize {
+            panic!("job failed")
+        }
         let pool = TerminalWorkPool::default();
         let panicking: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..2 * MAX_TERMINAL_WORKERS)
-            .map(|_| Box::new(|| panic!("job failed")) as Box<dyn FnOnce() -> usize + Send>)
+            .map(|_| Box::new(failing_job) as Box<dyn FnOnce() -> usize + Send>)
             .collect();
         assert!(pool.run_all(panicking).iter().all(Result::is_err));
         for _ in 0..2 * MAX_TERMINAL_WORKERS {

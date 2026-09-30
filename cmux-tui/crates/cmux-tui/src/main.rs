@@ -3308,7 +3308,7 @@ mod tests {
             Some("[::]:8080".parse().unwrap()),
             Some("127.0.0.1:0".parse().unwrap()),
         ];
-        super::deny_daemon_listener_ports(&mut policy, addresses);
+        deny_daemon_listener_ports(&mut policy, addresses);
         assert!(!policy.permits_port(1337));
         assert!(!policy.permits_port(8080));
         assert!(policy.permits_port(3000));

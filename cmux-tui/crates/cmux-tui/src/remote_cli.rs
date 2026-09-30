@@ -1829,7 +1829,7 @@ async fn wait_for_parent_exit(expected: u32) {
         return;
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let waiter = std::thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
+    let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
         let _ = sender.send(wait_for_process_exit(expected));
     });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
