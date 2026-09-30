@@ -67,10 +67,11 @@ pub(crate) use journal_extensions::{
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::PersonalSnapshot;
 pub use presentation_store::{
-    FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
-    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
-    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_tab_group_color,
-    validate_tab_group_name, validate_workspace_group_id,
+    FrontendBrowserRecord, PresentationSnapshot, RemoteTerminalChange, RemoteTerminalRecord,
+    RemoteTerminalUpdate, SavedTabGroupRecord, SavedTabMember, TabGroupRecord, TabGroupState,
+    WorkspaceGroupRecord, WorkspacePresentationUpdate, new_saved_tab_group_id, new_tab_group_id,
+    new_workspace_group_id, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;

@@ -84,6 +84,14 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            title TEXT,
            favicon_url TEXT,
            profile_id TEXT
+         );
+         CREATE TABLE IF NOT EXISTS remote_terminal_tabs (
+           browser_id TEXT PRIMARY KEY NOT NULL,
+           session_id TEXT NOT NULL,
+           terminal_id TEXT NOT NULL,
+           session_name TEXT NOT NULL,
+           title TEXT,
+           snapshot TEXT
          );",
     )?;
     Ok(())
@@ -170,6 +178,10 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
+    /// Remote-terminal tabs (`remote-terminal-tabs-v1`) keyed by the
+    /// placeholder browser content id of their tab. Their text snapshots
+    /// are read on demand, never kept here.
+    pub remote_terminals: HashMap<String, RemoteTerminalRecord>,
     /// Chrome-style tab groups of every pane.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -430,6 +442,100 @@ pub fn validate_frontend_browser_title(value: &str) -> anyhow::Result<()> {
         "bad request: title contains a control character"
     );
     Ok(())
+}
+
+/// Longest accepted remote-terminal session name, in bytes.
+pub const MAX_REMOTE_TERMINAL_SESSION_NAME_BYTES: usize = 255;
+/// Largest accepted remote-terminal text snapshot, in UTF-8 bytes.
+pub const MAX_REMOTE_TERMINAL_SNAPSHOT_BYTES: usize = 64 * 1024;
+
+/// A tab in this session's layout that references a terminal on another
+/// session (`remote-terminal-tabs-v1`, plans/cmux-next/data-model.md 1.2).
+/// The frontend attaches to that session itself; this daemon only stores
+/// the reference, like a frontend browser record, and never attaches,
+/// spawns or bootstraps anything for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RemoteTerminalRecord {
+    /// The other session's durable id: a lowercase UUID.
+    pub session_id: String,
+    /// The terminal's host id on that session: 32 lowercase hex digits.
+    pub terminal_id: String,
+    /// The name the frontend shows for that session.
+    pub session_name: String,
+    pub title: Option<String>,
+}
+
+impl RemoteTerminalRecord {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        validate_remote_session_id(&self.session_id)?;
+        anyhow::ensure!(
+            self.terminal_id.len() == 32
+                && self.terminal_id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')),
+            "bad request: terminal_id must be 32 lowercase hex digits"
+        );
+        validate_remote_session_name(&self.session_name)?;
+        if let Some(title) = &self.title {
+            validate_frontend_browser_title(title)?;
+        }
+        Ok(())
+    }
+
+    /// The tab title: the recorded one, else "Terminal on <session>".
+    pub fn display_title(&self) -> String {
+        match &self.title {
+            Some(title) if !title.is_empty() => title.clone(),
+            _ => format!("Terminal on {}", self.session_name),
+        }
+    }
+}
+
+fn validate_remote_session_id(value: &str) -> anyhow::Result<()> {
+    let bytes = value.as_bytes();
+    let well_formed = bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => *byte == b'-',
+            _ => matches!(byte, b'0'..=b'9' | b'a'..=b'f'),
+        });
+    anyhow::ensure!(well_formed, "bad request: session_id must be a lowercase UUID");
+    Ok(())
+}
+
+pub fn validate_remote_session_name(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!value.is_empty(), "bad request: session_name cannot be empty");
+    anyhow::ensure!(
+        value.len() <= MAX_REMOTE_TERMINAL_SESSION_NAME_BYTES,
+        "bad request: session_name exceeds {MAX_REMOTE_TERMINAL_SESSION_NAME_BYTES} bytes"
+    );
+    anyhow::ensure!(
+        !value.chars().any(char::is_control),
+        "bad request: session_name contains a control character"
+    );
+    Ok(())
+}
+
+pub fn validate_remote_terminal_snapshot(value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.len() <= MAX_REMOTE_TERMINAL_SNAPSHOT_BYTES,
+        "bad request: snapshot exceeds {MAX_REMOTE_TERMINAL_SNAPSHOT_BYTES} bytes"
+    );
+    Ok(())
+}
+
+/// Changes to a remote-terminal record: `None` leaves a field unchanged;
+/// `Some(None)` clears the title or the snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteTerminalUpdate {
+    pub title: Option<Option<String>>,
+    pub session_name: Option<String>,
+    pub snapshot: Option<Option<String>>,
+}
+
+/// What an update changed: the presented record (title or session name)
+/// and, separately, the snapshot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RemoteTerminalChange {
+    pub presentation: bool,
+    pub snapshot: bool,
 }
 
 fn browser_subject(browser_id: &str) -> JournalSubject {
@@ -867,6 +973,32 @@ impl WorkspaceRegistry {
                 frontend_browsers.insert(browser_id, record);
             }
         }
+        let mut remote_terminals = HashMap::new();
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT r.browser_id, r.session_id, r.terminal_id, r.session_name, r.title
+                 FROM remote_terminal_tabs AS r
+                 WHERE NOT EXISTS (
+                   SELECT 1 FROM resource_browsers AS b
+                   WHERE b.public_id = r.browser_id AND b.lifecycle = 'tombstoned'
+                 )",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    RemoteTerminalRecord {
+                        session_id: row.get(1)?,
+                        terminal_id: row.get(2)?,
+                        session_name: row.get(3)?,
+                        title: row.get(4)?,
+                    },
+                ))
+            })?;
+            for row in rows {
+                let (browser_id, record) = row?;
+                remote_terminals.insert(browser_id, record);
+            }
+        }
         let tab_groups = read_tab_group_state(&self.connection)?;
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
         Ok(PresentationSnapshot {
@@ -874,6 +1006,7 @@ impl WorkspaceRegistry {
             workspaces,
             pinned_tabs,
             frontend_browsers,
+            remote_terminals,
             tab_groups,
             saved_tab_groups,
         })
@@ -1171,6 +1304,132 @@ impl WorkspaceRegistry {
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
         self.connection
             .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
+        Ok(())
+    }
+
+    /// Register a remote-terminal reference before its placeholder tab
+    /// commits, under the content id the creation then uses. The id must be
+    /// fresh.
+    pub fn put_remote_terminal(
+        &mut self,
+        browser_id: &str,
+        record: &RemoteTerminalRecord,
+    ) -> anyhow::Result<()> {
+        validate_browser_public_id(browser_id)?;
+        record.validate()?;
+        let tx = self.connection.transaction()?;
+        let exists = tx
+            .query_row("SELECT 1 FROM resource_browsers WHERE public_id = ?1", [browser_id], |_| {
+                Ok(())
+            })
+            .optional()?
+            .is_some();
+        anyhow::ensure!(!exists, "browser {browser_id} already exists");
+        tx.execute(
+            "INSERT INTO remote_terminal_tabs(browser_id, session_id, terminal_id, session_name, title)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                browser_id,
+                record.session_id,
+                record.terminal_id,
+                record.session_name,
+                record.title
+            ],
+        )?;
+        append_presentation_record(
+            &tx,
+            "remote_terminal.registered",
+            vec![browser_subject(browser_id)],
+            &json!({"browser_id": browser_id, "remote_terminal": record}),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Apply `update` to a remote-terminal record. The snapshot is stored
+    /// but never journaled (it is screen text).
+    pub fn update_remote_terminal(
+        &mut self,
+        browser_id: &str,
+        update: &RemoteTerminalUpdate,
+    ) -> anyhow::Result<(RemoteTerminalRecord, RemoteTerminalChange)> {
+        validate_browser_public_id(browser_id)?;
+        if let Some(Some(snapshot)) = &update.snapshot {
+            validate_remote_terminal_snapshot(snapshot)?;
+        }
+        let tx = self.connection.transaction()?;
+        let (before, snapshot_before) = tx
+            .query_row(
+                "SELECT session_id, terminal_id, session_name, title, snapshot
+                 FROM remote_terminal_tabs WHERE browser_id = ?1",
+                [browser_id],
+                |row| {
+                    Ok((
+                        RemoteTerminalRecord {
+                            session_id: row.get(0)?,
+                            terminal_id: row.get(1)?,
+                            session_name: row.get(2)?,
+                            title: row.get(3)?,
+                        },
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| anyhow::anyhow!("browser {browser_id} is not a remote-terminal tab"))?;
+        let mut record = before.clone();
+        if let Some(title) = &update.title {
+            record.title = title.clone();
+        }
+        if let Some(session_name) = &update.session_name {
+            record.session_name = session_name.clone();
+        }
+        record.validate()?;
+        let snapshot = update.snapshot.clone().unwrap_or_else(|| snapshot_before.clone());
+        let change = RemoteTerminalChange {
+            presentation: record != before,
+            snapshot: snapshot != snapshot_before,
+        };
+        if change.presentation {
+            tx.execute(
+                "UPDATE remote_terminal_tabs SET session_name = ?2, title = ?3 WHERE browser_id = ?1",
+                params![browser_id, record.session_name, record.title],
+            )?;
+            append_presentation_record(
+                &tx,
+                "remote_terminal.updated",
+                vec![browser_subject(browser_id)],
+                &json!({"browser_id": browser_id, "remote_terminal": record}),
+            )?;
+        }
+        if change.snapshot {
+            tx.execute(
+                "UPDATE remote_terminal_tabs SET snapshot = ?2 WHERE browser_id = ?1",
+                params![browser_id, snapshot],
+            )?;
+        }
+        tx.commit()?;
+        Ok((record, change))
+    }
+
+    /// The stored text snapshot of a remote-terminal tab.
+    pub fn remote_terminal_snapshot(&self, browser_id: &str) -> anyhow::Result<Option<String>> {
+        validate_browser_public_id(browser_id)?;
+        self.connection
+            .query_row(
+                "SELECT snapshot FROM remote_terminal_tabs WHERE browser_id = ?1",
+                [browser_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .ok_or_else(|| anyhow::anyhow!("browser {browser_id} is not a remote-terminal tab"))
+    }
+
+    /// Forget a remote-terminal reference whose tab creation failed or
+    /// whose tab closed.
+    pub fn delete_remote_terminal(&mut self, browser_id: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM remote_terminal_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(())
     }
 

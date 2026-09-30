@@ -97,6 +97,7 @@ public final class Commands {
     public static final CommandMetadata NEW_FRONTEND_BROWSER_TAB = new CommandMetadata("new-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
+    public static final CommandMetadata NEW_REMOTE_TERMINAL_TAB = new CommandMetadata("new-remote-terminal-tab", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -116,6 +117,7 @@ public final class Commands {
     public static final CommandMetadata RELEASE_ATTACHED_VIEW_SIZE = new CommandMetadata("release-attached-view-size", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RELEASE_SURFACE_SIZE = new CommandMetadata("release-surface-size", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELOAD_CONFIG = new CommandMetadata("reload-config", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REMOTE_TERMINAL_SNAPSHOT = new CommandMetadata("remote-terminal-snapshot", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOVE_TABS_FROM_TAB_GROUP = new CommandMetadata("remove-tabs-from-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RENAME_PANE = new CommandMetadata("rename-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RENAME_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("rename-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -168,6 +170,7 @@ public final class Commands {
     public static final CommandMetadata UPDATE_FRONTEND_BROWSER_TAB = new CommandMetadata("update-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_PERSONAL_GROUP = new CommandMetadata("update-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_PROFILE = new CommandMetadata("update-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata UPDATE_REMOTE_TERMINAL_TAB = new CommandMetadata("update-remote-terminal-tab", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_TAB_GROUP = new CommandMetadata("update-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_WORKSPACE_GROUP = new CommandMetadata("update-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata URL_OPEN = new CommandMetadata("url-open", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
@@ -268,6 +271,7 @@ public final class Commands {
         values.put("new-frontend-browser-tab", NEW_FRONTEND_BROWSER_TAB);
         values.put("new-pane", NEW_PANE);
         values.put("new-pane-right", NEW_PANE_RIGHT);
+        values.put("new-remote-terminal-tab", NEW_REMOTE_TERMINAL_TAB);
         values.put("new-screen", NEW_SCREEN);
         values.put("new-tab", NEW_TAB);
         values.put("new-workspace", NEW_WORKSPACE);
@@ -287,6 +291,7 @@ public final class Commands {
         values.put("release-attached-view-size", RELEASE_ATTACHED_VIEW_SIZE);
         values.put("release-surface-size", RELEASE_SURFACE_SIZE);
         values.put("reload-config", RELOAD_CONFIG);
+        values.put("remote-terminal-snapshot", REMOTE_TERMINAL_SNAPSHOT);
         values.put("remove-tabs-from-tab-group", REMOVE_TABS_FROM_TAB_GROUP);
         values.put("rename-pane", RENAME_PANE);
         values.put("rename-provider-managed-workspace", RENAME_PROVIDER_MANAGED_WORKSPACE);
@@ -339,6 +344,7 @@ public final class Commands {
         values.put("update-frontend-browser-tab", UPDATE_FRONTEND_BROWSER_TAB);
         values.put("update-personal-group", UPDATE_PERSONAL_GROUP);
         values.put("update-profile", UPDATE_PROFILE);
+        values.put("update-remote-terminal-tab", UPDATE_REMOTE_TERMINAL_TAB);
         values.put("update-tab-group", UPDATE_TAB_GROUP);
         values.put("update-workspace-group", UPDATE_WORKSPACE_GROUP);
         values.put("url-open", URL_OPEN);

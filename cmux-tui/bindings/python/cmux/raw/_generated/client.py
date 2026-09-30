@@ -273,6 +273,9 @@ class GeneratedClientMixin:
     def new_pane_right(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, width=width))
 
+    def new_remote_terminal_tab(self, terminal_id: str, session_id: str, session_name: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('new-remote-terminal-tab', NewRemoteTerminalTabRequest(terminal_id=terminal_id, session_id=session_id, session_name=session_name, pane=pane, cols=cols, rows=rows, title=title))
+
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, cols=cols, rows=rows))
 
@@ -329,6 +332,9 @@ class GeneratedClientMixin:
 
     def reload_config(self) -> ReloadConfigResult:
         return self._invoke_command('reload-config', ReloadConfigRequest())
+
+    def remote_terminal_snapshot(self, surface: Id) -> JsonValue:
+        return self._invoke_command('remote-terminal-snapshot', RemoteTerminalSnapshotRequest(surface=surface))
 
     def remove_tabs_from_tab_group(self, surfaces: List[TabRef], *, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('remove-tabs-from-tab-group', RemoveTabsFromTabGroupRequest(surfaces=surfaces, transaction=transaction))
@@ -486,6 +492,9 @@ class GeneratedClientMixin:
     def update_profile(self, profile: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, default_session_id: Union[str, None, MissingType] = MISSING, defaults: Union[JsonValue, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-profile', UpdateProfileRequest(profile=profile, browser_profile_id=browser_profile_id, color=color, default_session_id=default_session_id, defaults=defaults, icon=icon, name=name, theme=theme))
 
+    def update_remote_terminal_tab(self, surface: Id, *, session_name: Union[str, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-remote-terminal-tab', UpdateRemoteTerminalTabRequest(surface=surface, session_name=session_name, snapshot=snapshot, title=title))
+
     def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
 
@@ -601,6 +610,7 @@ GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-ta
 GeneratedClientMixin.new_frontend_browser_tab.__cmux_command__ = COMMANDS['new-frontend-browser-tab']
 GeneratedClientMixin.new_pane.__cmux_command__ = COMMANDS['new-pane']
 GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right']
+GeneratedClientMixin.new_remote_terminal_tab.__cmux_command__ = COMMANDS['new-remote-terminal-tab']
 GeneratedClientMixin.new_screen.__cmux_command__ = COMMANDS['new-screen']
 GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
@@ -620,6 +630,7 @@ GeneratedClientMixin.register_browser_provider.__cmux_command__ = COMMANDS['regi
 GeneratedClientMixin.release_attached_view_size.__cmux_command__ = COMMANDS['release-attached-view-size']
 GeneratedClientMixin.release_surface_size.__cmux_command__ = COMMANDS['release-surface-size']
 GeneratedClientMixin.reload_config.__cmux_command__ = COMMANDS['reload-config']
+GeneratedClientMixin.remote_terminal_snapshot.__cmux_command__ = COMMANDS['remote-terminal-snapshot']
 GeneratedClientMixin.remove_tabs_from_tab_group.__cmux_command__ = COMMANDS['remove-tabs-from-tab-group']
 GeneratedClientMixin.rename_pane.__cmux_command__ = COMMANDS['rename-pane']
 GeneratedClientMixin.rename_provider_managed_workspace.__cmux_command__ = COMMANDS['rename-provider-managed-workspace']
@@ -672,6 +683,7 @@ GeneratedClientMixin.unsave_tab_group.__cmux_command__ = COMMANDS['unsave-tab-gr
 GeneratedClientMixin.update_frontend_browser_tab.__cmux_command__ = COMMANDS['update-frontend-browser-tab']
 GeneratedClientMixin.update_personal_group.__cmux_command__ = COMMANDS['update-personal-group']
 GeneratedClientMixin.update_profile.__cmux_command__ = COMMANDS['update-profile']
+GeneratedClientMixin.update_remote_terminal_tab.__cmux_command__ = COMMANDS['update-remote-terminal-tab']
 GeneratedClientMixin.update_tab_group.__cmux_command__ = COMMANDS['update-tab-group']
 GeneratedClientMixin.update_workspace_group.__cmux_command__ = COMMANDS['update-workspace-group']
 GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']

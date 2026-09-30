@@ -128,6 +128,7 @@ public:
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> new_remote_terminal_tab(const NewRemoteTerminalTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
@@ -147,6 +148,7 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remote_terminal_snapshot(const RemoteTerminalSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remove_tabs_from_tab_group(const RemoveTabsFromTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> rename_pane(const RenamePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> rename_provider_managed_workspace(const RenameProviderManagedWorkspaceRequest& request, RequestOptions options = {});
@@ -199,6 +201,7 @@ public:
     [[nodiscard]] Result<JsonValue> update_frontend_browser_tab(const UpdateFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_personal_group(const UpdatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_profile(const UpdateProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> update_remote_terminal_tab(const UpdateRemoteTerminalTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_tab_group(const UpdateTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_workspace_group(const UpdateWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GuestUrlOpenResult> url_open(const UrlOpenRequest& request, RequestOptions options = {});

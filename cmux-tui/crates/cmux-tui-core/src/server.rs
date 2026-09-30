@@ -204,6 +204,12 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// Remote-terminal tabs: a tab in this session's layout that references a
+/// terminal on another session (`new-remote-terminal-tab`,
+/// `update-remote-terminal-tab`, `remote-terminal-snapshot`, and the
+/// `kind:"remote-terminal"` tab with its `remote` object;
+/// plans/cmux-next/data-model.md sections 1.2 and 2).
+pub const REMOTE_TERMINAL_TABS_CAPABILITY: &str = "remote-terminal-tabs-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -336,6 +342,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        REMOTE_TERMINAL_TABS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1286,6 +1293,35 @@ enum Command {
         title: Option<String>,
         #[serde(default, deserialize_with = "present_nullable")]
         favicon_url: Option<Option<String>>,
+    },
+    /// New tab that references a terminal on another session. The daemon
+    /// stores the reference and never attaches, spawns, or bootstraps it.
+    NewRemoteTerminalTab {
+        session_id: String,
+        terminal_id: String,
+        session_name: String,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    /// Record a remote-terminal tab's title, session name, or text snapshot.
+    UpdateRemoteTerminalTab {
+        surface: SurfaceId,
+        #[serde(default, deserialize_with = "present_nullable")]
+        title: Option<Option<String>>,
+        #[serde(default)]
+        session_name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        snapshot: Option<Option<String>>,
+    },
+    /// Read a remote-terminal tab's stored text snapshot.
+    RemoteTerminalSnapshot {
+        surface: SurfaceId,
     },
     NewBrowserTab {
         url: String,
@@ -11256,10 +11292,18 @@ fn pane_json(
                     }
                     ContentPublicId::Terminal(_) => None,
                 });
+            let remote_terminal = surface
+                .and_then(|surface| surface.resource_identity())
+                .and_then(|identity| match &identity.content_id {
+                    ContentPublicId::Browser(id) => {
+                        notifications.presentation.remote_terminals.get(id.as_str())
+                    }
+                    ContentPublicId::Terminal(_) => None,
+                });
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
-            json!({
+            let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
@@ -11306,9 +11350,51 @@ fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
-            })
+            });
+            if let Some(remote) = remote_terminal {
+                remote_terminal_tab_json(&mut tab, remote);
+            }
+            tab
         }).collect::<Vec<_>>(),
     })
+}
+
+/// A remote-terminal tab on the wire: `kind:"remote-terminal"` with its
+/// `remote` reference and title, and none of the placeholder browser's or a
+/// local terminal's fields.
+fn remote_terminal_tab_json(
+    tab: &mut Value,
+    remote: &crate::workspace_registry::RemoteTerminalRecord,
+) {
+    let Some(object) = tab.as_object_mut() else { return };
+    for field in ["terminal_id", "terminal_resource_id", "terminal_incarnation"] {
+        object.remove(field);
+    }
+    for field in [
+        "browser_source",
+        "browser_status",
+        "browser_error",
+        "browser_renderer",
+        "browser_engine",
+        "favicon_url",
+        "browser_profile_id",
+        "browser_frames_stalled",
+        "url",
+        "cwd",
+        "git_branch",
+    ] {
+        object.insert(field.to_string(), Value::Null);
+    }
+    object.insert("kind".into(), json!("remote-terminal"));
+    object.insert(
+        "remote".into(),
+        json!({
+            "session_id": remote.session_id,
+            "terminal_id": remote.terminal_id,
+            "session_name": remote.session_name,
+        }),
+    );
+    object.insert("title".into(), json!(remote.display_title()));
 }
 
 fn screen_json(
@@ -13700,6 +13786,50 @@ fn handle_command_with_cancellation(
                 "favicon_url": record.favicon_url,
                 "changed": changed,
             }))
+        }
+        Command::NewRemoteTerminalTab {
+            session_id,
+            terminal_id,
+            session_name,
+            pane,
+            title,
+            cols,
+            rows,
+        } => {
+            let record = crate::workspace_registry::RemoteTerminalRecord {
+                session_id,
+                terminal_id,
+                session_name,
+                title,
+            };
+            let surface = mux.new_remote_terminal_tab(
+                pane,
+                record,
+                paired_surface_size("new-remote-terminal-tab", cols, rows)?,
+            )?;
+            let identity = surface.resource_identity();
+            let (workspace, pane) = surface_placement(mux, surface.id);
+            Ok(json!({
+                "surface": surface.id,
+                "pane": pane,
+                "workspace": workspace,
+                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
+                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
+            }))
+        }
+        Command::UpdateRemoteTerminalTab { surface, title, session_name, snapshot } => {
+            let change = mux.update_remote_terminal_tab(
+                surface,
+                crate::workspace_registry::RemoteTerminalUpdate { title, session_name, snapshot },
+            )?;
+            Ok(json!({
+                "surface": surface,
+                "changed": change.presentation || change.snapshot,
+            }))
+        }
+        Command::RemoteTerminalSnapshot { surface } => {
+            let snapshot = mux.remote_terminal_snapshot(surface)?;
+            Ok(json!({ "surface": surface, "snapshot": snapshot }))
         }
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
