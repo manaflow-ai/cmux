@@ -115,27 +115,25 @@ struct MobilePrimaryTabScaffold<
                     transaction.disablesAnimations = true
                 }
                 .overlay(alignment: .top) {
-                    // Keep each navigation stack mounted outside the system
+                    // Keep the selected navigation stack outside the system
                     // tab content transition. iOS 26 crossfades a tab's
                     // hosted NavigationStack before its toolbar items have
-                    // been laid out, which produces a blank top frame. This
-                    // overlay swaps the already-mounted stacks synchronously;
-                    // its bottom inset leaves the native tab bar on top.
+                    // been laid out, which produces a blank top frame. The
+                    // selected stack is swapped synchronously; its bottom
+                    // inset leaves the native tab bar on top. Mounting only
+                    // the selected stack also keeps onAppear/onDisappear and
+                    // feed refresh work scoped to the visible tab.
                     GeometryReader { geometry in
-                        ZStack {
-                            workspaces
-                                .opacity(selection == .workspaces ? 1 : 0)
-                                .allowsHitTesting(selection == .workspaces)
-                                .accessibilityHidden(selection != .workspaces)
-                            notifications
-                                .opacity(selection == .notifications ? 1 : 0)
-                                .allowsHitTesting(selection == .notifications)
-                                .accessibilityHidden(selection != .notifications)
-                            search
-                                .environment(\.mobilePrimarySearchDestination, true)
-                                .opacity(selection == .search ? 1 : 0)
-                                .allowsHitTesting(selection == .search)
-                                .accessibilityHidden(selection != .search)
+                        Group {
+                            switch selection {
+                            case .workspaces:
+                                workspaces
+                            case .notifications:
+                                notifications
+                            case .search:
+                                search
+                                    .environment(\.mobilePrimarySearchDestination, true)
+                            }
                         }
                         .frame(
                             width: geometry.size.width,
