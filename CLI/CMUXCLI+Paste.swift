@@ -550,9 +550,18 @@ extension CMUXCLI {
 
     private static func submitInputStateFromScreen(_ screen: String) -> [String: Any]? {
         let snapshot = AgentPromptSubmissionSnapshot(screenText: screen)
+        let brandedAgent = screen.lowercased()
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { row in
+                row == "claude code"
+                    || row.hasPrefix("openai codex")
+                    || row == "codex cli"
+                    || row == "codex"
+            }
         var state: [String: Any] = [
             "state": "unknown",
-            "agent": snapshot.agentKind != nil,
+            "agent": snapshot.agentKind != nil && brandedAgent,
             "busy": snapshot.busy,
             "queued": snapshot.queued,
             "slash_command_popup": snapshot.slashCommandPopup,
