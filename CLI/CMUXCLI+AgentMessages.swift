@@ -184,7 +184,10 @@ extension CMUXCLI {
         if let state { params["state"] = state }
         if let limit {
             guard let value = Int(limit) else {
-                throw CLIError(message: "Invalid --limit value: \(limit)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.agentMessage.invalidLimit", defaultValue: "Invalid --limit value: %@"),
+                    limit
+                ))
             }
             params["limit"] = value
         }
@@ -288,7 +291,8 @@ extension CMUXCLI {
         client: SocketClient,
         env: [String: String]
     ) -> Never {
-        let isStop = (input["hook_event_name"] as? String) == "Stop"
+        let hookEvent = input["hook_event_name"] as? String
+        let isStop = hookEvent == "Stop" || hookEvent == "StopFailure"
         let agentPID = env["CMUX_CLAUDE_PID"].flatMap { Int32($0) }
         let pollerKey = UUID().uuidString
         var registered = false
@@ -315,14 +319,23 @@ extension CMUXCLI {
                     exit(0)
                 }
                 if (payload["queued"] as? Int ?? 0) > 0, payload["held"] as? Bool != true {
-                    let text = Self.agentInboxClaim(
+                    let deferred = Self.agentInboxDeferredClaim(
                         surfaceId: surfaceId,
                         via: "claude.wake",
-                        markDeliveredRead: false,
+                        pollerKey: pollerKey,
                         client: client
                     )
-                    if !text.isEmpty {
-                        FileHandle.standardError.write(Data((text + "\n").utf8))
+                    if !deferred.text.isEmpty {
+                        FileHandle.standardError.write(Data((deferred.text + "\n").utf8))
+                        if let leaseID = deferred.leaseID {
+                            _ = Self.agentInboxAcknowledge(
+                                surfaceId: surfaceId,
+                                pollerKey: pollerKey,
+                                leaseID: leaseID,
+                                via: "claude.wake",
+                                client: client
+                            )
+                        }
                         exit(2)
                     }
                 }
@@ -339,6 +352,49 @@ extension CMUXCLI {
 
     static let agentInboxPollInterval: TimeInterval = 2
     static let agentInboxMaximumPollFailures = 300
+
+    private static func agentInboxDeferredClaim(
+        surfaceId: String,
+        via: String,
+        pollerKey: String,
+        client: SocketClient
+    ) -> (text: String, leaseID: String?) {
+        let payload = try? client.sendV2(
+            method: "agent.message.claim",
+            params: [
+                "surface_id": surfaceId,
+                "via": via,
+                "mark_delivered_read": false,
+                "defer_delivery": true,
+                "poller_key": pollerKey,
+            ],
+            responseTimeout: 3
+        )
+        return (
+            payload?["text"] as? String ?? "",
+            payload?["lease_id"] as? String
+        )
+    }
+
+    @discardableResult
+    private static func agentInboxAcknowledge(
+        surfaceId: String,
+        pollerKey: String,
+        leaseID: String,
+        via: String,
+        client: SocketClient
+    ) -> Bool {
+        (try? client.sendV2(
+            method: "agent.message.ack",
+            params: [
+                "surface_id": surfaceId,
+                "poller_key": pollerKey,
+                "lease_id": leaseID,
+                "via": via,
+            ],
+            responseTimeout: 3
+        )) != nil
+    }
 
     private static func agentInboxClaim(
         surfaceId: String,
