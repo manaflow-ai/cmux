@@ -844,7 +844,7 @@ the expected text without connecting to a cmux socket.
 <!-- cli-contract-help-probes:start -->
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
-- `cmux --help` -> `sessions [list] [options]`
+- `cmux --help` -> `sessions [list|live] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `Start & Resume:`
 - `cmux --help` -> `Diagnostics / Advanced:`
