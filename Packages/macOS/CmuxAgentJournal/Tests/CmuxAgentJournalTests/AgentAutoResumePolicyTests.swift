@@ -7,6 +7,7 @@ struct AgentAutoResumePolicyTests {
 
     @Test(arguments: [
         "overloaded: Overloaded",
+        "rate_limit: Rate limit reached",
         "server_error: Internal server error",
         "rate_limit: Too many requests",
         "Selected model is at capacity. Please try a different model.",
@@ -181,6 +182,47 @@ struct AgentAutoResumePolicyTests {
             ) == .none
         )
         #expect(tracker.totalResumes(surfaceId: surface) == 0)
+    }
+
+    @Test(arguments: [
+        AgentJournalEventKind.turnCompleted,
+        .turnStarted,
+        .approvalRequested,
+        .questionRequested,
+        .planReviewRequested,
+        .attentionResolved,
+        .sessionEnded,
+    ])
+    func lateLifecycleEventsFromAnOlderSessionCannotCancelTheCurrentResume(kind: AgentJournalEventKind) {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
+        _ = tracker.observe(
+            kind: .sessionStarted,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: nil,
+            sessionId: "session-current"
+        )
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: "overloaded",
+            sessionId: "session-current"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+
+        #expect(
+            tracker.observe(
+                kind: kind,
+                surfaceId: surface,
+                isSubagent: false,
+                detail: nil,
+                sessionId: "session-old"
+            ) == .none
+        )
+        #expect(tracker.isPending(surfaceId: surface, token: token))
     }
 
     @Test func explicitInputCancelsAndResetsTheFailingStreak() {

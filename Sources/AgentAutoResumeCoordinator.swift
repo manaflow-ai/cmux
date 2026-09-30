@@ -221,26 +221,21 @@ final class AgentAutoResumeCoordinator {
             return .dialog
         }
         let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> "]
-        guard let lastNonEmptyIndex = plainRows.lastIndex(where: {
-            !$0.trimmingCharacters(in: .whitespaces).isEmpty
-        }),
-        let promptIndex = plainRows.lastIndex(where: { row in
+        guard let promptIndex = plainRows.lastIndex(where: { row in
             let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
             return promptPrefixes.contains(where: trimmed.hasPrefix)
-        }),
-        promptIndex == lastNonEmptyIndex else { return .unknown }
-        var typed = ""
-        for index in promptIndex..<rows.count {
-            let spans = rows[index].sorted { $0.column < $1.column }
-            for span in spans where !span.faint {
-                typed += span.text
+        }) else { return .unknown }
+        var typed = rows[promptIndex]
+            .sorted { $0.column < $1.column }
+            .filter { !$0.faint }
+            .reduce(into: "") { result, span in
+                let padding = span.column - result.count
+                if padding > 0 { result += String(repeating: " ", count: padding) }
+                result += span.text
             }
-            if index == promptIndex {
-                for prefix in promptPrefixes where typed.hasPrefix(prefix) {
-                    typed.removeFirst(prefix.count)
-                    break
-                }
-            }
+        for prefix in promptPrefixes where typed.hasPrefix(prefix) {
+            typed.removeFirst(prefix.count)
+            break
         }
         return typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .emptyPrompt : .draft
     }

@@ -105,6 +105,7 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             surfaces[surfaceId] = state
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             // A turn finished normally: the failing streak is over. The total
             // stays so the marker still shows the turn needed help.
             guard var state = surfaces[surfaceId] else { return .none }
@@ -114,10 +115,12 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             surfaces[surfaceId] = state
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .turnStarted, .approvalRequested, .questionRequested, .planReviewRequested, .attentionResolved:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             // The agent is working again, or waits on a human: never type
             // into it on a timer.
             return cancelPending(surfaceId: surfaceId)
         case .sessionEnded:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             let hadPending = surfaces[surfaceId]?.pendingToken != nil
             surfaces[surfaceId] = nil
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
@@ -166,6 +169,13 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         surfaces[surfaceId]?.pendingToken = nil
         return .cancel(surfaceId: surfaceId)
     }
+
+    private func isStaleLifecycleEvent(surfaceId: String, sessionId: String?) -> Bool {
+        guard let sessionId, !sessionId.isEmpty,
+              let currentSessionId = surfaces[surfaceId]?.sessionId,
+              !currentSessionId.isEmpty else { return false }
+        return currentSessionId != sessionId
+    }
 }
 
 /// Classifies an agent's reported turn failure as retryable (an upstream
@@ -180,7 +190,7 @@ public struct AgentRetryableFailureClassifier: Sendable, Equatable {
         "authentication", "authentication_failed", "unauthorized", "invalid api key", "invalid_api_key",
         "oauth_org_not_allowed", "account_on_hold", "billing", "cloud_credential",
         "invalid_request", "model_not_found", "max_output_tokens", "prompt is too long", "context length",
-        "context_length", "usage limit", "usage_limit", "quota", "insufficient", "limit reached",
+        "context_length", "usage limit", "usage_limit", "quota", "insufficient",
         "permission denied",
     ]
 
