@@ -55,8 +55,32 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        if let surfaceId = host?.focusedSurfaceId(in: workspaceId) {
+            dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        }
+        dismissWorkspaceLevelNotificationsOnVisit(workspaceId: workspaceId, context: context)
+    }
+
+    /// Workspace-level notifications (no surface, no panel; cmux's own
+    /// memory-pressure alert is one) have no pane to focus: the workspace
+    /// becoming the visible, active one is how they are seen
+    /// (manaflow-ai/cmux#12387). This reads only those records. It does not go
+    /// through `dismissNotification(surfaceId: nil)`, whose whole-workspace
+    /// mark-read also clears every pane's manual and restored unread markers,
+    /// bypassing the context's indicator policy. Unread indicators are left to
+    /// the focused surface's own dismissal above, and focused-read indicators
+    /// are surface-scoped, so a workspace-level read has none to clear.
+    private func dismissWorkspaceLevelNotificationsOnVisit(
+        workspaceId: UUID,
+        context: NotificationDismissalContext
+    ) {
+        guard let host, host.hasNotificationStore else { return }
+        guard host.isNotificationTargetSelected(workspaceId: workspaceId, surfaceId: nil) else { return }
+        if context.requiresActiveApp {
+            guard host.isAppActive else { return }
+        }
+        guard host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil) else { return }
+        host.storeMarkWorkspaceLevelNotificationsRead(workspaceId: workspaceId)
     }
 
     public func dismissPanelNotificationOnFocus(

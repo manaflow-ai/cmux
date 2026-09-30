@@ -9,13 +9,26 @@ import SwiftUI
 @MainActor
 struct SidebarRowPalette {
     let model: SidebarWorkspaceRowModel
+    var isSelectionEmphasized: Bool = true
+    var increasesSelectionContrast: Bool = false
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
+
+    /// The resolved cmux accent from the settings snapshot.
+    var accent: CmuxAccentColor { model.settings.accentColor }
+
+    /// The accent in the row's concrete cmux scheme.
+    var accentColor: NSColor { accent.nsColor(for: colorScheme) }
 
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
+            sidebarSelectionColorHex: model.settings.selectionColorHex,
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            subtleSelection: model.settings.subtleSelection,
+            isEmphasized: isSelectionEmphasized,
+            increaseContrast: increasesSelectionContrast,
+            accent: accent
         )
     }
 
@@ -42,14 +55,19 @@ struct SidebarRowPalette {
     ) -> NSColor {
         model.isActive
             ? selectedForeground(selectedOpacity)
-            : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
+            : SidebarAppearanceColorResolver().readableSecondaryColor(
+                .secondaryLabelColor,
+                for: colorScheme,
+                opacity: inactiveOpacity,
+                over: model.readabilityBackdropHex.flatMap { NSColor(hex: $0) }
+            )
     }
 
     /// Link color for row-owned text. AppKit paints `.link` runs in
     /// `NSColor.linkColor` and ignores the row foreground, which is unreadable
-    /// on an active row because the sidebar selection background is the same
-    /// blue. Active rows therefore derive the link color from the selected
-    /// foreground so a custom `sidebarSelectionColorHex` stays legible.
+    /// on a solid accent selection fill. Active rows therefore derive the link
+    /// color from the selected foreground so a custom
+    /// `sidebarSelectionColorHex` stays legible.
     var linkText: NSColor {
         model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
     }
@@ -367,7 +385,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = .systemBlue
+            case .progress: color = palette.accentColor
             case .success: color = .systemGreen
             case .warning: color = .systemOrange
             case .error: color = .systemRed
@@ -550,7 +568,7 @@ final class SidebarRowPullRequestLine: NSView {
         if clickable {
             titleButton.configure(
                 title: title, font: font, color: color, underlined: true,
-                toolTip: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open pull request"),
+                toolTip: String(format: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open %1$@ #%2$lld"), display.label, Int64(display.number)),
                 onClick: onOpen
             )
         } else {

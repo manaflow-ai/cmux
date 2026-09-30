@@ -1,3 +1,4 @@
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -152,7 +153,7 @@ import Testing
         // slugs, bad flags, reordered or duplicated fields all fold the whole
         // segment back into the legacy notification body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=") == nil)
-        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=Claude") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=Claude")?.agentKind == "Claude")
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=cl aude") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=2") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;n=") == nil)
@@ -166,9 +167,63 @@ import Testing
         #expect(AgentNotificationMeta.isValidAgentKindTag("hermes-agent"))
         #expect(AgentNotificationMeta.isValidAgentKindTag("agent_2.beta"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag(""))
-        #expect(!AgentNotificationMeta.isValidAgentKindTag("Claude"))
+        #expect(AgentNotificationMeta.isValidAgentKindTag("Claude"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag("a|b"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag("a;b"))
         #expect(!AgentNotificationMeta.isValidAgentKindTag(String(repeating: "a", count: 65)))
+    }
+
+    @Test func contextualMetaRoundTripsAgentAndAlertType() throws {
+        let meta = try #require(
+            AgentHookNotifyCategory.needsPermission.metaSegment(
+                pending: false,
+                agentID: " hermes-agent ",
+                alertType: .needsInput
+            )
+        )
+        let parsed = try #require(AgentNotificationMeta(meta: meta))
+        #expect(parsed.category == .needsPermission)
+        #expect(parsed.pending == false)
+        #expect(parsed.soundContext == NotificationSoundOverrideContext(
+            agentID: "hermes-agent",
+            alertType: .needsInput
+        ))
+    }
+
+    @Test func contextualMetaRetainsSubagentFlag() throws {
+        let meta = try #require(
+            AgentHookNotifyCategory.turnComplete.metaSegment(
+                pending: false,
+                agentID: "claude",
+                isSubagent: true
+            )
+        )
+        let parsed = try #require(AgentNotificationMeta(meta: meta))
+        #expect(parsed.agentKind == "claude")
+        #expect(parsed.isSubagent == true)
+        #expect(parsed.soundContext?.alertType == .turnDone)
+    }
+
+    @Test func contextualMetaRejectsCategoryAlertMismatchAndMalformedAgent() throws {
+        let generatedErrorMeta = try #require(
+            AgentHookNotifyCategory.other.metaSegment(
+                pending: false,
+                agentID: "claude",
+                alertType: .errorStalled
+            )
+        )
+        let generatedError = try #require(AgentNotificationMeta(meta: generatedErrorMeta))
+        #expect(generatedError.category == .other)
+        #expect(generatedError.soundContext == NotificationSoundOverrideContext(
+            agentID: "claude",
+            alertType: .errorStalled
+        ))
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=claude;s=needsInput") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;evil;s=needsInput") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=0;a=claude;s=turnDone") == nil)
+        #expect(
+            AgentNotificationMeta(meta: "c=other;p=0;a=claude;s=errorStalled")?.soundContext
+                == NotificationSoundOverrideContext(agentID: "claude", alertType: .errorStalled)
+        )
     }
 }

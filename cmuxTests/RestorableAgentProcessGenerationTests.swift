@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import os
 import Testing
@@ -189,6 +190,35 @@ struct RestorableAgentProcessGenerationTests {
             workspaceId: fixture.workspaceID,
             panelId: fixture.panelID
         )?.processLiveness == .running)
+    }
+
+    @Test("A present mismatched hook PID is not pressure-safe")
+    func presentMismatchedHookPIDIsNotPressureSafe() throws {
+        let fixture = try makeFixture(prefix: "cmux-mismatched-present-pid")
+        defer { cleanup(fixture) }
+
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 1),
+            startMicroseconds: 0
+        )
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(recordedIdentity, to: fixture)
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: currentIdentity
+        )
+        let entry = try #require(
+            index.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)
+        )
+
+        #expect(entry.processLiveness == .exited)
+        #expect(entry.containsUnrelatedProcess)
     }
 
     @Test("A current PID owner does not authenticate a record without stored generation identity")
@@ -392,6 +422,15 @@ struct RestorableAgentProcessGenerationTests {
         let sessionID = "codex-generation-session"
         let processID = 987_654_321
         let updatedAt: TimeInterval = 1_777_777_777
+        let rollout = root.appendingPathComponent(".codex/sessions/rollout-\(sessionID).jsonl")
+        try fileManager.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionID, "cwd": "/tmp/repo", "source": "cli", "originator": "codex_cli_rs"],
+        ]
+        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        rolloutData.append(0x0a)
+        try rolloutData.write(to: rollout, options: .atomic)
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
             homeDirectory: root.path,
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]

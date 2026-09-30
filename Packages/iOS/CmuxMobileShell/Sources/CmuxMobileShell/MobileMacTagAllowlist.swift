@@ -21,6 +21,7 @@ public final class MobileMacTagAllowlist: @unchecked Sendable {
     /// scope, so one fixed key is per-tag by construction.
     public static let defaultsKey = "CMUXCompatibleMacTags"
 
+    // Carve-out: synchronous route-admission predicates read this snapshot across executors.
     private let lock = NSLock()
     private var storage: Set<String>
     private let defaults: UserDefaults?

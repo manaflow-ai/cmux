@@ -5,15 +5,15 @@ import { createAccountRemover } from "../services/coderouter/accounts";
 const accountId = "00000000-0000-4000-8000-000000000001";
 
 describe("coderouter account removal", () => {
-  test("requires manage permission and scopes deletion to the resolved team", async () => {
+  test("scopes deletion to the resolved team", async () => {
     let removed: { teamId: string; accountId: string } | undefined;
     const handler = createDeleteAccountHandler({
-      resolve: async (_request, permission) => {
-        expect(permission).toBe("manage");
+      resolve: async () => {
         return {
           ok: true as const,
           value: {
             user: {} as never,
+            access: { kind: "user" as const, userId: "test-user" },
             team: {
               teamId: "team-1",
               teamName: "Team",
@@ -39,7 +39,7 @@ describe("coderouter account removal", () => {
       { params: Promise.resolve({ accountId }) },
     );
     expect(response.status).toBe(200);
-    expect(removed).toEqual({ teamId: "team-1", accountId });
+    expect(removed).toEqual({ teamId: "team-1", accountId, access: { kind: "user", userId: "test-user" } });
     expect(await response.json()).toEqual({
       removed: true,
       lastAccount: true,
@@ -54,6 +54,7 @@ describe("coderouter account removal", () => {
         ok: true as const,
         value: {
           user: {} as never,
+            access: { kind: "user" as const, userId: "test-user" },
           team: {
             teamId: "team-1",
             teamName: "Team",

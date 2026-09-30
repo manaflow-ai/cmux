@@ -230,7 +230,7 @@ function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true, handoff: true } });
 }
 
 async function captureState(sess: SessionCtx) {

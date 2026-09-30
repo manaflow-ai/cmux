@@ -3,8 +3,10 @@ public import Foundation
 /// A consent provider backed by the shared telemetry opt-out in `UserDefaults`.
 ///
 /// This provider reads the same backing key as the app's anonymous-telemetry
-/// setting. A missing value defaults to disabled, and every access reads the
-/// store again so live setting changes apply without rebuilding consumers.
+/// setting. A missing value defaults to enabled (the Settings toggle is the
+/// opt-out; its `@AppStorage` default in `MobileSettingsView` must stay in
+/// sync with the fallback here), and every access reads the store again so
+/// live setting changes apply without rebuilding consumers.
 ///
 /// ```swift
 /// let consent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
@@ -29,6 +31,6 @@ public struct UserDefaultsAnalyticsConsentProvider: AnalyticsConsentProviding {
 
     /// Whether anonymous product telemetry is enabled in the defaults store.
     public var isTelemetryEnabled: Bool {
-        defaults.object(forKey: Self.telemetryKey) as? Bool ?? false
+        defaults.object(forKey: Self.telemetryKey) as? Bool ?? true
     }
 }

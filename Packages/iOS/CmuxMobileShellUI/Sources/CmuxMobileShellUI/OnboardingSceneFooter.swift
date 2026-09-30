@@ -5,12 +5,6 @@ import SwiftUI
 struct OnboardingSceneFooter: View {
     let primaryTitle: String?
     let secondaryTitle: String?
-    /// Whether a missing secondary action still occupies its slot. The demo
-    /// pages reserve it so the page viewport, and therefore the device-frame
-    /// visual, keeps one size whether a page pairs Continue with a secondary
-    /// choice or not; Connect keeps its fully dynamic footer. Compact height
-    /// lays the actions side by side, so there is nothing to reserve there.
-    let reservesSecondarySlot: Bool
     let onPrimary: () -> Void
     let onSecondary: () -> Void
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -24,14 +18,6 @@ struct OnboardingSceneFooter: View {
             } else {
                 VStack(spacing: 10) {
                     actions
-                    if reservesSecondarySlot, secondaryTitle == nil {
-                        // Sized like the secondary button's label so the
-                        // reservation tracks Dynamic Type.
-                        Text(verbatim: " ")
-                            .font(.subheadline.weight(.medium))
-                            .frame(minHeight: 36)
-                            .accessibilityHidden(true)
-                    }
                 }
             }
         }
@@ -57,11 +43,25 @@ struct OnboardingSceneFooter: View {
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
         }
 
-        if let secondaryTitle {
-            Button(secondaryTitle, action: onSecondary)
+        // Onboarding rule: every regular-height page with a primary action
+        // reserves the secondary-action slot so primary buttons share one
+        // vertical guide across the full flow.
+        if secondaryTitle != nil || (primaryTitle != nil && verticalSizeClass != .compact) {
+            // Reserve the actual control's size, including system button
+            // padding, to keep primary actions aligned across every page.
+            // Compact height places actions side by side and needs no slot.
+            Button(
+                secondaryTitle ?? L10n.string(
+                    "mobile.onboarding.push.notNow", defaultValue: "Not Now"
+                ),
+                action: onSecondary
+            )
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: verticalSizeClass == .compact ? .infinity : nil)
-                .frame(minHeight: 36)
+                .frame(minHeight: 44)
+                .opacity(secondaryTitle == nil ? 0 : 1)
+                .disabled(secondaryTitle == nil)
+                .accessibilityHidden(secondaryTitle == nil)
                 .accessibilityIdentifier("MobileOnboardingSecondaryButton")
         }
     }

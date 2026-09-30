@@ -10,8 +10,8 @@ import Foundation
 /// single broker fetch. Resolving such a value to nil leaves
 /// kSecAttrAccessGroup unset, and SecItem then uses the app's default
 /// entitlement access group, which is the group the signature actually grants.
-enum MobileKeychainAccessGroupPolicy {
-    static func resolve(_ raw: String?) -> String? {
+extension String {
+    static func cmuxKeychainAccessGroup(from raw: String?) -> String? {
         guard
             let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
             !value.isEmpty,

@@ -76,6 +76,9 @@ impl Default for TrackedProcesses {
 struct ScopeRegistration {
     marker: String,
     file_marker: FileMarker,
+    // Deferred scans still use this inode as identity after the caller exits.
+    // Keep its descriptor alive so a later scope cannot reuse that inode.
+    _marker_fd: Arc<OwnedFd>,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
     #[cfg(test)]
@@ -143,7 +146,7 @@ struct ProcessScopeTracker {
 /// that leave that group.
 pub struct UnixProcessScope {
     marker: String,
-    _marker_fd: OwnedFd,
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: Option<ProcessIdentity>,
     #[cfg(target_os = "linux")]
@@ -164,7 +167,13 @@ pub struct UnixProcessScope {
 /// PID or process group before its process scope is terminated.
 pub struct UnixChildExitSignal {
     result: mpsc::Receiver<io::Result<()>>,
+    action: Option<mpsc::SyncSender<UnixChildExitAction>>,
     observer: Option<JoinHandle<()>>,
+}
+
+enum UnixChildExitAction {
+    Release,
+    Reap,
 }
 
 impl UnixChildExitSignal {
@@ -174,11 +183,17 @@ impl UnixChildExitSignal {
             io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range")
         })?;
         let (sender, result) = mpsc::sync_channel(1);
+        let (action_sender, action_receiver) = mpsc::sync_channel(1);
         let observer =
             std::thread::Builder::new().name("cmux-child-exit".into()).spawn(move || {
-                let _ = sender.send(wait_for_child_exit_without_reaping(pid));
+                let result = wait_for_child_exit_without_reaping(pid);
+                let observed = result.is_ok();
+                let _ = sender.send(result);
+                if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
+                    reap_child(pid);
+                }
             })?;
-        Ok(Self { result, observer: Some(observer) })
+        Ok(Self { result, action: Some(action_sender), observer: Some(observer) })
     }
 
     /// Return true when the child is waitable without releasing its PID.
@@ -207,11 +222,36 @@ impl UnixChildExitSignal {
         }
     }
 
+    fn send_action(&mut self, action: UnixChildExitAction) {
+        if let Some(sender) = self.action.take() {
+            let _ = sender.try_send(action);
+        }
+    }
+
     /// Join the observer after the child is waitable or has been killed.
     pub fn finish(mut self) {
+        self.send_action(UnixChildExitAction::Release);
         if let Some(observer) = self.observer.take() {
             let _ = observer.join();
         }
+    }
+
+    /// Transfer Unix wait ownership to the already-running observer and
+    /// return without waiting for the child. The caller must drop its `Child`
+    /// handle after this handoff. The observer performs the blocking `waitpid`
+    /// so a timeout path cannot exceed its caller's deadline when a second
+    /// reaper thread cannot be created.
+    pub fn reap(mut self) {
+        self.send_action(UnixChildExitAction::Reap);
+        // Dropping the join handle intentionally detaches the observer. The
+        // process remains waitable until that observer consumes its status.
+        drop(self.observer.take());
+    }
+}
+
+impl Drop for UnixChildExitSignal {
+    fn drop(&mut self) {
+        self.send_action(UnixChildExitAction::Release);
     }
 }
 
@@ -238,6 +278,25 @@ fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> io::Result<()> {
     }
 }
 
+fn reap_child(pid: libc::pid_t) {
+    let mut status = 0;
+    loop {
+        // SAFETY: `pid` was validated by `observe`, and this observer is the
+        // sole owner of the wait decision after the WNOWAIT observation.
+        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if waited == pid {
+            return;
+        }
+        if waited < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+        }
+        return;
+    }
+}
+
 impl UnixProcessScope {
     /// Allocate command-local identities before the command is spawned.
     pub fn prepare() -> io::Result<Self> {
@@ -248,7 +307,7 @@ impl UnixProcessScope {
         let (marker_fd, file_marker) = create_file_marker(&marker)?;
         Ok(Self {
             marker,
-            _marker_fd: marker_fd,
+            _marker_fd: Arc::new(marker_fd),
             file_marker,
             root: None,
             #[cfg(target_os = "linux")]
@@ -372,6 +431,7 @@ impl UnixProcessScope {
         let registration = registry.register(ScopeRegistration {
             marker: self.marker.clone(),
             file_marker: self.file_marker,
+            _marker_fd: Arc::clone(&self._marker_fd),
             root,
             tracked: self.tracked.clone(),
             #[cfg(test)]
@@ -1085,8 +1145,23 @@ fn scan_registered_processes(
                     continue;
                 };
                 if let Some(scope_indexes) = file_markers.get(&marker) {
-                    for scope in scope_indexes {
-                        result.matches.insert((*scope, snapshot.identity));
+                    // A concurrent fork temporarily sees every CLOEXEC marker
+                    // in the parent until exec closes it. Only configure()'s
+                    // explicitly inherited descriptor grants scope ownership.
+                    let inheritable =
+                        std::fs::read_to_string(process.join("fdinfo").join(fd.to_string()))
+                            .ok()
+                            .and_then(|info| {
+                                info.lines().find_map(|line| {
+                                    line.strip_prefix("flags:")
+                                        .and_then(|value| u32::from_str_radix(value.trim(), 8).ok())
+                                })
+                            })
+                            .is_some_and(|flags| flags & libc::O_CLOEXEC as u32 == 0);
+                    if inheritable {
+                        for scope in scope_indexes {
+                            result.matches.insert((*scope, snapshot.identity));
+                        }
                     }
                 }
             }
@@ -1450,6 +1525,54 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn final_scan_retains_the_marker_until_ownership_checks_finish() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let marker_fd = scope._marker_fd.as_raw_fd();
+        let marker = scope.file_marker;
+        let (reached, resume) = scope.final_scan_gate_for_test();
+        let mut command = UnixProcessScope::suspended_command("/bin/sleep");
+        command.arg("30");
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+        scope.terminate_until(Instant::now());
+        child.wait().unwrap();
+        reached.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(scope);
+        let retained = file_marker_for_fd(marker_fd).is_ok_and(|actual| actual == marker);
+        resume.send(()).unwrap();
+        assert!(
+            retained,
+            "an inactive scan must retain the inode it still uses as ownership evidence"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn close_on_exec_marker_does_not_claim_an_unrelated_process() {
+        let scope = UnixProcessScope::prepare().unwrap();
+        // A fork sees every parent's descriptor before exec closes CLOEXEC
+        // entries. Model that ownership scan with the live test process and
+        // an earlier, absent root; no tracker is registered and no PID is killed.
+        let registration = ScopeRegistration {
+            marker: scope.marker.clone(),
+            file_marker: scope.file_marker,
+            _marker_fd: Arc::clone(&scope._marker_fd),
+            root: ProcessIdentity { pid: u32::MAX, started: 0 },
+            tracked: scope.tracked.clone(),
+            track_before_finalization: true,
+            final_scan_gate: None,
+        };
+        let current = process_identity(std::process::id()).unwrap();
+        let scanned = scan_registered_processes(&[registration], ProcessScanCursor::default());
+        assert!(
+            !scanned.matches.contains(&(0, current)),
+            "a close-on-exec marker is incidental fork inheritance, not scope membership"
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

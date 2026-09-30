@@ -40,6 +40,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Not gated on `isSpinnerFrameOnly`; see the matching observer in
+            // ContentView for why a spinner-bearing title can be a real change.
             let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
             MainActor.assumeIsolated { [weak self] in
                 guard let self,
@@ -111,11 +113,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateToolbarVisibilityIfNeeded()
             }

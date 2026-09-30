@@ -48,10 +48,11 @@ public struct QuitConfirmationStore: Sendable {
 
     /// Whether the quit flow should show the confirmation dialog.
     ///
-    /// Semantics are kept verbatim from the legacy `QuitWarningSettings`
-    /// namespace: a prior in-session confirmation always skips the dialog,
-    /// dev builds never warn, and otherwise ``confirmQuitMode`` decides
-    /// (`dirtyOnly` consults `hasDirtyWorkspaces`).
+    /// A logout, restart, or shutdown never shows the dialog: it would block
+    /// the whole session change. Otherwise semantics are kept verbatim from
+    /// the legacy `QuitWarningSettings` namespace: a prior in-session
+    /// confirmation always skips the dialog, dev builds never warn, and
+    /// ``confirmQuitMode`` decides (`dirtyOnly` consults `hasDirtyWorkspaces`).
     ///
     /// - Parameters:
     ///   - isQuitWarningConfirmed: Whether the user already confirmed the
@@ -59,11 +60,14 @@ public struct QuitConfirmationStore: Sendable {
     ///   - hasDirtyWorkspaces: Whether any workspace has unsaved/dirty state.
     ///   - isDevBuild: Whether this is a dev-flavor build (the app resolves
     ///     its build flavor; dev builds skip the warning entirely).
+    ///   - quitReason: Why the app is quitting; see ``QuitRequestReason``.
     public func shouldShowConfirmation(
         isQuitWarningConfirmed: Bool,
         hasDirtyWorkspaces: Bool,
-        isDevBuild: Bool
+        isDevBuild: Bool,
+        quitReason: QuitRequestReason = .user
     ) -> Bool {
+        guard quitReason != .sessionEnd else { return false }
         guard !isQuitWarningConfirmed else { return false }
         guard !isDevBuild else { return false }
 

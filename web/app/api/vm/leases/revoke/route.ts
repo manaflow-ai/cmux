@@ -3,10 +3,9 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { invalidateNativeAuthCacheForTokens } from "../../../../../services/vms/auth";
-import {
-  revokeUserVmAccess,
-  runVmWorkflow,
-} from "../../../../../services/vms/workflows";
+import { deleteIdentitySnapshot } from "../../../../../services/auth/identitySnapshot";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { revokeUserVmAccess } from "../../../../../services/vms/workflows";
 
 /**
  * Ends endpoint access issued to the current native session's account.
@@ -33,11 +32,17 @@ export async function POST(request: Request): Promise<Response> {
         // Auth revocation is still in flight.
         invalidateNativeAuthCacheForTokens({ accessToken, refreshToken });
       }
-      const result = await runVmWorkflow(revokeUserVmAccess({ userId: user.id }));
+      // The device registry can answer from a shared identity snapshot without
+      // asking Stack at all, so sign-out must drop that row too. Otherwise the
+      // signed-out account keeps team-scoped registry access on every instance
+      // until the snapshot ages out.
+      await deleteIdentitySnapshot(user.id);
+      const result = await runVmRoute(revokeUserVmAccess({ userId: user.id }), { request });
+      if (!result.ok) return result.response;
       return jsonResponse({
         ok: true,
-        revoked: result.revoked,
-        cleanupFailures: result.cleanupFailures,
+        revoked: result.value.revoked,
+        cleanupFailures: result.value.cleanupFailures,
       });
     },
   );

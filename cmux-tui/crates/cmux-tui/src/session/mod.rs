@@ -18,15 +18,16 @@ use std::sync::atomic::Ordering;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    SHARED_SIZING_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
+use cmux_tui_core::sizing_policy::{TerminalSizingPolicy, TerminalSizingState};
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
-    LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId, PointerSemanticProbe,
-    PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus, SplitDir, SplitId,
-    Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
+    PointerSemanticProbe, PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus,
+    SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
     TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 use ghostty_vt::{
@@ -43,6 +44,27 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
+
+/// Decode the `usage` object shared by the `machine-usage` result and the
+/// `machine-usage-changed` event. Anything malformed reads as no readout.
+pub(crate) fn parse_machine_usage(value: &Value) -> Option<MachineUsage> {
+    let usage = value.get("usage")?;
+    if usage.is_null() {
+        return None;
+    }
+    let period_days = u32::try_from(usage.get("period_days")?.as_u64()?).ok()?;
+    let api_equivalent_usd = usage.get("api_equivalent_usd")?.as_f64()?;
+    if !api_equivalent_usd.is_finite() {
+        return None;
+    }
+    Some(MachineUsage {
+        vm_id: usage.get("vm_id")?.as_str()?.to_string(),
+        period_days,
+        total_tokens: usage.get("total_tokens")?.as_u64()?,
+        api_equivalent_usd,
+        as_of: usage.get("as_of").and_then(Value::as_str).map(str::to_string),
+    })
+}
 
 pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
     let Some(capabilities) = value.get("capabilities") else {
@@ -64,6 +86,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]
@@ -148,6 +171,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
+}
+
+pub(crate) fn is_expected_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::DaemonShutdown)
+    )
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
@@ -308,7 +338,18 @@ pub struct AgentInfo {
     pub state: String,
     pub source: String,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...), when known.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
+}
+
+/// A terminal's shared-sizing state as this frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurfaceSizeState {
+    pub state: TerminalSizingState,
+    /// This frontend's own participant id in `state`, when attached.
+    pub self_participant: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -359,10 +400,10 @@ fn bootstrap_mutation_id() -> anyhow::Result<String> {
 }
 
 fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
-    if tree.workspaces.is_empty() {
+    if tree.workspaces().is_empty() {
         return InitialBootstrap::FirstWorkspace;
     }
-    if tree.workspaces.iter().all(|workspace| workspace.screens.is_empty()) {
+    if tree.workspaces().iter().all(|workspace| workspace.screens.is_empty()) {
         return InitialBootstrap::ShellInActiveWorkspace;
     }
     InitialBootstrap::LayoutIntact
@@ -546,6 +587,22 @@ impl Session {
         serde_json::from_value(value).map_err(Into::into)
     }
 
+    /// The session's machine-level model spend readout. `None` when the
+    /// server has no readout or predates the `machine-usage` command; the
+    /// readout is informational, so an old server is not an error.
+    pub fn machine_usage(&self) -> anyhow::Result<Option<MachineUsage>> {
+        match self {
+            Session::Local(mux) => Ok(mux.machine_usage()),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(MACHINE_USAGE_CAPABILITY) {
+                    return Ok(None);
+                }
+                let value = remote.request(json!({"cmd": "machine-usage"}))?;
+                Ok(parse_machine_usage(&value))
+            }
+        }
+    }
+
     pub fn set_client_sizing(
         &self,
         surface: SurfaceId,
@@ -577,12 +634,19 @@ impl Session {
         self.set_client_sizing(surface, client, true, true)
     }
 
+    /// Focus on a terminal. Under shared sizing this is activity only
+    /// (`note-size-activity`): the legacy `set-client-sizing` would clear a
+    /// counts choice another participant made for this view. Daemons without
+    /// `shared-sizing-v1` keep the legacy exclusive claim.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
                 .claim_terminal_geometry(surface, 0)
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
+            Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
+                remote.request(json!({"cmd": "note-size-activity", "surface": surface})).map(|_| ())
+            }
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "set-client-sizing",
@@ -625,6 +689,73 @@ impl Session {
         }
     }
 
+    /// The latest shared-sizing state of a terminal and this frontend's own
+    /// participant id in it (docs/shared-terminal-sizing.md). `None` before
+    /// the host published one, or when the host lacks `shared-sizing-v1`.
+    pub fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        match self {
+            Session::Local(mux) => Some(SurfaceSizeState {
+                state: mux.terminal_size_state(surface)?,
+                self_participant: mux.terminal_view_participant_id(surface, 0),
+            }),
+            Session::Remote(remote) => remote.size_state(surface),
+        }
+    }
+
+    /// `set-size-policy {surface, policy}`.
+    pub fn set_size_policy(
+        &self,
+        surface: SurfaceId,
+        policy: TerminalSizingPolicy,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_policy(surface, Some(policy))
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal")),
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "set-size-policy", "surface": surface, "policy": policy}))
+                .map(|_| ()),
+        }
+    }
+
+    /// `set-size-counts {surface, participant, counts}`; `None` restores the
+    /// automatic rule.
+    pub fn set_size_counts(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+        counts: Option<bool>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .set_terminal_size_counts(surface, participant, counts)
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}")),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "set-size-counts",
+                    "surface": surface,
+                    "participant": participant,
+                    "counts": counts,
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    /// `detach-client {client: <participant>}`: disconnects one participant
+    /// (a relay sub-view alone, otherwise its whole client).
+    pub fn disconnect_size_participant(&self, participant: &str) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant)
+            }
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "detach-client", "client": participant})).map(|_| ())
+            }
+        }
+    }
+
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
@@ -658,7 +789,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.daemon_shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -700,6 +831,11 @@ impl Session {
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
+                // Hold the per-mux bootstrap guard across the snapshot and
+                // mutation.  Without this, concurrent attaches can both
+                // observe a bare session and create duplicate workspaces or
+                // shells before either mutation becomes visible.
+                let _bootstrap = mux.lock_initial_bootstrap();
                 // One snapshot serves both the decision and the target
                 // selection; a second read could disagree with the first
                 // when another mux owner mutates the tree in between.
@@ -710,9 +846,9 @@ impl Session {
                     }
                     InitialBootstrap::ShellInActiveWorkspace => {
                         let workspace = tree
-                            .workspaces
+                            .workspaces()
                             .get(tree.active_workspace)
-                            .or_else(|| tree.workspaces.first())
+                            .or_else(|| tree.workspaces().first())
                             .expect("bare-session bootstrap requires at least one workspace")
                             .id;
                         mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
@@ -727,7 +863,7 @@ impl Session {
                     InitialBootstrap::FirstWorkspace => {
                         remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
                         anyhow::ensure!(
-                            !remote.refresh_tree()?.workspaces.is_empty(),
+                            !remote.refresh_tree()?.workspaces().is_empty(),
                             "remote session did not expose the workspace it created"
                         );
                     }
@@ -793,7 +929,7 @@ impl Session {
                         let refreshed = remote.refresh_tree()?;
                         if let Some(create_result) = create_result {
                             let bootstrapped = refreshed
-                                .workspaces
+                                .workspaces()
                                 .iter()
                                 .any(|workspace| !workspace.screens.is_empty());
                             if !bootstrapped {
@@ -930,6 +1066,7 @@ impl Session {
                     state: agent.state.as_str().to_string(),
                     source: agent.source.as_str().to_string(),
                     session: agent.session,
+                    agent: agent.agent,
                     updated_at_ms: agent.updated_at_ms,
                 })
                 .collect(),
@@ -2018,6 +2155,35 @@ impl Session {
         }
     }
 
+    pub fn supports_tab_workspace_moves(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => {
+                remote.supports_capability(cmux_tui_core::server::TAB_WORKSPACE_MOVE_CAPABILITY)
+            }
+        }
+    }
+
+    pub fn move_tab_to_workspace(
+        &self,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.supports_tab_workspace_moves(),
+            "{}",
+            crate::localization::catalog().menu.move_tab_workspace_unsupported
+        );
+        match self {
+            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
+                }))
+                .map(|_| ()),
+        }
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
@@ -2823,6 +2989,16 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
 }
 
+/// A remote session whose event transport already died with `reason`, the
+/// state the reader thread leaves behind before it synthesizes
+/// `MuxEvent::Empty` on connection loss.
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_lost_transport(reason: &str) -> Session {
+    let session = remote::test_session_without_provider_authority();
+    session.disconnect_transport_with_reason(Some(reason.to_string()));
+    Session::Remote(session)
+}
+
 #[cfg(test)]
 fn test_remote_session_with_view_attachment_leases() -> Session {
     Session::Remote(remote::test_session_with_view_attachment_leases())
@@ -3068,5 +3244,83 @@ mod tests {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].name, "managed");
         });
+    }
+
+    #[test]
+    fn machine_usage_payload_decodes_and_degrades_to_none() {
+        use super::parse_machine_usage;
+        use serde_json::json;
+
+        let ready = json!({
+            "usage": {
+                "vm_id": "vm-1",
+                "period_days": 30,
+                "total_tokens": 17,
+                "api_equivalent_usd": 1.23,
+                "as_of": "2026-09-01T00:00:00Z"
+            }
+        });
+        let usage = parse_machine_usage(&ready).expect("ready usage decodes");
+        assert_eq!(usage.vm_id, "vm-1");
+        assert_eq!(usage.period_days, 30);
+        assert_eq!(usage.total_tokens, 17);
+        assert!((usage.api_equivalent_usd - 1.23).abs() < f64::EPSILON);
+        assert_eq!(usage.as_of.as_deref(), Some("2026-09-01T00:00:00Z"));
+
+        let without_stamp = json!({"usage": {
+            "vm_id": "vm-1", "period_days": 30, "total_tokens": 0, "api_equivalent_usd": 0.0, "as_of": null
+        }});
+        assert_eq!(parse_machine_usage(&without_stamp).map(|usage| usage.as_of), Some(None));
+
+        assert_eq!(parse_machine_usage(&json!({"usage": null})), None);
+        assert_eq!(parse_machine_usage(&json!({})), None);
+        assert_eq!(parse_machine_usage(&json!({"usage": {"vm_id": "vm-1"}})), None);
+        assert_eq!(
+            parse_machine_usage(&json!({"usage": {
+                "vm_id": "vm-1", "period_days": -1, "total_tokens": 0, "api_equivalent_usd": 0.0
+            }})),
+            None
+        );
+    }
+
+    /// Against a `shared-sizing-v1` daemon, focusing a terminal is activity
+    /// only: it must not send the legacy `set-client-sizing`, which clears a
+    /// "not counted" choice another participant (the Mac) made for this TUI.
+    #[test]
+    fn shared_sizing_focus_keeps_a_counts_choice_made_elsewhere() {
+        use cmux_tui_core::sizing_policy::TerminalDeviceKind;
+
+        let mux = Mux::new("shared-sizing-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let dir = std::path::PathBuf::from(format!("/tmp/cmux-szf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        cmux_tui_core::server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let session = Session::Remote(super::RemoteSession::connect(&socket).unwrap());
+        session.refresh_tree().unwrap();
+        assert!(matches!(
+            session.try_surface_sized(surface.id, Some((100, 40))).unwrap(),
+            super::SurfaceAttach::Attached(_)
+        ));
+        let tui = || {
+            mux.terminal_size_state(surface.id)
+                .unwrap()
+                .participants
+                .iter()
+                .find(|row| {
+                    row.participant.device_kind == TerminalDeviceKind::Tui
+                        && row.participant.id != "c0"
+                })
+                .map(|row| row.participant.clone())
+                .expect("the remote TUI joined shared sizing")
+        };
+        let id = tui().id;
+        mux.set_terminal_size_counts(surface.id, &id, Some(false)).unwrap();
+
+        session.claim_terminal_geometry(surface.id).unwrap();
+
+        assert_eq!(tui().counts_override, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

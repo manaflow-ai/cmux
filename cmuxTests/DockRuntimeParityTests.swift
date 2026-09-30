@@ -26,6 +26,7 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
+    private(set) var focusCount = 0
 
     init(id: UUID = UUID(), title: String) {
         self.id = id
@@ -35,7 +36,9 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     func close() {
         closeCount += 1
     }
-    func focus() {}
+    func focus() {
+        focusCount += 1
+    }
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -106,6 +109,10 @@ struct DockRuntimeParityTests {
     func dockPaneOwnershipFollowsBonsplitLifecycle() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let otherDock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        // Every split below supplies its own tabs. Interactive split repair
+        // would seed a terminal in the root and prevent its final empty close.
+        dock.isProgrammaticDockSplit = true
+        defer { dock.isProgrammaticDockSplit = false }
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
 
         #expect(dock.containsPane(rootPane.id))
@@ -224,12 +231,8 @@ struct DockRuntimeParityTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-            let defaults = UserDefaults.standard
-            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
             let appDelegate = AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
-            defaults.set(true, forKey: dockEnabledKey)
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
@@ -258,11 +261,6 @@ struct DockRuntimeParityTests {
                 window.orderOut(nil)
                 window.close()
                 AppDelegate.shared = previousAppDelegate
-                if let previousDockEnabled {
-                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
-                } else {
-                    defaults.removeObject(forKey: dockEnabledKey)
-                }
             }
 
             let workspace = try #require(manager.tabs.first)
@@ -345,11 +343,6 @@ struct DockRuntimeParityTests {
             #expect(manager.selectedTabId == selectedWorkspace.id)
             #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
             #expect(!window.isVisible)
-
-            let defaults = UserDefaults.standard
-            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-            defaults.set(false, forKey: dockEnabledKey)
-            defer { defaults.set(true, forKey: dockEnabledKey) }
 
             let envelope = try socketEnvelope(method: "surface.focus", params: [
                 "workspace_id": targetWorkspace.id.uuidString,
@@ -714,8 +707,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Focusing a window Dock panel dismisses its unread notification")
-    func focusingWindowDockPanelDismissesUnreadNotification() async throws {
+    @Test("Keyboard entry into a window Dock dismisses its unread notification")
+    func keyboardEntryIntoWindowDockDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -759,7 +752,8 @@ struct DockRuntimeParityTests {
                 isEnabled: true
             ) == "1")
 
-            dock.focusPanelFromDockInteraction(panel.id, window: nil)
+            #expect(dock.focusFirstControl())
+            #expect(panel.focusCount == 1)
 
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: dock.workspaceId,
@@ -785,7 +779,7 @@ struct DockRuntimeParityTests {
                 workspaceId: windowID,
                 runtimeSpawnPolicy: .pacedSessionRestore
             )
-            defer { terminal.surface.releaseSurfaceForTesting() }
+            defer { terminal.surface.releaseHostedSurfaceForTesting() }
             try dock.seedRuntimeParityPanel(terminal)
 
             let scrollPosition = TerminalNotificationScrollPosition(

@@ -14,23 +14,94 @@ on:
 
 permissions:
   contents: read
+  # Reading the triggering release run's jobs, to tell a failed macOS build
+  # apart from a failure in a job the cask does not consume.
+  actions: read
+
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it. The job name the gate
+  # below matches is pinned the same way, by tests/test_release_homebrew_gate.py.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/release.yml
 
 jobs:
-  update-cask:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Only run if the release workflow succeeded (or manual trigger)
+  gate:
+    name: Require a signed macOS build
+    # A release run is red when any job in it fails, and release.yml runs the
+    # iOS App Store screenshot capture alongside the macOS build precisely
+    # because the DMG consumes nothing from it: "a slow or flaky simulator
+    # capture must neither delay nor fail a macOS release" (issue #12149). It
+    # still turns the run red so it stays visible. Gating the cask on the run's
+    # conclusion therefore let a broken screenshot capture stop Homebrew
+    # updates: the tap sat at 0.64.22 from 2026-08-03 while v0.64.23, v0.64.24
+    # and v0.64.25 all shipped a signed, notarized DMG.
+    #
+    # The cask downloads that DMG from the published release and verifies its
+    # SHA256 below, so the only thing it needs from the run is that the signed
+    # build job succeeded.
+    # `workflow_run` matches the source by display name, so a run of any
+    # workflow with that name (a fork pull request's copy, for one) triggers
+    # this. Accept only the real release workflow run from a tag push in this
+    # repository; everything else about the run is attacker-controlled.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      ${{ github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.path == '.github/workflows/release.yml' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.event == 'push'
+      ) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Check the signed macOS build job
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual dispatch; the operator is asserting the release."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          conclusion="$(gh api \
+            "repos/$REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name == "build-sign-notarize") | .conclusion] | first // ""')"
+          echo "build-sign-notarize concluded: ${conclusion:-<not present>}"
+          if [ "$conclusion" = "success" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This release run produced no signed macOS build; leaving the cask unchanged."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  update-cask:
+    needs: gate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    if: ${{ needs.gate.outputs.proceed == 'true' }}
     steps:
       - name: Get version
         id: version
+        # Run metadata and the dispatch input reach the script only through
+        # env: substituted into the script text, a branch name like
+        # `$(cmd)` would run with this job's tap token.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             # workflow_run: extract tag from the triggering workflow's head branch
-            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="$HEAD_BRANCH"
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
@@ -38,7 +109,7 @@ jobs:
             exit 1
           fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               echo "Invalid version: ${VERSION}" >&2
               exit 1
             fi
@@ -104,7 +175,7 @@ jobs:
               strategy :github_latest
             end
 
-            depends_on macos: ">= :sonoma"
+            depends_on macos: :sonoma
 
             app "cmux.app"
             binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"

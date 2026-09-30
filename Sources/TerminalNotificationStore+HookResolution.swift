@@ -10,13 +10,18 @@ extension TerminalNotificationStore {
         surfaceId: UUID?,
         hookDirectory: String?,
         title: String,
-        body: String
+        body: String,
+        subtitle: String = "",
+        origin: TerminalNotificationOrigin = .local
     ) async {
         guard let appDelegate = AppDelegate.shared,
               let initialTarget = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
               ) else {
+            return
+        }
+        guard !isWorkspaceNotificationsMuted(forTabId: initialTarget.tabId) else {
             return
         }
         let initialManager = initialTarget.surfaceId.flatMap {
@@ -43,8 +48,10 @@ extension TerminalNotificationStore {
                 abortDesktopNotificationHookResolution(policyRequestId)
             }
         }
+        // A remote emitter (ssh relay, cloud machine) never resolves project hooks from a
+        // local directory: only the global config the user wrote on this Mac applies.
         let hooks = await notificationHookCache.hooks(
-            startingFrom: hookDirectory,
+            startingFrom: origin.isRemote ? nil : hookDirectory,
             globalConfigPath: globalConfigPath
         )
         guard !Task.isCancelled else { return }
@@ -52,6 +59,9 @@ extension TerminalNotificationStore {
                 claimedTabId: tabId,
                 surfaceId: surfaceId
               ) else {
+            return
+        }
+        guard !isWorkspaceNotificationsMuted(forTabId: target.tabId) else {
             return
         }
         let owningManager = target.surfaceId.flatMap {
@@ -76,10 +86,11 @@ extension TerminalNotificationStore {
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: resolvedTitle,
-            subtitle: "",
+            subtitle: subtitle,
             body: body,
             resolvedHooks: hooks,
-            preRegisteredPolicyRequestId: policyRequestId
+            preRegisteredPolicyRequestId: policyRequestId,
+            origin: origin
         )
     }
 }

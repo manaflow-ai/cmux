@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from claude_teams_test_utils import resolve_cmux_cli
 
@@ -78,6 +79,7 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        empty_surface_list_count: int = 0,
         feed_response_gate: threading.Event | None = None,
         feed_response_ok: bool = True,
         include_feed_item_id: bool = True,
@@ -92,6 +94,7 @@ class FakeCmuxSocket:
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.empty_surface_list_count = empty_surface_list_count
         self.feed_response_gate = feed_response_gate
         self.feed_response_ok = feed_response_ok
         self.include_feed_item_id = include_feed_item_id
@@ -102,6 +105,7 @@ class FakeCmuxSocket:
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
         self._dropped_surface_list = False
+        self._empty_surface_lists_seen = 0
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
         self._next_connection_id = 0
@@ -222,6 +226,9 @@ class FakeCmuxSocket:
                             if self.surfaces_by_workspace is not None
                             else self.surfaces
                         )
+                        if self._empty_surface_lists_seen < self.empty_surface_list_count:
+                            self._empty_surface_lists_seen += 1
+                            surfaces = []
                         result = {"surfaces": surfaces}
                     elif (
                         frame.get("method") == "agent.resolve_delivery_target"
@@ -586,6 +593,173 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
         raw_commands = [frame.get("raw", "") for frame in fake.frames]
         if not any(command.startswith("set_status codex ") for command in raw_commands):
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
+
+
+def test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-grace.sock"
+    transcript_path = root / "codex-session-owner-grace.jsonl"
+    turn_id = f"codex-monitor-owner-grace-turn-{os.getpid()}"
+    transcript_path.write_text(
+        json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}}) + "\n",
+        encoding="utf-8",
+    )
+    session_id = f"codex-monitor-owner-grace-session-{os.getpid()}"
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    def complete_transcript() -> None:
+        time.sleep(0.3)
+        with transcript_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}}) + "\n")
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        empty_surface_list_count=1,
+        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
+    ) as fake:
+        threading.Thread(target=complete_transcript, daemon=True).start()
+        result = subprocess.run(
+            [
+                cli_path, "--socket", str(socket_path), "hooks", "codex", "monitor",
+                "--workspace", FAKE_WORKSPACE_ID, "--session", session_id,
+                "--turn", turn_id, "--transcript", str(transcript_path),
+            ],
+            capture_output=True, text=True, check=False, env=env, timeout=5,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"owner grace monitor failed: {result.stdout}\n{result.stderr}")
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        if not any(
+            command.startswith("set_status codex Idle ")
+            and f"--tab={moved_workspace_id}" in command
+            for command in raw_commands
+        ):
+            raise AssertionError(f"monitor exited during transient owner absence: {raw_commands!r}")
+
+
+def test_codex_monitor_rechecks_owner_during_grace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-grace-recheck.sock"
+    transcript_path = root / "codex-session-owner-grace-recheck.jsonl"
+    turn_id = f"codex-monitor-owner-grace-recheck-turn-{os.getpid()}"
+    transcript_path.write_text(
+        json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}}) + "\n",
+        encoding="utf-8",
+    )
+    session_id = f"codex-monitor-owner-grace-recheck-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    def complete_transcript() -> None:
+        # Complete after the two-second disappearance grace. A monitor that
+        # never retries ownership during grace exits before this is observed.
+        time.sleep(2.3)
+        with transcript_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}}) + "\n")
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        empty_surface_list_count=1,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        threading.Thread(target=complete_transcript, daemon=True).start()
+        result = subprocess.run(
+            [
+                cli_path, "--socket", str(socket_path), "hooks", "codex", "monitor",
+                "--workspace", FAKE_WORKSPACE_ID, "--surface", FAKE_SURFACE_ID,
+                "--session", session_id, "--turn", turn_id, "--transcript", str(transcript_path),
+            ],
+            capture_output=True, text=True, check=False, env=env, timeout=6,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"owner grace recheck failed: {result.stdout}\n{result.stderr}")
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        if not any(command.startswith("set_status codex Idle ") for command in raw_commands):
+            raise AssertionError(f"monitor did not survive restored owner during grace: {raw_commands!r}")
+
+
+def test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path: str, root: Path) -> None:
+    """A terminal transcript must settle the pane that owns the session now."""
+    socket_path = root / "cmux-monitor-moved-replay.sock"
+    state_dir = root / "hook-state-moved-replay"
+    state_dir.mkdir()
+    transcript_path = root / "codex-session-moved-replay.jsonl"
+    turn_id = f"codex-monitor-moved-replay-turn-{os.getpid()}"
+    transcript_path.write_text(
+        "\n".join(
+            json.dumps(line)
+            for line in [
+                {"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn_id}},
+                {"type": "event_msg", "payload": {"type": "turn_complete", "turn_id": turn_id, "last_agent_message": "Done"}},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    session_id = f"codex-monitor-moved-replay-session-{os.getpid()}"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_TURN_LEDGER_PATH"] = str(state_dir / "turn-ledger.json")
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            FAKE_WORKSPACE_ID: [{"id": FAKE_SURFACE_ID}],
+            moved_workspace_id: [{"id": FAKE_SURFACE_ID}],
+        },
+        surface_delivery_target=(moved_workspace_id, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+                "--session",
+                session_id,
+                "--turn",
+                turn_id,
+                "--transcript",
+                str(transcript_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        raw_commands = [frame.get("raw", "") for frame in fake.frames]
+        moved_status = [
+            command
+            for command in raw_commands
+            if command.startswith("set_status codex ") and f"--tab={moved_workspace_id}" in command
+            and f"--panel={FAKE_SURFACE_ID}" in command
+        ]
+        if not moved_status:
+            raise AssertionError(
+                "replayed Stop stayed pinned to the original pane; "
+                f"commands={raw_commands!r}"
+            )
 
 
 def run_feed_hook_optional_frame(
@@ -2180,6 +2354,44 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"Codex PreToolUse should not wait for Feed reply: {frame!r}")
     if params["event"].get("hook_event_name") != "PreToolUse":
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
+
+
+def test_feed_completion_preserves_full_text(cli_path: str, root: Path) -> None:
+    message = ("A full paragraph with Unicode 👩🏽‍💻.\n\n" * 300) + "FINAL PARAGRAPH"
+    for source in ("codex", "claude", "opencode", "pi", "cursor", "grok", "gemini"):
+        _, frame = run_feed_hook(cli_path, root / f"full-{source}.sock", {
+            "session_id": f"full-{source}",
+            "hook_event_name": "Stop",
+            "last_assistant_message": message,
+        }, None, source=source)
+        if frame["params"]["event"].get("tool_input", {}).get("reason") != message:
+            raise AssertionError(f"{source} lost the full completion text or line breaks")
+
+
+def test_computer_use_pretool_preserves_surface_scope(cli_path: str, root: Path) -> None:
+    # Exercise the built CLI's wire event, rather than constructing a Swift
+    # WorkstreamEvent which silently fills in the field the real hook omitted.
+    for source in ("codex", "claude"):
+        with patch.dict(os.environ, {
+            "PATH": os.defpath,
+            "HOME": str(root),
+            "CODEX_HOME": str(root / "codex"),
+            "CMUX_AGENT_HOOK_STATE_DIR": str(root / "hooks"),
+        }, clear=True):
+            stdout, frame = run_feed_hook(
+                cli_path, root / f"cua-{source}.sock",
+                {"session_id": "synthetic-cua-session",
+                 "hook_event_name": "PreToolUse",
+                 "tool_name": "mcp__cmux_cua__get_app_state",
+                 "tool_input": {"app": "com.example.synthetic"}},
+                None, source=source,
+            )
+        event = frame["params"]["event"]
+        assert stdout == {}, "Telemetry must not answer an approval request"
+        assert event.get("workspace_id") == FAKE_WORKSPACE_ID
+        assert event.get("surface_id") == FAKE_SURFACE_ID, (
+            f"{source}: first-use hook lost its terminal surface: {event.get('surface_id')!r}"
+        )
 
 
 def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, root: Path) -> None:
@@ -3992,11 +4204,15 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
+            test_feed_completion_preserves_full_text(cli_path, root)
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_survives_transient_owner_absence_while_pending(cli_path, root)
+            test_codex_monitor_rechecks_owner_during_grace(cli_path, root)
+            test_codex_monitor_rehomes_replayed_stop_after_surface_move(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
@@ -4027,6 +4243,7 @@ def main() -> int:
             test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_computer_use_pretool_preserves_surface_scope(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)

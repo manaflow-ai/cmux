@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589. */
+/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,7 +16,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -37,6 +37,7 @@ export type AttachedViewOutcomeResult = {
 export type AttachedViewResizeResult = {
   "accepted": boolean;
   "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
   "reservation_id": (bigint) | null;
 };
 
@@ -149,6 +150,11 @@ export type DeclarativeLayout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+/** Opaque JSON: A uint64 client id or a shared-sizing participant id string. */
+export type DetachClientTarget = JsonValue;
+
+export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "superseded";
+
 export type EmptyResult = {
 };
 
@@ -213,6 +219,27 @@ export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
   "width_px": number;
+};
+
+export type GetSizeStateResult = {
+  "self_participant": (string) | null;
+  "state": SizeState;
+};
+
+export type GuestUrlAcknowledgeResult = {
+  "accepted": boolean;
+};
+
+export type GuestUrlClaimResult = {
+  "claimed": boolean;
+};
+
+export type GuestUrlOpenResult = {
+  "opened": boolean;
+};
+
+export type GuestUrlSubscribeResult = {
+  "url_open_ready": boolean;
 };
 
 export type Id = bigint;
@@ -315,6 +342,22 @@ export type LivePane = {
   "tabs": Array<Tab>;
 };
 
+export type MachineListeningTcpResult = {
+  "stdout": string;
+};
+
+export type MachineUsage = {
+  "api_equivalent_usd": number;
+  "as_of": (string) | null;
+  "period_days": number;
+  "total_tokens": bigint;
+  "vm_id": string;
+};
+
+export type MachineUsageResult = {
+  "usage": (MachineUsage) | null;
+};
+
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
@@ -339,6 +382,11 @@ export type MoveTerminalResult = {
   "terminal_revision": bigint;
   "workspace": (Id) | null;
   "workspace_key": string;
+};
+
+export type NoteSizeActivityResult = {
+  "changed": boolean;
+  "participant": string;
 };
 
 export type NotificationLevel = "info" | "warning" | "error";
@@ -374,6 +422,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -536,9 +586,95 @@ export type Screen = {
   "zoomed_pane": (Id) | null;
 };
 
+export type ServerStatsConnections = {
+  "accepted": bigint;
+  "active": bigint;
+  "limit": bigint;
+  "peak": bigint;
+  "refused": bigint;
+};
+
+export type ServerStatsHistogram = {
+  "count": bigint;
+  "max": bigint;
+  "mean": bigint;
+  "p50": bigint;
+  "p90": bigint;
+  "p99": bigint;
+};
+
+export type ServerStatsJournalWriter = {
+  "batch_size": ServerStatsHistogram;
+  "batches": bigint;
+  "commit_failures": bigint;
+  "commit_lock_wait_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "deadline_expiries": bigint;
+  "durable_events": bigint;
+  "durable_queued": bigint;
+  "phase": ServerStatsWriterPhase;
+  "phase_for_us": bigint;
+  "receipt_wait_us": ServerStatsHistogram;
+  "terminal_events": bigint;
+  "terminal_queued": bigint;
+};
+
+export type ServerStatsLockHolder = {
+  "held_for_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockSite = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockStall = {
+  "blocker": (string) | null;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsRegistryLock = {
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "stalls": bigint;
+  "top_sites": Array<ServerStatsLockSite>;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsResult = {
+  "connections": ServerStatsConnections;
+  "journal_writer": (ServerStatsJournalWriter) | null;
+  "registry_lock": ServerStatsRegistryLock;
+  "schema": number;
+  "uptime_ms": bigint;
+};
+
+export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
+
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetSizeCountsResult = {
+  "changed"?: boolean;
+  "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
+};
+
+export type SetSizePolicyResult = {
+  "state"?: SizeState;
+};
+
+export type SetTerminalIdlePolicyResult = {
+  "idle_close_seconds": (bigint) | null;
+  "terminal_id": string;
 };
 
 export type ShutdownDaemonResult = {
@@ -556,6 +692,54 @@ export type SidebarPluginResult = {
 export type Size = {
   "cols": number;
   "rows": number;
+};
+
+export type SizeDetachActor = {
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
+};
+
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+
+export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
+
+export type SizeParticipant = {
+  "counts": boolean;
+  "counts_override": (boolean) | null;
+  "device_kind": SizeDeviceKind;
+  "device_name": (string) | null;
+  "display_name": (string) | null;
+  "id": string;
+  "priority_key": string;
+  "user_id": (string) | null;
+  "via": (string) | null;
+  "viewport": (Size) | null;
+};
+
+export type SizePolicy = {
+  "fixed"?: (Size) | null;
+  "mode"?: SizeMode;
+  "priority"?: Array<string>;
+};
+
+export type SizeReason = "latest" | "smallest" | "largest" | "priority" | "fixed" | "held" | "priority-fallback";
+
+export type SizeState = {
+  "cols": number;
+  "generation": bigint;
+  "owners": Array<string>;
+  "participants": Array<SizeParticipant>;
+  "policy": SizePolicy;
+  "reason": SizeReason;
+  "rows": number;
+};
+
+export type SizingIdentity = {
+  "device_kind"?: (string) | null;
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
 };
 
 export type SplitDirection = "right" | "down";
@@ -585,12 +769,19 @@ export type Tab = {
   "title": string;
 };
 
+export type TerminalColorOverrides = {
+  "bg": (ColorHex) | null;
+  "cursor": (ColorHex) | null;
+  "fg": (ColorHex) | null;
+};
+
 export type TerminalColors = {
   "bg": (ColorHex) | null;
   "cursor"?: (ColorHex) | null;
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (CursorStyle) | null;
   "fg": (ColorHex) | null;
+  "overrides"?: TerminalColorOverrides;
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;

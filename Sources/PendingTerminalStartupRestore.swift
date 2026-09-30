@@ -8,7 +8,6 @@ struct PendingTerminalStartupRestore {
     let stagedWorkspaceID: UUID
     let snapshot: SessionRestorableAgentSnapshot?
     let manualResumeAvailable: Bool
-    let willRunStartupCommand: Bool
     let willRunStartupInput: Bool
     /// Keeps a deferred ownership restore gated after topology commit. The
     /// shared live-agent scan must admit or cancel it later.
@@ -18,6 +17,6 @@ struct PendingTerminalStartupRestore {
     let ownedResumeLaunchClaim: SessionRestorableAgentSnapshot?
 
     var willRunStartupWork: Bool {
-        willRunStartupCommand || willRunStartupInput
+        willRunStartupInput
     }
 }

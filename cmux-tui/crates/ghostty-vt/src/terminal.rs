@@ -160,9 +160,34 @@ impl Default for KittyReplayState {
 /// Terminal state replay plus Kitty metadata that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
+    /// Formatted state. Always ends at a parser boundary, so a consumer may
+    /// append its own sequences (for example color overrides) after it.
     pub bytes: Vec<u8>,
     pub kitty_image_aliases: Vec<KittyImageAlias>,
     pub kitty_state: KittyReplayState,
+    /// The incomplete escape sequence, control string, Kitty command, or
+    /// UTF-8 code point the source parser is inside. Write it after `bytes`
+    /// and after anything the consumer appends, immediately before the live
+    /// stream that completes it.
+    pub pending_sequence: Vec<u8>,
+}
+
+impl VtReplay {
+    /// One byte stream for consumers that append nothing between the replay
+    /// and the live stream.
+    pub fn into_self_contained_bytes(mut self) -> Vec<u8> {
+        self.bytes.append(&mut self.pending_sequence);
+        self.bytes
+    }
+
+    /// Borrowing form of [`Self::into_self_contained_bytes`].
+    pub fn self_contained_bytes(&self) -> Cow<'_, [u8]> {
+        if self.pending_sequence.is_empty() {
+            Cow::Borrowed(&self.bytes)
+        } else {
+            Cow::Owned([self.bytes.as_slice(), &self.pending_sequence].concat())
+        }
+    }
 }
 
 /// RGB color triple.
@@ -280,6 +305,22 @@ pub struct Scrollbar {
 pub struct TrackedScreenPoint {
     raw: sys::GhosttyTrackedGridRef,
     terminal_instance_id: u64,
+}
+
+/// One absolute coordinate in the active screen, including retained
+/// scrollback rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionPoint {
+    pub column: u16,
+    pub row: u32,
+}
+
+/// A selection range returned by Ghostty's terminal selection rules.
+/// Endpoints preserve the direction supplied by the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionRange {
+    pub start: SelectionPoint,
+    pub end: SelectionPoint,
 }
 
 // The C handle is owned by this value and Ghostty permits freeing it after
@@ -814,6 +855,16 @@ pub struct Terminal {
     c1_normalizer: C1Normalizer,
 }
 
+enum PendingSequenceReplay<'a> {
+    /// The parser is at a boundary.
+    None,
+    /// Bytes since the last boundary.
+    Bytes(&'a [u8]),
+    /// A direct Kitty upload larger than the generic budget, which the
+    /// Kitty in-flight prefix reproduces.
+    KittyCommand,
+}
+
 #[derive(Default)]
 struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 
@@ -825,11 +876,26 @@ struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 /// its UTF-8 stream behavior. Invalid UTF-8 may keep this tracker unsafe
 /// slightly longer than Ghostty, but can never make an incomplete stream look
 /// safe.
+///
+/// While unsafe it also retains the bytes fed since the last safe point. A
+/// replay that ends with them leaves a fresh parser in the same incomplete
+/// state, so the rest of the live stream completes the sequence there too.
 #[derive(Default)]
 struct VtBoundaryTracker {
     state: VtBoundaryState,
     utf8_remaining: u8,
+    /// Valid range of the next continuation byte. Ghostty's decoder is the
+    /// strict Hoehrmann DFA, so the first continuation after E0, ED, F0 and
+    /// F4 is narrower than 80..=BF.
+    utf8_next: (u8, u8),
+    pending: Vec<u8>,
+    pending_overflowed: bool,
 }
+
+/// Largest incomplete non-Kitty sequence a replay carries. Longer control
+/// strings (for example an oversized OSC 52 copy) make the replay
+/// non-resumable until the sequence ends.
+const VT_PENDING_SEQUENCE_REPLAY_MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum VtBoundaryState {
@@ -853,12 +919,71 @@ enum VtBoundaryState {
 impl VtBoundaryTracker {
     fn feed(&mut self, data: &[u8]) {
         for &byte in data {
+            let was_safe = self.is_safe();
+            // Ghostty prints U+FFFD for a ground-state code point that an
+            // invalid continuation abandons. Those bytes are now part of the
+            // screen, so they must not be replayed a second time.
+            let abandons_text = self.state == VtBoundaryState::Ground
+                && self.utf8_remaining != 0
+                && !(self.utf8_next.0..=self.utf8_next.1).contains(&byte);
+            // ESC or a C1 introducer ends the sequence in progress: Ghostty
+            // dispatches an OSC, DCS or APC string there and abandons any
+            // other sequence. Only the new sequence is still pending.
+            // A C1 value inside a UTF-8 code point is text, not an introducer.
+            let restarts = self.state != VtBoundaryState::Ground
+                && (byte == 0x1b
+                    || (self.utf8_remaining == 0
+                        && matches!(byte, 0x90 | 0x98 | 0x9b | 0x9d | 0x9e | 0x9f)));
             self.feed_byte(byte);
+            if self.is_safe() {
+                self.clear_pending();
+                continue;
+            }
+            if was_safe || abandons_text || restarts {
+                self.clear_pending();
+            }
+            // Inside an escape, CSI or control string Ghostty executes or
+            // ignores C0 controls on arrival; only DCS passthrough keeps them.
+            if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f)
+                && self.state != VtBoundaryState::DcsPassthrough
+            {
+                continue;
+            }
+            self.record_pending(byte);
         }
     }
 
     fn is_safe(&self) -> bool {
         self.state == VtBoundaryState::Ground && self.utf8_remaining == 0
+    }
+
+    /// Bytes since the last safe point, or `None` when they exceeded the
+    /// replay budget.
+    fn pending_replay(&self) -> Option<&[u8]> {
+        (!self.pending_overflowed).then_some(self.pending.as_slice())
+    }
+
+    fn record_pending(&mut self, byte: u8) {
+        if self.pending_overflowed {
+            return;
+        }
+        if self.pending.len() >= VT_PENDING_SEQUENCE_REPLAY_MAX_BYTES {
+            self.pending = Vec::new();
+            self.pending_overflowed = true;
+            return;
+        }
+        self.pending.push(byte);
+    }
+
+    fn clear_pending(&mut self) {
+        // Do not keep a large control string's allocation for the life of
+        // the terminal.
+        if self.pending.capacity() > 4096 {
+            self.pending = Vec::new();
+        } else {
+            self.pending.clear();
+        }
+        self.pending_overflowed = false;
     }
 
     fn feed_byte(&mut self, byte: u8) {
@@ -886,8 +1011,9 @@ impl VtBoundaryTracker {
 
     fn consume_utf8_byte(&mut self, byte: u8) -> bool {
         if self.utf8_remaining != 0 {
-            if matches!(byte, 0x80..=0xbf) {
+            if (self.utf8_next.0..=self.utf8_next.1).contains(&byte) {
                 self.utf8_remaining -= 1;
+                self.utf8_next = (0x80, 0xbf);
                 return true;
             }
             // Ghostty replaces the incomplete code point and retries this byte
@@ -895,11 +1021,15 @@ impl VtBoundaryTracker {
             self.utf8_remaining = 0;
         }
 
-        self.utf8_remaining = match byte {
-            0xc2..=0xdf => 1,
-            0xe0..=0xef => 2,
-            0xf0..=0xf4 => 3,
-            _ => 0,
+        (self.utf8_remaining, self.utf8_next) = match byte {
+            0xc2..=0xdf => (1, (0x80, 0xbf)),
+            0xe0 => (2, (0xa0, 0xbf)),
+            0xed => (2, (0x80, 0x9f)),
+            0xe1..=0xef => (2, (0x80, 0xbf)),
+            0xf0 => (3, (0x90, 0xbf)),
+            0xf4 => (3, (0x80, 0x8f)),
+            0xf1..=0xf3 => (3, (0x80, 0xbf)),
+            _ => (0, (0x80, 0xbf)),
         };
         self.utf8_remaining != 0
     }
@@ -2033,6 +2163,30 @@ impl Terminal {
             && unsafe { sys::ghostty_terminal_vt_stream_is_ground(self.raw) }
     }
 
+    /// Whether a replay built now, followed by the rest of the live stream,
+    /// reproduces this terminal in a fresh parser.
+    ///
+    /// Replays end with the incomplete sequence the parser is inside, so this
+    /// holds at every byte except inside a control string larger than the
+    /// pending-sequence budget. Callers that cannot resume must fall back to a
+    /// fresh attachment at a later boundary.
+    pub fn vt_replay_resumes_stream(&self) -> bool {
+        self.pending_sequence_replay().is_some()
+    }
+
+    /// How the replay reproduces the parser's incomplete sequence, if it can.
+    fn pending_sequence_replay(&self) -> Option<PendingSequenceReplay<'_>> {
+        if self.vt_stream_is_ground() {
+            return Some(PendingSequenceReplay::None);
+        }
+        if let Some(pending) = self.vt_boundary.pending_replay() {
+            return Some(PendingSequenceReplay::Bytes(pending));
+        }
+        // A direct Kitty upload may exceed the generic budget; its own
+        // tracker retains it up to the image limit.
+        self.kitty_inflight.has_partial_command().then_some(PendingSequenceReplay::KittyCommand)
+    }
+
     fn refresh_mouse_mode_revision(&mut self) {
         let next_bits = self.current_mouse_mode_bits();
         let bits_changed = next_bits != self.mouse_mode_bits;
@@ -2534,11 +2688,14 @@ impl Terminal {
 
     /// Apply one complete replay sidecar and byte stream to this terminal.
     pub fn apply_vt_replay(&mut self, replay: &VtReplay) -> Result<()> {
-        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)
+        self.apply_vt_replay_parts(&replay.bytes, &replay.kitty_image_aliases, replay.kitty_state)?;
+        self.vt_write(&replay.pending_sequence);
+        Ok(())
     }
 
     /// Apply replay bytes and their non-VT sidecar through the same ordering
-    /// used by owned [`VtReplay`] values.
+    /// used by owned [`VtReplay`] values. The caller writes the replay's
+    /// `pending_sequence` afterwards, after any sequences of its own.
     pub fn apply_vt_replay_parts(
         &mut self,
         bytes: &[u8],
@@ -2968,6 +3125,174 @@ impl Terminal {
         check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
     }
 
+    /// Move a screen selection point from a wide grapheme continuation cell
+    /// to the grapheme's lead cell. Ghostty represents a wide grapheme that
+    /// wraps at the right edge as a spacer head on one row and a wide lead on
+    /// the next row. The spacer head has no text of its own, so semantic
+    /// selection must address the lead cell.
+    pub fn normalize_selection_point_screen(
+        &self,
+        point: SelectionPoint,
+    ) -> Option<SelectionPoint> {
+        let width = self.cell_width_screen(point)?;
+        match width {
+            CellWidth::SpacerTail if point.column > 0 => {
+                let leading = SelectionPoint { column: point.column - 1, ..point };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            CellWidth::SpacerHead => {
+                let leading = SelectionPoint { column: 0, row: point.row.checked_add(1)? };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            _ => Some(point),
+        }
+    }
+
+    fn cell_width_screen(&self, point: SelectionPoint) -> Option<CellWidth> {
+        let grid_ref =
+            self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))?;
+        let mut raw = sys::GhosttyCell::default();
+        check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+        Some(crate::render::cell_width(raw))
+    }
+
+    /// Select the word containing an absolute screen coordinate using
+    /// Ghostty's configured word-boundary rules.
+    pub fn select_word_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordOptions>(),
+            ref_: grid_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the nearest word between two absolute screen coordinates.
+    /// This is useful while dragging because it skips whitespace and other
+    /// empty cells without inventing boundaries in the UI layer.
+    pub fn select_word_between_screen(
+        &self,
+        start: SelectionPoint,
+        end: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        let start_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, start.column, u64::from(start.row))
+            .ok_or(Error::InvalidValue)?;
+        let end_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, end.column, u64::from(end.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordBetweenOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordBetweenOptions>(),
+            start: start_ref,
+            end: end_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result = unsafe {
+            sys::ghostty_terminal_select_word_between(self.raw, &options, &mut selection)
+        };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the logical line containing an absolute screen coordinate.
+    pub fn select_line_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        self.select_line_screen_with_whitespace(point, ptr::null(), 0)
+    }
+
+    /// Select a logical line without trimming its leading or trailing cells.
+    /// This is used only as the blank-line fallback for a triple-click drag.
+    pub fn select_line_screen_untrimmed(
+        &self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        // A non-null pointer with a zero length tells Ghostty to use an
+        // explicitly empty whitespace set instead of its default trim set.
+        const EMPTY_WHITESPACE: u32 = 0;
+        let selection = self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)?;
+        if selection.is_some() {
+            return Ok(selection);
+        }
+
+        // Ghostty still returns no value when every cell lacks text. The
+        // validated blank row remains a selectable line for a line-wise drag.
+        let Some(last_column) = self.cols().checked_sub(1) else { return Ok(None) };
+        Ok(Some(SelectionRange {
+            start: SelectionPoint { column: 0, row: point.row },
+            end: SelectionPoint { column: last_column, row: point.row },
+        }))
+    }
+
+    fn select_line_screen_with_whitespace(
+        &self,
+        point: SelectionPoint,
+        whitespace: *const u32,
+        whitespace_len: usize,
+    ) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectLineOptions {
+            size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
+            ref_: grid_ref,
+            whitespace,
+            whitespace_len,
+            semantic_prompt_boundary: true,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    fn selection_range(&self, selection: &sys::GhosttySelection) -> Result<SelectionRange> {
+        Ok(SelectionRange {
+            start: self.selection_point(&selection.start)?,
+            end: self.selection_point(&selection.end)?,
+        })
+    }
+
+    fn selection_point(&self, grid_ref: &sys::GhosttyGridRef) -> Result<SelectionPoint> {
+        let mut coordinate = sys::GhosttyPointCoordinate::default();
+        check(unsafe {
+            sys::ghostty_terminal_point_from_grid_ref(
+                self.raw,
+                grid_ref,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut coordinate,
+            )
+        })?;
+        Ok(SelectionPoint { column: coordinate.x, row: coordinate.y })
+    }
+
     /// Plain text of a selection range given in viewport coordinates
     /// (inclusive). Returns `None` when either endpoint is out of bounds.
     pub fn selection_text(&mut self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
@@ -3080,7 +3405,7 @@ impl Terminal {
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
     /// `kitty_image_aliases` reproduces
     /// the screen contents, styles, cursor, modes, palette, keyboard
-    /// state, charsets, and tabstops. This is the attach primitive: a new
+    /// state, charsets, tabstops, and title. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<VtReplay> {
         self.vt_replay_bounded(usize::MAX)
@@ -3088,20 +3413,42 @@ impl Terminal {
 
     /// Byte-only compatibility replay. This discards Kitty number aliases.
     pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
-        Ok(self.vt_replay()?.bytes)
+        Ok(self.vt_replay()?.into_self_contained_bytes())
     }
 
     /// Reject replay state that cannot fit under `max_bytes` regardless of
     /// text or completed graphics truncation. Callers can use this before a
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
-        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
-        let suffix_len = self.mouse_format_replay_suffix().len();
-        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
-        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+        let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
+        let pending = pending.as_slice();
+        let suffix_len = self.replay_state_suffix().len();
+        if inflight
+            .len()
+            .checked_add(suffix_len)
+            .and_then(|total| total.checked_add(pending.len()))
+            .is_none_or(|total| total > max_bytes)
+        {
             return Err(Error::OutOfSpace);
         }
         Ok(())
+    }
+
+    /// The completed Kitty upload chunks a replay restores, and the
+    /// incomplete sequence it hands back separately. The generic pending
+    /// bytes already contain any partial Kitty command; a Kitty command past
+    /// their budget comes from the Kitty tracker instead.
+    fn replay_inflight_and_pending(&self, max_bytes: usize) -> Result<(Vec<u8>, Vec<u8>)> {
+        // Always ask the Kitty tracker, so its per-surface upload budget
+        // applies whichever tracker supplies the partial command.
+        let (inflight, kitty_partial) =
+            self.kitty_inflight.replay_prefix_and_partial_checked(max_bytes)?;
+        let pending = match self.pending_sequence_replay() {
+            Some(PendingSequenceReplay::Bytes(pending)) => pending.to_vec(),
+            Some(PendingSequenceReplay::KittyCommand) => kitty_partial,
+            Some(PendingSequenceReplay::None) | None => Vec::new(),
+        };
+        Ok((inflight, pending))
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -3126,7 +3473,9 @@ impl Terminal {
     /// did not set. This byte-only compatibility API discards Kitty number
     /// aliases.
     pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded_theme_portable_with_aliases(max_bytes)?.bytes)
+        Ok(self
+            .vt_replay_bounded_theme_portable_with_aliases(max_bytes)?
+            .into_self_contained_bytes())
     }
 
     /// Theme-portable replay retaining aliases for the Kitty images admitted
@@ -3136,6 +3485,27 @@ impl Terminal {
         max_bytes: usize,
     ) -> Result<VtReplay> {
         self.vt_replay_bounded_with_palette(max_bytes, false)
+    }
+
+    /// Bytes appended after the formatted replay for state Ghostty's VT
+    /// formatter does not emit.
+    fn replay_state_suffix(&self) -> Vec<u8> {
+        let mut suffix = self.mouse_format_replay_suffix();
+        suffix.extend_from_slice(&self.title_replay_suffix());
+        suffix
+    }
+
+    /// OSC 2 that restores the title. The formatter emits OSC 7 for the
+    /// working directory but never the title, so without this every mirror
+    /// rebuilt from a replay (attach, resync, host resize) loses the title an
+    /// application set. Control characters cannot appear inside an OSC
+    /// payload, so they are replaced with spaces.
+    fn title_replay_suffix(&self) -> Vec<u8> {
+        let Some(title) = self.title() else {
+            return Vec::new();
+        };
+        let title: String = title.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        format!("\x1b]2;{title}\x1b\\").into_bytes()
     }
 
     /// Correction bytes appended to a serialized replay so the replayed
@@ -3181,11 +3551,12 @@ impl Terminal {
         max_bytes: usize,
         include_palette: bool,
     ) -> Result<VtReplay> {
-        let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
-        let mouse_format_suffix = self.mouse_format_replay_suffix();
+        let (inflight, pending) = self.replay_inflight_and_pending(max_bytes)?;
+        let state_suffix = self.replay_state_suffix();
         let remaining = max_bytes
             .checked_sub(inflight.len())
-            .and_then(|remaining| remaining.checked_sub(mouse_format_suffix.len()))
+            .and_then(|remaining| remaining.checked_sub(state_suffix.len()))
+            .and_then(|remaining| remaining.checked_sub(pending.len()))
             .ok_or(Error::OutOfSpace)?;
         let mut pixel_cache = std::mem::take(&mut self.kitty_replay_pixel_cache.0);
         let snapshot = kitty::snapshot_for_replay(self, &mut pixel_cache, true);
@@ -3225,7 +3596,8 @@ impl Terminal {
             .len()
             .checked_add(interleaved.len())
             .and_then(|total| total.checked_add(inflight.len()))
-            .and_then(|total| total.checked_add(mouse_format_suffix.len()))
+            .and_then(|total| total.checked_add(state_suffix.len()))
+            .and_then(|total| total.checked_add(pending.len()))
             .ok_or(Error::OutOfSpace)?;
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
@@ -3238,23 +3610,22 @@ impl Terminal {
             bytes.extend_from_slice(&graphics.image_bytes);
             bytes.extend_from_slice(&interleaved);
         }
-        // The formatter dumps DEC modes in numeric order, which destroys the
-        // last-set-wins semantics of the extended mouse coordinate formats.
-        // Reduce the flag dump to the single active selector so replay
-        // reproduces the semantic, not the numeric flag order.
-        bytes.extend_from_slice(&mouse_format_suffix);
+        // State the formatter cannot express: the active mouse coordinate
+        // format and the OSC 0/2 title.
+        bytes.extend_from_slice(&state_suffix);
         let replay_cursor_offset = u32::try_from(bytes.len()).map_err(|_| Error::OutOfSpace)?;
         bytes.extend_from_slice(&inflight);
         Ok(VtReplay {
             bytes,
             kitty_image_aliases: graphics.aliases,
             kitty_state: self.kitty_replay_state(replay_cursor_offset)?,
+            pending_sequence: pending,
         })
     }
 
     /// Bounded byte-only compatibility replay. This discards Kitty aliases.
     pub fn vt_replay_bounded_bytes(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded(max_bytes)?.bytes)
+        Ok(self.vt_replay_bounded(max_bytes)?.into_self_contained_bytes())
     }
 
     fn vt_replay_text_layout_bounded(
@@ -3390,19 +3761,29 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
-
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
+        // A replay with retained scrollback can contain exactly one viewport
+        // of rows while still carrying a sparse history prefix in Ghostty's
+        // screen coordinate space. Keep every row boundary in that case so
+        // the target cannot retain stale history above the active TUI.
+        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands and history-bearing
+        // ranges depend on physical row cursor positions, so retain the
+        // row-delimited form for those cases.
+        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
@@ -3413,16 +3794,24 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                Self::vt_replay_segment_options(
+                    &selection,
+                    first,
+                    last,
+                    include_palette,
+                    preserve_soft_wrap,
+                ),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            if !preserve_soft_wrap {
+                emitted_breaks = emitted_breaks
+                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            }
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
+            if !preserve_soft_wrap && history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
                 while emitted_breaks < expected_breaks {
@@ -3439,19 +3828,17 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
+                if !preserve_soft_wrap {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
                 }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
+        if !preserve_soft_wrap && history_bearing {
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
@@ -3568,8 +3955,10 @@ impl Terminal {
         first: bool,
         last: bool,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        let mut options =
+            Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
@@ -3588,11 +3977,12 @@ impl Terminal {
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            unwrap: unwrap_soft_wrap,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
@@ -4597,6 +4987,40 @@ mod tests {
     }
 
     #[test]
+    fn replay_restores_the_osc_title() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        host.vt_write(b"\x1b]2;renamed tab\x07");
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title().as_deref(), Some("renamed tab"));
+
+        let mut theme_portable = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        theme_portable
+            .apply_vt_replay(&host.vt_replay_bounded_theme_portable_with_aliases(1 << 20).unwrap())
+            .unwrap();
+        assert_eq!(theme_portable.title(), mirror.title());
+    }
+
+    #[test]
+    fn replay_without_a_title_carries_no_title_suffix() {
+        let mut host = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        assert!(host.title_replay_suffix().is_empty());
+        let mut mirror = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        mirror.apply_vt_replay(&host.vt_replay().unwrap()).unwrap();
+        assert_eq!(mirror.title(), None);
+    }
+
+    #[test]
+    fn replay_preflight_reserves_title_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]2;title\x07");
+        let suffix_len = terminal.replay_state_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
+    }
+
+    #[test]
     fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
@@ -5034,6 +5458,53 @@ mod tests {
         target.vt_write(&replay);
 
         assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
+    fn vt_replay_preserves_blank_tail_after_history() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(b"\x1b[2J\x1b[HHEADER\x1b[5;1H> Ask Codex\x1b[6;1HSTATUS\x1b[5;3H");
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+        assert_eq!(restored.cursor_position(), source.cursor_position());
+
+        // A TUI continues with absolute-cell diffs after attaching. Its header,
+        // composer and cursor must still agree on the same physical rows.
+        let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
+    }
+
+    #[test]
+    fn vt_replay_preserves_codex_composer_before_incremental_redraw() {
+        let mut source = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(
+            b"\x1b[2J\x1b[HOpenAI Codex\x1b[4;1H> Ask Codex to do anything\x1b[5;1HSTATUS\x1b[4;3H",
+        );
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(40, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+
+        // Codex redraws the composer incrementally after a restore. The
+        // replacement replay and the next redraw must share the same rows.
+        let update = b"\x1b[4;1H\x1b[2K> NEW PROMPT\x1b[5;1HDONE\x1b[4;3H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
     }
 
     #[test]
