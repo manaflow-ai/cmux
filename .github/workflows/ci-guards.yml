@@ -1065,6 +1065,12 @@ jobs:
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
 
+      - name: Validate CLI contract verb coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_cli_contract_verb_guard.py
+          python3 scripts/check-cli-contract-verbs.py
+
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
         run: |
