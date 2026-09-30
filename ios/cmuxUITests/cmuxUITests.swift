@@ -163,6 +163,7 @@ final class cmuxUITests: XCTestCase {
         add(proof)
     }
 
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
