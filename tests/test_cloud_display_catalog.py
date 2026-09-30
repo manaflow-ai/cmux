@@ -225,6 +225,17 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertEqual(Path(scoped).name, "cmux-display-2-openbox")
         self.assertTrue(Path(scoped).exists())
 
+    def test_display_wallpaper_uses_guest_fallback_contract(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        environment = {"DISPLAY": ":2"}
+        with mock.patch.object(display, "WALLPAPER_HELPER", str(self.root / "missing-helper")), \
+             mock.patch.object(display.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+            service.apply_wallpaper(2, environment)
+        command = run.call_args.args[0]
+        self.assertEqual(command[1:3], ["--no-fehbg", "--bg-fill"])
+        self.assertEqual(command[-1], "/usr/share/backgrounds/cmux/wallpaper.jpg")
+        self.assertEqual(run.call_args.kwargs["env"], environment)
+
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         request = str(uuid.uuid4())
