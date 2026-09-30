@@ -48,3 +48,18 @@ public nonisolated enum OmnibarRules {
         return forms.filter { !$0.isEmpty }
     }
 }
+
+/// What Copy and Cut put on the pasteboard for the omnibar's selection.
+public nonisolated struct OmnibarCopy: Equatable, Sendable {
+    public var text: String
+    /// Also written as a URL (Chrome writes a hyperlink to the page).
+    public var url: URL?
+}
+
+nonisolated extension OmnibarReducer {
+    /// Copy of the field's selection, adjusted as Chrome does; nil when
+    /// nothing is selected.
+    public static func copyContent(of state: OmnibarState, resolver: OmniboxResolver) -> OmnibarCopy? {
+        nil
+    }
+}

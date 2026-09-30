@@ -11,6 +11,8 @@ nonisolated extension OmnibarStep {
         case .enter(let disposition): enter(disposition)
         case .escape: escape()
         case .selectAll: selectAll()
+        case .focusLocation: selectAll()
+        case .home, .deleteSuggestion: handled = false
         case .undo: undo(redo: false)
         case .redo: undo(redo: true)
         }

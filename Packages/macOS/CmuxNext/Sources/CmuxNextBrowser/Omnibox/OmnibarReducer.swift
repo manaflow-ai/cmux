@@ -36,7 +36,8 @@ nonisolated struct OmnibarStep {
         case .focusLost: focusLost()
         case .fieldChanged(let field, let kind): fieldChanged(field, kind)
         case .key(let pressed): key(pressed)
-        case .fieldMouseDown(let clicks): if !state.hasFocus { state.focusingClick = clicks }
+        case .fieldMouseDown(let clicks, _, _):
+            if !state.hasFocus { state.mouse = .init(pressed: true, clickCount: clicks, button: .left, selectAllOnRelease: clicks == 1) }
         case .fieldMouseUp: fieldMouseUp()
         case .rowHover(let row, let pointer): rowHover(row, pointer: pointer)
         case .rowClick(let row, let disposition): rowClick(row, disposition)
@@ -91,7 +92,7 @@ nonisolated struct OmnibarStep {
     mutating func endSession() {
         state.edit = .init()
         closePopup()
-        state.focusingClick = nil
+        state.mouse = nil
         state.undo = []
         state.redo = []
         state.lastEditKind = nil

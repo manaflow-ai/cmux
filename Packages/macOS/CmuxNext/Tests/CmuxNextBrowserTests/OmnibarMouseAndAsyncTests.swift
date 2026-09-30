@@ -15,21 +15,25 @@ import Testing
     @Test func theFocusingClickSelectsEverything() {
         let sim = OmnibarSim()
         sim.click(selecting: range(7, 0))
-        #expect(sim.field.selection == range(0, 35))
-        #expect(sim.state.focusingClick == nil)
+        #expect(sim.field.text == "github.com/manaflow-ai/cmux", "select-all keeps the elided URL (Chrome)")
+        #expect(sim.field.selection == range(0, 27))
+        #expect(sim.state.mouse == nil)
     }
 
     @Test func aFocusingDragKeepsItsSelection() {
         let sim = OmnibarSim()
         sim.click(selecting: range(8, 10))
-        #expect(sim.field.selection == range(8, 10))
+        #expect(sim.field.text == pageText)
+        #expect(sim.field.selection == range(16, 10), "the dragged text, in the full URL")
     }
 
     @Test func laterClicksPlaceTheCaretAndDoubleAndTripleClicksSelect() {
         let sim = OmnibarSim()
         sim.click(selecting: range(3, 0))
+        sim.click(selecting: range(4, 0))
+        #expect(sim.field.selection == range(12, 0), "second click places the caret in the full URL")
         sim.click(selecting: range(12, 0))
-        #expect(sim.field.selection == range(12, 0), "second click places the caret")
+        #expect(sim.field.selection == range(12, 0))
         sim.click(count: 2, selecting: range(8, 6))
         #expect(sim.field.selection == range(8, 6), "double-click keeps the word")
         sim.click(count: 3, selecting: range(0, 35))
@@ -154,7 +158,7 @@ import Testing
         sim.key(.escape)
         sim.send(.suggestions(generation: pending.generation, rows: sim.rows(for: pending.text)))
         #expect(sim.popup.rows.isEmpty)
-        #expect(sim.field.text == pageText)
+        #expect(sim.field.text == "github.com/manaflow-ai/cmux", "Escape reverted to the display text")
     }
 
     @Test func resultsWhileArrowingKeepTheChosenRow() {
@@ -233,19 +237,21 @@ import Testing
         sim.send(.pageURLChanged(next))
         #expect(sim.field.text == "foo")
         #expect(sim.field.selection == range(3, 0))
-        sim.key(.escape)
-        #expect(sim.field.text == "https://github.com/manaflow-ai/cmux/pulls")
+        sim.key(.escape) // closes the card
+        sim.key(.escape) // reverts
+        #expect(sim.field.text == "github.com/manaflow-ai/cmux/pulls")
     }
 
     @Test func untouchedTextFollowsThePage() {
         let sim = OmnibarSim()
         sim.focus()
         sim.send(.pageURLChanged(URL(string: "https://example.com/redirected")!))
-        #expect(sim.field.text == "https://example.com/redirected")
-        #expect(sim.field.selection == range(0, 30))
+        #expect(sim.field.text == "example.com/redirected", "Chrome reverts to the display text")
+        #expect(sim.field.selection == range(0, 22))
         sim.moveSelection(to: range(5, 0))
         sim.send(.pageURLChanged(URL(string: "https://e.x/")!))
-        #expect(sim.field.selection == range(5, 0))
+        #expect(sim.field.text == "e.x")
+        #expect(sim.field.selection == range(0, 3), "and selects all")
     }
 
     @Test func aPageChangeWhileCommittingShowsTheNewPage() {

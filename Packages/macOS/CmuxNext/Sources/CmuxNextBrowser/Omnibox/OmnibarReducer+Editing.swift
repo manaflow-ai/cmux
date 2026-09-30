@@ -113,8 +113,8 @@ nonisolated extension OmnibarStep {
     /// Chrome: the single click that focuses the field selects everything,
     /// unless it dragged a selection of its own.
     mutating func fieldMouseUp() {
-        defer { state.focusingClick = nil }
-        guard state.focusingClick == 1, state.hasFocus, state.edit.selection.length == 0, !state.isComposing else { return }
+        defer { state.mouse = nil }
+        guard state.mouse?.selectAllOnRelease == true, state.hasFocus, state.edit.selection.length == 0, !state.isComposing else { return }
         acceptShownText()
         state.edit.selection = Self.all(state.fieldText)
     }

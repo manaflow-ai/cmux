@@ -70,6 +70,23 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
 
     public enum EditKind: Equatable, Sendable { case insert, delete, paste }
 
+    /// The mouse press the field is tracking (Chrome `OmniboxViewViews`
+    /// `is_mouse_pressed_` and `select_all_on_mouse_release_`).
+    public struct Mouse: Equatable, Sendable {
+        /// A press is down. False while focus arrived from a click whose
+        /// press the field has not reported yet (AppKit makes the field first
+        /// responder before it forwards the mouse-down).
+        public var pressed: Bool
+        public var clickCount: Int
+        public var button: OmnibarInput.MouseButton
+        /// The press focused the field: select all on release unless it
+        /// dragged a selection of its own.
+        public var selectAllOnRelease: Bool
+        /// The word under a single click on the elided, all-selected URL, in
+        /// elided coordinates (Chrome `next_double_click_selection_*`).
+        public var wordAtPress: NSRange?
+    }
+
     public var phase: Phase = .idle
     public var pageURL: URL?
     public var retainedText: String?
@@ -77,9 +94,17 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     public var popup = Popup()
     /// Bumped by every suggestion query; results carry it back.
     public var generation: UInt64 = 0
-    /// Click count of the mouse-down that is focusing the field (Chrome: a
-    /// single click that focuses selects everything on mouse-up).
-    public var focusingClick: Int?
+    /// `focused` only: the field shows the steady-state URL
+    /// (`BrowserURLDisplay.displayText`, no scheme, no `www.`) instead of the
+    /// full URL. A focusing click and Escape keep it elided while all of it
+    /// is selected; any other selection, Home, Cmd-L or an edit shows the
+    /// full URL (Chrome `OmniboxViewViews::UnapplySteadyStateElisions`).
+    public var elided = false
+    /// The mouse press in the field, while one is down.
+    public var mouse: Mouse?
+    /// The word a following double-click selects, in full-URL coordinates,
+    /// after a single click unelided the text under the pointer.
+    public var doubleClickWord: NSRange?
     public var undo: [UndoEntry] = []
     public var redo: [UndoEntry] = []
     /// Consecutive edits of one kind share one undo entry.
@@ -98,15 +123,21 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
 
     public var isComposing: Bool { edit.marked != nil }
 
-    /// The page URL as the field shows it while focused.
+    /// The full page URL (Chrome `url_for_editing_`).
     public var permanentText: String { BrowserURLDisplay.editingText(for: pageURL) }
+
+    /// The steady-state page URL (Chrome `display_text_`).
+    public var displayText: String { BrowserURLDisplay.displayText(for: pageURL) }
+
+    /// True when focusing may show the elided URL: it differs from the full one.
+    var canElide: Bool { !permanentText.isEmpty && displayText != permanentText }
 
     /// Exactly what the field must contain.
     public var fieldText: String {
         switch phase {
         case .idle: retainedText ?? BrowserURLDisplay.displayText(for: pageURL)
         case .committing(let display): BrowserURLDisplay.displayText(for: display)
-        case .focused: permanentText
+        case .focused: elided ? displayText : permanentText
         case .editing:
             if let selected = popup.selected, selected > 0, popup.rows.indices.contains(selected) {
                 OmnibarRules.fillText(for: popup.rows[selected])

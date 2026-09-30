@@ -31,12 +31,24 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
         case up, down, tab, backTab
         case enter(Disposition)
         case escape
-        /// Cmd-L while the field already has focus.
+        /// Cmd-A (the field editor's `selectAll:`). Never unelides.
         case selectAll
+        /// Cmd-L while the field already has focus (Chrome
+        /// `OmniboxViewViews::SetFocus(is_user_initiated=true)`): the full
+        /// URL, all selected.
+        case focusLocation
+        /// The Home key (`scrollToBeginningOfDocument:`; Shift-Home extends).
+        /// Unelides even from select-all (Chrome `UnelisionGesture::kHomeKeyPressed`).
+        case home(extend: Bool)
+        /// Shift-Delete (forward delete): removes the highlighted history row
+        /// (Chrome `OmniboxEditModel::TryDeletingPopupLine`).
+        case deleteSuggestion
         case undo, redo
     }
 
     public enum FocusSource: Equatable, Sendable { case mouse, keyboard, programmatic }
+
+    public enum MouseButton: Equatable, Sendable { case left, right }
 
     // Focus (AppKit responder changes the FocusCoordinator caused or saw).
     case focusGained(FocusSource)
@@ -51,8 +63,11 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     /// A key the field editor forwards before its own handling.
     case key(Key)
 
-    // Mouse in the field.
-    case fieldMouseDown(clickCount: Int)
+    // Mouse in the field. `word` is the word range under the pointer in the
+    // text the field shows at the press (the field editor's word granularity);
+    // the machine uses it to fix the second click of a double-click that
+    // follows an unelision (Chrome crbug.com/40693090).
+    case fieldMouseDown(clickCount: Int, button: MouseButton = .left, word: NSRange? = nil)
     case fieldMouseUp
 
     // Mouse over suggestion rows. `row` nil: the pointer left the rows.
@@ -79,4 +94,6 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     /// and hands focus back to the page through the focus coordinator.
     case began
     case ended(OmnibarEndReason)
+    /// Shift-Delete removed this history row: forget the page.
+    case deleteSuggestion(URL)
 }

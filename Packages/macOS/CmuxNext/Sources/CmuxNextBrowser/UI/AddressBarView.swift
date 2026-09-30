@@ -201,7 +201,7 @@ public final class AddressBarView: NSView {
         case .began: onEvent?(.didBeginEditing)
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
-        case .query, .cancelQuery: break
+        case .query, .cancelQuery, .deleteSuggestion: break
         }
     }
 

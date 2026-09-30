@@ -120,7 +120,7 @@ import Testing
             switch effect {
             case .query(let generation, let text): queries.append((generation, text))
             case .cancelQuery: queries.removeAll()
-            case .began, .ended, .beep: break
+            case .began, .ended, .beep, .deleteSuggestion: break
             }
         }
         checkInvariants()
@@ -196,14 +196,33 @@ import Testing
         send(.suggestions(generation: latest.generation, rows: rows(for: latest.text)))
     }
 
-    /// A click in the field: AppKit focuses it (when unfocused), the field
-    /// editor tracks the click to `selection`, then mouse-up.
-    func click(count: Int = 1, selecting selection: NSRange) {
-        send(.fieldMouseDown(clickCount: count))
+    /// A click in the field: the field editor tracks the click to
+    /// `selection` (in the text shown at the press), then mouse-up. AppKit
+    /// makes the field first responder before it forwards the press
+    /// (`focusFirst`); the machine also accepts the press first.
+    func click(count: Int = 1, word: NSRange? = nil, selecting selection: NSRange, focusFirst: Bool = true) {
+        if focusFirst, !field.editorActive { focus(.mouse) }
+        send(.fieldMouseDown(clickCount: count, word: word))
         if !field.editorActive { focus(.mouse) }
         moveSelection(to: selection)
         send(.fieldMouseUp)
     }
+
+    /// A right-click. `selecting` is what the field editor selects on its
+    /// own (a word under the pointer). Returns the selection the context
+    /// menu opens with (menus open on the press on macOS).
+    @discardableResult
+    func rightClick(selecting selection: NSRange? = nil) -> NSRange {
+        if !field.editorActive { focus(.mouse) }
+        send(.fieldMouseDown(clickCount: 1, button: .right))
+        if let selection { moveSelection(to: selection) }
+        let atMenu = field.selection
+        send(.fieldMouseUp)
+        return atMenu
+    }
+
+    /// The text Copy puts on the pasteboard now.
+    var copied: OmnibarCopy? { OmnibarReducer.copyContent(of: state, resolver: resolver) }
 
     // MARK: Invariants
 

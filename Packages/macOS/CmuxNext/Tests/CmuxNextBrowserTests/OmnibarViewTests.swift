@@ -64,9 +64,15 @@ import Testing
         h.bar.debugType("typo")
         await h.settle()
         let editor = (h.editor as? NSTextView) ?? NSTextView()
+        // Chrome: the first Escape closes the card, the second reverts to
+        // the display text, the third returns focus to the page.
         _ = h.bar.control(NSTextField(), textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
         #expect(h.bar.isEditing)
-        #expect(h.editor?.string == "https://github.com/manaflow-ai/cmux/pulls")
+        #expect(h.editor?.string == "typo")
+        _ = h.bar.control(NSTextField(), textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+        #expect(h.bar.isEditing)
+        #expect(h.editor?.string == "github.com/manaflow-ai/cmux/pulls")
+        #expect(h.editor?.selectedRange == NSRange(location: 0, length: 33))
         _ = h.bar.control(NSTextField(), textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
         #expect(!h.bar.isEditing)
         // No App router: the chrome hands focus back to the page.
