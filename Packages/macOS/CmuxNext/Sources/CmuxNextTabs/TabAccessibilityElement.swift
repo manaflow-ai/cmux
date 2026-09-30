@@ -39,6 +39,7 @@ extension TabCell {
         if item.isBusy { parts.append(Strings.axBusy) }
         if item.isDormant { parts.append(Strings.axHibernated) }
         if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
+        if let profile = item.profileBadge { parts.append(Strings.browserProfile(profile.name)) }
         switch item.status {
         case .needsInput: parts.append(Strings.axNeedsInput)
         case .success: parts.append(Strings.axSuccess)

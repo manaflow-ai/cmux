@@ -103,7 +103,8 @@ final class TabHoverCardPanel: NSPanel {
     func configure(_ content: TabHoverCardContent) {
         switch content {
         case .tab(let item):
-            let subtitle = [item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: " · ")
+            let profile = item.profileBadge.map { Strings.browserProfile($0.name) }
+            let subtitle = [profile, item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
             setResourcesVisible(true)
             setThumbnailVisible(true)

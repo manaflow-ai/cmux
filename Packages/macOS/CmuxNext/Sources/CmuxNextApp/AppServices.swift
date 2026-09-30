@@ -79,6 +79,8 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Sized browser popups (OAuth, payment) in floating panels.
     let popups = BrowserPopupPanels()
+    /// Browser profiles: records, the new-tab cascade, each tab's store.
+    private(set) lazy var browserProfiles = BrowserProfileService(services: self)
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -101,11 +103,13 @@ final class AppServices {
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
-        cache.cef.openURLWithoutWindow = { [weak self] url, disposition in
+        cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
             // normal one; an incognito store never gets here): a new browser
-            // tab in the focused pane of a normal window (Chromium opens nothing).
-            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+            // tab in the focused pane of a normal window (Chromium opens nothing),
+            // in the requesting page's browser profile.
+            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab,
+                                                                          profile: profile.map(BrowserProfileRecord.wireID(for:)))
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
         cache.browserTabs.isIncognitoTab = { [weak self] key in
@@ -116,9 +120,16 @@ final class AppServices {
             guard let self, let windows, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        cache.browserProfile = { [weak self] key in
-            guard let self, let windows else { return nil }
-            return windows.browserProfile(forWorkspace: workspaceID(ofTab: key))
+        cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
+        cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        cache.profileBadgeMenu = { [weak self] key in
+            guard let self, let tab = cache.tabModel(key) else { return nil }
+            let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
+            return registry.makeContextMenu(for: .browserProfile, target: target)
+        }
+        cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
+            guard let self else { return explicit }
+            return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
         }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate

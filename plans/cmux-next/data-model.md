@@ -301,8 +301,20 @@ browser profile x that session's `registry_id` (CEF
 context sends its traffic through the app's proxy). Every other URL of that
 tab uses the profile's own store, so logins stay shared across machines; a
 navigation across the boundary re-creates the engine tab in the other store.
-Deleting a browser profile must also remove its derived stores (browser
-profile deletion does not exist yet; add it there).
+Deleting a browser profile also removes its derived stores.
+
+Status (stage 4, 2026-09-30): records live in the app, in
+`<Application Support>/<bundle id>/BrowserProfiles/profiles.json`
+(`BrowserProfileBook`), because `profiles-v1` has no `browser_profiles`
+table yet. Workspace defaults use `personal_workspaces.browser_profile_id`
+when the home daemon serves `profiles-v1` and the same file otherwise; room
+defaults need `profiles-v1`. Moving the records into the home session is a
+cmux-tui follow-up (`create/update/delete-browser-profile`, listed by
+`list-personal`). A deleted profile's tabs reopen in `default`; its engine
+data goes at once when no engine opened it in this process, else at the
+next launch (`pending_cleanup`). Omnibar history is per profile (in
+memory). Onboarding imports create one profile per source with its
+proposed id; imports made before profiles moved into theirs once.
 
 ## 6. Themes and colors
 

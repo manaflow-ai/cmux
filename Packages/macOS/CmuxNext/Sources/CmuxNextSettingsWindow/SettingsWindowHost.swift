@@ -16,6 +16,9 @@ public import CmuxNextActions
     var shellIntegration: String? { get }
     /// Writes recorded shortcuts to cmux.json (the palette's writer).
     var shortcutEditor: (any ShortcutRecorderEditing)? { get }
+    /// Browser profiles in order (edited through the registry's
+    /// `browserProfile.*` actions, so every entrypoint shares one path).
+    var browserProfiles: [SettingsBrowserProfileRow] { get }
 }
 
 /// One row of a list section (a room, a machine).
@@ -48,6 +51,11 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     public var ghosttyConfigPath = "~/.config/ghostty/config"
     public var shellIntegration: String? = "zsh"
     public weak var shortcutEditor: (any ShortcutRecorderEditing)?
+    public var browserProfiles: [SettingsBrowserProfileRow] = [
+        SettingsBrowserProfileRow(id: "default", name: "Default", isDefault: true),
+        SettingsBrowserProfileRow(id: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", name: "Work", color: "green", icon: "💼",
+                                  source: "Google Chrome · Work"),
+    ]
 
     public init() {}
 }

@@ -28,6 +28,7 @@ enum DebugOmnibar {
             "rows": .array(snapshot.rows.map(JSONValue.string)),
             "highlighted": snapshot.highlighted.map { .number(Double($0)) } ?? .null,
             "copy_text": snapshot.copyText.map(JSONValue.string) ?? .null,
+            "profile_badge": bar.profileBadgeName.map(JSONValue.string) ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
         ])
     }

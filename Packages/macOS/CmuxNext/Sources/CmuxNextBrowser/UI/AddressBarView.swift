@@ -33,6 +33,9 @@ public final class AddressBarView: NSView {
     private let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
+    private let profileBadgeView = ProfileBadgeView()
+    /// The trailing badges (browser profile, machine); hidden ones take no room.
+    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView])
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
     private let panel = OmniboxSuggestionPanel()
@@ -103,9 +106,13 @@ public final class AddressBarView: NSView {
         addSubview(chip)
         addSubview(field)
         machineBadgeView.isHidden = true
-        addSubview(machineBadgeView)
+        profileBadgeView.isHidden = true
+        badges.orientation = .horizontal
+        badges.spacing = 4
+        badges.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(badges)
         fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-        fieldToBadge = field.trailingAnchor.constraint(equalTo: machineBadgeView.leadingAnchor, constant: -OmnibarStyle.textLeading)
+        fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -126,8 +133,8 @@ public final class AddressBarView: NSView {
             field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
             fieldToEdge,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            machineBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
-            machineBadgeView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
+            badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
             self?.commitMarkedText()
@@ -159,9 +166,30 @@ public final class AddressBarView: NSView {
         if let text {
             machineBadgeView.show(text: text, help: help ?? text)
         }
-        let visible = text != nil
-        guard machineBadgeView.isHidden == visible else { return }
-        machineBadgeView.isHidden = !visible
+        machineBadgeView.isHidden = text == nil
+        updateBadgeSpace()
+    }
+
+    /// The tab's browser profile as a small avatar; nil hides it (one
+    /// profile, or an incognito tab).
+    public func setProfileBadge(_ badge: BrowserProfileBadge?) {
+        if let badge { profileBadgeView.show(badge) }
+        profileBadgeView.isHidden = badge == nil
+        updateBadgeSpace()
+    }
+
+    /// The browser profile badge's menu (the host's profile actions).
+    public var profileBadgeMenu: (() -> NSMenu?)? {
+        get { profileBadgeView.makeMenu }
+        set { profileBadgeView.makeMenu = newValue }
+    }
+
+    /// The badge shown now, for diagnostics (`debug.browser`).
+    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.toolTip }
+
+    private func updateBadgeSpace() {
+        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden
+        guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
     }

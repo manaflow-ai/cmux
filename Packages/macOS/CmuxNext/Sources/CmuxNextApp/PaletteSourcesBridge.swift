@@ -7,7 +7,7 @@ import CmuxNextPalette
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
-                       targets: ScreenTargetSource(services: services, next: WindowTargetSource(services: services)),
+                       targets: ScreenTargetSource(services: services, next: BrowserProfileTargetSource(services: services, next: WindowTargetSource(services: services))),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
                        argumentPreview: { [weak services] action, _, value, target in

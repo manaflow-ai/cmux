@@ -28,6 +28,15 @@ nonisolated enum SettingsWindowStrings {
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
     static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Rooms need a newer cmux-tui on this Mac.") }
     static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No rooms yet.") }
+    static var browserProfilesTitle: String { text("settingsWindow.browserProfiles", "Browser Profiles") }
+    static var browserProfilesHint: String {
+        text("settingsWindow.browserProfilesHint", "Each profile has its own cookies, logins, history, extensions and site permissions.")
+    }
+    static var newBrowserProfile: String { text("settingsWindow.newBrowserProfile", "New Browser Profile") }
+    static var profileName: String { text("settingsWindow.profileName", "Name") }
+    static var profileColor: String { text("settingsWindow.profileColor", "Color") }
+    static var profileIcon: String { text("settingsWindow.profileIcon", "Icon") }
+    static var deleteProfile: String { text("settingsWindow.deleteProfile", "Delete Profile and Data…") }
     static var machinesEmpty: String { text("settingsWindow.machinesEmpty", "No saved machines.") }
     static var settingsFile: String { text("settingsWindow.settingsFile", "Settings File") }
     static var showInFinder: String { text("settingsWindow.showInFinder", "Show in Finder") }

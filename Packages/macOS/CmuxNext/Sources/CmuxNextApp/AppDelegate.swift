@@ -64,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
+        services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
+                                      importStore: services.onboarding.importStore)
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
@@ -73,7 +75,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
-        services.onboarding.seedHistory()
         services.onboarding.showIfNeeded()
     }
 

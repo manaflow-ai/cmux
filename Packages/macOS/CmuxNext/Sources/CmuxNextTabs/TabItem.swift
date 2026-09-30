@@ -30,6 +30,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var machineBadgeHelp: String?
     /// The terminal's own theme, when it has one: a subtle swatch dot.
     public var themeBadge: TabThemeBadge?
+    /// The tab's browser profile when it differs from the one its workspace
+    /// gives new tabs: a small dot of its color, named in the hover card and
+    /// to VoiceOver (plans/cmux-next/data-model.md section 5).
+    public var profileBadge: TabProfileBadge?
 
     public init(
         id: TabID,
@@ -55,5 +59,16 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.groupID = groupID
         self.tint = tint
         self.machineBadge = machineBadge
+    }
+}
+
+/// A tab's browser profile as the strip shows it.
+public struct TabProfileBadge: Hashable, Sendable {
+    public var name: String
+    public var color: GroupColor?
+
+    public init(name: String, color: GroupColor?) {
+        self.name = name
+        self.color = color
     }
 }

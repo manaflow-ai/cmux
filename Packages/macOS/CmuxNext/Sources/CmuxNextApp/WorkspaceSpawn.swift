@@ -14,6 +14,8 @@ struct WorkspaceSpawn: Sendable {
     var keep = false
     /// Room the workspace is born in; nil = the target window's room.
     var profile: ProfileID?
+    /// Browser profile of the workspace's new browser tabs; nil = its room's.
+    var browserProfile: String?
     /// Where the new workspace goes in its window's sidebar; nil leaves it
     /// where the daemon puts it (after the loose rows).
     var slot: WorkspaceSlot?
@@ -79,6 +81,10 @@ extension WindowManager {
         let room = home.store.profile(spawn.profile ?? profileForNewWorkspace(window: windowID))
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
+        }
+        if let browserProfile = spawn.browserProfile {
+            let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
+            try services.browserProfiles.setWorkspaceDefault(browserProfile, for: qualified)
         }
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only

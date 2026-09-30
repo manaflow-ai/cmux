@@ -66,7 +66,8 @@ extension CEFRuntime {
         case .openInNewTab(let url, let disposition):
             if let url = URL(string: url) {
                 // Not from inside Chromium's navigation: the App creates a tab.
-                Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition) }
+                let profile = storage.profile(forPath: request.profilePath)
+                Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition, profile) }
             }
             return 0
         case .openOffTheRecord(let url):

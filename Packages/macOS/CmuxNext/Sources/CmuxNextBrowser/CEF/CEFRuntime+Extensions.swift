@@ -10,6 +10,8 @@ extension CEFRuntime {
         return store
     }
 
+    func hasExtensionStore(for profile: BrowserProfileID) -> Bool { extensionStores[profile] != nil }
+
     /// Extensions or their actions changed: refresh the profile mirrors of
     /// the window's tabs (a pin changes both lists).
     func refreshExtensionStores(window: Int32, browser: Int32) {

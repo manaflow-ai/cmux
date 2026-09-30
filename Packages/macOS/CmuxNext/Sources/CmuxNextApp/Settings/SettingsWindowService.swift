@@ -72,4 +72,11 @@ final class SettingsWindowService: SettingsWindowHost {
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
 
     var shortcutEditor: (any ShortcutRecorderEditing)? { services.paletteShortcutEditor }
+
+    var browserProfiles: [SettingsBrowserProfileRow] {
+        services.browserProfiles.ordered.map { record in
+            SettingsBrowserProfileRow(id: record.id, name: record.name, color: record.color, icon: record.icon,
+                                      isDefault: record.isDefault, source: record.source?["display_name"])
+        }
+    }
 }

@@ -15,8 +15,10 @@ struct SettingsSectionView: View {
         case .appearance: ThemeCard()
         case .terminal: TerminalInfoCard(model: model)
         case .keyboard: KeyboardSectionView(model: model)
-        case .rooms: ListSectionCard(rows: model.host?.rooms, empty: SettingsWindowStrings.roomsEmpty,
-                                     unavailable: SettingsWindowStrings.roomsUnavailable)
+        case .rooms:
+            ListSectionCard(rows: model.host?.rooms, empty: SettingsWindowStrings.roomsEmpty,
+                            unavailable: SettingsWindowStrings.roomsUnavailable)
+            BrowserProfilesCard(model: model)
         case .machines: ListSectionCard(rows: model.host?.machines ?? [], empty: SettingsWindowStrings.machinesEmpty, unavailable: "")
         case .advanced: AdvancedCard(model: model)
         case .general, .browser, .notifications: EmptyView()

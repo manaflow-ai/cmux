@@ -76,6 +76,15 @@ public final class CEFEngine: BrowserEngine {
         return store
     }
 
+    /// Where Chromium keeps every profile's directory.
+    public var storageRoot: URL { CEFRuntime.shared.storage.root }
+
+    /// True when Chromium opened `profile` in this process: its directory
+    /// may be removed only after the next launch.
+    public func hasOpened(_ profile: BrowserProfileID) -> Bool {
+        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.hasExtensionStore(for: profile)
+    }
+
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
@@ -94,7 +103,9 @@ public final class CEFEngine: BrowserEngine {
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
     /// Chromium opens nothing, and this opens the URL in a new cmux tab.
-    public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)? {
+    /// The profile is the requesting page's persistent store (nil when
+    /// Chromium named no cmux profile directory).
+    public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)? {
         get { CEFRuntime.shared.openURLWithoutWindow }
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
     }

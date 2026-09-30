@@ -70,6 +70,7 @@ final class TabCell {
     /// The machine badge, created while the item names a remote machine.
     var machineLayer: ChromeTextLayer?
     var themeBadgeLayer: CALayer?
+    var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
 
     var hasSpinnerLayer: Bool { spinnerLayer != nil }
     var hasBadgeLayer: Bool { badgeLayer != nil }
@@ -146,6 +147,7 @@ final class TabCell {
         if previous?.isBusy != item.isBusy { updateSpinner() }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
+        if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -204,6 +206,7 @@ final class TabCell {
             let text = isSelected ? Palette.textPrimary : item.isDormant ? Palette.textTertiary : Palette.textSecondary
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
+            applyProfileDotColors()
             spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
@@ -354,12 +357,13 @@ final class TabCell {
             titleLayer.frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visible = max(0, layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY) - titleX)
+            let visible = max(0, layoutProfileBadge(titleX: titleX, titleEnd: layoutMachineBadge(titleX: titleX, titleEnd: titleEnd, midY: midY), midY: midY) - titleX)
             applyTitleMask(width: width, visible: min(visible, width))
         } else {
             titleLayer.opacity = 0
             titleLayer.mask = nil
             machineLayer?.opacity = 0
+            profileLayer?.opacity = 0
         }
     }
 

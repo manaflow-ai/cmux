@@ -106,7 +106,6 @@ enum BrowserHandlers {
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
         unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
-        unavailable(["browserNewProfile", "browserRenameProfile"], MiscHandlerStrings.browserProfiles)
         unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
         unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)

@@ -31,6 +31,9 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    /// Profiles Chromium opened in this process (their files stay open
+    /// until shutdown, so a deleted one's directory waits for the next launch).
+    private(set) var usedProfiles: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
@@ -48,7 +51,7 @@ final class CEFRuntime {
     var windowRequestLog = CEFWindowRequestLog()
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
-    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)?
+    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
@@ -369,6 +372,7 @@ final class CEFRuntime {
 
     func host(for key: CEFPaneKey) -> CEFPaneHost {
         if let host = hosts[key] { return host }
+        usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self)
         hosts[key] = host
         return host

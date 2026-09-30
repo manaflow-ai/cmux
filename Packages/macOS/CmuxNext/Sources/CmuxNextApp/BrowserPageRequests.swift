@@ -45,11 +45,14 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return
         }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        // A page's new tabs stay in its browser profile (its cookies, and the
+        // store an engine-made child page already uses).
+        let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
         switch intent {
         case .openURL(let url, let disposition):
-            open(url: url, adopting: nil, engine: engine, in: pane, background: disposition == .backgroundTab)
+            open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, background: disposition == .backgroundTab)
         case .adoptTab(let child, let disposition):
-            open(url: child.state.url, adopting: child, engine: engine, in: pane, background: disposition == .backgroundTab)
+            open(url: child.state.url, adopting: child, engine: engine, profile: profile, in: pane, background: disposition == .backgroundTab)
         case .close:
             services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
         case .activate:
@@ -59,7 +62,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
                                                          entries: ContextMenuCatalog.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = host.items
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, pane: pane, services: services) + host.items
             host.removeAllItems()
             BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
         case .notice(let text):
@@ -87,10 +90,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.popups.open(child, request: request, over: window, openerKey: openerKey)
     }
 
-    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, in pane: PaneModel, background: Bool) {
+    private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background)
+            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile)
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!
@@ -99,7 +102,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let handle = pane.handle, address = url?.absoluteString ?? "about:blank"
         services.registry.track(Task { [weak self] in
             do {
-                let surface = try await browserTabs.open(choice, in: handle, url: address)
+                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
             } catch {
