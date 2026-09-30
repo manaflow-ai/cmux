@@ -254,7 +254,7 @@ public struct CMUXMobileRootScene: View {
                 return store
             }
             #endif
-            let support = configuration?.stateDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let support = configuration?.stateDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
             let environment = configuration?.environment ?? "development"
             let directory = support.appendingPathComponent("cmux-iroh-v2", isDirectory: true)
                 .appendingPathComponent(Data(environment.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_"), isDirectory: true)
