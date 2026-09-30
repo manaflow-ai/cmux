@@ -340,6 +340,12 @@ pub fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// The bytes typed into the focused shell to `cd` into `path`, or `None`
+/// when they cannot be typed safely.
+pub fn cd_command(path: &str) -> Option<String> {
+    Some(format!("cd {}\n", shell_single_quote(path)))
+}
+
 pub fn file_url(path: &Path) -> String {
     let text = path.to_string_lossy();
     let mut url = String::from("file://");
@@ -468,6 +474,24 @@ mod tests {
         assert_eq!(browser.current_dir(), temp.join("docs"));
         assert!(!browser.filter_mode());
         fs::remove_dir_all(temp).unwrap();
+    }
+
+    /// A directory name is attacker-chosen (a cloned repository). Its bytes
+    /// are typed into a line editor, which acts on control characters even
+    /// inside quotes: Ctrl-U erases the typed `cd '` and leaves the rest of
+    /// the name to run as a command. Such a path is never typed.
+    #[test]
+    fn cd_is_never_typed_for_a_path_with_control_characters() {
+        assert_eq!(cd_command("/tmp/a'b").as_deref(), Some("cd '/tmp/a'\\''b'\n"));
+        for evil in [
+            "/tmp/x\u{15}touch /tmp/pwn #",
+            "/tmp/a\nb",
+            "/tmp/a\u{1b}[2~b",
+            "/tmp/a\u{7f}b",
+            "/tmp/a\u{9b}b",
+        ] {
+            assert_eq!(cd_command(evil), None, "{evil:?}");
+        }
     }
 
     #[test]
