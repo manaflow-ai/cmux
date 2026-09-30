@@ -165,6 +165,30 @@ extension AgentNotificationRegressionTests {
         ))
     }
 
+    @Test func terminalInputClearsCodexPromptRingAndWorkspaceCount() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        #expect(AgentNotificationDelivery().enqueue(
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            title: "Codex approval",
+            subtitle: "",
+            body: "Answer needed",
+            category: .needsPermission,
+            pending: false,
+            agentKind: "codex",
+            sessionId: "session"
+        ))
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.source.clearAgentAttentionNotificationOnTerminalInput(panelId: fixture.panelId))
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 0)
+        #expect(!fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+    }
+
     @Test(arguments: ["claude", "codex"])
     func semanticNotificationFollowsMovedSurfaceAndRejectsMissingSurface(source: String) throws {
         let fixture = try makeFixture()
