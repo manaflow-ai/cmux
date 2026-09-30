@@ -611,7 +611,7 @@ jobs:
       # PR media tours (pr-media.yml) ask for CI's product and never pay for
       # a second compile of the app.
       # A reuse error is no evidence the product is unloadable, so it fails
-      # under its own name (pr_media.py compiles only after a refusal). The
+      # under its own name (pr_media.py notes a refusal as a skip). The
       # lookup records API and transfer failures as miss reasons, so those
       # count as errors too.
       - name: Fail a dispatch that requires an adopted product when reuse errored

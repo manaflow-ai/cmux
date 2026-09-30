@@ -25,6 +25,11 @@
       "message": "Cloud VM 設定失敗，清理仍未完成。",
       "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
     },
+    "recreateRequired": {
+      "title": "重新建立這台機器",
+      "message": "這台機器建立於 Cloud 更新之前，無法連線。",
+      "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -134,7 +139,9 @@
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
     "viewChangelog": "查看更新日誌",
-    "otherPlatforms": "其他平台"
+    "otherPlatforms": "其他平台",
+    "copyCode": "複製程式碼",
+    "copied": "已複製"
   },
   "nav": {
     "docs": "文件",
@@ -1367,8 +1374,8 @@
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "調整每次滑鼠滾輪或觸控式軌跡板捲動事件讓終端機移動的距離。大於 1 的值會加快捲動，小於 1 的值會減慢捲動。",
-          "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
-          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+          "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示TextBox 輸入。",
+          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦TextBox 輸入。聚焦也會顯示 TextBox。"
         },
         "notifications": {
           "soundWhenFocused": "即使發出通知的窗格已在焦點中，也播放通知聲音。預設關閉，因此焦點中的窗格只會顯示光環與閃爍。",
@@ -1410,7 +1417,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
+          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、terminalAlternateScreen、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
         },
         "fileEditor": {
@@ -1535,7 +1542,6 @@
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "切換檔案編輯器自動換行 (Option+Z).",
       "title": "鍵盤快捷鍵",
       "description": "cmux 中所有可用的鍵盤快捷鍵，依類別分組。",
       "metaDescription": "cmux 所有鍵盤快捷鍵，涵蓋工作區、surface、分割窗格、瀏覽器、通知、搜尋和 macOS 視窗管理。",
@@ -1862,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（測試版）",
+      "textBox": "TextBox",
       "ios": "iOS 應用程式",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "概覽",
@@ -1877,7 +1883,11 @@
       "remoteSection": "遠端存取",
       "customizeSection": "自訂與管理",
       "basicsSection": "基礎",
-      "remoteTmux": "遠端 tmux 鏡像"
+      "remoteTmux": "遠端 tmux 鏡像",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "概覽",
+      "coderouterAgents": "代理與模型",
+      "coderouterCli": "CLI 與疑難排解"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2022,12 +2032,11 @@
       "daemonPath": "守護程式二進位檔案儲存在遠端主機上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，並根據應用程式中嵌入的 SHA-256 清單進行驗證。"
     },
     "textBox": {
-      "title": "TextBox（測試版）",
-      "metaTitle": "TextBox（測試版）",
-      "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux 測試版 TextBox 輸入。",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux TextBox 輸入。",
       "metaDescriptionShort": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫與編輯提示，並支援多行輸入、歷史記錄、鍵盤快捷鍵與可設定的終端機整合。",
       "intro": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫提示。",
-      "betaCallout": "TextBox 是測試版功能。測試期間，預設值和行為可能會變更。",
       "defaultsTitle": "預設值",
       "defaultsDesc": "TextBox 設定位於 Settings > TextBox：",
       "showSetting": "Show TextBox on New Terminals 會讓新的工作區、終端機分頁和終端機分割在開啟時顯示 TextBox，同時將焦點保留在終端機。",
@@ -2076,7 +2085,7 @@
       "data3": "配對和裝置中繼資料，用於將你的手機連線到你的 Mac。",
       "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
       "enterpriseTitle": "企業與自架",
-      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
+      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@cmux.com</link>。"
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -2198,7 +2207,8 @@
       "guestDesc": "在機器內，cmux 指令會控制該機器的工作階段。它支援 tree、new-workspace、new-split、send、send-key、read-screen、terminal、layout、env、notify、open-url 和 self。cmux self 會顯示擁有者、目前的機器以及你的其他機器。cmux vm verb peer 可在機器內控制你的其他機器。",
       "guestHostOnly": "登入、上傳 AI 帳號，以及 new、delete、checkpoint、fork、resize、pause、domains、open 和 vpn 等機器生命週期指令只能在你的 Mac 上執行。",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux iOS 應用程式不管理 Cloud 機器。正在啟動的機器會顯示為預留位置卡片。"
+      "iosDesc": "cmux iOS 應用程式不管理 Cloud 機器。正在啟動的機器會顯示為預留位置卡片。",
+      "coderouterLink": "CodeRouter 文件：支援的帳號、共用與用量"
     },
     "cloudNetworking": {
       "title": "Cloud 檔案與網路",
@@ -2263,7 +2273,8 @@
       "accountsTitle": "AI 帳號與模型路由",
       "accountsDesc": "為團隊上傳代理帳號並檢查模型路由。",
       "preflightTitle": "腳本檢查清單",
-      "preflightDesc": "在腳本建立或使用機器之前，請先執行以下唯讀檢查。它們會確認你已登入，顯示你的機器和方案限制，並顯示某個目錄使用的是哪台機器。"
+      "preflightDesc": "在腳本建立或使用機器之前，請先執行以下唯讀檢查。它們會確認你已登入，顯示你的機器和方案限制，並顯示某個目錄使用的是哪台機器。",
+      "coderouterLink": "完整的 CodeRouter 指令參考"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 安全性與疑難排解",
@@ -2320,6 +2331,177 @@
       "fixTransferDisabled": "受管理的原則已關閉檔案傳輸。請聯絡你的管理員。",
       "supportTitle": "取得協助",
       "supportDesc": "如果建立失敗，請使用通知中的 Copy Error，並在聯絡支援時附上錯誤訊息以及追蹤 ID（如有）。"
+    },
+    "ui": {
+      "onThisPage": "本頁內容",
+      "copyPage": "複製頁面",
+      "copyPageDesc": "以 Markdown 格式複製，供 LLM 使用",
+      "copied": "已複製",
+      "pageActions": "更多頁面操作",
+      "openInChatGPT": "在 ChatGPT 中開啟",
+      "openInClaude": "在 Claude 中開啟",
+      "openInDesc": "就本頁提問",
+      "askPrompt": "請閱讀 {url}，以便我就其內容提問。",
+      "previous": "上一頁",
+      "next": "下一頁",
+      "helpful": "這個頁面對你有幫助嗎？",
+      "yes": "是",
+      "no": "否",
+      "thanks": "感謝你的回饋。",
+      "raiseIssue": "提交 Issue",
+      "openNavigation": "開啟導覽",
+      "closeNavigation": "關閉導覽",
+      "searchShortcut": "搜尋文件 (⌘K)",
+      "navigation": "文件"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter 模型路由",
+      "metaDescription": "CodeRouter 會將 Codex、Claude Code、OpenCode 和 Pi 的請求分配到團隊的 AI 訂閱和 API 金鑰，並在某個帳號達到上限時自動容錯移轉。",
+      "intro": "CodeRouter 是 cmux 背後的模型路由器。你的程式設計代理會把請求傳送到 CodeRouter，由它將每個請求轉送到團隊加入的某個訂閱或 API 金鑰。當某個帳號遭到速率限制、被拒絕或無法使用時，CodeRouter 會把工作轉移到另一個帳號，讓代理持續執行。",
+      "whyTitle": "為什麼要使用",
+      "whyPool": "匯集多個 ChatGPT、Claude 和 OpenCode Go 訂閱以及 API 金鑰，並與團隊共用。",
+      "whyFailover": "當某個帳號達到用量上限時，代理仍能繼續工作。",
+      "whyCloud": "讓 cmux Cloud 機器存取模型，而不必在機器上儲存憑證。",
+      "whyUsage": "依帳號、API 金鑰和 Cloud 機器查看 token 用量。",
+      "accountsTitle": "支援的帳號",
+      "accountsDesc": "每個帳號會服務使用其供應商 API 的代理。Codex 和 Pi 共用一個集區；Claude Code 使用另一個由 Claude 帳號組成的集區。",
+      "accountColumn": "帳號",
+      "servesColumn": "服務對象",
+      "addColumn": "加入方式",
+      "accountChatgpt": "ChatGPT 訂閱（個人或團隊工作區）",
+      "accountOpenAiKey": "OpenAI API 金鑰",
+      "accountOpenRouterKey": "OpenRouter API 金鑰",
+      "accountOpencodeGo": "OpenCode Go 訂閱",
+      "accountClaudeSubscription": "Claude Max 或 Pro（Claude Code 設定權杖）",
+      "accountAnthropicKey": "Anthropic API 金鑰",
+      "accountBedrock": "Amazon Bedrock 憑證",
+      "addDashboard": "CodeRouter 儀表板",
+      "accountsDashboard": "CodeRouter 儀表板也可以加入 API 金鑰、Claude 權杖和 Bedrock 憑證。它會列出每個帳號及其狀態、冷卻時間和作用中的工作階段：",
+      "routingTitle": "路由的運作方式",
+      "routingSticky": "只要帳號狀態正常，每個代理工作階段都會固定在同一個帳號上，讓供應商的提示快取保持有效。新的工作階段會分配給作用中工作階段最少的帳號。",
+      "routingFailover": "當供應商回傳速率限制、拒絕憑證或沒有回應時，CodeRouter 會讓該帳號進入冷卻，並在另一個帳號上重試請求。只有在任何模型輸出送達代理之前才會重試，因此已開始串流的回應絕不會被傳送兩次。",
+      "routingProvider": "向供應商發出請求的是 CodeRouter 的託管服務。因此供應商流量來自 CodeRouter，而不是你的 Mac 或 Cloud 機器。",
+      "quickstartTitle": "在 Mac 上快速開始",
+      "stepInstall": "安裝 CodeRouter CLI。它會同時以 coderouter 和 cr 兩個名稱安裝。你也可以執行 cmux cr，第一次執行時它會提議幫你安裝。",
+      "stepLogin": "使用你的 cmux 帳號登入。cr login 會開啟瀏覽器；請核准其中顯示的代碼。",
+      "stepAdd": "加入訂閱。cr add 會開啟供應商選單，cr add codex 會在瀏覽器中登入 ChatGPT。",
+      "stepRun": "使用 cr codex、cr opencode 或 cr pi 透過 CodeRouter 執行代理。代理名稱後面的引數會原樣傳給代理。",
+      "cloudTitle": "在 cmux Cloud 機器上",
+      "cloudDesc": "每台 Cloud 機器在建立時就已連接到 CodeRouter。機器上的 Claude Code、Codex、OpenCode 和 Pi 不需登入也不需設定，就能使用團隊的帳號。",
+      "cloudLink": "Cloud 機器上的代理如何設定",
+      "teamsTitle": "團隊與共用",
+      "teamsScope": "帳號屬於你目前登入的團隊。cr org list 會顯示你的團隊，cr org switch 會切換 cr 使用的團隊。cmux coderouter 指令接受 --team '<id>'。",
+      "teamsPrivate": "新帳號只供加入它的人使用。在儀表板中，「與團隊共用」會讓所有成員和團隊的 Cloud 機器都能使用它，「設為私人」則取消共用。",
+      "teamsPersonal": "在你的個人團隊中，你的私人帳號也會服務你自己的 Cloud 機器。組織的 Cloud 機器只使用共用帳號，因此在希望機器使用某個帳號之前，請先共用它。",
+      "teamsManage": "任何團隊成員都可以加入、重新命名、停用、轉移和移除團隊的共用帳號。cr transfer 會在你確認後將帳號轉移到另一個團隊。",
+      "usageTitle": "用量與限制",
+      "usageLimits": "每個供應商會依照處理請求的帳號本身的方案和限制來計量。CodeRouter 會把工作分散到多個帳號，但不會提高任何單一帳號的上限。",
+      "usageCr": "cr 會顯示每個訂閱的配額狀態。加上 --watch 每 30 秒重新整理一次，或加上 --json 供腳本使用。",
+      "usageMachines": "cmux coderouter machines 會顯示每台 Cloud 機器 30 天內的 token 用量和 API 等值金額。在機器內部，cmux coderouter usage 會依日期、工作區、代理和模型細分該機器的用量。",
+      "usageEstimate": "API 等值金額是依公開定價計算的估計值，並非帳單。",
+      "privacyTitle": "憑證與隱私",
+      "privStored": "供應商憑證在儲存前會先加密。任何 CodeRouter API 或儀表板畫面都不會回傳已儲存的憑證；帳號只會顯示標籤、電子郵件或遮蔽後的金鑰。",
+      "privArgv": "cr add 和 cmux coderouter claude add 絕不會以指令引數接收供應商憑證，因為那樣會留在 shell 歷史記錄中。它們會從環境變數、標準輸入或隱藏的提示讀取憑證。",
+      "privLocal": "cr add codex 和 cr add opencode 會在瀏覽器中登入供應商。cr codex 只在該次執行中把 CodeRouter 設定傳給 Codex，不會變更你平常的 Codex 登入和設定。",
+      "privCloud": "Cloud 機器不保存任何憑證。機器上的代理會把公開的預留位置金鑰傳送到 CodeRouter 的私人位址，由機器的網路邊緣加上綁定該機器的簽署憑證。CodeRouter 會拒絕來自其他機器的該憑證，並在機器刪除時將其撤銷。",
+      "privRequestId": "每個 CodeRouter 回應都帶有用來識別該請求的 x-coderouter-request-id 標頭。",
+      "nextTitle": "後續步驟",
+      "nextAgents": "代理與模型：在 Mac 和 Cloud 機器上設定每個代理",
+      "nextCli": "CLI 與疑難排解：所有指令和常見錯誤",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter 代理與模型",
+      "metaTitle": "CodeRouter 代理與模型",
+      "metaDescription": "在 Mac 和 cmux Cloud 機器上透過 CodeRouter 執行 Claude Code、Codex、OpenCode 和 Pi，並選擇每個代理使用的模型。",
+      "intro": "本頁說明每個代理在 Mac 和 cmux Cloud 機器上如何連到 CodeRouter，以及每個代理如何選擇模型。",
+      "agentColumn": "代理",
+      "macColumn": "在你的 Mac 上",
+      "cloudColumn": "在 Cloud 機器上",
+      "automatic": "自動",
+      "experimental": "（實驗性）",
+      "claudeMacCell": "CodeRouter API 金鑰",
+      "macTitle": "在你的 Mac 上",
+      "macDesc": "cr 會啟動你已安裝的代理，並在該次執行中讓它指向 CodeRouter。代理必須位於你的 PATH 中。代理名稱之後的所有內容都會原樣傳遞。",
+      "codexDesc": "cr codex 會使用 CodeRouter 模型供應商執行 Codex。exec、review 和 resume 等子指令的用法相同。cr naked 會略過 CodeRouter，執行一般的 Codex。",
+      "opencodeDesc": "cr opencode 會載入團隊 OpenCode Go 帳號的模型，除非傳入 --model，否則使用第一個模型。--model 的值必須是這些模型之一；若要使用其他供應商，請執行一般的 opencode。",
+      "piDesc": "cr pi 會為 Pi 加入一個 coderouter 供應商，其模型與 Codex 相同，除非傳入 --model，否則使用第一個模型。供應商是固定的，因此 --provider 會被拒絕。Pi 支援仍屬實驗性。",
+      "claudeTitle": "Claude Code 與其他 API 用戶端",
+      "claudeDesc": "cr 沒有 Claude Code 啟動器。若要在 Mac 上路由 Claude Code，或任何使用 Anthropic Messages API 或 OpenAI Responses API 的工具，請建立 CodeRouter API 金鑰，並讓該工具指向 coderouter.dev。",
+      "apiKeyCreate": "在 CodeRouter 儀表板的 API 金鑰區段建立金鑰。金鑰以 crk_ 開頭，只會顯示一次。建立或撤銷金鑰需要該團隊的 API 金鑰管理權限，在你的個人團隊中你一定擁有此權限：",
+      "apiKeyScope": "組織的 API 金鑰只會使用團隊的共用帳號。個人團隊中的金鑰還能使用你的私人帳號。CodeRouter 提供的是 OpenAI Responses API，而不是 Chat Completions。",
+      "apiKeyLogin": "在無法開啟瀏覽器的機器上，cr login --api-key 會用金鑰登入 cr，CODEROUTER_API_KEY 則可為單一指令提供金鑰。若要撤銷金鑰，請在儀表板中操作，或在使用該金鑰的機器上執行 cr logout。",
+      "cloudTitle": "在 cmux Cloud 機器上",
+      "cloudDesc": "Cloud 機器不需要任何設定。機器環境會把 OPENAI_BASE_URL 和 ANTHROPIC_BASE_URL 指向 CodeRouter 的私人位址，cmux 會在 shell 或代理第一次啟動時寫入每個代理的設定：",
+      "cloudClaude": "Claude Code 會從環境讀取 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY。它的首次執行提示已經預先回答。",
+      "cloudCodex": "Codex 會在 ~/.codex/config.toml 中取得 cmux 模型供應商。",
+      "cloudPi": "Pi 會在 ~/.pi/agent/models.json 中取得供應商覆寫設定。",
+      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，並儲存到 ~/.config/opencode/opencode.json。",
+      "cloudYours": "cmux 只在檔案不存在時才會寫入，因此你的修改會被保留。已經指定其他模型供應商的 Codex 設定不會被變更。",
+      "cloudRun": "照常執行代理即可。cmux coderouter agent 會把單獨的提示轉換為代理的一次性執行形式；在機器內部，它會在目前的終端機中執行；在 Mac 上，它會像 cmux vm agent 一樣在你指定的機器上啟動代理。",
+      "cloudAccounts": "Cloud 機器會使用擁有它的團隊的帳號。如果代理回報沒有可用的帳號，請加入一個帳號，或將現有帳號共用給該團隊。",
+      "modelsTitle": "模型",
+      "modelsCodex": "Codex 和 Pi 會使用 CodeRouter 所選帳號的模型目錄，此目錄透過 /v1/models 提供，因此 Codex 的模型選擇器會顯示你的帳號能使用的模型。請使用 Codex 的 -m 旗標或 /model 指令選擇模型。對於 OpenRouter 金鑰，CodeRouter 會把不帶前綴的 OpenAI 模型 ID 以 openai/'<model>' 的形式傳送。",
+      "modelsOpencode": "OpenCode 會列出團隊 OpenCode Go 帳號的模型。",
+      "modelsClaude": "Claude Code 會傳送你以 --model 或 /model 選擇的模型，CodeRouter 再將其轉送到所選帳號。訂閱帳號和 API 金鑰帳號會提供 Anthropic 允許該帳號使用的模型。",
+      "modelsBedrock": "Bedrock 帳號會使用內建對照表將 Claude 模型 ID 轉換為 Bedrock 模型 ID，Bedrock ID 則原樣通過。沒有對照的模型會回傳 not_found_error。若要對照其他模型，請使用 --model 加入帳號：",
+      "modelsList": "在 Cloud 機器內部，cmux coderouter models 會以 JSON 格式輸出 Codex 模型目錄。"
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI 與疑難排解",
+      "metaTitle": "CodeRouter CLI 與疑難排解",
+      "metaDescription": "cr CLI 和 cmux coderouter 的指令、在 cmux Cloud 機器內可用的功能，以及常見 CodeRouter 錯誤的解決方法。",
+      "intro": "CodeRouter 有兩組指令。cr（也會以 coderouter 名稱安裝）負責登入、管理訂閱和啟動代理。cmux coderouter 透過已登入的 cmux 應用程式管理團隊的 Claude 帳號和 Cloud 機器用量，並把其他所有指令交給 cr。",
+      "installTitle": "安裝與登入",
+      "installDesc": "安裝程式會將經過總和檢查碼驗證的二進位檔下載到 ~/.coderouter/bin，把 cr 連結到它，並將該目錄加入 shell 的 PATH。再次執行即可更新。支援 arm64 和 x64 架構的 macOS 與 Linux。同一個 CLI 也發佈在 npm 和 PyPI 上。",
+      "loginDesc": "cr login 會開啟瀏覽器並印出備用連結。沒有本機瀏覽器時，請使用 --device-auth 並在其他裝置上開啟連結，或使用 cr login --code 貼上代碼或魔術連結。",
+      "crTitle": "cr",
+      "crDesc": "不帶指令時，cr 會顯示你的帳號及其用量。代理路由一律是明確指定的：一般的 codex、opencode 和 pi 不經過 CodeRouter 也能繼續使用。",
+      "crAddCodex": "個人和團隊的 ChatGPT 工作區可能使用同一個電子郵件。請為每個工作區各執行一次 cr add codex，並在瀏覽器中選擇工作區；CodeRouter 會把它們保存為不同的帳號。",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "這些指令會透過 cmux 應用程式執行，應用程式必須正在執行並已登入（cmux auth login）。加上 --json 可取得機器可讀的輸出，加上 --team '<id>' 可指定目前所選團隊以外的團隊。",
+      "claudeAddDesc": "claude add oauth-token 會讀取 CLAUDE_CODE_OAUTH_TOKEN 或 --stdin。在兩者都沒有的終端機中，它會執行 claude setup-token 並讀取該指令印出的權杖。claude add api-key 會讀取 ANTHROPIC_API_KEY、--stdin 或隱藏的提示。claude add bedrock 會讀取 AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY 和選用的 AWS_SESSION_TOKEN，並從 --region、AWS_REGION 或 AWS_DEFAULT_REGION 取得區域。",
+      "accountSelector": "'<account>' 可以是帳號的 ID、標籤或遮蔽後的識別碼。disable 會將帳號移出輪替，直到你再次 enable 它。",
+      "passthroughDesc": "其他所有 cmux coderouter 指令以及每個 cmux cr 指令都會原樣執行 cr。缺少 cr 時，cmux 會提議執行安裝程式。cmux 不會把自己的環境變數或登入狀態傳給 cr。",
+      "guestTitle": "在 Cloud 機器內部",
+      "guestDesc": "每台 Cloud 機器都有自己的 cmux，其 CodeRouter 指令不需要登入。帳號管理只在你的 Mac 上進行，因此在機器內部 claude、login 和 logout 會被拒絕。",
+      "troubleTitle": "疑難排解",
+      "troubleDesc": "第一欄中的訊息是代理、cr 或 cmux 印出的內容。",
+      "symptomColumn": "訊息或症狀",
+      "fixColumn": "解決方法",
+      "errSignIn": "Sign in with `cr login` and retry.（也可能是：Missing coderouter route token.）",
+      "fixSignIn": "執行 cr login。若是 API 用戶端，請確認金鑰已設定且以 crk_ 開頭。",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "再次執行 cr login。已撤銷的 API 金鑰會立即失效；請建立新的金鑰。",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "執行 cr 查看每個帳號的狀態。使用 cr add 加入帳號，或等待冷卻結束。若是組織的 Cloud 機器，請將帳號共用給團隊。",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "使用 cr add claude 或 cmux coderouter claude add 加入一個帳號。若是組織的 Cloud 機器，請將它共用給團隊。",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "等冷卻結束後重試，使用 cmux coderouter claude enable 啟用已停用的帳號，或加入另一個帳號。",
+      "errBedrockModel": "來自 Bedrock 帳號的 not_found_error",
+      "fixBedrockModel": "該模型沒有 Bedrock 對照。請移除該帳號，然後使用 --model '<claude-id>=<bedrock-id>' 重新加入。",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "移除該帳號，然後使用 --region 或在設定 AWS_REGION 的情況下重新加入。",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "執行安裝程式，或在 cmux cr 提議安裝時回答 y。",
+      "errAgentMissing": "Codex is not installed or is not on PATH（或 OpenCode，或 Pi）.",
+      "fixAgentMissing": "安裝該代理。cr 會啟動它在你的 PATH 中找到的那一份。",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "你的 codex 指令指向了 cr。請把真正的 Codex 執行檔放在 PATH 的最前面。",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "從你的 OpenCode Go 帳號中選擇模型，或執行一般的 opencode 使用其他供應商。",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "機器無法下載 OpenCode 供應商清單。請等待一分鐘後重新啟動 OpenCode。",
+      "errEdge": "CodeRouter: TLS edge unreachable, or route rejected（出現在機器內的 cmux auth status 中）.",
+      "fixEdge": "機器無法連到 CodeRouter，或 CodeRouter 拒絕了機器的憑證。請稍後重試。如果問題持續，請附上機器名稱和 cmux auth status --json 的輸出聯絡支援團隊。",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter 或帳號儲存區暫時無法使用。請重試；如果錯誤持續，請附上請求 ID 回報問題。",
+      "diagnoseTitle": "診斷",
+      "diagnoseDesc": "cr doctor 會顯示 cr 是否已登入，以及它使用哪些 CodeRouter 端點。cmux coderouter status 會顯示 cmux 登入狀態、所選團隊以及該團隊的 Claude 帳號。",
+      "supportTitle": "取得協助",
+      "supportDesc": "回報失敗的請求時，請附上 x-coderouter-request-id 回應標頭的值。它能在 CodeRouter 的記錄中找出該請求。"
     }
   },
   "legal": {
@@ -4325,7 +4507,7 @@
         "description": "公開回報 bug 和提出功能請求。"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "偏好使用電子郵件？直接寫信給我們。"
       }
     },
@@ -4347,8 +4529,8 @@
       "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
       "submit": "傳送訊息",
       "submitting": "正在傳送…",
-      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
-      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
+      "success": "謝謝。我們已收到你的訊息，會從 founders@cmux.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@cmux.com。"
     }
   },
   "emails": {
@@ -4387,7 +4569,10 @@
     "emailUnavailable": "無法取得電子郵件地址",
     "organization": "組織",
     "personalAccount": "個人帳戶",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "signedOutTitle": "登入以授權 coderouter",
+    "signedOutBody": "一個命令列應用程式正在等待你登入。使用你的 cmux 帳號登入，即可完成此終端機的連線。如果這不是你發起的請求，請關閉此頁面。",
+    "signInButton": "登入"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新內容",

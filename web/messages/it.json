@@ -25,6 +25,11 @@
       "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",
       "action": "Contatta il supporto con l’ID della traccia prima di creare un’altra macchina."
     },
+    "recreateRequired": {
+      "title": "Ricrea questa macchina",
+      "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
+      "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",
@@ -134,7 +139,9 @@
     "backToBlog": "Torna al blog",
     "readTheDocs": "Leggi la documentazione",
     "viewChangelog": "Vedi il changelog",
-    "otherPlatforms": "Altre piattaforme"
+    "otherPlatforms": "Altre piattaforme",
+    "copyCode": "Copia codice",
+    "copied": "Copiato"
   },
   "nav": {
     "docs": "Docs",
@@ -1367,8 +1374,8 @@
           "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Regola di quanto si sposta il terminale a ogni evento di scorrimento della rotellina o del trackpad. Valori superiori a 1 velocizzano lo scorrimento, valori inferiori a 1 lo rallentano.",
-          "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
-          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
+          "showTextBoxOnNewTerminals": "Mostra l'input TextBox per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
+          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Riproduci il suono di notifica anche quando il pannello che ha inviato la notifica è già a fuoco. Disattivato per impostazione predefinita, quindi un pannello a fuoco mostra solo l’anello e il lampeggio.",
@@ -1410,7 +1417,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         },
         "fileEditor": {
@@ -1535,7 +1542,6 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z).",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
@@ -1863,7 +1869,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "App per iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Panoramica",
@@ -1877,7 +1883,11 @@
       "automationSection": "Automazione",
       "remoteSection": "Accesso remoto",
       "customizeSection": "Personalizzazione e amministrazione",
-      "basicsSection": "Nozioni di base"
+      "basicsSection": "Nozioni di base",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Panoramica",
+      "coderouterAgents": "Agenti e modelli",
+      "coderouterCli": "CLI e risoluzione dei problemi"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2023,11 +2033,10 @@
       "daemonPath": "Il binario del daemon è archiviato in ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sull'host remoto e verificato rispetto a un manifest SHA-256 incorporato nell'app."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Configura l'input TextBox beta di cmux per nuove schede, divisioni e workspace del terminale.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configura l'input TextBox di cmux per nuove schede, divisioni e workspace del terminale.",
       "intro": "TextBox è la superficie di input avanzata di cmux per comporre prompt prima di inviarli a un terminale.",
-      "betaCallout": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test.",
       "defaultsTitle": "Valori predefiniti",
       "defaultsDesc": "Le impostazioni di TextBox sono in Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals apre nuovi workspace, schede e divisioni del terminale con TextBox visibile, mantenendo il focus nel terminale.",
@@ -2077,7 +2086,7 @@
       "data3": "I metadati di abbinamento e del dispositivo, per collegare il telefono al Mac.",
       "dataNot": "La tua sessione interattiva del terminale, i suoi contenuti e le digitazioni passano direttamente tra il telefono e il Mac sulla tua rete, e non vengono inoltrati né memorizzati sui server di cmux. L'unica eccezione è il testo delle notifiche inoltrate, che transita attraverso cmux e il servizio di notifiche di Apple per raggiungere il telefono, a meno che non attivi Hide content (vedi Notifiche più sopra).",
       "enterpriseTitle": "Aziende e self-hosting",
-      "enterpriseDesc": "Per un deployment self-hosted o air-gapped, contatta <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "Per un deployment self-hosted o air-gapped, contatta <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -2199,7 +2208,8 @@
       "guestDesc": "All'interno di una macchina, il comando cmux controlla la sessione di quella macchina. Supporta tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url e self. cmux self mostra il proprietario, la macchina e le tue altre macchine. cmux vm verb peer controlla le tue altre macchine dall'interno di una macchina.",
       "guestHostOnly": "L'accesso, il caricamento degli account IA e i comandi del ciclo di vita delle macchine come new, delete, checkpoint, fork, resize, pause, domains, open e vpn funzionano solo sul tuo Mac.",
       "iosTitle": "iPhone",
-      "iosDesc": "L'app cmux per iOS non gestisce le macchine Cloud. Una macchina in fase di avvio appare come una scheda segnaposto."
+      "iosDesc": "L'app cmux per iOS non gestisce le macchine Cloud. Una macchina in fase di avvio appare come una scheda segnaposto.",
+      "coderouterLink": "Documentazione di CodeRouter: account supportati, condivisione e utilizzo"
     },
     "cloudNetworking": {
       "title": "File e rete Cloud",
@@ -2264,7 +2274,8 @@
       "accountsTitle": "Account IA e instradamento dei modelli",
       "accountsDesc": "Carica account degli agenti per il tuo team e controlla l'instradamento dei modelli.",
       "preflightTitle": "Checklist per gli script",
-      "preflightDesc": "Prima che uno script crei o usi macchine, esegui questi controlli di sola lettura. Confermano che hai effettuato l'accesso, mostrano le tue macchine e i limiti del piano e indicano quale macchina usa una directory."
+      "preflightDesc": "Prima che uno script crei o usi macchine, esegui questi controlli di sola lettura. Confermano che hai effettuato l'accesso, mostrano le tue macchine e i limiti del piano e indicano quale macchina usa una directory.",
+      "coderouterLink": "Riferimento completo dei comandi di CodeRouter"
     },
     "cloudTroubleshooting": {
       "title": "Sicurezza e risoluzione dei problemi di Cloud",
@@ -2321,6 +2332,177 @@
       "fixTransferDisabled": "Un criterio gestito disattiva il trasferimento di file. Rivolgiti al tuo amministratore.",
       "supportTitle": "Ottenere assistenza",
       "supportDesc": "Se una creazione non riesce, usa Copy Error nella notifica e includi l'errore, insieme al trace ID se presente, quando contatti l'assistenza."
+    },
+    "ui": {
+      "onThisPage": "In questa pagina",
+      "copyPage": "Copia pagina",
+      "copyPageDesc": "Copia la pagina in Markdown per gli LLM",
+      "copied": "Copiato",
+      "pageActions": "Altre azioni della pagina",
+      "openInChatGPT": "Apri in ChatGPT",
+      "openInClaude": "Apri in Claude",
+      "openInDesc": "Fai domande su questa pagina",
+      "askPrompt": "Leggi {url} così posso farti domande al riguardo.",
+      "previous": "Precedente",
+      "next": "Successivo",
+      "helpful": "Questa pagina ti è stata utile?",
+      "yes": "Sì",
+      "no": "No",
+      "thanks": "Grazie per il tuo feedback.",
+      "raiseIssue": "Apri una issue",
+      "openNavigation": "Apri navigazione",
+      "closeNavigation": "Chiudi navigazione",
+      "searchShortcut": "Cerca nella documentazione (⌘K)",
+      "navigation": "Documentazione"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "Instradamento dei modelli CodeRouter",
+      "metaDescription": "CodeRouter instrada Codex, Claude Code, OpenCode e Pi tra abbonamenti IA e chiavi API del tuo team, e cambia account al raggiungimento di un limite.",
+      "intro": "CodeRouter è il router di modelli dietro cmux. I tuoi agenti di programmazione inviano le richieste a CodeRouter, che inoltra ciascuna a un abbonamento o a una chiave API aggiunta dal tuo team. Quando un account è limitato, rifiutato o non disponibile, CodeRouter sposta il lavoro su un altro account, così gli agenti continuano a funzionare.",
+      "whyTitle": "Perché usarlo",
+      "whyPool": "Unisci più abbonamenti ChatGPT, Claude e OpenCode Go e chiavi API, e condividili con il tuo team.",
+      "whyFailover": "Mantieni attivo un agente quando un account raggiunge il suo limite di utilizzo.",
+      "whyCloud": "Dai alle macchine cmux Cloud l'accesso ai modelli senza memorizzare credenziali sulla macchina.",
+      "whyUsage": "Visualizza l'utilizzo di token per account, per chiave API e per macchina Cloud.",
+      "accountsTitle": "Account supportati",
+      "accountsDesc": "Ogni account serve gli agenti che parlano l'API del suo provider. Codex e Pi condividono un pool; Claude Code usa un pool separato di account Claude.",
+      "accountColumn": "Account",
+      "servesColumn": "Serve",
+      "addColumn": "Come aggiungerlo",
+      "accountChatgpt": "Abbonamento ChatGPT (workspace personale o di team)",
+      "accountOpenAiKey": "Chiave API OpenAI",
+      "accountOpenRouterKey": "Chiave API OpenRouter",
+      "accountOpencodeGo": "Abbonamento OpenCode Go",
+      "accountClaudeSubscription": "Claude Max o Pro (token di configurazione di Claude Code)",
+      "accountAnthropicKey": "Chiave API Anthropic",
+      "accountBedrock": "Credenziali Amazon Bedrock",
+      "addDashboard": "Dashboard di CodeRouter",
+      "accountsDashboard": "La dashboard di CodeRouter può anche aggiungere chiavi API, token Claude e credenziali Bedrock. Elenca ogni account con il suo stato, il periodo di pausa e le sessioni attive:",
+      "routingTitle": "Come funziona l'instradamento",
+      "routingSticky": "Ogni sessione di un agente resta su un account finché quell'account funziona, così la cache dei prompt del provider resta calda. Una nuova sessione va all'account con meno sessioni attive.",
+      "routingFailover": "Quando un provider restituisce un limite di frequenza, rifiuta una credenziale o non risponde, CodeRouter mette quell'account in pausa e riprova la richiesta su un altro account. Riprova solo prima che l'output del modello raggiunga il tuo agente, quindi una risposta già in streaming non viene mai inviata due volte.",
+      "routingProvider": "La richiesta al provider parte dal servizio ospitato di CodeRouter. Il traffico verso il provider proviene quindi da CodeRouter, non dal tuo Mac o dalla tua macchina Cloud.",
+      "quickstartTitle": "Avvio rapido su un Mac",
+      "stepInstall": "Installa la CLI di CodeRouter. Si installa sia come coderouter sia come cr. Puoi anche eseguire cmux cr, che la prima volta propone di installarla.",
+      "stepLogin": "Accedi con il tuo account cmux. cr login apre il browser; approva il codice che mostra.",
+      "stepAdd": "Aggiungi un abbonamento. cr add apre un menu di provider, e cr add codex ti fa accedere a ChatGPT nel browser.",
+      "stepRun": "Esegui un agente tramite CodeRouter con cr codex, cr opencode o cr pi. Gli argomenti dopo il nome dell'agente vengono passati all'agente.",
+      "cloudTitle": "Sulle macchine cmux Cloud",
+      "cloudDesc": "Ogni macchina Cloud viene collegata a CodeRouter alla creazione. Claude Code, Codex, OpenCode e Pi sulla macchina usano gli account del tuo team senza accesso e senza configurazione.",
+      "cloudLink": "Come sono configurati gli agenti sulle macchine Cloud",
+      "teamsTitle": "Team e condivisione",
+      "teamsScope": "Gli account appartengono al team a cui hai effettuato l'accesso. cr org list mostra i tuoi team, e cr org switch cambia il team usato da cr. I comandi cmux coderouter accettano --team '<id>'.",
+      "teamsPrivate": "Un nuovo account è privato per la persona che l'ha aggiunto. Nella dashboard, \"Condividi con il team\" lo rende disponibile a ogni membro e alle macchine Cloud del team, e \"Rendi privato\" annulla la condivisione.",
+      "teamsPersonal": "Nel tuo team personale, i tuoi account privati servono anche le tue macchine Cloud. Le macchine Cloud di un'organizzazione usano solo account condivisi, quindi condividi un account prima di aspettarti che una macchina lo usi.",
+      "teamsManage": "Qualsiasi membro del team può aggiungere, rinominare, disattivare, trasferire e rimuovere gli account condivisi del team. cr transfer sposta un account in un altro team dopo la tua conferma.",
+      "usageTitle": "Utilizzo e limiti",
+      "usageLimits": "Ogni provider conteggia l'utilizzo sull'account che ha servito una richiesta, secondo il piano e i limiti di quell'account. CodeRouter distribuisce il lavoro tra gli account ma non aumenta il limite di nessun singolo account.",
+      "usageCr": "cr mostra lo stato della quota di ogni abbonamento. Aggiungi --watch per aggiornarlo ogni 30 secondi, o --json per gli script.",
+      "usageMachines": "cmux coderouter machines mostra l'utilizzo di token degli ultimi 30 giorni e il valore equivalente in API per ogni macchina Cloud. All'interno di una macchina, cmux coderouter usage suddivide l'utilizzo di quella macchina per giorno, workspace, agente e modello.",
+      "usageEstimate": "Il valore equivalente in API è una stima ai prezzi di listino pubblici. Non è una fattura.",
+      "privacyTitle": "Credenziali e privacy",
+      "privStored": "Le credenziali dei provider vengono cifrate prima di essere memorizzate. Nessuna API o vista della dashboard di CodeRouter restituisce una credenziale memorizzata; gli account mostrano solo un'etichetta, un'email o una chiave mascherata.",
+      "privArgv": "cr add e cmux coderouter claude add non accettano mai una credenziale del provider come argomento del comando, dove finirebbe nella cronologia della shell. La leggono da una variabile d'ambiente, dallo standard input o da un prompt nascosto.",
+      "privLocal": "cr add codex e cr add opencode effettuano l'accesso al provider nel browser. cr codex passa le impostazioni di CodeRouter a Codex solo per quell'esecuzione e lascia invariati il tuo accesso e la tua configurazione abituali di Codex.",
+      "privCloud": "Le macchine Cloud non contengono credenziali. Gli agenti su una macchina inviano una chiave segnaposto pubblica a un indirizzo privato di CodeRouter, e l'edge di rete della macchina aggiunge una credenziale firmata legata a quella macchina. CodeRouter rifiuta quella credenziale da qualsiasi altra macchina e la revoca quando la macchina viene eliminata.",
+      "privRequestId": "Ogni risposta di CodeRouter contiene un header x-coderouter-request-id che identifica la richiesta.",
+      "nextTitle": "Passaggi successivi",
+      "nextAgents": "Agenti e modelli: configura ogni agente su un Mac e sulle macchine Cloud",
+      "nextCli": "CLI e risoluzione dei problemi: tutti i comandi e gli errori comuni",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "Agenti e modelli di CodeRouter",
+      "metaTitle": "Agenti e modelli di CodeRouter",
+      "metaDescription": "Esegui Claude Code, Codex, OpenCode e Pi tramite CodeRouter su un Mac e sulle macchine cmux Cloud, e scegli quale modello usa ogni agente.",
+      "intro": "Questa pagina mostra come ogni agente raggiunge CodeRouter sul tuo Mac e su una macchina cmux Cloud, e come ogni agente sceglie un modello.",
+      "agentColumn": "Agente",
+      "macColumn": "Sul tuo Mac",
+      "cloudColumn": "Su una macchina Cloud",
+      "automatic": "Automatico",
+      "experimental": "(sperimentale)",
+      "claudeMacCell": "Chiave API CodeRouter",
+      "macTitle": "Sul tuo Mac",
+      "macDesc": "cr avvia l'agente che hai già installato e lo indirizza a CodeRouter per quell'esecuzione. L'agente deve trovarsi nel tuo PATH. Tutto ciò che segue il nome dell'agente viene passato invariato.",
+      "codexDesc": "cr codex esegue Codex con un provider di modelli CodeRouter. Sottocomandi come exec, review e resume funzionano allo stesso modo. cr naked esegue Codex semplice, senza passare da CodeRouter.",
+      "opencodeDesc": "cr opencode carica i modelli degli account OpenCode Go del tuo team e usa il primo, a meno che tu non passi --model. Un valore di --model deve essere uno di quei modelli; per qualsiasi altro provider esegui opencode semplice.",
+      "piDesc": "cr pi aggiunge a Pi un provider coderouter con gli stessi modelli di Codex e usa il primo modello, a meno che tu non passi --model. Il provider è fisso, quindi --provider viene rifiutato. Il supporto per Pi è sperimentale.",
+      "claudeTitle": "Claude Code e altri client API",
+      "claudeDesc": "cr non ha un launcher per Claude Code. Per instradare Claude Code sul tuo Mac, o qualsiasi strumento che parli la Anthropic Messages API o la OpenAI Responses API, crea una chiave API CodeRouter e indirizza lo strumento a coderouter.dev.",
+      "apiKeyCreate": "Crea una chiave nella sezione API keys della dashboard di CodeRouter. La chiave inizia con crk_ e viene mostrata una sola volta. Per creare o revocare una chiave serve il permesso di gestire le chiavi API in quel team, che hai sempre nel tuo team personale:",
+      "apiKeyScope": "La chiave API di un'organizzazione usa solo gli account condivisi del team. Una chiave nel tuo team personale può usare anche i tuoi account privati. CodeRouter serve la OpenAI Responses API, non Chat Completions.",
+      "apiKeyLogin": "Su una macchina che non può aprire un browser, cr login --api-key fa accedere cr con una chiave, e CODEROUTER_API_KEY ne fornisce una per un singolo comando. Revoca una chiave nella dashboard, o esegui cr logout sulla macchina che la usa.",
+      "cloudTitle": "Sulle macchine cmux Cloud",
+      "cloudDesc": "Le macchine Cloud non richiedono configurazione. L'ambiente della macchina indirizza OPENAI_BASE_URL e ANTHROPIC_BASE_URL a un indirizzo privato di CodeRouter, e cmux scrive la configurazione di ogni agente la prima volta che si avvia una shell o l'agente:",
+      "cloudClaude": "Claude Code legge ANTHROPIC_BASE_URL e un ANTHROPIC_API_KEY segnaposto dall'ambiente. Le domande del primo avvio hanno già una risposta.",
+      "cloudCodex": "Codex riceve un provider di modelli cmux in ~/.codex/config.toml.",
+      "cloudPi": "Pi riceve una sostituzione del provider in ~/.pi/agent/models.json.",
+      "cloudOpencode": "OpenCode scarica il suo elenco di provider da CodeRouter al primo avvio e lo salva in ~/.config/opencode/opencode.json.",
+      "cloudYours": "cmux scrive ogni file solo se manca, quindi le tue modifiche vengono mantenute. Una configurazione di Codex che indica già un altro provider di modelli non viene toccata.",
+      "cloudRun": "Esegui gli agenti come al solito. cmux coderouter agent trasforma un semplice prompt nella forma a esecuzione singola dell'agente; all'interno di una macchina viene eseguito nel terminale corrente, e sul tuo Mac avvia l'agente sulla macchina indicata, come cmux vm agent.",
+      "cloudAccounts": "Le macchine Cloud usano gli account del team a cui appartengono. Se un agente segnala che nessun account è disponibile, aggiungine uno o condividi un account esistente con quel team.",
+      "modelsTitle": "Modelli",
+      "modelsCodex": "Codex e Pi usano il catalogo di modelli dell'account scelto da CodeRouter, servito su /v1/models, quindi il selettore di modelli di Codex mostra ciò che i tuoi account possono usare. Scegli un modello con il flag -m di Codex o con il suo comando /model. Per una chiave OpenRouter, CodeRouter invia un id di modello OpenAI semplice come openai/'<model>'.",
+      "modelsOpencode": "OpenCode elenca i modelli degli account OpenCode Go del team.",
+      "modelsClaude": "Claude Code invia il modello scelto con --model o /model, e CodeRouter lo inoltra all'account selezionato. Gli account con abbonamento e con chiave API servono i modelli che Anthropic consente per quell'account.",
+      "modelsBedrock": "Gli account Bedrock traducono gli id dei modelli Claude in id dei modelli Bedrock con una tabella integrata, e gli id Bedrock passano invariati. Un modello senza corrispondenza restituisce not_found_error. Per mappare un altro modello, aggiungi l'account con --model:",
+      "modelsList": "All'interno di una macchina Cloud, cmux coderouter models stampa il catalogo dei modelli di Codex in JSON."
+    },
+    "coderouterCli": {
+      "title": "CLI e risoluzione dei problemi di CodeRouter",
+      "metaTitle": "CLI e risoluzione dei problemi di CodeRouter",
+      "metaDescription": "Comandi della CLI cr e di cmux coderouter, cosa funziona all'interno di una macchina cmux Cloud e soluzioni per gli errori comuni di CodeRouter.",
+      "intro": "CodeRouter ha due insiemi di comandi. cr, installato anche come coderouter, effettua l'accesso, gestisce gli abbonamenti e avvia gli agenti. cmux coderouter gestisce gli account Claude del team e l'utilizzo delle macchine Cloud tramite l'app cmux con accesso effettuato, e passa ogni altro verbo a cr.",
+      "installTitle": "Installazione e accesso",
+      "installDesc": "Il programma di installazione scarica un binario verificato tramite checksum in ~/.coderouter/bin, vi collega cr e aggiunge quella directory al PATH della tua shell. Eseguilo di nuovo per aggiornare. Supporta macOS e Linux su arm64 e x64. La stessa CLI è pubblicata su npm e PyPI.",
+      "loginDesc": "cr login apre il browser e stampa un link di riserva. Senza un browser locale, usa --device-auth e apri il link su un altro dispositivo, oppure cr login --code per incollare un codice o un magic link.",
+      "crTitle": "cr",
+      "crDesc": "Senza comandi, cr mostra i tuoi account e il loro utilizzo. L'instradamento degli agenti è sempre esplicito: codex, opencode e pi semplici continuano a funzionare senza CodeRouter.",
+      "crAddCodex": "Un workspace ChatGPT personale e uno di team possono condividere un'email. Esegui cr add codex una volta per workspace e scegli il workspace nel browser; CodeRouter li mantiene come account separati.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Questi verbi passano per l'app cmux, che deve essere in esecuzione e con accesso effettuato (cmux auth login). Aggiungi --json per un output leggibile dalle macchine e --team '<id>' per agire su un team diverso da quello selezionato.",
+      "claudeAddDesc": "claude add oauth-token legge CLAUDE_CODE_OAUTH_TOKEN o --stdin. In un terminale senza nessuno dei due, esegue claude setup-token e legge il token stampato da quel comando. claude add api-key legge ANTHROPIC_API_KEY, --stdin o un prompt nascosto. claude add bedrock legge AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e l'AWS_SESSION_TOKEN facoltativo, e prende la regione da --region, AWS_REGION o AWS_DEFAULT_REGION.",
+      "accountSelector": "Un '<account>' può essere il suo id, la sua etichetta o il suo identificativo mascherato. disable toglie un account dalla rotazione finché non lo riattivi.",
+      "passthroughDesc": "Ogni altro verbo di cmux coderouter, e ogni comando cmux cr, esegue cr invariato. Se cr manca, cmux propone di eseguire il programma di installazione. cmux non passa a cr le proprie variabili d'ambiente né il proprio accesso.",
+      "guestTitle": "All'interno di una macchina Cloud",
+      "guestDesc": "Ogni macchina Cloud ha il proprio cmux con verbi CodeRouter che non richiedono l'accesso. La gestione degli account resta sul tuo Mac, quindi claude, login e logout vengono rifiutati all'interno di una macchina.",
+      "troubleTitle": "Risoluzione dei problemi",
+      "troubleDesc": "I messaggi nella prima colonna sono quelli stampati dall'agente, da cr o da cmux.",
+      "symptomColumn": "Messaggio o sintomo",
+      "fixColumn": "Soluzione",
+      "errSignIn": "Sign in with `cr login` and retry. (Inoltre: Missing coderouter route token.)",
+      "fixSignIn": "Esegui cr login. Per un client API, verifica che la chiave sia impostata e inizi con crk_.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "Esegui di nuovo cr login. Una chiave API revocata smette subito di funzionare; creane una nuova.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Esegui cr per vedere lo stato di ogni account. Aggiungi un account con cr add, o attendi la fine di un periodo di pausa. Per le macchine Cloud di un'organizzazione, condividi l'account con il team.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "Aggiungine uno con cr add claude o cmux coderouter claude add. Per le macchine Cloud di un'organizzazione, condividilo con il team.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Riprova dopo il periodo di pausa, riattiva un account disattivato con cmux coderouter claude enable, o aggiungi un altro account.",
+      "errBedrockModel": "not_found_error da un account Bedrock",
+      "fixBedrockModel": "Il modello non ha una corrispondenza Bedrock. Rimuovi l'account e aggiungilo di nuovo con --model '<claude-id>=<bedrock-id>'.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Rimuovi l'account e aggiungilo di nuovo con --region, o con AWS_REGION impostata.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Esegui il programma di installazione, o rispondi y quando cmux cr propone di installarla.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (o OpenCode, o Pi).",
+      "fixAgentMissing": "Installa l'agente. cr avvia la copia che trova nel tuo PATH.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "Il tuo comando codex punta a cr. Metti il vero eseguibile di Codex per primo nel tuo PATH.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "Scegli un modello dai tuoi account OpenCode Go, o esegui opencode semplice per un altro provider.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "La macchina non è riuscita a scaricare l'elenco dei provider di OpenCode. Attendi un minuto e avvia di nuovo OpenCode.",
+      "errEdge": "CodeRouter: TLS edge unreachable, or route rejected, in cmux auth status all'interno di una macchina.",
+      "fixEdge": "La macchina non riesce a raggiungere CodeRouter, oppure CodeRouter ha rifiutato la credenziale della macchina. Riprova tra un momento. Se il problema persiste, contatta il supporto indicando il nome della macchina e l'output di cmux auth status --json.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter o l'archivio degli account è brevemente non disponibile. Riprova; se l'errore persiste, segnalalo con l'ID della richiesta.",
+      "diagnoseTitle": "Diagnosi",
+      "diagnoseDesc": "cr doctor indica se cr ha effettuato l'accesso e quali endpoint di CodeRouter usa. cmux coderouter status mostra l'accesso a cmux, il team selezionato e gli account Claude di quel team.",
+      "supportTitle": "Ottenere aiuto",
+      "supportDesc": "Quando segnali una richiesta non riuscita, includi il valore dell'header di risposta x-coderouter-request-id. Identifica quella singola richiesta nei registri di CodeRouter."
     }
   },
   "legal": {
@@ -4326,7 +4508,7 @@
         "description": "Segnala bug e richiedi funzionalità pubblicamente."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Preferisci l'email? Scrivici direttamente."
       }
     },
@@ -4348,8 +4530,8 @@
       "privacy": "Utilizziamo il tuo indirizzo email solo per rispondere alla tua richiesta di supporto. Non vendiamo le informazioni di contatto.",
       "submit": "Invia messaggio",
       "submitting": "Invio in corso...",
-      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@manaflow.com.",
-      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@manaflow.com."
+      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@cmux.com.",
+      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@cmux.com."
     }
   },
   "emails": {
@@ -4388,7 +4570,10 @@
     "emailUnavailable": "email non disponibile",
     "organization": "Organizzazione",
     "personalAccount": "account personale",
-    "switchAccountButton": "Usa un altro account"
+    "switchAccountButton": "Usa un altro account",
+    "signedOutTitle": "Accedi per autorizzare coderouter",
+    "signedOutBody": "Un'applicazione a riga di comando è in attesa del tuo accesso. Accedi con il tuo account cmux per completare il collegamento di questo terminale. Se non hai avviato questa richiesta, chiudi questa pagina.",
+    "signInButton": "Accedi"
   },
   "MobileRelease106": {
     "title": "Novità di 1.0.6",
