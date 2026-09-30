@@ -56,7 +56,7 @@ struct CustomSidebarTemplateCatalogTests {
         #expect([.left, .right, .both].contains(descriptor.kind))
     }
 
-    @Test(arguments: ["agents_board", "../agents-board", "", "Agents-Board", "agents-board/"])
+    @Test(arguments: ["agents_board", "../agents-board", "", "Agents-Board", "agents-board/", "agents-board\n", "agents-board\r\n", "agents-board\u{2028}"])
     func rejectsUnsafeInstallationNames(name: String) {
         #expect(!CustomSidebarTemplateCatalog.isValidInstallationName(name))
     }

@@ -94,7 +94,8 @@ public struct CustomSidebarTemplateCatalog: Sendable {
 
     public static func isValidInstallationName(_ name: String) -> Bool {
         let pattern = #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#
-        return name.range(of: pattern, options: .regularExpression) != nil
+        guard let match = name.range(of: pattern, options: .regularExpression) else { return false }
+        return match == name.startIndex..<name.endIndex
     }
 
     private struct Manifest: Decodable {
