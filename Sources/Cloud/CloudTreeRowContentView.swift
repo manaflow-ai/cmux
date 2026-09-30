@@ -139,8 +139,8 @@ struct CloudTreeRowContentView: View {
         CloudTreeGroupRowContent(
             title: title,
             count: Self.groupCount(for: kind),
-            icon: icon,
-            style: style
+            style: style,
+            icon: icon
         )
     }
 
