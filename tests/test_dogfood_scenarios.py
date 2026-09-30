@@ -119,13 +119,21 @@ def check_steps(steps: list, inside_record: bool) -> None:
                 f"{', '.join(sorted(DecoderFacts.kinds))}"
             )
         kind = kinds.pop()
-        if kind == "note" and not inside_record:
-            raise AssertionError(
-                f"step {index} captions a clip outside a record; a note belongs "
-                "among a record's own steps"
-            )
+        if kind == "note":
+            value = step.get("note")
+            if not isinstance(value, str) or not value.strip():
+                raise AssertionError(f"step {index} has an empty note")
+            if not inside_record:
+                raise AssertionError(
+                    f"step {index} captions a clip outside a record; a note belongs "
+                    "among a record's own steps"
+                )
+            continue
         if kind != "record":
             continue
+        record = step.get("record")
+        if not isinstance(record, str) or not record.strip():
+            raise AssertionError(f"step {index} has an empty record name")
         if inside_record:
             raise AssertionError(f"step {index} records inside a recording")
         options = set(step) - {"record", "steps"}

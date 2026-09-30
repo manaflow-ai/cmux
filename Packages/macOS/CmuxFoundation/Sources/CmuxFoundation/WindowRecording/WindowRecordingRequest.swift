@@ -184,10 +184,11 @@ public struct WindowRecordingRequest: Equatable, Sendable {
             }
             region = parsed
         } else if let numbers = value as? [Any] {
-            let doubles = numbers.compactMap { numericValue($0) }
-            guard doubles.count == 4 else {
+            let converted = numbers.map { numericValue($0) }
+            guard converted.count == 4, !converted.contains(where: { $0 == nil }) else {
                 throw Failure.malformedRegion(String(describing: value))
             }
+            let doubles = converted.compactMap { $0 }
             region = WindowRecordingRegion(
                 x: doubles[0],
                 y: doubles[1],
