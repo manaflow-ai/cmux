@@ -114,6 +114,10 @@ extension WindowState {
     }
 
     fileprivate func noteShown(_ id: String?, after previous: String?) {
-        _ = (id, previous)
+        guard let id else { return }
+        workspaceRecency.removeAll { $0 == id }
+        workspaceRecency.insert(id, at: 0)
+        if let previous, !workspaceRecency.contains(previous) { workspaceRecency.insert(previous, at: 1) }
+        if workspaceRecency.count > 64 { workspaceRecency.removeLast(workspaceRecency.count - 64) }
     }
 }

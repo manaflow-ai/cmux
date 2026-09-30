@@ -40,6 +40,9 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
+    /// Sidebar slots for new workspaces, applied once the daemon reports
+    /// them (`applyPendingPlacements`).
+    var pendingPlacements: [String: PendingPlacement] = [:]
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no

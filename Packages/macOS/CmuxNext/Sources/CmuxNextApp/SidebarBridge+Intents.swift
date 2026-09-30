@@ -31,10 +31,11 @@ extension SidebarBridge {
             for id in ids {
                 services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue)))
             }
-        case .newWorkspace(let machine, _):
+        case .newWorkspace(let machine, let group):
+            // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
-            services.windows.newWorkspace(in: state, on: daemon)
+            services.windows.newWorkspace(in: state, on: daemon, at: group.map(WorkspaceSlot.endOfGroup))
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {

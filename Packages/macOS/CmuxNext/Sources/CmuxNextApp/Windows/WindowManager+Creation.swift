@@ -24,9 +24,18 @@ extension WindowManager {
 
     /// New workspace in `state`'s window when it is open, else in a new
     /// window (the app has no open window: Dock, CLI, menu).
-    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil) {
+    /// `slot` places it in that window's sidebar once it is reported.
+    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil) {
         let target = targetWindow(preferring: state?.id)
-        Task { await createWorkspace(on: daemon, into: target) }
+        var spawn = WorkspaceSpawn()
+        spawn.slot = slot
+        Task {
+            do {
+                _ = try await createWorkspace(spawn, on: daemon, into: target)
+            } catch {
+                (daemon ?? services.daemon).logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// New window with a new workspace. Returns the window id right away;

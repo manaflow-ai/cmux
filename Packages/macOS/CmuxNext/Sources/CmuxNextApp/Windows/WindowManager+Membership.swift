@@ -256,6 +256,7 @@ extension WindowManager {
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
+        applyPendingPlacements(live: Set(live))
     }
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
