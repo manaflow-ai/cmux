@@ -181,7 +181,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// The target is in this window, but one of its Chromium page windows
     /// has the keys (a page Chromium activated without a click, e.g. a new
-    /// tab's page window; input-spec.md B10): this window takes them back.
+    /// tab's page window; input-spec.md B11): this window takes them back.
     /// Never activates the app (no key window while it is inactive).
     private func reclaimKeyFromPageWindow() {
         guard let window = controller.window, let key = NSApp.keyWindow, key !== window, key.parent === window,
@@ -247,7 +247,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             // it (a new tab's page, a page script) or AppKit restored key
             // after a panel or sheet. Not a choice: the model re-applies its
             // target, which takes the keys back unless the target is this
-            // page (input-spec.md B7, B10). A new page window can also be
+            // page (input-spec.md B7, B11). A new page window can also be
             // key before the tracker places it over its pane (pane == nil).
             InputJournal.shared.append(window: controller.state.id, .page(tab: pane?.page.id.rawValue ?? "", focused: false,
                                                                           engine: "chromium-unchosen-key"))
