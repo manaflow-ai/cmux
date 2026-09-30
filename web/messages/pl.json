@@ -2086,7 +2086,12 @@
           "compactAgentStatus": "Pokazuj każdy obszar roboczy w jednym wierszu: jedna kolorowa ikona przed tytułem pokazuje stan agenta, nieprzeczytanych i pull requesta oraz zastępuje wiersze stanu agentów (na przykład Działa lub Wymaga danych), wiersz gałęzi i katalogu oraz wiersze pull requestów, których szczegóły trafiają do podpowiedzi ikony. Pozostałe wpisy stanu zachowują własne wiersze.",
           "compactStatusIcons": "Nazwy SF Symbols zastępujące glif compactAgentStatus dla każdego stanu, na przykład {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nieustawione stany zachowują wbudowany symbol, a nazwa, której nie da się wyświetlić, wraca do niego.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
-          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
+          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny.",
+          "beta": {
+            "conversations": {
+              "enabled": "Pokaż ujednolicony widok rozmów w selektorze paska bocznego."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
@@ -2292,7 +2297,8 @@
         "wn-reload": "Przeładuj konfigurację",
         "wn-quit": "Zakończ"
       },
-      "metaTitle": "Skróty klawiszowe"
+      "metaTitle": "Skróty klawiszowe",
+      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z)."
     },
     "api": {
       "title": "Dokumentacja CLI",
@@ -2731,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines ogranicza wysokość TextBox, zanim jego zawartość zacznie się przewijać.",
       "configTitle": "cmux.json",
       "configDesc": "Te same ustawienia domyślne ustawisz w ~/.config/cmux/cmux.json w sekcji terminal:",
-      "focusNote": "Przywrócone sesje zachowują zapisany stan widoczności i fokusu TextBox. Te ustawienia dotyczą tylko nowo utworzonych powierzchni terminala."
+      "focusNote": "Przywrócone sesje zachowują zapisany stan widoczności i fokusu TextBox. Te ustawienia dotyczą tylko nowo utworzonych powierzchni terminala.",
+      "betaCallout": "TextBox jest funkcją beta. Domyślne ustawienia i zachowanie mogą się zmienić podczas testów."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: wieloagentowy OpenCode w cmux",
