@@ -33,7 +33,7 @@ to a written exclusion.
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. Each tab is a `Page` with a stable `page.id`. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies. |

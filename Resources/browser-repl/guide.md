@@ -27,7 +27,8 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 
 - `page`: the current tab, a Playwright `Page` with a stable `page.id`.
 - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`,
-  `get(id)`. `list()` shows every tab in the workspace; `use(id)` attaches one.
+  `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
+  tab in the workspace without attaching; `use(id)` and `get(id)` return a `Page`.
 - `snapshot(target?, options?)`: accessibility snapshot of `page`, a locator or
   a ref. Options: `interactive`, `showHidden`, `maxChars`, `options`.
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
