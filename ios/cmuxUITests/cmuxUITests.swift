@@ -2286,6 +2286,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(picker.label, "All Computers")
         XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            statusLine.frame.minY,
+            picker.frame.minY - 1,
+            "The connection status must stay inside the picker while it is shown."
+        )
+        XCTAssertLessThanOrEqual(
+            statusLine.frame.maxY,
+            picker.frame.maxY + 1,
+            "The connection status must not be clipped by the picker frame."
+        )
+
         picker.tap()
 
         let allComputersItem = waitForVisibleElement(
