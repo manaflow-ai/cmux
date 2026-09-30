@@ -1,3 +1,4 @@
+import CmuxCloud
 import SwiftUI
 
 /// First-use screen for the Cloud tab. It keeps the normal machines panel
