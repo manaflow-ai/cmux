@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentJournal
 import CmuxControlSocket
 import CmuxCore
 import Testing
