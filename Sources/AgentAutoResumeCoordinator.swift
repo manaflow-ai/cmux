@@ -168,7 +168,7 @@ final class AgentAutoResumeCoordinator {
         case returnKey
     }
 
-    private enum ScreenState {
+    enum ScreenState: Equatable {
         case unknown
         case emptyPrompt
         case draft
@@ -197,6 +197,10 @@ final class AgentAutoResumeCoordinator {
             includeTheme: false,
             anchor: .screen
         )?.frame else { return .unknown }
+        return Self.screenState(in: frame)
+    }
+
+    static func screenState(in frame: MobileTerminalRenderGridFrame) -> ScreenState {
         let faintStyles = Set(frame.styles.filter(\.faint).map(\.id))
         var rows = Array(repeating: [(column: Int, text: String, faint: Bool)](), count: max(frame.rows, 0))
         for span in frame.rowSpans where span.row >= 0 && span.row < rows.count {
