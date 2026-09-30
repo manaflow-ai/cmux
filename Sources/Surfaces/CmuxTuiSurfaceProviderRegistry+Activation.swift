@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSettings
 
 extension CmuxTuiSurfaceProviderRegistry {
     /// Completes the readiness work that the former Beta Features toggle
