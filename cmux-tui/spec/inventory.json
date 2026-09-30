@@ -244,6 +244,7 @@
       "split",
       "swap-pane",
       "terminal-events",
+      "terminal-resources",
       "undo-layout",
       "ungroup-tab-group",
       "unsave-tab-group",

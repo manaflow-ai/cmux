@@ -70,7 +70,7 @@ import Testing
         .pane: 72,
         .tab: 71,
         .terminal: 33,
-        .browser: 77,
+        .browser: 78,
         .sidebar: 30,
         .notifications: 10,
         .agents: 16,

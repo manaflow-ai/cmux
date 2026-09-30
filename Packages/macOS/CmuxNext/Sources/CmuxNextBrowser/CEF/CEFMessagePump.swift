@@ -1,69 +1,117 @@
+import CmuxNextWakeups
 import CoreFoundation
 import Foundation
 
-/// Drives `CefDoMessageLoopWork` from one `CFRunLoopTimer` on the main run
-/// loop in common modes (so it keeps running during menu tracking, live
-/// resize, and scrolling). CEF asks for work through
-/// `OnScheduleMessagePumpWork`, which may arrive on any thread; the request
-/// moves to the main run loop and resets the timer's fire date.
+/// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
+/// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
+/// common modes, so it keeps running during menu tracking, live resize and
+/// modal panels. `CEFPumpSchedule` decides each fire date; see there for
+/// the safety net CEF's pump needs.
 ///
-/// The timer is owned and invalidated by `stop()`; there is no `asyncAfter`.
+/// A request for "now" runs on the next run loop pass, never synchronously
+/// inside the CEF call that made it. The timer is owned, re-armed for each
+/// request and invalidated by `stop()`; there is no `asyncAfter`.
 final class CEFMessagePump {
     private let work: () -> Void
-    private let liveBrowsers: () -> Int
-    private var timer: CFRunLoopTimer?
-    private var isWorking = false
-    private var rescheduledDuringWork = false
+    private let timer: any CEFPumpTimer
+    private let clock: () -> TimeInterval
+    private let ledger: WakeupLedger
+    private var schedule: CEFPumpSchedule
+    private var isRunning = false
+    /// Why the timer is armed (for the wakeup ledger).
+    private var armedReason = CEFPumpSchedule.Wake.Reason.scheduled
+    private(set) var stats = CEFPumpStats()
 
-    init(work: @escaping () -> Void, liveBrowsers: @escaping () -> Int) {
+    /// `clock` is monotonic seconds (tests inject one).
+    init(
+        work: @escaping () -> Void,
+        safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
+        timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
+        clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
+        ledger: WakeupLedger = .shared
+    ) {
         self.work = work
-        self.liveBrowsers = liveBrowsers
+        self.timer = timer
+        self.clock = clock
+        self.ledger = ledger
+        schedule = CEFPumpSchedule(safetyNet: safetyNet)
+    }
+
+    nonisolated static func uptime() -> TimeInterval {
+        Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
     }
 
     func start() {
-        guard timer == nil else { return }
-        let timer = CFRunLoopTimerCreateWithHandler(
-            kCFAllocatorDefault, .greatestFiniteMagnitude, 1.0e10, 0, 0
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.fire() }
-        }
-        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .commonModes)
-        self.timer = timer
-        schedule(after: 0)
+        guard !isRunning else { return }
+        isRunning = true
+        timer.onFire = { [weak self] in self?.timerFired() }
+        schedule.request(milliseconds: 0, now: clock())
+        rearm()
     }
 
+    /// Cancels the timer for good; no `CefDoMessageLoopWork` runs after this
+    /// (CefShutdown may follow).
     func stop() {
-        if let timer { CFRunLoopTimerInvalidate(timer) }
-        timer = nil
+        isRunning = false
+        timer.invalidate()
     }
 
-    /// Main thread: run the pump after `delay` seconds (0 = on the next
-    /// run loop pass).
-    func schedule(after delay: TimeInterval) {
-        guard let timer else { return }
-        if isWorking { rescheduledDuringWork = true }
-        CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + delay)
+    /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
+    func request(milliseconds: Int64) {
+        guard isRunning else { return }
+        if milliseconds <= 0 { stats.immediateRequests += 1 } else { stats.delayedRequests += 1 }
+        schedule.request(milliseconds: milliseconds, now: clock())
+        rearm()
     }
 
-    /// Runs one pump iteration now (quit path drains without the timer).
+    /// Main thread: cmux changed CEF state outside a CEF callback and wants
+    /// the result processed on the next run loop pass.
+    func scheduleNow() {
+        request(milliseconds: 0)
+    }
+
+    /// Runs one pump pass now (the quit path drains without the timer).
     func pumpNow() {
         fire()
     }
 
+    private func timerFired() {
+        guard isRunning else { return }
+        ledger.record("CEFMessagePump", reason: armedReason.rawValue)
+        if armedReason == .fallback { stats.followUpRuns += 1 }
+        fire()
+    }
+
     private func fire() {
-        // CefDoMessageLoopWork can re-enter through nested run loops (menus,
-        // modal panels). A nested fire only reschedules.
-        guard !isWorking else {
-            schedule(after: CEFPumpPolicy.maxDelay)
+        guard isRunning else { return }
+        let started = clock()
+        guard schedule.beginWork(now: started) else {
+            // CefDoMessageLoopWork re-entered through a nested run loop (menu,
+            // modal panel). The outer pass runs the pump again when it returns.
+            stats.reentrantFires += 1
+            rearm()
             return
         }
-        isWorking = true
-        rescheduledDuringWork = false
+        rearm()
         work()
-        isWorking = false
-        if !rescheduledDuringWork {
-            schedule(after: CEFPumpPolicy.fallback(liveBrowsers: liveBrowsers()))
+        let finished = clock()
+        let elapsed = finished - started
+        stats.workRuns += 1
+        stats.workSeconds += elapsed
+        if elapsed >= CEFPumpSchedule.timeSlice { stats.longWorkRuns += 1 }
+        schedule.endWork(now: finished, elapsed: elapsed)
+        rearm()
+    }
+
+    private func rearm() {
+        guard isRunning else { return }
+        stats.fallbackInterval = schedule.armedSafetyNetInterval ?? 0
+        guard let wake = schedule.nextWake else {
+            timer.disarm()
+            return
         }
+        armedReason = wake.reason
+        timer.arm(after: max(0, wake.deadline - clock()), tolerance: wake.tolerance)
     }
 }
 
@@ -71,11 +119,10 @@ final class CEFMessagePump {
 /// `CEFRuntime`, which lives for the rest of the process once started.
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
     guard let context else { return }
-    let delay = CEFPumpPolicy.delay(forRequestedMilliseconds: delayMilliseconds)
     let address = UInt(bitPattern: context)
     let deliver: @Sendable () -> Void = {
         MainActor.assumeIsolated {
-            CEFRuntime.from(address)?.pump?.schedule(after: delay)
+            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)
         }
     }
     if Thread.isMainThread {

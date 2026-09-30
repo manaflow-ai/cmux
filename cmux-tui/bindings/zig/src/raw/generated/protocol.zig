@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee";
+pub const ir_sha256 = "d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1997,6 +1997,35 @@ pub const TerminalRegistryEvent = struct {
     terminal_id: []const u8,
     terminal_revision: u64,
     workspace_key: []const u8,
+};
+
+pub const TerminalResourceHost = struct {
+    cpu_ns: u64,
+    memory_bytes: u64,
+    pid: u32,
+};
+
+pub const TerminalResourceProcess = struct {
+    cpu_ns: u64,
+    memory_bytes: u64,
+    name: []const u8,
+    pid: u32,
+    ppid: u32,
+};
+
+pub const TerminalResources = struct {
+    host: wire.Nullable(TerminalResourceHost),
+    pid: wire.Nullable(u32),
+    processes: []const TerminalResourceProcess,
+    surface: Id,
+    terminal_id: wire.Nullable([]const u8),
+    truncated: bool,
+};
+
+pub const TerminalResourcesResult = struct {
+    missing: []const Id,
+    sampled_at_ns: u64,
+    terminals: []const TerminalResources,
 };
 
 pub const Tree = struct {
@@ -5276,6 +5305,23 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
     );
 }
 
+pub const TerminalResourcesRequest = struct {
+    surfaces: wire.Field([]const Id) = .absent,
+};
+
+pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wire.Decoded(TerminalResourcesResult) {
+    return client.callTyped(
+        TerminalResourcesResult,
+        .{
+            .name = "terminal-resources",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-resources-v1",
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -6539,7 +6585,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 150;
+pub const command_count: usize = 151;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -6677,6 +6723,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "subscribe", .authority = "frontend", .since = 5, .capability = null, .stream = "subscribe" },
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },

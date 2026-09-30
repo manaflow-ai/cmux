@@ -476,3 +476,91 @@ Open:
 - Chrome Web Store install: the store answers "Switch to Chrome to install extensions and themes" (client-hint brands are Chromium only). Needs a decision: claim the Google Chrome brand, or fetch CRX files from the update server and hand them to Chromium's `CrxInstaller` from a cmux install action.
 - Permission prompts (`chrome.permissions.request`), side panels (`chrome.sidePanel`): no host yet.
 - Popup latency: 16-45 ms from click to popup navigation in cmux; the rest is the extension renderer starting (1.0-1.2 s at load 200-400, up to 26 s at load 667 while Chromium builds ran). Not measured on an idle machine.
+
+### External message pump (2026-09-30)
+
+The pump is demand-driven (`CEFPumpSchedule`, `CEFMessagePump`). `OnScheduleMessagePumpWork(0)` runs `CefDoMessageLoopWork` on the next run loop pass. A delay arms the one timer for exactly that delay and replaces an earlier delayed request, but never postpones pending immediate work. Nothing runs after `stop()`. A timer fire inside a pass (a nested run loop) is deferred until the outer pass returns, and the timer is disarmed while a pass runs.
+
+The pinned fork's `MessagePumpExternal` (libcef/browser/browser_message_loop.cc) has two gaps, so pure request-driven pumping loses work. It drops the next delayed-task time that `DoWork` returns, so a delayed task posted during a pass is not reported. It also stops after a 10 ms slice with work left, and Chromium's `WorkDeduplicator` then does not ask again. The pump therefore runs again at once after a pass that used the whole slice. After each pass it arms a finite chain of one-shot follow-ups (1/30, 2/30, 4/30, 8/30, 16/30 and 1 s), and then sleeps until CEF asks. A fork change that reports the next run time from `MessagePumpExternal::Run` makes the pump purely demand-driven (`SafetyNet.none`).
+
+Measured on tagged builds with one static Chromium tab, 60 s windows: the old pump made 28.8-31.4 wakeups/s at 0.58-1.33% app CPU. The new pump makes 0.0-0.9 wakeups/s after Chromium settles, and up to 2.7/s in the first minutes, at 0.02-0.27% app CPU. With CEF started and no browser, it makes 0.27 wakeups/s at 0.07% CPU. `debug.cef` `pump` reports the counters.
+
+## Chrome extensions: end-to-end verification (2026-09-30)
+
+"Every extension on the Chrome Web Store" cannot be tested: the store has more than 100,000. The coverage is two suites, run on a tagged Debug build with `scripts/cmux-next/ext-e2e.py api|store --tag <tag>`; `ext-e2e.py report` writes `plans/cmux-next/extensions-matrix.md`.
+
+Latest results (tag `exte2e`: feat-cmux-next `b9ea95408bb` plus the suite, dist `cef-cmux-dist-ext6` = cmux.5 plus `02df91622`):
+- API: 139 checks. 133 pass, 1 fail (side panel page never loads), 1 pending (permission prompt), 2 unverified (`action.openPopup` needs an active window), 2 unsupported on purpose (table below).
+- Real extensions: 121 listed. 94 pass every check, 6 fail, 14 not checked (the harness timed out on this overloaded machine: popups that closed or answered too slowly, 3 launches where Chromium did not start in 90 s), 7 unavailable from the store. 45 extensions ran a second time after a timeout; the matrix uses the later run.
+
+- **API matrix** (`scripts/cmux-next/ext-conformance/`): one MV3 and one MV2 test extension call 42 `chrome.*` namespaces (139 checks) and report to a local collector. The runner installs them, starts their API phase through CDP, then drives the UI through the debug socket: toolbar badge and title (`browser.extensions`), pin (`debug.extensions.menu`), popup by button click and `onClicked` with no popup (`debug.extensions.click`), popup user-gesture buttons (CDP input), the extension command (`debug.key`), the page menu item (`debug.cef.devtools` right click, `debug.menu`), DevTools panels. It also checks that `chrome.tabs` and the cmux tab list name the same pages.
+- **Real extensions** (`scripts/cmux-next/ext-store/extensions.json`): 121 extensions (top Web Store extensions by users plus popular developer tools). Each is installed from the CRX the Web Store serves, unpacked with its public key (same id), and checked for load state, worker and manifest errors (`chrome.developerPrivate`), popup render (CDP screenshot) and one main-use check. No real account is signed in; a password manager passes when its popup renders its login or onboarding screen.
+
+Harness rules and findings:
+- Chromium loads `--load-extension` extensions into every profile, including CEF's root profile (`Chromium/Default`), which has no cmux windows. The runner picks targets by the `browserContextId` of the cmux tab. Production installs only reach `Profile-<uuid>`.
+- The store's install button does not work in our Chromium ("Switch to Chrome to install extensions and themes"). The store suite therefore does not test the store UI; see the open decision in "Chrome extensions UI".
+- This machine ran at load average 200-330 during the runs. Extension service workers run in background-priority renderer processes, so single API calls took 13 ms to 17 s. Timeouts are 30 s per check; latency numbers from these runs are not product numbers.
+- Seven listed extensions are no longer served by the Web Store for Chrome 154, 130 or 120 (delisted MV2 or discontinued); they are recorded as unavailable. uBlock Origin (MV2) comes from its signed GitHub CRX (fork MV2 patch).
+
+Fixes from this work:
+- `chrome.downloads.download` always ended `USER_CANCELED`: CEF cancelled every download with no CEF browser. Fork commit `02df91622` (cef `cmux/8037-ext`) leaves extension downloads to Chrome's delegate. Verified with dist `cef-cmux-dist-ext6`; it ships in the next release after cmux.5.
+- Ghost tabs (cmux kept tabs that Chromium had closed during adoption) and a crash when a page menu arrived for a tab view outside a window: found by this suite, fixed by the extensions UI owner (`fe71129542f`, `19b93582cec`).
+
+### Extension APIs cmux does not support (on purpose, or not yet)
+
+| API or feature | Behavior in cmux | Reason |
+| --- | --- | --- |
+| `chrome.identity.getAuthToken` | Rejects: "The user is not signed in." | Needs a Google account signed in to Chromium; cmux has no Chrome sign-in. `launchWebAuthFlow` and `getRedirectURL` work. |
+| `chrome.omnibox` keyword input | API calls work; `onInputEntered` never fires | The cmux omnibar has no extension keyword mode. |
+| `storage.sync` | Works, local only | No Google sync. |
+| `storage.managed` | Returns `{}` | No enterprise policy. |
+| Native messaging (`sendNativeMessage`, `connectNative`) | Refused cleanly when no host exists | Chromium reads hosts from cmux's own user data dir, not Google Chrome's, so desktop apps that register for Chrome (1Password, Bitwarden biometrics) are not found. Decision below. |
+| `chrome.action.openPopup()` | Needs an active cmux window (Chrome rule) | Not verified: the test launches never activate. |
+| `chrome.sidePanel` | API works; `open()` resolves, the panel never shows | No side panel host yet (gap, not a decision). |
+| `chrome.permissions.request` prompt | Stays pending | No prompt host yet (gap). |
+| Chrome Web Store install button | Store refuses Chromium | Decision pending (see "Chrome extensions UI"). |
+| Extension calls at startup before any Chromium tab | `tabs.create` and similar fail with "No current window" | Chromium has no window until cmux shows a Chromium tab (Chrome with zero windows behaves the same). |
+
+### Gaps that remain
+
+- Side panel host and permission prompt host (UI owner).
+- `action.openPopup` and anything that needs the Chromium window to be active: unverified.
+- Session Buddy opens its page with `chrome.windows.create`; the page does not become a cmux tab (the "no Chrome windows" work converts such windows to tabs, fork API 6).
+- OneTab: a toolbar click opens nothing (its `action.onClicked` path returns early; `action.onClicked` itself passes in the API suite). Not diagnosed.
+- New tab overrides: Momentum's shows on `chrome://newtab`, Infinity New Tab's does not. cmux's own New Tab does not open `chrome://newtab`, so overrides never show there (decision below).
+- DuckDuckGo Privacy Essentials: blank popup. SelectorsHub: no DevTools panel. uBlock Origin (MV2, GitHub CRX): loads with no errors but did not block the test ad within 5 reloads (filter lists may still download on first run). Not diagnosed.
+- The 14 "not checked" extensions need a run on a machine that is not overloaded.
+
+### Decisions for Lawrence (extensions)
+
+1. Native messaging: also read Google Chrome's `NativeMessagingHosts` directories, so desktop apps that register only for Chrome (1Password, Bitwarden biometrics) connect. Each host still lists the extension ids it allows.
+2. New Browser Tab in Chromium: open `chrome://newtab` so new-tab override extensions (Momentum, Infinity) show, or keep cmux's own start page and treat overrides as unsupported.
+3. Omnibox keywords: add an extension keyword mode to the cmux omnibar, or keep `chrome.omnibox` input unsupported.
+4. `identity.getAuthToken`: keep unsupported (no Chrome sign-in), or add Google sign-in to Chromium.
+
+## CEF artifacts in R2 (2026-09-30)
+
+The pinned CEF tarballs are also in the private R2 bucket `cmux-cef` on the cmux Cloudflare account (the account that holds `cmux-binaries` and `cmux-ci-cache`). The bucket has no public access: its r2.dev URL is off and it has no custom domain. Its only lifecycle rule is Cloudflare's default "abort incomplete multipart uploads after 7 days"; no rule deletes objects. Keys are content-addressed, `cef/<sha256>/<asset name>`, and the manifest names them (`r2_bucket`, `r2_key`, `debug_r2_key`).
+
+`scripts/cmux-next/ensure-cef.sh` tries, in order: the local cache, R2 through the S3 API with the read-only key, then the GitHub release (gh login, `GH_TOKEN`/`GITHUB_TOKEN`, public URL). Every source is checked against the manifest `sha256`; a mismatch or an R2 error falls through to the next source. The key comes from `CMUX_CEF_R2_ACCOUNT_ID`, `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` in the environment, else from `~/.secrets/cmux-cef.env` (`CMUX_CEF_R2_ENV_FILE` overrides the path). The script reads only those names from the file and never sources it. `CMUX_CEF_NO_R2=1` skips R2.
+
+`scripts/cmux-next/publish-cef-r2.sh <tag> [--manifest scripts/cmux-next/cef-manifest.json]` mirrors a fork release: it fetches the `.tar.xz` assets with gh (checked against `SHA256SUMS`), uploads write-once, downloads each object again and checks its sha256, and can write the R2 fields into the manifest. It needs `CMUX_CEF_R2_WRITE_ACCESS_KEY_ID` and `CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY`; only the fork owner holds those.
+
+### R2 API tokens
+
+`~/.secrets/cmux-cef.env` (mode 600) holds, by name:
+
+| Name | Scope |
+| --- | --- |
+| `CMUX_CEF_R2_ACCOUNT_ID` | account ID (not secret) |
+| `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` | token `cmux-cef-read`: Object Read only, bucket `cmux-cef` only |
+| `CMUX_CEF_R2_WRITE_ACCESS_KEY_ID`, `CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY` | token `cmux-cef-write`: Object Read and Write, bucket `cmux-cef` only |
+
+No token on this Mac may create API tokens (2026-09-30: wrangler and cf OAuth have no R2 or token scopes; the account tokens in `~/.secrets` have R2 bucket rights but no "Account API Tokens" right). Create both tokens in the dashboard: R2, Manage API tokens, Create Account API token, permission "Object Read only" (then "Object Read & Write"), "Apply to specific buckets only" = `cmux-cef`, TTL forever. Put the Access Key ID and Secret Access Key into the file above.
+
+### Steps for the coordinator (shared infrastructure, not done by the agent)
+
+1. GitHub Actions, repository secrets on manaflow-ai/cmux: `CMUX_CEF_R2_ACCOUNT_ID`, `CMUX_CEF_R2_ACCESS_KEY_ID`, `CMUX_CEF_R2_SECRET_ACCESS_KEY` (the read-only values). Then add them next to `GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}` in the "Build nightly app (Release)" step of `.github/workflows/nightly.yml` and the "Build universal app (Release)" step of `.github/workflows/release.yml`. `CMUX_CEF_READ_TOKEN` can stay as the fallback or be removed.
+2. `ci-macos.yml` admission ("Decide whether admission embeds the Chromium engine") runs `ensure-cef.sh` with no token on purpose. To embed Chromium there, also pass the three R2 secrets to that step and to the compile step. Decide first: same-repo PR jobs would then receive a key that reads the private Chromium build (fork PRs get no secrets).
+3. Fleet (cmux-ci controller builds): the worker passes its own environment to the recipe (build-fleet `cmd/worker/main.go` `buildEnv`, which blocks only controller/cache tokens), but sets `HOME` to the job directory, so `~/.secrets/cmux-cef.env` and `~/Library/Caches/cmux/cef` are not seen. Add to the `EnvironmentVariables` of each worker LaunchDaemon plist (the dev-build worker and `ai.manaflow.cmux-lent-worker`, installed by `build-fleet/mini-ops/lend-worker.sh`): the three read-only names, and `CMUX_CEF_CACHE_DIR=<persistent worker cache>/cef` so jobs reuse one verified copy (about 130 MB download, 700 MB extracted). Restart the workers. The recipe runs as `cmux`, so any submitted source can read the read-only key; it grants only object reads in `cmux-cef`.
+4. Team Macs: copy only the three read-only lines into `~/.secrets/cmux-cef.env`, mode 600. Keep the write key on the fork owner's Mac only.

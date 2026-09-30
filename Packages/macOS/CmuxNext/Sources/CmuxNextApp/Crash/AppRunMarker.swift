@@ -5,18 +5,26 @@ import os
 /// Descriptor the fatal-signal handler writes the signal number into.
 nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
-/// Writes the signal number ("11\n") and re-raises it with the default
-/// action, so macOS still writes its crash report. Async-signal-safe: one
-/// write(2) of stack bytes, signal(3), raise(3).
-private let fatalSignalHandler: @convention(c) (Int32) -> Void = { signal in
+/// Writes the signal number ("11\n") with one async-signal-safe write(2),
+/// then lets the signal end the process with its default action:
+/// - a fault (SEGV, BUS, ILL, FPE, TRAP from the CPU): return, so the
+///   faulting instruction runs again under SIG_DFL and macOS writes its
+///   crash report (re-raising here made the end a plain signal with no
+///   report);
+/// - a signal sent by a process or by raise/abort (SIGTERM, abort's
+///   SIGABRT): re-raise it, or it would be lost.
+private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, _ in
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
+        // Only the first signal is recorded (abort() may follow a raise).
+        fatalSignalDescriptor = -1
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
         _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
     }
     _ = Darwin.signal(signal, SIG_DFL)
-    _ = raise(signal)
+    let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+    if sentBySoftware || signal == SIGTERM || signal == SIGABRT { _ = raise(signal) }
 }
 
 /// Marks this run as live, so the next launch can tell a crash from a
@@ -84,8 +92,8 @@ final class AppRunMarker {
         guard fatalSignalDescriptor >= 0 else { return }
         for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGTERM] {
             var action = sigaction()
-            action.__sigaction_u.__sa_handler = fatalSignalHandler
-            action.sa_flags = SA_RESETHAND
+            action.__sigaction_u.__sa_sigaction = fatalSignalHandler
+            action.sa_flags = SA_RESETHAND | SA_SIGINFO
             sigemptyset(&action.sa_mask)
             sigaction(signal, &action, nil)
         }
@@ -120,7 +128,8 @@ final class AppRunMarker {
         guard var run = try? decoder.decode(PreviousRun.self, from: data) else { return nil }
         // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
         if let text = try? String(contentsOf: signal, encoding: .utf8),
-           let number = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), number > 0 {
+           let first = text.split(whereSeparator: \.isNewline).first,
+           let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
             run.signal = number
         }
         return run

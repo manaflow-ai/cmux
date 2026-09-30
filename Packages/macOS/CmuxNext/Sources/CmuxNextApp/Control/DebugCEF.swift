@@ -31,6 +31,7 @@ enum DebugCEF {
             ])
         }
         object["devtools"] = .array(devTools(services))
+        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -72,6 +73,20 @@ enum DebugCEF {
 
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
+    }
+
+    /// Pump wakeups per second = the change of `work_runs` over an interval.
+    private static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
+        .object([
+            "work_runs": .number(Double(stats.workRuns)),
+            "immediate_requests": .number(Double(stats.immediateRequests)),
+            "delayed_requests": .number(Double(stats.delayedRequests)),
+            "reentrant_fires": .number(Double(stats.reentrantFires)),
+            "long_work_runs": .number(Double(stats.longWorkRuns)),
+            "follow_up_runs": .number(Double(stats.followUpRuns)),
+            "work_ms": .number(stats.workSeconds * 1_000),
+            "fallback_ms": .number(stats.fallbackInterval * 1_000),
+        ])
     }
 
     private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {

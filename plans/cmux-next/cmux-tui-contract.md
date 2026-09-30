@@ -104,6 +104,29 @@ Recommended Swift launch path:
   `PATH`, so every shell the daemon spawns inherits it. The app must build a
   login-shell environment before `server ensure`. `TECH-DEBT-BOARD.md:374` lists
   cwd/env as a known cut of the quit/reopen work.
+- Terminal identity: shells in cmux-next see what Ghostty gives its own shells
+  (`ghostty/src/termio/Exec.zig`, `Subprocess.init`). The daemon's terminal is
+  ghostty-vt, so the Ghostty names are truthful. `TerminalEnvironment.ghostty`
+  builds them and `AppEnvironment.terminalEnvironment` sends them both as
+  `server ensure` overrides (the daemon's default child `TERM` follows its own
+  `TERM`, `surface.rs` `default_child_term`) and in every local per-terminal
+  `env`. The login shell's and the app's own `TERM`, `COLORTERM`, and
+  `TERM_PROGRAM` stay excluded (`LoginEnvironment.excludedKeys`).
+
+  | Variable | Value | Why |
+  | --- | --- | --- |
+  | `TERM` | `xterm-ghostty`; `xterm-256color` when the bundle has no terminfo | Prompt themes and tools branch on the name. oh-my-zsh `half-life` uses the theme palette (`%F{magenta}`) under `xterm-ghostty` but the fixed 256-color cube (`%F{135}`) under `*256color`, so the same prompt showed a different purple. |
+  | `TERMINFO` | `<app>/Contents/Resources/terminfo` (sibling of `ghostty/`) | macOS has no `xterm-ghostty` entry. The bundled entry includes cmux's overlay (`Resources/terminfo-overlay`). |
+  | `COLORTERM` | `truecolor` | 24-bit SGR is drawn losslessly. The daemon also sets it (`surface.rs`), so it holds for older apps. |
+  | `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` | `ghostty`, libghostty's `ghostty_info` version | Feature detection (neovim and others) as in Ghostty and the old cmux. |
+  | `GHOSTTY_RESOURCES_DIR` | the resolved Ghostty resources directory | Theme and shell-integration lookups. |
+
+  Not exported yet: `GHOSTTY_SHELL_FEATURES` and Ghostty's zsh/bash shell
+  integration injection, `GHOSTTY_BIN_DIR`, and the `XDG_DATA_DIRS`/`MANPATH`
+  additions. Cloud terminals get none of these (no Mac environment). A daemon
+  started by an older app keeps its env; new terminals still get the identity
+  through their per-terminal `env`, but terminals created before the update keep
+  their old env until they are reopened.
 - Upgrade: when the bundled binary's `identify.version` or `build_commit`
   differs from the running daemon, call `shutdown-daemon {pid, generation}`
   (`commands.md:257-287`), wait for `daemon-shutdown` (`events.md:805-829`),
@@ -313,6 +336,23 @@ records.
   (`core/mux.rs:1533-1537`). The same notification can arrive on subscribe and
   attach streams, so dedupe by id (`events.md:701`).
 
+### 2.8 Terminal resources (CPU and memory)
+
+`terminal-resources {surfaces?}` (capability `terminal-resources-v1`,
+`spec/commands.md` "terminal-resources") returns, for each PTY surface, the
+shell, every descendant (breadth-first, each pid once, capped at 512 with
+`truncated`), and the `__terminal-host` that owns the PTY (`host`, null for an
+in-daemon PTY). Each process carries `cpu_ns` (cumulative user+system) and
+`memory_bytes` (macOS physical footprint, Linux RSS). `sampled_at_ns` is a
+monotonic clock; `missing` lists unknown or non-PTY surfaces. Omitted
+`surfaces` means every PTY surface.
+
+The daemon computes it on request only: no background sampler, cache, or
+timer, so an idle daemon does no work for it (no-polling rule, REWRITE.md).
+A frontend that shows a rate asks while the view that shows it is visible,
+and computes `delta(cpu_ns) / delta(sampled_at_ns)` between two replies. It
+must not run a periodic request while nothing on screen shows the figures.
+
 ## 3. Terminal rendering with GhosttyKit
 
 ### 3.1 What TerminalBytesDemo does (do not copy it)
@@ -432,7 +472,7 @@ user and window, or `shared`). **L** = client-local (memory or UserDefaults).
 | New tab with argv / command | `new-tab` has only `cwd` (`server.rs:968-975`). `create-terminal` has argv but places by workspace only. | **D**: add `argv`/`command`/`name` to `new-tab`, `new-pane`, `split`, and `new-pane-right`. |
 | Delta coverage for selection, reorder, layout | `tree-changed` / `layout-changed` refetch (`events.md:260-261`) | **D**: typed `layout-changed{screen, layout}` payload (v2 `session.events` already carries full screen layout per transaction, `resource-api-v2.md:412-416`). |
 | Closed-tab history (reopen) | None | **D** later (the journal already records the topology). |
-| Shell environment for spawned PTYs | Inherits the owner env | **D/launch**: login-shell env capture at `ensure` time, or a daemon-side `terminal_defaults.env`. |
+| Shell environment for spawned PTYs | Inherits the owner env | **Done (launch)**: allowlisted login env plus Ghostty's terminal identity (section 1.3) at `ensure` time and per terminal (`terminal-env-v1`). |
 | Crash supervision | None (`TECH-DEBT-BOARD.md:374`) | Launch: optional `launchd` agent per session. Until then, re-`ensure` on every reconnect failure. |
 
 ## 6. Recommended Swift client architecture
@@ -512,7 +552,29 @@ Rules:
    `cmux-tui` CLI, so the TUI and the app see the same terminals) or a
    dedicated `cmux-app` session.
 
-## 8. Upstream features from main (catch-up merge 2026-09-30)
+## 8. Sessions, rooms and breaking changes (decision 2026-09-30)
+
+The app federates many cmux-tui sessions (plans/cmux-next/data-model.md 1):
+terminals belong to their machine's session, a workspace's layout to its home
+session, and personal state (rooms, browser profiles, workspace groups,
+sidebar order, saved groups, the session registry) only to the local home
+session. Session identity is `registry_id`. Breaking changes, each behind a
+capability, with the app in read-only fallback against older daemons:
+
+| Change | Capability | Effect on the TUI | Effect on shipped iOS |
+| --- | --- | --- | --- |
+| Workspace groups become personal (home only); the app stops reading and writing groups on remote daemons | `profiles-v1` | keeps showing each daemon's shared groups; they no longer follow the Mac's regrouping | same as the TUI (the compat adapter reads shared groups) |
+| Sidebar order becomes personal; the app stops calling `move-workspace` on remote daemons for sidebar drags | `profiles-v1` | sees the registry order, which the Mac no longer changes | same |
+| CLI and control-socket IDs of non-home sessions are qualified (`build-box:workspace:3`); home IDs unchanged | app only | none | none |
+| Remote-terminal tabs in home layouts (mixed-machine workspaces) | `remote-terminal-tabs-v1` | shows an unknown tab kind as a labeled placeholder | shows the tab as unsupported until iOS reads the kind |
+| Window records store qualified workspace keys; bare keys decode as home | app only | none | none |
+
+Migration is idempotent: the home daemon copies its own groups and order into
+personal rows once at open (`personal_migrated_v1`), and the app copies each
+remote daemon's groups and order once on first connect
+(`import-session-organization`, a no-op after the first run).
+
+## 9. Upstream features from main (catch-up merge 2026-09-30)
 
 The merge of main `4d9bec3bc1d` brought these daemon features. The app uses
 none of them yet. Each row says what the app gets if it adopts the feature.

@@ -272,7 +272,7 @@ Ported into the surviving code:
 
 | Main change | Where it landed |
 | --- | --- |
-| cmux-tui: shared terminal sizing (PR 15203), replay resume inside escape sequences (PR 15533), `cmux ssh` hardening (PRs 15116, 15768), full-gate test fixes (PR 15240) | `cmux-tui/` (merged with the branch's daemon work); features for the app in cmux-tui-contract.md section 8 |
+| cmux-tui: shared terminal sizing (PR 15203), replay resume inside escape sequences (PR 15533), `cmux ssh` hardening (PRs 15116, 15768), full-gate test fixes (PR 15240) | `cmux-tui/` (merged with the branch's daemon work); features for the app in cmux-tui-contract.md section 9 |
 | Automatic update install at a quiet moment (PR 15296): two new `UpdateActionDelegate` requirements | `CmuxNextUpdater/UpdaterService.swift` (`updaterPrepareForRelaunch` is empty because the daemon keeps every terminal; `updaterTimeSinceLastUserInput` reads HID idle time) |
 | New CLI files `CMUXCLI+DiffViewerPreferences`, `CMUXCLI+SurfaceSizing`, `TmuxWaitForSignal`, tests `CMUXCLI+AutoNaming`, `CodexAutoNamingArgumentsTests` | `cmux-cli` and `cmuxCLITests` targets in the pbxproj |
 | `local-tmux` name validation `\z` anchor (security) | `CLI/LocalTmuxCommandBuilder.swift` |

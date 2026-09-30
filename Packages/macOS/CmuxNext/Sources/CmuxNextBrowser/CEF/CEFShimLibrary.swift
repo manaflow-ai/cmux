@@ -73,6 +73,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetEnabled: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
     let extUninstall: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let extReload: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let extMovePinned: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
     let extSetPinned: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
     let extOpenOptions: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let extLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
@@ -168,6 +169,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extSetEnabled = try r("cmux_shim_ext_set_enabled")
         extUninstall = try r("cmux_shim_ext_uninstall")
         extReload = try r("cmux_shim_ext_reload")
+        extMovePinned = try r("cmux_shim_ext_move_pinned")
         extSetPinned = try r("cmux_shim_ext_set_pinned")
         extOpenOptions = try r("cmux_shim_ext_open_options")
         extLoadUnpacked = try r("cmux_shim_ext_load_unpacked")

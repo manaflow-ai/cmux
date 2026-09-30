@@ -62,6 +62,39 @@ public enum TerminalEnvironment {
         return env
     }
 
+    /// The terminal identity Ghostty exports to every shell it starts
+    /// (`ghostty/src/termio/Exec.zig`, `Subprocess.init`), so programs in a
+    /// cmux-next terminal choose the same color depth and theme branch as in
+    /// Ghostty. The daemon's terminal is ghostty-vt, so the Ghostty names are
+    /// truthful. The app passes this as an override, which wins over the
+    /// login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay excluded).
+    ///
+    /// - `TERM=xterm-ghostty` with `TERMINFO=<resources>/../terminfo` when
+    ///   that entry exists, else `xterm-256color` (Ghostty's own fallback).
+    ///   Prompt themes branch on the name: oh-my-zsh `half-life` uses the
+    ///   theme palette under `xterm-ghostty` but the fixed 256-color cube
+    ///   under `*256color`.
+    /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
+    /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
+    ///   (neovim and others).
+    /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
+    public static func ghostty(
+        resourcesDirectory: String?,
+        version: String?,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> [String: String] {
+        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
+        if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
+        guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return env }
+        env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
+        let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
+        if fileExists((terminfo as NSString).appendingPathComponent("78/xterm-ghostty")) {
+            env["TERM"] = "xterm-ghostty"
+            env["TERMINFO"] = terminfo
+        }
+        return env
+    }
+
     /// Shared per-launch provider for terminal `env`: the login environment
     /// captured once (the launcher's capture) and filtered.
     /// `overrides` (the app's `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,

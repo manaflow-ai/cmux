@@ -66,18 +66,20 @@ final class DaemonService {
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
 
-    func start(launch: LaunchIdentity) {
+    /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
+    /// the daemon process and to every terminal it creates for this app.
+    func start(launch: LaunchIdentity, terminalEnvironment: [String: String]) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
-            launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: launch.terminalEnvironment)
+            launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment)
         } catch {
             noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
             return
         }
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
-            terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
+            terminalEnvironment: TerminalEnvironment.shared(overrides: terminalEnvironment))
         start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
 

@@ -14,13 +14,16 @@
 #       [--scenarios terminals,chromium-static,chromium-hidden,minimized]
 #       [--url URL] [--label NAME] [--out DIR] [--no-fail] [--keep-running]
 #       [--max-cpu 0.5] [--max-wakeups 5] [--max-host-cpu 0.2]
-#       [--max-host-wakeups 2] [--max-helper-cpu 1.0]
+#       [--max-host-wakeups 2] [--max-helper-cpu 1.0] [--fresh]
+#
+# --fresh starts from an empty daemon session for the tag (removes its
+# saved tabs, which would otherwise restore Chromium tabs into every run).
 #
 # Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
 # criterion fails (unless --no-fail). The tagged app must not be running.
 set -euo pipefail
 if [[ $# -lt 1 || "$1" == -* ]]; then
-  sed -n '2,22p' "$0"
+  sed -n '2,25p' "$0"
   exit 2
 fi
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"

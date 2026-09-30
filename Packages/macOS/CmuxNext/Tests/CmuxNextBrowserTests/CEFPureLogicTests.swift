@@ -68,25 +68,12 @@ import Testing
     }
 }
 
-@Suite struct CEFZoomAndPumpTests {
+@Suite struct CEFZoomTests {
     @Test func zoomLevelRoundTrips() {
         #expect(CEFZoom.level(forFactor: 1) == 0)
         #expect(abs(CEFZoom.level(forFactor: 1.2) - 1) < 1e-9)
         #expect(abs(CEFZoom.factor(forLevel: CEFZoom.level(forFactor: 1.5)) - 1.5) < 1e-9)
         #expect(CEFZoom.level(forFactor: 0) == 0)
-    }
-
-    @Test func pumpDelayIsClampedToMax() {
-        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 0) == 0)
-        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: -5) == 0)
-        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 10) == 0.01)
-        #expect(CEFPumpPolicy.delay(forRequestedMilliseconds: 5000) == CEFPumpPolicy.maxDelay)
-    }
-
-    @Test func pumpFallbackIsSlowWhenIdle() {
-        #expect(CEFPumpPolicy.fallback(liveBrowsers: 0) == CEFPumpPolicy.idleFallback)
-        #expect(CEFPumpPolicy.fallback(liveBrowsers: 3) == CEFPumpPolicy.busyFallback)
-        #expect(CEFPumpPolicy.idleFallback > CEFPumpPolicy.busyFallback)
     }
 }
 

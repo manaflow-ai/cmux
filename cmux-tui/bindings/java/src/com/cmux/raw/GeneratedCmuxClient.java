@@ -692,6 +692,11 @@ public abstract class GeneratedCmuxClient {
         return TerminalEventsResult.fromWire(result);
     }
 
+    public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_RESOURCES, request.toWire());
+        return TerminalResourcesResult.fromWire(result);
+    }
+
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
         return LayoutUndoResult.fromWire(result);

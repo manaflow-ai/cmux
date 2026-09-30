@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee. */
+/* cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af. */
 
 
 import type * as T from "./types.js";
@@ -1274,6 +1274,12 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
   "after_revision"?: bigint;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalResourcesRequest extends CmuxRequestBase {
+  cmd: "terminal-resources";
+  "surfaces"?: (Array<T.Id>) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -1523,6 +1529,7 @@ export type CmuxRequest =
   | SubscribeRequest
   | SwapPaneRequest
   | TerminalEventsRequest
+  | TerminalResourcesRequest
   | UndoLayoutRequest
   | UngroupTabGroupRequest
   | UnregisterBrowserProviderRequest
@@ -2626,6 +2633,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "terminal-resources": {
+    request: TerminalResourcesRequest;
+    result: T.TerminalResourcesResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-resources-v1";
     stream: null;
   };
   "undo-layout": {

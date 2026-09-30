@@ -148,7 +148,7 @@ extension CEFRuntime {
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
         shutdownProgressed()
-        pump?.schedule(after: 0)
+        pump?.scheduleNow()
     }
 
     private func forkTabEvent(_ kind: CEFForkTabEvent, browser: Int32, window: Int32, value: Int) {

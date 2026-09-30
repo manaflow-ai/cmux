@@ -41,6 +41,9 @@ extension ActionCatalog {
                        "extension enable", extra: ["turn on"], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.disable", String(localized: "action.extension.disable", defaultValue: "Disable Extension", table: "Extensions", bundle: .module), "slash.circle",
                        "extension disable", extra: ["turn off"], surfaces: [.palette, .keyboard, .contextMenu]),
+            descriptor("browser.extension.move", String(localized: "action.extension.move", defaultValue: "Move Pinned Extension", table: "Extensions", bundle: .module), "arrow.left.arrow.right",
+                       "extension move", extra: ["reorder", "order", "toolbar", "drag"],
+                       arguments: [ExtensionArgument.extensionID, ExtensionArgument.index], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.reload", String(localized: "action.extension.reload", defaultValue: "Reload Extension", table: "Extensions", bundle: .module), "arrow.clockwise",
                        "extension reload", extra: ["restart", "crashed", "refresh"], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.remove", String(localized: "action.extension.remove", defaultValue: "Remove Extension", table: "Extensions", bundle: .module), "trash",
@@ -60,6 +63,10 @@ enum ExtensionArgument {
 
     static var command: ActionArgument {
         ActionArgument(name: "command", title: String(localized: "argument.extensionCommand", defaultValue: "Shortcut", table: "Extensions", bundle: .module), kind: .string)
+    }
+
+    static var index: ActionArgument {
+        ActionArgument(name: "index", title: String(localized: "argument.extensionIndex", defaultValue: "Position", table: "Extensions", bundle: .module), kind: .int(0...63))
     }
 
     static var path: ActionArgument {

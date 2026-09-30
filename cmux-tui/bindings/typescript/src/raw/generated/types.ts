@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee. */
+/* cmux-tui mux protocol 12, IR d5c451f34bc1d78d96e9cf7a4998000ee18328ca5c9428759144af44b92e35af. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -885,6 +885,35 @@ export type TerminalRegistryEvent = {
   "terminal_id": string;
   "terminal_revision": bigint;
   "workspace_key": string;
+};
+
+export type TerminalResourceHost = {
+  "cpu_ns": bigint;
+  "memory_bytes": bigint;
+  "pid": number;
+};
+
+export type TerminalResourceProcess = {
+  "cpu_ns": bigint;
+  "memory_bytes": bigint;
+  "name": string;
+  "pid": number;
+  "ppid": number;
+};
+
+export type TerminalResources = {
+  "host": (TerminalResourceHost) | null;
+  "pid": (number) | null;
+  "processes": Array<TerminalResourceProcess>;
+  "surface": Id;
+  "terminal_id": (string) | null;
+  "truncated": boolean;
+};
+
+export type TerminalResourcesResult = {
+  "missing": Array<Id>;
+  "sampled_at_ns": bigint;
+  "terminals": Array<TerminalResources>;
 };
 
 export type Tree = {

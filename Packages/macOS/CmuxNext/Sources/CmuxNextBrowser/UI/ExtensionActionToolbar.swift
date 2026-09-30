@@ -203,8 +203,50 @@ final class ExtensionActionToolbar {
         let button = ExtensionActionButton(actionID: id)
         button.onRun = { [weak self] in self?.run(id) }
         button.onMenu = { [weak self] _ in self?.showItemMenu(id) }
+        button.canDrag = { [weak self] in self?.host?.extensionStore.supportsPinnedOrder == true }
+        button.onDragMoved = { [weak self] dx in self?.dragMoved(id, dx: dx) }
+        button.onDragEnded = { [weak self] dx in self?.dragEnded(id, dx: dx) }
         buttons[id] = button
         return button
+    }
+
+    // MARK: Reordering pinned buttons
+
+    /// The pinned index a drag of `id` by `dx` points at.
+    func dragTarget(_ id: String, dx: CGFloat) -> Int? {
+        let shown = visibleIDs
+        guard let from = shown.firstIndex(of: id) else { return nil }
+        let step = OmnibarStyle.buttonSize + BrowserMetrics.buttonSpacing
+        return min(max(from + Int((dx / step).rounded()), 0), shown.count - 1)
+    }
+
+    private func dragMoved(_ id: String, dx: CGFloat) {
+        guard let target = dragTarget(id, dx: dx), let from = visibleIDs.firstIndex(of: id) else { return }
+        let step = OmnibarStyle.buttonSize + BrowserMetrics.buttonSpacing
+        for (index, other) in visibleIDs.enumerated() {
+            var shift: CGFloat = 0
+            if other == id {
+                shift = dx
+            } else if from < target, index > from, index <= target {
+                shift = -step
+            } else if target < from, index >= target, index < from {
+                shift = step
+            }
+            buttons[other]?.layer?.setAffineTransform(CGAffineTransform(translationX: shift, y: 0))
+        }
+    }
+
+    private func dragEnded(_ id: String, dx: CGFloat) {
+        let target = dragTarget(id, dx: dx)
+        for button in buttons.values { button.layer?.setAffineTransform(.identity) }
+        guard let target, target != visibleIDs.firstIndex(of: id) else { return }
+        movePinned(id, to: target)
+    }
+
+    /// Moves `id` to `index` among the pinned actions (drag, CLI, palette).
+    @discardableResult
+    func movePinned(_ id: String, to index: Int) -> Bool {
+        host?.extensionStore.movePinned(id, to: index) ?? false
     }
 }
 

@@ -8,8 +8,11 @@
   "asset": "cef-154.0.28-cmux.5-macos-arm64.tar.xz",
   "url": "https://github.com/manaflow-ai/cef/releases/download/cef-154.0.28-cmux.5/cef-154.0.28-cmux.5-macos-arm64.tar.xz",
   "sha256": "0fa472e8adfbe740f2241e21039161ff6d4028338fe8623806d10a2da7e1c168",
+  "r2_bucket": "cmux-cef",
+  "r2_key": "cef/0fa472e8adfbe740f2241e21039161ff6d4028338fe8623806d10a2da7e1c168/cef-154.0.28-cmux.5-macos-arm64.tar.xz",
   "debug_asset": "cef-154.0.28-cmux.5-macos-arm64-debug.tar.xz",
   "debug_sha256": "4cf1ee1a1d0a70e4fea234d6d2cab2f22e79a50be19ece3b81d0288e19eafbeb",
+  "debug_r2_key": "cef/4cf1ee1a1d0a70e4fea234d6d2cab2f22e79a50be19ece3b81d0288e19eafbeb/cef-154.0.28-cmux.5-macos-arm64-debug.tar.xz",
   "fork_branch": "cmux/8037-ext",
   "fork_ref": "3606939017686fe2a84fb1aad8dd525263393ae4",
   "cmux_cef_api_version": 4

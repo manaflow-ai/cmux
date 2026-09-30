@@ -33,6 +33,7 @@ struct ForkApi {
   int (*ext_set_enabled)(int, const char*, int) = nullptr;
   int (*ext_uninstall)(int, const char*) = nullptr;
   int (*ext_reload)(int, const char*) = nullptr;  // API 5
+  int (*ext_move_pinned)(int, const char*, int) = nullptr;  // API 6
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;

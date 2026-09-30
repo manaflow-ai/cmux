@@ -13,12 +13,25 @@ public enum BrowserContextMenuBuilder {
     }
 
     /// Shows the engine's items plus `extra` at the request's location in
-    /// `view` (the tab's content view). Runs the menu's tracking loop and
-    /// completes the request afterwards (nil when nothing was chosen).
+    /// `view` (the tab's content view) on the next run-loop turn, and
+    /// returns at once: the engine asks from inside its own work (a CEF
+    /// pump pass), and a menu's tracking loop there would stop all of
+    /// Chromium while the menu is open. The request completes when the menu
+    /// closes (nil when nothing was chosen).
     public static func present(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem] = []) {
         // A background tab's view is in no window; AppKit cannot anchor a
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
+            MainActor.assumeIsolated {
+                guard let view, view.window != nil else { return request.complete(nil) }
+                show(request, in: view, extra: extra)
+            }
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
+
+    private static func show(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem]) {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in items(for: request) { menu.addItem(item) }

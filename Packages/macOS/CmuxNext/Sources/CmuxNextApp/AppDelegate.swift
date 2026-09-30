@@ -33,16 +33,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
-        services.daemon.start(launch: environment.launch)
+        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment)
         cloudContext = services.startCloud()
         services.updater.start()
+        // Before the first window opens (restoreWhenLoaded opens one at once).
+        services.windows.onPresent = { [weak services] controller in
+            services?.crashRecovery.showRestartNotice(on: controller.window)
+        }
         services.windows.restoreWhenLoaded()
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
-        services.windows.onPresent = { [weak services] controller in
-            services?.crashRecovery.showRestartNotice(on: controller.window)
-        }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.launch.terminalEnvironment) {
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironment) {
             frontend.currentConnection()
         }
         compat.install(on: router)

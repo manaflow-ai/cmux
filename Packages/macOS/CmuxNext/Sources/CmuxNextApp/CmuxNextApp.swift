@@ -1,9 +1,18 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextMallocZone
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public enum CmuxNextApp {
     public static func main() {
+        // First, while the process has one thread: install the delegating
+        // default malloc zone Chromium expects (Chrome's
+        // EarlyMallocZoneRegistration). The Chromium framework is mapped
+        // later on a background thread; its PartitionAlloc constructor then
+        // swaps zones without a moment where no zone owns system memory.
+        // Without this, a free() on another thread in that moment crashed
+        // with "No zone found" (browser-isolation.md, allocator zone race).
+        _ = cmux_early_malloc_zone_registration()
         // Before any socket or pipe exists: a write to a closed peer returns
         // EPIPE instead of ending the process (Chrome and most macOS network
         // apps do the same; CEF sets it anyway once Chromium starts). Every
