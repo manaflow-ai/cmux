@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
       "mobileDevices": "ឧបករណ៍ចល័ត",
@@ -361,7 +361,7 @@
       "teams": "ក្រុម"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "coderouterLink": "បើក coderouter",
       "iosAppName": "កម្មវិធី iOS",
@@ -369,10 +369,10 @@
       "iosLink": "បើកកម្មវិធី iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
-      "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "title": "Coderouter",
+      "description": "Coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "machines": {
         "title": "ម៉ាស៊ីន",
         "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
@@ -407,7 +407,8 @@
       "signingOut": "កំពុងចាកចេញ…",
       "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
       "organizationSwitchError": "មិនអាចប្ដូរអង្គការបានទេ។ សូមព្យាយាមម្តងទៀត។",
-      "signIn": "ចូល"
+      "signIn": "ចូល",
+      "upgrade": "ដំឡើង"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "បង្កើតក្រុម"
+      },
+      "title": "គម្រោង និងការចេញវិក្កយបត្រ",
+      "picker": {
+        "current": "គម្រោងបច្ចុប្បន្ន",
+        "upgradeTo": "ដំឡើងទៅ {plan}",
+        "switchTo": "ប្ដូរទៅ {plan}",
+        "cancelPlan": "បោះបង់គម្រោង",
+        "resume": "បន្ត {plan}",
+        "renewsOn": "បន្តនៅ {date}",
+        "endsOn": "បញ្ចប់នៅ {date}",
+        "perMonth": "ក្នុងមួយខែ",
+        "perSeatMonth": "ក្នុងមួយកៅអីក្នុងមួយខែ",
+        "paymentMethod": "គ្រប់គ្រងវិធីបង់ប្រាក់",
+        "invoices": "វិក្កយបត្រ",
+        "heading": "គម្រោង",
+        "actionError": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "unavailable": {
+          "cancelScheduled": "សូមបន្តគម្រោងរបស់អ្នកជាមុនសិន ដើម្បីប្ដូរវា។",
+          "granted": "ផ្ដល់ដោយ cmux។ គ្មានអ្វីត្រូវប្ដូរទេ។",
+          "adminOnly": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះ ដែលអាចប្ដូរគម្រោងបាន។"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "ស្ថានីយ cmux ពេញលេញសម្រាប់ macOS",
+            "ភ្នាក់ងារ CLI ណាមួយជាមួយសោផ្ទាល់ខ្លួនរបស់អ្នក",
+            "ប្រវត្តិវគ្គក្នុងម៉ាស៊ីន"
+          ],
+          "go": [
+            "Cloud VM សកម្ម 1",
+            "40 ម៉ោង VM ក្នុងមួយខែ",
+            "VM ដែលបានរក្សាទុក 2"
+          ],
+          "pro": [
+            "ភ្នាក់ងារពពកនៅលើ Cloud VMs",
+            "RAM 24 GB និង vCPU 6 ចែករំលែកគ្រប់ VM",
+            "កម្មវិធី cmux សម្រាប់ iOS"
+          ],
+          "max": [
+            "RAM 64 GB និង vCPU 16 ចែករំលែកគ្រប់ VM",
+            "ម៉ាស៊ីនធំជាងមុន",
+            "អ្វីៗទាំងអស់ក្នុង Pro"
+          ],
+          "team": [
+            "អ្វីៗទាំងអស់ក្នុង Pro សម្រាប់សមាជិកគ្រប់រូប",
+            "វិក្កយបត្រតែមួយសម្រាប់ក្រុមទាំងមូល",
+            "ការគាំទ្រអាទិភាព"
+          ]
+        },
+        "billedAnnually": "គិតប្រាក់ប្រចាំឆ្នាំ"
+      },
+      "change": {
+        "title": "ប្ដូរទៅ {plan}?",
+        "upgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ថ្ងៃនេះអ្នកបង់ {amount} សម្រាប់រយៈពេលនៅសល់នៃវដ្ដវិក្កយបត្រនេះ។ ចាប់ពី {date} អ្នកបង់ {price} ក្នុងមួយខែ។",
+        "downgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ផ្នែកមិនបានប្រើនៃគម្រោងបច្ចុប្បន្ន {credit} នឹងកាត់កងក្នុងវិក្កយបត្របន្ទាប់។ វិក្កយបត្របន្ទាប់នៅ {date} គឺ {amount}។",
+        "confirm": "ប្ដូរទៅ {plan}",
+        "keep": "រក្សាគម្រោងបច្ចុប្បន្ន",
+        "switching": "កំពុងប្ដូរ…",
+        "previewError": "មិនអាចគណនាតម្លៃបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "paymentFailed": "កាតរបស់អ្នកត្រូវបានបដិសេធ។ សូមធ្វើបច្ចុប្បន្នភាពវិធីបង់ប្រាក់ រួចព្យាយាមម្ដងទៀត។",
+        "error": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+      },
+      "cancelDialog": {
+        "title": "បោះបង់ {plan}?",
+        "body": "អ្នកនៅតែប្រើ {plan} រហូតដល់ {date}។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "bodyNoDate": "អ្នកនៅតែប្រើ {plan} រហូតដល់ចុងវដ្ដវិក្កយបត្រនេះ។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "reasonLabel": "ហេតុអ្វីអ្នកបោះបង់? (ស្រេចចិត្ត)",
+        "otherPlaceholder": "ប្រាប់យើងបន្ថែម (ស្រេចចិត្ត)",
+        "confirm": "បោះបង់គម្រោង",
+        "keep": "រក្សា {plan}",
+        "error": "មិនអាចបោះបង់គម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "resumeError": "មិនអាចបន្តគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "reasons": {
+          "too_expensive": "ថ្លៃពេក",
+          "missing_feature": "ខ្វះមុខងារដែលខ្ញុំត្រូវការ",
+          "not_using": "មិនសូវប្រើ",
+          "other": "ផ្សេងទៀត"
+        }
+      },
+      "welcome": {
+        "title": "សូមស្វាគមន៍មកកាន់ {plan}",
+        "body": "គម្រោងរបស់អ្នកសកម្មហើយ។ សាកល្បងទាំងនេះមុន៖",
+        "ios": "ដំឡើងកម្មវិធី iOS",
+        "cloud": "បើក Cloud",
+        "team": "បង្កើតក្រុម",
+        "banner": "ឥឡូវនេះអ្នកកំពុងប្រើ {plan}។",
+        "bannerLink": "គម្រោង និងការចេញវិក្កយបត្រ"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "គណនី",
         "billing": "ការទូទាត់",
         "teamsGroup": "ក្រុម",
-        "createTeam": "បង្កើតក្រុម"
+        "createTeam": "បង្កើតក្រុម",
+        "accountGroup": "គណនី",
+        "billingGroup": "ការចេញវិក្កយបត្រ",
+        "planBilling": "គម្រោង និងការចេញវិក្កយបត្រ"
       },
       "ui": {
         "save": "រក្សាទុក",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
       "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។",
       "apiKeysEmptyTitle": "មិនទាន់មាន API key នៅឡើយទេ",
-      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។"
+      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
+      "unavailableTitle": "គណនីដែលបានចែករំលែកមិនអាចប្រើបានទេ",
+      "unavailableBody": "cmux មិនអាចភ្ជាប់ទៅសេវាគណនីចែករំលែកបានទេពេលនេះ។ គណនីដែលបន្ថែមដោយ cr add និងគណនី Anthropic និង Bedrock នៅតែដំណើរការ។"
     },
     "notFound": {
       "title": "រកមិនឃើញទំព័រ",
@@ -1050,6 +1149,14 @@
       },
       "retry": "ព្យាយាមម្តងទៀត",
       "retrying": "កំពុងព្យាយាមម្តងទៀត…"
+    },
+    "upgrade": {
+      "title": "ត្រូវការ Pro",
+      "cloud": "Cloud VMs និងភ្នាក់ងារពពកជាផ្នែកមួយនៃ Pro។",
+      "testflight": "កម្មវិធី cmux សម្រាប់ iOS ជាផ្នែកមួយនៃ Pro។",
+      "mobileDevices": "ការភ្ជាប់ទូរសព្ទ និងថេប្លេតរបស់អ្នកជាផ្នែកមួយនៃ Pro។",
+      "action": "ដំឡើងទៅ Pro",
+      "comparePlans": "ប្រៀបធៀបគម្រោង"
     }
   },
   "community": {
@@ -1925,8 +2032,10 @@
         "automation": {
           "ampIntegration": "បើក ឬបិទ hook របស់ cmux សម្រាប់ Amp។ ពេលបិទ plugin ដែលភ្ជាប់មកជាមួយនៅតែត្រូវបានដំឡើង ប៉ុន្តែមិនធ្វើអ្វីទេ។",
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
+          "agentAutoResume": "ផ្ញើ `continue` ដោយពន្យារពេលជាបណ្តើរៗ ទៅភ្នាក់ងារដែល cmux បានចាប់ផ្តើម ដែលវេនរបស់វាបានបញ្ចប់ដោយកំហុសពីសេវាដែលអាចព្យាយាមម្តងទៀតបាន (ម៉ូដែលពេញសមត្ថភាព ផ្ទុកលើស ឬបាត់ការតភ្ជាប់)។ វេនដែលកំពុងរង់ចាំមនុស្សមិនដែលត្រូវបានបន្តទេ។",
           "workspaceAutoNaming": "ការដាក់ឈ្មោះស្វ័យប្រវត្តិដោយ AI សម្រាប់កន្លែងធ្វើការ និងផ្ទាំងនានា ពីខ្លឹមសារសន្ទនារបស់ភ្នាក់ងារ (ជាជម្រើស)។ នៅពេលបើកដំណើរការ cmux នឹងសង្ខេបវគ្គភ្នាក់ងារដែលគាំទ្រទៅជាចំណងជើងខ្លីៗ ដោយប្រើប្រាស់ binary ផ្ទាល់របស់ភ្នាក់ងារនីមួយៗ; ការប្ដូរឈ្មោះដោយដៃតែងតែមានអាទិភាពជានិច្ច។",
-          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។"
+          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
@@ -1977,7 +2086,12 @@
           "compactAgentStatus": "បង្ហាញកន្លែងធ្វើការនីមួយៗក្នុងមួយបន្ទាត់៖ រូបតំណាងពណ៌មួយនៅមុខចំណងជើងបង្ហាញស្ថានភាពភ្នាក់ងារ មិនទាន់អាន និង pull request ហើយជំនួសជួរស្ថានភាពភ្នាក់ងារ (ឧទាហរណ៍ កំពុងដំណើរការ ឬ ត្រូវការការបញ្ចូល) បន្ទាត់សាខា និងថត និងជួរ pull request ដែលព័ត៌មានលម្អិតផ្លាស់ទៅក្នុងព័ត៌មានជំនួយរបស់រូបតំណាង។ ធាតុស្ថានភាពផ្សេងទៀតរក្សាជួររបស់ខ្លួន។",
           "compactStatusIcons": "ឈ្មោះ SF Symbol ដែលជំនួសរូបសញ្ញា compactAgentStatus សម្រាប់ស្ថានភាពនីមួយៗ ឧទាហរណ៍ {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}។ ស្ថានភាពដែលមិនបានកំណត់រក្សានិមិត្តសញ្ញាដើម ហើយឈ្មោះដែលបង្ហាញមិនបានត្រឡប់ទៅនិមិត្តសញ្ញាដើមវិញ។",
           "notificationMessageLineLimit": "ចំនួនបន្ទាត់អតិបរមាដែលបង្ហាញសម្រាប់ការជូនដំណឹងចុងក្រោយនៅខាងក្រោមចំណងជើងកន្លែងធ្វើការនីមួយៗ។",
-          "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
+          "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។",
+          "beta": {
+            "conversations": {
+              "enabled": "បង្ហាញទិដ្ឋភាពសន្ទនារួមនៅក្នុងកម្មវិធីជ្រើសរើសរបារចំហៀង។"
+            }
+          }
         },
         "fileExplorer": {
           "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
@@ -2046,6 +2160,12 @@
       "actionTypeCommand": "រត់ shell text ក្នុង terminal។ ប្រើ target ដើម្បីជ្រើស terminal បច្ចុប្បន្ន ឬ tab ថ្មីក្នុង pane បច្ចុប្បន្ន។",
       "actionTypeAgent": "ចាប់ផ្តើម coding agent ដែលគាំទ្រ។ បច្ចុប្បន្នគាំទ្រ codex និង claude ជាមួយ args ជម្រើស។",
       "actionTypeWorkspaceCommand": "រត់ named workspace definition ពី commands។ ប្រើវាសម្រាប់ multi-pane layouts, working directories ផ្ទាល់ខ្លួន និង startup commands។",
+      "actionTypeSetting": "ប្តូរ setting មួយក្នុង cmux.json global របស់អ្នក ឧទាហរណ៍ បិទ/បើក setting true/false ឬប្តូរទៅតម្លៃបន្ទាប់ក្នុងបញ្ជីតម្លៃ។ មើល Action ការកំណត់ ខាងក្រោម។",
+      "actionTypeSettingPreset": "អនុវត្តក្រុម settings ដែលមានឈ្មោះពី settingPresets ក្នុងមួយជំហាន។",
+      "settingActions": "Action ការកំណត់",
+      "settingActionsDesc": "Action ការកំណត់មួយកំណត់ <path>path</path> របស់ setting និងមួយគត់ក្នុងចំណោម <set>set</set> (សរសេរតម្លៃ), <toggle>toggle: true</toggle> (បិទ/បើក setting true/false), <cycle>cycle</cycle> (ទៅតម្លៃបន្ទាប់ក្នុងបញ្ជី ហើយត្រឡប់ទៅតម្លៃដំបូងវិញក្រោយតម្លៃចុងក្រោយ) ឬ <unset>unset: true</unset> (លុប key ចេញពី cmux.json ដើម្បីឱ្យប្រើតម្លៃពីបង្អួច ការកំណត់ ឬតម្លៃលំនាំដើម)។ toggle និង cycle ចាប់ផ្តើមពីតម្លៃដែល cmux កំពុងប្រើ រួមទាំងតម្លៃដែលអ្នកកំណត់ក្នុងបង្អួច ការកំណត់។ Action settingPreset អនុវត្ត entry មួយពី <presets>settingPresets</presets> ដែលជា cmux.json មួយផ្នែក ហើយ nested objects របស់វាត្រូវ merge តាម key នីមួយៗ។ cmux ពិនិត្យការផ្លាស់ប្តូរនីមួយៗជាមួយ schema មុនរក្សាទុក រក្សា comments និង keys ផ្សេងទៀតរបស់អ្នក ហើយអនុវត្តភ្លាមៗ។ Action ការកំណត់ និង presets រត់បានតែពី cmux.json global របស់អ្នក និង packs ដែលវាយោងទៅប៉ុណ្ណោះ; project configs មិនអាចប្រកាសវាបានទេ។",
+      "settingActionsCli": "ការផ្លាស់ប្តូរដូចគ្នាអាចធ្វើពី terminal បានដែរ: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> និង <preset>cmux config preset sidebar.quiet</preset>។",
+      "settingActionsLimits": "ជាមួយ <confirm>confirm: true</confirm>, cmux សួរមុនរក្សាទុក ហើយបង្ហាញ command cmux config ដែលស្មើគ្នា។ Paths ត្រូវបំបែកនៅគ្រប់ \".\" ដូច្នេះ key ដែលមាន \".\" ក្នុងឈ្មោះខ្លួនឯង (ដូចជា entry <byCwd>workspaceGroups.byCwd</byCwd> សម្រាប់ ~/src/app.web) មិនអាចប្តូរតាមវិធីនេះបានទេ។ សូមកែវាដោយផ្ទាល់ក្នុង cmux.json។",
       "actionFields": "វាល action",
       "actionFieldTitle": "ចំណងជើង row ក្នុង Command Palette, label របស់ surface button, title របស់ menu item និង title របស់ trust prompt លុះត្រាតែ entry មួយ override វា។",
       "actionFieldSubtitle": "អត្ថបទ secondary ក្នុង Command Palette។ description អាចប្រើជា alias សម្រាប់ subtitle។",
@@ -2177,7 +2297,8 @@
         "wn-reload": "ផ្ទុកកំណត់រចនាសម្ព័ន្ធឡើងវិញ",
         "wn-quit": "ចាកចេញ"
       },
-      "metaTitle": "ផ្លូវកាត់ក្តារចុច"
+      "metaTitle": "ផ្លូវកាត់ក្តារចុច",
+      "fileEditorWordWrap": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ (Option+Z)."
     },
     "api": {
       "title": "ឯកសារយោង CLI",
@@ -2616,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines កំណត់កម្ពស់ TextBox មុនពេលមាតិកាចាប់ផ្តើមរមូរ។",
       "configTitle": "cmux.json",
       "configDesc": "កំណត់លំនាំដើមដូចគ្នានៅក្នុង ~/.config/cmux/cmux.json ក្រោម terminal:",
-      "focusNote": "Session ដែលបានស្តារឡើងវិញរក្សាស្ថានភាពបង្ហាញ និង focus របស់ TextBox ដែលបានរក្សាទុក។ លំនាំដើមទាំងនេះអនុវត្តតែចំពោះផ្ទៃស្ថានីយដែលទើបបង្កើតថ្មីប៉ុណ្ណោះ។"
+      "focusNote": "Session ដែលបានស្តារឡើងវិញរក្សាស្ថានភាពបង្ហាញ និង focus របស់ TextBox ដែលបានរក្សាទុក។ លំនាំដើមទាំងនេះអនុវត្តតែចំពោះផ្ទៃស្ថានីយដែលទើបបង្កើតថ្មីប៉ុណ្ណោះ។",
+      "betaCallout": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។"
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode ពហុភ្នាក់ងារក្នុង cmux",

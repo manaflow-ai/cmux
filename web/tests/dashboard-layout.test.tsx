@@ -18,9 +18,15 @@ mock.module("next/navigation", () => ({
   },
 }));
 
+// The dashboard prefetch reaches the team services, and their seat sync
+// imports the purchase service: carry every real export the chain needs.
+const realAppStack = await import("@/app/lib/stack");
 mock.module("@/app/lib/stack", () => ({
+  ...realAppStack,
   isStackConfigured: () => stackConfigured,
   getStackServerApp: () => ({}),
+  // Billing procedures import purchase code that names this export.
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
 }));
 
 mock.module("next-intl", () => ({

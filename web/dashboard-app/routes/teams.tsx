@@ -5,12 +5,13 @@ import { teamBillingQuery } from "../queries/billing";
 import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "../queries/teams";
 import { TeamBillingRouteError, TeamShellPending, TeamsPageFrame, TeamsRouteError } from "../screens/teams/teams-frame";
 import { shellRoute } from "./root";
+import { settingsHubRoute } from "./settings";
 
 const teamsList = () => import("../screens/teams/teams-list");
 const teamShell = () => import("../screens/teams/team-shell");
 
 const teamsRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams",
   loader: ({ context }) => context.queryClient.ensureQueryData(teamCatalogQuery),
   pendingComponent: () => (
@@ -23,14 +24,14 @@ const teamsRoute = createRoute({
 });
 
 const newTeamRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams/new",
   component: lazyRouteComponent(() => import("../screens/teams/new-team-flow"), "NewTeamPage"),
 });
 
 /** Team layout: header and tabs. 403/404 from the detail render "not found". */
 const teamRoute = createRoute({
-  getParentRoute: () => shellRoute,
+  getParentRoute: () => settingsHubRoute,
   path: "/dashboard/teams/$teamId",
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamDetailQuery(params.teamId)),
   pendingComponent: TeamShellPending,
@@ -78,9 +79,11 @@ const acceptRoute = createRoute({
   component: lazyRouteComponent(() => import("../screens/teams/accept-invite"), "AcceptInvitePage"),
 });
 
-export const teamsRoutes = [
+/** Team pages live inside the Settings hub; the invitation landing does not. */
+export const hubTeamsRoutes = [
   teamsRoute,
   newTeamRoute,
   teamRoute.addChildren([teamGeneralRoute, teamMembersRoute, teamApiKeysRoute, teamBillingRoute]),
-  acceptRoute,
 ] as const;
+
+export const teamsRoutes = [acceptRoute] as const;

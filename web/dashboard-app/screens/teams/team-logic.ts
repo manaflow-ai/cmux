@@ -75,28 +75,6 @@ export function sendableEmails(chips: readonly EmailChip[]): string[] | null {
   return chips.map((chip) => chip.email);
 }
 
-export type SeatUsage = {
-  readonly seats: number;
-  readonly used: number;
-  readonly over: number;
-};
-
-/**
- * Seats are soft. Returns the overage when members plus pending invitations
- * exceed the paid seat count, else null. Unlimited or unpaid teams (`seats`
- * null) never nudge.
- */
-export function seatOverage(input: {
-  readonly seats: number | null;
-  readonly memberCount: number;
-  readonly pendingInvitations: number;
-}): SeatUsage | null {
-  if (input.seats === null) return null;
-  const used = input.memberCount + input.pendingInvitations;
-  if (used <= input.seats) return null;
-  return { seats: input.seats, used, over: used - input.seats };
-}
-
 export const INVITE_LINK_EXPIRY_OPTIONS = ["1", "7", "30", "never"] as const;
 export type InviteLinkExpiryOption = (typeof INVITE_LINK_EXPIRY_OPTIONS)[number];
 

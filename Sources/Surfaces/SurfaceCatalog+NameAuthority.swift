@@ -77,7 +77,8 @@ extension SurfaceCatalog {
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(
                 vmID: target.machine.rawValue,
                 isBase: previous?.vmID == target.machine.rawValue ? (previous?.isBase ?? false) : false,
-                remoteWorkspaceID: target.remoteWorkspaceID
+                remoteWorkspaceID: target.remoteWorkspaceID,
+                teamID: WorkspaceCloudVMBinding.owningTeamID(forVMID: target.machine.rawValue, previous: previous)
             )
         }
         let write = enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)

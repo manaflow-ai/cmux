@@ -25,6 +25,14 @@ struct AgentSessionScratchDirectory {
         }
         return directory
     }
+
+    static func prepare(
+        sessionID: String,
+        provider: AgentSessionProviderID,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try Self(fileManager: fileManager).prepare(sessionID: sessionID, provider: provider)
+    }
 }
 
 struct AgentSessionLaunchPlan: Equatable, Sendable {

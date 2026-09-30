@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -10,12 +11,14 @@ struct WorkspaceTitleMenuContent: View {
     let canCloseWorkspace: Bool
     let canReconnect: Bool
     var canBrowseFiles = false
+    var connectedDevices: MobileTerminalConnectedDevicesMenuItem?
     let presentCustomization: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
     let reconnect: () -> Void
     var browseFiles: () -> Void = {}
+    var presentConnectedDevices: () -> Void = {}
 
     var body: some View {
         if canReconnect {
@@ -38,6 +41,19 @@ struct WorkspaceTitleMenuContent: View {
                     )
                 }
                 .accessibilityIdentifier("MobileWorkspaceTitleFilesMenuItem")
+            }
+        }
+        if let connectedDevices {
+            Section {
+                Button(action: presentConnectedDevices) {
+                    Label {
+                        Text(TerminalSizingText.connectedDevices())
+                        Text(TerminalSizingText.otherDevices(connectedDevices.otherDeviceCount))
+                    } icon: {
+                        Image(systemName: "rectangle.connected.to.line.below")
+                    }
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleConnectedDevicesMenuItem")
             }
         }
         if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {
