@@ -276,13 +276,10 @@ build() {
       esac
     done <<< "$fleet_settings"
     if [ "$fleet_plugin_ok" -eq 1 ] && [ "$fleet_remote_ok" -eq 1 ]; then
+      fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
       while IFS= read -r setting; do
         case "$setting" in
-          # The node owns its private store and Xcode's CAS remains the
-          # per-job path passed below. Only these two settings route misses
-          # and hits through the fleet service; changing CAS_PATH here would
-          # change the key and point at a path the glaeda node does not use.
-          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*|COMPILATION_CACHE_CAS_PATH=/*)
             fleet_cache_setting+=("$setting")
             ;;
         esac
