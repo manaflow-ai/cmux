@@ -3977,7 +3977,7 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
     func testFocusPanelDismissesUnreadNotificationWithDismissFlash() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let appDelegate = AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
