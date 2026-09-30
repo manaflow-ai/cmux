@@ -1,5 +1,10 @@
 name: CI
 
+# The guard watcher receives this title before dispatch jobs start. Keep a
+# compact, versioned fingerprint here so it can distinguish equivalent PR
+# coverage from a fuller manual request.
+run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only') }}
+
 on:
   # Run the router for every pull request. The Linux layer is cheap and the
   # change classifier below keeps unrelated macOS jobs skipped. A workflow-level
@@ -88,6 +93,7 @@ jobs:
       # shard (shard 8), which pr_runner_pool.py still plans for.
       unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
+      coverage_fingerprint: ${{ steps.coverage-fingerprint.outputs.fingerprint }}
       ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -164,6 +170,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_COVERAGE_FINGERPRINT: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.sha, github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', 'full') }}
         run: python3 scripts/ci/manual_dispatch_guard.py --check-only
 
       - name: Record GitHub-selected source identity
@@ -690,6 +697,19 @@ jobs:
             ${files_args[@]+"${files_args[@]}"} \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Record coverage fingerprint
+        id: coverage-fingerprint
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          CACHE_BACKEND: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          RELEASE_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal' }}
+          COVERAGE_POLICY: ${{ steps.suite.outputs.full_suite == 'true' && 'full' || 'compile-only' }}
+        run: |
+          set -euo pipefail
+          fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -1098,6 +1118,7 @@ jobs:
   # selected the equivalent full suite. The guard watcher reads this cheap
   # marker from the run's jobs rather than inferring coverage from its SHA.
   full-suite-coverage:
+    name: full-suite-coverage:${{ needs.changes.outputs.coverage_fingerprint }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
