@@ -20409,6 +20409,129 @@ mod tests {
         assert!(error.to_string().contains("unknown participant"));
     }
 
+    /// docs/shared-terminal-sizing.md: disconnecting a relay Mac's own view
+    /// (for example from the phone it relays) detaches that view only. The
+    /// connection, its byte stream and the phones it relays stay; Reattach
+    /// restores the view without reconnecting.
+    #[test]
+    fn detaching_a_relay_macs_own_view_keeps_its_connection_and_phones() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let (writer, outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "kind": "mac",
+                "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY],
+                "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
+                "device_name": "Maya's MacBook Pro", "device_id": "laptop",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone", "device_id": "p1"},
+                "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let mac = format!("c{relay}");
+        let phone = format!("c{relay}/mobile:p1");
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.participant(&mac).unwrap().priority_key, "u1/mac/laptop");
+        assert_eq!(surface.size(), (150, 42));
+        drain_json(&outbound);
+
+        // The phone asks its own Mac to disconnect the Mac: the Mac forwards
+        // detach-client for its own participant, scoped to this terminal.
+        assert!(handle_message(
+            &mux,
+            relay,
+            &json!({
+                "id": 1, "cmd": "detach-client", "client": mac, "surface": surface.id,
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"},
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(mux.control_clients.contains(relay), "the relay connection stays");
+        let events = drain_json(&outbound);
+        let detached = events.iter().find(|event| event["event"] == "detached").unwrap();
+        assert_eq!(
+            *detached,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"}, "scope": "view",
+            })
+        );
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participant(&mac).is_none());
+        assert!(state.participant(&phone).unwrap().counts, "the phone no longer defers");
+        assert_eq!(state.owners, [phone.clone()]);
+        assert_eq!(surface.size(), (54, 26));
+
+        // The detached view's own reports and activity do not count.
+        mux.resize_surface_for_client(surface.id, relay, 160, 50).unwrap();
+        assert!(mux.terminal_size_state(surface.id).unwrap().participant(&mac).is_none());
+        assert_eq!(surface.size(), (54, 26));
+
+        // Reattach as a viewer: back without reconnecting, not counting.
+        let reattached = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id, "counts": false})),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(reattached["participant"], mac);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let row = state.participant(&mac).unwrap();
+        assert_eq!(row.participant.counts_override, Some(false));
+        assert_eq!(row.participant.viewport, Some(crate::sizing_policy::TerminalGridSize::new(160, 50)));
+        assert_eq!(surface.size(), (54, 26));
+        let again = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id})),
+            &writer,
+        )
+        .unwrap_err();
+        assert!(again.to_string().contains("not detached"));
+    }
+
+    /// A client that did not opt into view detach is still kicked whole, the
+    /// tmux `detach-client` behavior older Macs and TUIs expect.
+    #[test]
+    fn detach_client_kicks_a_client_without_view_detach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let kicker_writer = test_writer();
+        let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        attach_test_view(&mux, target, surface.id, &target_writer);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "detach-client", "client": format!("c{target}"), "surface": surface.id,
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+        assert!(!mux.control_clients.contains(target));
+    }
+
     #[test]
     fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         let mux = test_mux();
