@@ -432,10 +432,14 @@ class WarmKeys(Fixture):
         (self.store / "stamp.json").write_text("{}")
         slot = self.store / "pr-builds" / "pr-7"
         os.utime(slot, (1, 1))
-        run(state.check, self.store, "fp", self.workspace, None, "7")
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual(self.kept_marker(), "nine")
         os.utime(slot)
-        result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual((result["reason"], self.kept_marker()), ("this pull request's parked build", "seven"))
 
     def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
@@ -546,15 +550,18 @@ class WarmKeys(Fixture):
         self.assertIn("pr-8", output.getvalue())
         self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-7"])
 
-    def test_parked_builds_are_capped_by_count_and_age(self):
+    def test_parked_builds_are_capped_by_count_and_reuse_distance(self):
         for number in ("1", "2", "3", "4"):
             self.build(number)
             self.kept(pr=number)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-2", "pr-3"])
         stale = self.store / "pr-builds" / "pr-2"
         os.utime(stale, (1, 1))
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
         (self.store / "pr-builds" / ".pr-5.incoming-999999999").mkdir()
-        state.prune_pr_slots(self.store)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            state.prune_pr_slots(self.store)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-3"])
 
     def test_at_most_eight_keys_without_repeats(self):

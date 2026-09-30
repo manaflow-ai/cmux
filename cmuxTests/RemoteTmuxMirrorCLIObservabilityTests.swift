@@ -39,7 +39,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
-    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
+    @Test func multiPaneMirrorPublishesInnerPanesAndRoutesInput() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
 
@@ -237,7 +237,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(send == .noFocusedSurface)
     }
 
-    @Test(.disabled("Fails on main since #15116/#15550; see #15564")) func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
+    @Test func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
         // Since the native-chrome rearchitecture a mirror can never be
         // "unresolved": with no tmux-published active pane it seeds its first
         // live pane, so defaults project that seed while mutations still fail
@@ -392,6 +392,11 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
+            // These tests assert the remote mirror's projected panes. A window
+            // Dock is a separate container and is created lazily by unrelated
+            // UI setup; retire any restored Dock so it cannot add an incidental
+            // pane to workspace-scoped control snapshots.
+            appDelegate.teardownWindowDock(forWindowId: windowID)
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             workspace = try #require(manager.selectedWorkspace)
             outerPanelID = try #require(workspace.focusedPanelId)
