@@ -128,6 +128,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var refreshGeneration = 0
+    @State private var pickerStatusTransitionPhase = false
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
@@ -603,6 +604,11 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     private var fixtureConnectionStatus: MobileMacConnectionStatus {
+        if ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
+        ] == "1" {
+            return pickerStatusTransitionPhase ? .connected : .reconnecting
+        }
         switch ProcessInfo.processInfo.environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS"
         ] {
@@ -875,6 +881,20 @@ public struct WorkspaceListLayoutPreviewView: View {
                     .offset(x: 2)
                     .accessibilityElement()
                     .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                if ProcessInfo.processInfo.environment[
+                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS"
+                ] == "1" {
+                    Button {
+                        pickerStatusTransitionPhase.toggle()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 2, y: 44)
+                    .accessibilityIdentifier("MobileWorkspaceListPreviewTogglePickerStatus")
+                }
                 Color.clear
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
