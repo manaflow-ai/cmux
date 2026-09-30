@@ -43,4 +43,15 @@ public struct AgentSessionLabelSnapshot: Sendable, Equatable {
         self.labels = labels
         self.unreadableRecords = unreadableRecords
     }
+
+    /// The one order skipped records are reported in: agent, then session id.
+    ///
+    /// A caller prints these, and they arrive from a dictionary, so without an
+    /// order the same broken file reports its rows differently from read to
+    /// read. It is a function of its own so a test can hand it records that are
+    /// definitely out of order: a test that goes through a file only sees
+    /// whatever order that file's dictionary happened to produce.
+    static func ordered(_ records: [UnreadableRecord]) -> [UnreadableRecord] {
+        records.sorted { ($0.agent, $0.sessionID) < ($1.agent, $1.sessionID) }
+    }
 }

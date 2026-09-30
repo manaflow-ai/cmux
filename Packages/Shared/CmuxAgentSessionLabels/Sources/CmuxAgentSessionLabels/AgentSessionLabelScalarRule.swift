@@ -39,12 +39,31 @@ enum AgentSessionLabelScalarRule {
     static func rejects(_ scalar: Unicode.Scalar) -> Bool {
         if allowedInvisibleScalars.contains(scalar) { return false }
         if emojiTagScalars.contains(scalar.value) { return false }
+        // `.surrogate` is deliberately absent: `Unicode.Scalar` cannot hold a
+        // surrogate value, so a case for it would never run.
         switch scalar.properties.generalCategory {
-        case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate:
+        case .control, .format, .lineSeparator, .paragraphSeparator:
             return true
         default:
             return false
         }
+    }
+
+    /// The characters a label or a key may carry at its edges and lose.
+    ///
+    /// A pasted name arrives with spaces, tabs and a newline around it, and
+    /// removing those is friendlier than refusing the paste. The line and
+    /// paragraph separators are not in here even though
+    /// `whitespacesAndNewlines` holds them: they are scalars ``rejects(_:)``
+    /// refuses, and trimming them at an edge would report success for text this
+    /// type says it does not store. Whatever is trimmed here is therefore
+    /// narrower than what is rejected, so the two rules cannot disagree.
+    static let trimmableCharacters: CharacterSet = CharacterSet.whitespacesAndNewlines
+        .subtracting(CharacterSet(charactersIn: "\u{2028}\u{2029}\u{0085}"))
+
+    /// `text` without the edge characters this type drops.
+    static func trimmed(_ text: String) -> String {
+        text.trimmingCharacters(in: trimmableCharacters)
     }
 
     /// The first scalar of `text` that must be refused, if there is one.

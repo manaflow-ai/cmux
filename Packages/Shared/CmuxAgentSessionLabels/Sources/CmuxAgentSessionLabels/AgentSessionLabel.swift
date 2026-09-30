@@ -44,8 +44,11 @@ public struct AgentSessionLabel: Sendable, Hashable {
     /// Creates a label from text a person typed.
     ///
     /// - Parameters:
-    ///   - text: the label as typed. Leading and trailing whitespace is removed
-    ///     rather than refused, because a pasted name usually carries some.
+    ///   - text: the label as typed. Leading and trailing spaces, tabs and
+    ///     newlines are removed rather than refused, because a pasted name
+    ///     usually carries some. A line or paragraph separator at an edge is
+    ///     refused instead of trimmed, so this type never reports storing text
+    ///     it would not accept in the middle of a label.
     ///   - updatedAt: when the label was written. Truncated to a whole second,
     ///     for the reason on ``updatedAt``.
     /// - Throws: ``AgentSessionLabelError/emptyLabel`` when `text` is empty once
@@ -55,7 +58,7 @@ public struct AgentSessionLabel: Sendable, Hashable {
     ///   ``AgentSessionLabelError/disallowedCharacter(scalar:)`` when it holds a
     ///   character that would make the line it is printed on lie about itself.
     public init(text: String, updatedAt: Date) throws {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = AgentSessionLabelScalarRule.trimmed(text)
         guard !trimmed.isEmpty else { throw AgentSessionLabelError.emptyLabel }
         guard trimmed.count <= Self.maximumLength else {
             throw AgentSessionLabelError.labelTooLong(

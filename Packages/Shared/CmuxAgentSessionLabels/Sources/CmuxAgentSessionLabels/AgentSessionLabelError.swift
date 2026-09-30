@@ -19,6 +19,15 @@ public enum AgentSessionLabelError: Error, Equatable, Sendable {
     /// An agent name or session id was longer than
     /// ``AgentSessionLabelKey/maximumFieldLength``.
     case keyFieldTooLong(field: String, length: Int, maximum: Int)
+    /// A record is stored under a key this build would never write, so no
+    /// command could address it.
+    ///
+    /// The store writes trimmed keys and looks records up by the trimmed form,
+    /// so a record filed under `"codex "` cannot be read back, replaced or
+    /// cleared through any key a caller can build. Reporting it is the only
+    /// honest answer: trimming it on the way out would return a label that the
+    /// next write does not update and the next clear does not remove.
+    case unaddressableRecord(field: String)
     /// The stored document could not be read as the labels file.
     ///
     /// The reachable causes are a hand edit, a truncation, a version this build
@@ -53,6 +62,9 @@ extension AgentSessionLabelError: CustomStringConvertible {
             return "a session label needs a non-empty \(field)"
         case let .keyFieldTooLong(field, length, maximum):
             return "a session label's \(field) is at most \(maximum) characters, got \(length)"
+        case let .unaddressableRecord(field):
+            return "a session label's \(field) is stored with surrounding "
+                + "whitespace, so no command could address this record"
         case let .malformedStore(path, reason):
             return "\(path) is not a readable session label store: \(reason)"
         case let .unreadableFile(path, reason):

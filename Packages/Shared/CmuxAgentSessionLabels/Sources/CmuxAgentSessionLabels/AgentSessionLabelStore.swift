@@ -32,19 +32,34 @@ public actor AgentSessionLabelStore {
         AgentSessionLabelStore(fileURL: directory.appendingPathComponent(fileName))
     }
 
+    /// How long a write waits for another writer before it gives up.
+    ///
+    /// Long enough that an ordinary contended write always wins, short enough
+    /// that a command line reports a stuck peer rather than hanging behind it.
+    public static let defaultWriteTimeout: Duration = .seconds(10)
+
     private let fileURL: URL
     private let fileManager: FileManager
+    private let writeTimeout: Duration
 
     /// Creates a store over one file.
     ///
     /// - Parameters:
     ///   - fileURL: the labels file. Its directory is created on first write.
-    ///   - fileManager: the file manager to create directories through. It
-    ///     defaults to `.default` because every caller in the app uses that one,
-    ///     and a test overrides it to watch what the store does.
-    public init(fileURL: URL, fileManager: FileManager = .default) {
+    ///   - fileManager: the file manager directories are created through, here
+    ///     and in the write lock. It defaults to `.default` because every caller
+    ///     in the app uses that one.
+    ///   - writeTimeout: how long a write waits for another writer before it
+    ///     fails. The default is the one a person waiting at a command line
+    ///     would accept; a test shortens it to reach the failure quickly.
+    public init(
+        fileURL: URL,
+        fileManager: FileManager = .default,
+        writeTimeout: Duration = AgentSessionLabelStore.defaultWriteTimeout
+    ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
+        self.writeTimeout = writeTimeout
         self.path = fileURL.path
     }
 
@@ -67,32 +82,49 @@ public actor AgentSessionLabelStore {
     ///   ``AgentSessionLabelError/unreadableFile(path:reason:)`` when the file is
     ///   there but reading it failed.
     public func snapshot() throws -> AgentSessionLabelSnapshot {
-        let document = try read()
+        let document = try read(from: fileURL)
         var labels: [AgentSessionLabelKey: AgentSessionLabel] = [:]
         var unreadable: [AgentSessionLabelSnapshot.UnreadableRecord] = []
+        func skip(_ agent: String, _ sessionID: String, _ reason: String) {
+            unreadable.append(
+                AgentSessionLabelSnapshot.UnreadableRecord(
+                    agent: agent, sessionID: sessionID, reason: reason
+                )
+            )
+        }
         for (agent, records) in document.agents {
             for (sessionID, record) in records {
-                do {
-                    let key = try AgentSessionLabelKey(agent: agent, sessionID: sessionID)
-                    labels[key] = try AgentSessionLabel(
-                        text: record.label, updatedAt: record.updatedAt
-                    )
-                } catch {
-                    unreadable.append(
-                        AgentSessionLabelSnapshot.UnreadableRecord(
-                            agent: agent,
-                            sessionID: sessionID,
-                            reason: Self.describe(error)
-                        )
-                    )
+                switch record {
+                case let .unreadable(reason, _):
+                    skip(agent, sessionID, reason)
+                case let .label(text, updatedAt, _):
+                    do {
+                        let key = try AgentSessionLabelKey(agent: agent, sessionID: sessionID)
+                        // The mutators look a record up by the key they would
+                        // write, so a record filed under any other spelling of it
+                        // is not reachable: returning it would hand back a label
+                        // that no write updates and no clear removes.
+                        guard key.agent == agent else {
+                            throw AgentSessionLabelError.unaddressableRecord(field: "agent")
+                        }
+                        guard key.sessionID == sessionID else {
+                            throw AgentSessionLabelError.unaddressableRecord(field: "session id")
+                        }
+                        labels[key] = try AgentSessionLabel(text: text, updatedAt: updatedAt)
+                    } catch {
+                        skip(agent, sessionID, Self.describe(error))
+                    }
                 }
             }
         }
+        // An agent entry that holds no records at all cannot name a session, so
+        // it is reported under an empty session id rather than dropped.
+        for (agent, _) in document.foreignAgents {
+            skip(agent, "", "its records are not a JSON object")
+        }
         return AgentSessionLabelSnapshot(
             labels: labels,
-            unreadableRecords: unreadable.sorted {
-                ($0.agent, $0.sessionID) < ($1.agent, $1.sessionID)
-            }
+            unreadableRecords: AgentSessionLabelSnapshot.ordered(unreadable)
         )
     }
 
@@ -130,22 +162,30 @@ public actor AgentSessionLabelStore {
     ///   - now: when the label was written. It defaults to the current time
     ///     because that is what every caller outside a test wants; a test passes
     ///     a fixed date so its expectations do not move.
-    /// - Returns: the stored label, which is what a later read returns.
+    /// - Returns: the label as it was stored, which is what a read returns until
+    ///   another writer replaces it.
     /// - Throws: ``AgentSessionLabelError`` for a rejected label, an unreadable
-    ///   document or a failed write.
+    ///   document or a failed write, and `CancellationError` when the task is
+    ///   cancelled while waiting for another writer.
     @discardableResult
     public func setLabel(
         _ text: String, for key: AgentSessionLabelKey, now: Date = Date()
     ) async throws -> AgentSessionLabel {
         let label = try AgentSessionLabel(text: text, updatedAt: now)
-        try await withWriteLock {
-            var document = try read()
+        try await withWriteLock { target in
+            var document = try read(from: target)
             var records = document.agents[key.agent] ?? [:]
-            records[key.sessionID] = AgentSessionLabelDocument.Record(
-                label: label.text, updatedAt: label.updatedAt
+            let extras: [String: Any]
+            if case let .label(_, _, existing) = records[key.sessionID] {
+                extras = existing
+            } else {
+                extras = [:]
+            }
+            records[key.sessionID] = .label(
+                text: label.text, updatedAt: label.updatedAt, extras: extras
             )
             document.agents[key.agent] = records
-            try write(document)
+            try write(document, to: target)
         }
         return label
     }
@@ -159,12 +199,13 @@ public actor AgentSessionLabelStore {
     /// - Parameter key: the session whose label to remove.
     /// - Returns: `true` when a label was removed, `false` when there was none.
     /// - Throws: ``AgentSessionLabelError`` for an unreadable document or a
-    ///   failed write.
+    ///   failed write, and `CancellationError` when the task is cancelled while
+    ///   waiting for another writer.
     @discardableResult
     public func clearLabel(for key: AgentSessionLabelKey) async throws -> Bool {
         var removed = false
-        try await withWriteLock {
-            var document = try read()
+        try await withWriteLock { target in
+            var document = try read(from: target)
             guard var records = document.agents[key.agent],
                   records.removeValue(forKey: key.sessionID) != nil
             else { return }
@@ -173,88 +214,68 @@ public actor AgentSessionLabelStore {
             } else {
                 document.agents[key.agent] = records
             }
-            try write(document)
+            try write(document, to: target)
             removed = true
         }
         return removed
     }
 
-    /// Runs `body` while this process owns the store's write lock.
-    private func withWriteLock(_ body: () throws -> Void) async throws {
-        let lock = try await AgentSessionLabelStoreLock.acquire(target: Self.writeURL(
-            for: fileURL, fileManager: fileManager
-        ))
+    /// Runs `body` on the locked file while this process owns the write lock.
+    ///
+    /// The file is resolved once and handed to `body`, because the lock, the read
+    /// and the write have to name one file: recomputing it would let a symlink
+    /// retargeted in between put the write outside what the lock covers.
+    private func withWriteLock(_ body: (URL) throws -> Void) async throws {
+        let target = Self.writeURL(for: fileURL, fileManager: fileManager)
+        let lock: AgentSessionLabelStoreLock
+        do {
+            lock = try await AgentSessionLabelStoreLock.acquire(
+                target: target, fileManager: fileManager, timeout: writeTimeout
+            )
+        } catch let error as AgentSessionLabelStoreLockError {
+            // The lock's own failures are failures of this write, and a caller
+            // printing them needs the file named and one sentence, not a
+            // `POSIXError` whose message says only "Permission denied".
+            throw AgentSessionLabelError.unwritableFile(path: path, reason: error.reason)
+        }
         defer { lock.release() }
-        try body()
+        try body(target)
     }
 
-    private func read() throws -> AgentSessionLabelDocument {
+    /// Reads the document at `url`, or says why it is not one.
+    ///
+    /// Every message names ``path``, the file this store was built for, and not
+    /// the resolved file a write lands on: a caller that prints ``path`` in one
+    /// message and a caught error in another must not show two paths for one
+    /// file.
+    private func read(from url: URL) throws -> AgentSessionLabelDocument {
         let data: Data
         do {
-            data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: url)
         } catch let error as NSError where Self.isMissingFile(error) {
+            // Nothing has written a labels file yet, which is no labels.
             return AgentSessionLabelDocument()
         } catch {
             throw AgentSessionLabelError.unreadableFile(
-                path: fileURL.path, reason: Self.describe(error)
+                path: path, reason: Self.describe(error)
             )
         }
-        // A file that exists and holds nothing is not "no labels": that is what a
-        // crash between rename and flush leaves, and what `> file` leaves. Reading
-        // it as empty would make the next write delete every other record.
-        guard !data.isEmpty else {
-            throw AgentSessionLabelError.malformedStore(
-                path: fileURL.path, reason: "the file is empty"
-            )
-        }
-        // The version is read on its own first, because a later shape is a decode
-        // failure of its own body and the version is the part that explains it.
-        let probe: AgentSessionLabelDocument.VersionProbe
-        do {
-            probe = try JSONDecoder().decode(
-                AgentSessionLabelDocument.VersionProbe.self, from: data
-            )
-        } catch {
-            throw AgentSessionLabelError.malformedStore(
-                path: fileURL.path, reason: Self.describe(error)
-            )
-        }
-        guard let version = probe.version else {
-            throw AgentSessionLabelError.malformedStore(
-                path: fileURL.path, reason: "it has no version"
-            )
-        }
-        guard version == AgentSessionLabelDocument.currentVersion else {
-            throw AgentSessionLabelError.malformedStore(
-                path: fileURL.path,
-                reason: "version \(version) is not version "
-                    + "\(AgentSessionLabelDocument.currentVersion), which this "
-                    + "build writes"
-            )
-        }
-        do {
-            return try Self.decoder().decode(AgentSessionLabelDocument.self, from: data)
-        } catch {
-            throw AgentSessionLabelError.malformedStore(
-                path: fileURL.path, reason: Self.describe(error)
-            )
-        }
+        return try AgentSessionLabelDocument.read(data, path: path)
     }
 
-    private func write(_ document: AgentSessionLabelDocument) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(document)
-        let target = Self.writeURL(for: fileURL, fileManager: fileManager)
+    private func write(_ document: AgentSessionLabelDocument, to target: URL) throws {
         do {
+            let data = try document.serialized()
             try fileManager.createDirectory(
                 at: target.deletingLastPathComponent(), withIntermediateDirectories: true
             )
+            // `.atomic` writes a temporary file and renames it onto the target, so
+            // a reader, which takes no lock, sees either the document that was
+            // there or the whole new one and never a half-written file.
             try data.write(to: target, options: .atomic)
         } catch {
             throw AgentSessionLabelError.unwritableFile(
-                path: target.path, reason: Self.describe(error)
+                path: path, reason: Self.describe(error)
             )
         }
     }
@@ -284,37 +305,15 @@ public actor AgentSessionLabelStore {
         return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
-    /// A decoder that reads the timestamps other programs write.
-    ///
-    /// The store writes whole ISO 8601 seconds, but a hook written in another
-    /// language writes `toISOString()` or `isoformat()`, which carry fractional
-    /// seconds. Refusing those would make one foreign record take down the whole
-    /// document.
-    private static func decoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let text = try decoder.singleValueContainer().decode(String.self)
-            let plain = ISO8601DateFormatter()
-            if let date = plain.date(from: text) { return date }
-            let fractional = ISO8601DateFormatter()
-            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = fractional.date(from: text) { return date }
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "\(text) is not an ISO 8601 timestamp"
-                )
-            )
-        }
-        return decoder
-    }
-
     /// The sentence form of an error, so a wrapped failure reads as one line.
     private static func describe(_ error: any Error) -> String {
         if let labelError = error as? AgentSessionLabelError { return labelError.description }
-        if let cocoa = error as? CocoaError {
-            return cocoa.localizedDescription
-        }
+        if let lockError = error as? AgentSessionLabelStoreLockError { return lockError.reason }
+        // A `CocoaError` interpolates as a struct dump carrying its whole
+        // `UserInfo`, and a `POSIXError` as a case name. Both of these reach a
+        // command line, so both go through the message a person can read.
+        if let cocoa = error as? CocoaError { return cocoa.localizedDescription }
+        if let posix = error as? POSIXError { return posix.localizedDescription }
         return "\(error)"
     }
 

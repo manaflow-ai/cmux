@@ -46,6 +46,14 @@ struct AgentSessionLabelKeyTests {
         #expect(key.sessionID == "s-1")
     }
 
+    @Test func refusesALineSeparatorAtAnEdgeOfAKeyField() {
+        #expect(throws: AgentSessionLabelError.disallowedCharacter(
+            scalar: Unicode.Scalar(0x2029)!
+        )) {
+            try AgentSessionLabelKey(agent: "codex", sessionID: "s-1\u{2029}")
+        }
+    }
+
     @Test func rejectsAFieldLongerThanARecordShouldHold() {
         let long = String(repeating: "s", count: AgentSessionLabelKey.maximumFieldLength + 1)
         #expect(throws: AgentSessionLabelError.keyFieldTooLong(

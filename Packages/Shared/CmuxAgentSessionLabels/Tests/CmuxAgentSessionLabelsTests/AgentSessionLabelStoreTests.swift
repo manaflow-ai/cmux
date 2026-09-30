@@ -304,6 +304,9 @@ struct AgentSessionLabelStoreTests {
         // Not a malformed store: the content is not the problem, and a caller
         // that prints this needs the sentence rather than an NSError dump.
         #expect(message.hasPrefix("\(file.path) could not be read:"))
+        #expect(!message.contains("UserInfo"))
+        #expect(!message.contains("Error Domain"))
+        #expect(!message.contains("\n"))
     }
 
     /// The description of whatever the body throws, for the messages that have

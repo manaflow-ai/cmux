@@ -28,9 +28,15 @@ struct AgentSessionLabelErrorTests {
         (.unreadableFile(path: "/s/labels.json", reason: "permission denied"),
          "/s/labels.json could not be read: permission denied"),
         (.unwritableFile(path: "/s/labels.json", reason: "disk full"),
-         "/s/labels.json could not be written: disk full")
+         "/s/labels.json could not be written: disk full"),
+        (.unaddressableRecord(field: "agent"),
+         "a session label's agent is stored with surrounding whitespace, so no "
+             + "command could address this record")
     ])
     func printsOneSentence(error: AgentSessionLabelError, sentence: String) {
         #expect(error.description == sentence)
+        // One line, because every one of these is printed as a sentence in a
+        // command's output and some of them wrap a caught `NSError`.
+        #expect(!error.description.contains("\n"))
     }
 }

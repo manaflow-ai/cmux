@@ -11,6 +11,22 @@ struct AgentSessionLabelTests {
         #expect(label.text == "rename the  audit rows")
     }
 
+    @Test func refusesALineSeparatorAtAnEdgeRatherThanTrimmingIt() {
+        // A line separator is whitespace that this type rejects, so trimming the
+        // whole whitespace set would accept text a label may not hold, in a
+        // reader that treats U+2028 as a line break, and say nothing about it.
+        #expect(throws: AgentSessionLabelError.disallowedCharacter(
+            scalar: Unicode.Scalar(0x2028)!
+        )) {
+            try AgentSessionLabel(text: "\u{2028}audit rows", updatedAt: now)
+        }
+        #expect(throws: AgentSessionLabelError.disallowedCharacter(
+            scalar: Unicode.Scalar(0x0085)!
+        )) {
+            try AgentSessionLabel(text: "audit rows\u{0085}", updatedAt: now)
+        }
+    }
+
     @Test func rejectsAnEmptyLabel() {
         #expect(throws: AgentSessionLabelError.emptyLabel) {
             try AgentSessionLabel(text: "   \t\n  ", updatedAt: now)

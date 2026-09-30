@@ -26,9 +26,11 @@ public struct AgentSessionLabelKey: Sendable, Hashable, Comparable {
     /// Creates a key, refusing the parts a listing row could not print honestly.
     ///
     /// - Parameters:
-    ///   - agent: the agent name. Surrounding whitespace is removed.
-    ///   - sessionID: the agent's own session id. Surrounding whitespace is
-    ///     removed, so an id copied out of a listing still matches.
+    ///   - agent: the agent name. Surrounding spaces, tabs and newlines are
+    ///     removed; a line separator is refused rather than trimmed, so the
+    ///     characters this type drops stay narrower than the ones it rejects.
+    ///   - sessionID: the agent's own session id, trimmed the same way, so an id
+    ///     copied out of a listing still matches.
     /// - Throws: ``AgentSessionLabelError/emptyKeyField(field:)`` for an empty
     ///   part, ``AgentSessionLabelError/keyFieldTooLong(field:length:maximum:)``
     ///   past ``maximumFieldLength``, and
@@ -42,7 +44,7 @@ public struct AgentSessionLabelKey: Sendable, Hashable, Comparable {
     }
 
     private static func validated(_ value: String, field: String) throws -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = AgentSessionLabelScalarRule.trimmed(value)
         guard !trimmed.isEmpty else {
             throw AgentSessionLabelError.emptyKeyField(field: field)
         }
