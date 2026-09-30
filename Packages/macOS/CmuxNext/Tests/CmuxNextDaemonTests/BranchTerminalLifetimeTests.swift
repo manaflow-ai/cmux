@@ -75,6 +75,23 @@ struct BranchTerminalLifetimeTests {
         }
     }
 
+    /// The owner the app ensures reaps: a closed tab's terminal ends once
+    /// the grace elapses (here 1 s), and the tab left open keeps its own.
+    @Test func closedTabsTerminalEndsAfterTheReapGrace() async throws {
+        try await BranchDaemonHarness.with(terminalReapGraceSeconds: 1) { h in
+            let (key, pane, _) = try await h.workspaceWithTerminal("reap")
+            let before = TerminalHosts.of(daemon: h.identity.pid)
+            let created = try await h.connection.newTab(in: pane, options: SpawnOptions(cwd: h.root.path, workspace: key))
+            _ = try await h.run("echo reap-$((40+2))", in: created.surface, until: "reap-42")
+            let host = TerminalHosts.of(daemon: h.identity.pid).subtracting(before)
+            #expect(host.count == 1, "one terminal host for the new tab: \(host)")
+            try await h.connection.closeTab(created.surface)
+            let leaked = await TerminalHosts.awaitExit(host, timeout: .seconds(15))
+            #expect(leaked.isEmpty, "the closed tab's terminal outlived the reap grace: \(leaked)")
+            #expect(TerminalHosts.alive(before) == before, "the open tab's terminal must stay")
+        }
+    }
+
     /// A kept terminal survives `set-terminal-keep` round trips by surface.
     @Test func keepIsSettableBySurface() async throws {
         try await BranchDaemonHarness.with { h in

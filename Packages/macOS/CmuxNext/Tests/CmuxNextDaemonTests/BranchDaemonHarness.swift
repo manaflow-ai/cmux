@@ -15,7 +15,8 @@ struct BranchDaemonHarness {
 
     static func start(
         daemonEnvironment: [String: String]? = nil,
-        terminalEnvironment: (@Sendable () async -> [String: String])? = nil
+        terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        terminalReapGraceSeconds: UInt32? = nil
     ) async throws -> BranchDaemonHarness {
         let binary = try #require(RealBinary.url)
         let id = UUID().uuidString.prefix(8).lowercased()
@@ -23,9 +24,10 @@ struct BranchDaemonHarness {
         let session = "cnd-bd-\(id)"
         let base = ProcessInfo.processInfo.environment
         let environment = daemonEnvironment ?? LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:])
-        let launcher = DaemonLauncher(
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { environment })
+        var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
+                                                         stateDirectory: root.appendingPathComponent("state"))
+        if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
+        let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         let connection = DaemonConnection(
             configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment),
@@ -82,9 +84,11 @@ struct BranchDaemonHarness {
     static func with(
         daemonEnvironment: [String: String]? = nil,
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        terminalReapGraceSeconds: UInt32? = nil,
         _ body: (BranchDaemonHarness) async throws -> Void
     ) async throws {
-        let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment)
+        let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment,
+                                      terminalReapGraceSeconds: terminalReapGraceSeconds)
         do {
             try await body(harness)
         } catch {
