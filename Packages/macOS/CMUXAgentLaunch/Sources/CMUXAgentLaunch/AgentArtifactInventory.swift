@@ -91,14 +91,16 @@ public enum AgentArtifactInventory {
         }
 
         var entries: [Entry] = []
+        var inspectedRuns = 0
         for providerURL in directoryContents(root, fileManager: fileManager) {
-            guard entries.count < limits.maximumRuns,
+            guard inspectedRuns < limits.maximumRuns,
                   safePathComponent(providerURL.lastPathComponent),
                   isDirectory(providerURL, fileManager: fileManager) else { continue }
             for sessionURL in directoryContents(providerURL, fileManager: fileManager) {
-                guard entries.count < limits.maximumRuns,
+                guard inspectedRuns < limits.maximumRuns,
                       safePathComponent(sessionURL.lastPathComponent),
                       isDirectory(sessionURL, fileManager: fileManager) else { continue }
+                inspectedRuns += 1
                 if let entry = inspect(
                     provider: providerURL.lastPathComponent,
                     sessionID: sessionURL.lastPathComponent,
