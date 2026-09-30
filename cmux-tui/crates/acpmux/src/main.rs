@@ -487,8 +487,21 @@ struct NewArgs {
     stall: u64,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // A launcher can hand us a blocked signal mask (an app thread that
+    // blocks SIGTERM, SIGCHLD, ...). exec keeps the mask, and threads
+    // inherit it, so SIGTERM would stay pending forever and child exits
+    // would never be seen. Clear it before the runtime starts its threads.
+    #[cfg(unix)]
+    unsafe {
+        let mut empty: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut empty);
+        libc::pthread_sigmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+    }
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(async_main())
+}
+
+async fn async_main() -> Result<()> {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
     unsafe {

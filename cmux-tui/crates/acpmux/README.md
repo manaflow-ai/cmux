@@ -817,7 +817,8 @@ newMessageId}` before the redelivery. Other harnesses send no such signal.
 The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
 imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
 for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
-to descriptor N when bound. SIGTERM stops every agent, saves sessions and exits within 5 s.
+to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
+group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
