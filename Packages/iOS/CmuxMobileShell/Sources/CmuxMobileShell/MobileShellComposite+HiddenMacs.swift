@@ -428,6 +428,28 @@ extension MobileShellComposite {
         // rowless and clear them, so the hidden entry the user retries from
         // would vanish while a failed sibling keeps its revoked binding.
         if deletion.cleaned {
+            if let workspaceSnapshotStore {
+                let snapshotAccountID = computer.stackUserID ?? scope.userID
+                let deletedScopes = deletion.deletedScopes.isEmpty
+                    ? [MobilePairedMacExactScope(
+                        macDeviceID: computer.macDeviceID,
+                        instanceTag: computer.instanceTag,
+                        stackUserID: snapshotAccountID,
+                        teamID: computer.teamID
+                    )]
+                    : deletion.deletedScopes
+                for deletedScope in deletedScopes
+                where deletedScope.stackUserID == snapshotAccountID {
+                    workspaceSnapshotStore.remove(
+                        userID: snapshotAccountID,
+                        teamID: deletedScope.teamID,
+                        pairing: MacPairingKey(
+                            macDeviceID: deletedScope.macDeviceID,
+                            instanceTag: deletedScope.instanceTag
+                        )
+                    )
+                }
+            }
             rememberForgottenMacRecovery(
                 for: computer,
                 accountID: scope.userID,

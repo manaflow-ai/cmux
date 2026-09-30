@@ -226,7 +226,13 @@ public final class MobileWorkspaceSnapshotStore {
         teamID: String?,
         pairing: MacPairingKey
     ) {
-        guard !state.workspaces.isEmpty else { return }
+        // An authoritative empty list is a deletion, not a reason to retain
+        // the previous preview. Otherwise a closed workspace would reappear
+        // on the next launch until the snapshot TTL expired.
+        guard !state.workspaces.isEmpty else {
+            remove(userID: userID, teamID: teamID, pairing: pairing)
+            return
+        }
         let record = Record(
             savedAt: Date(),
             userID: userID,
@@ -239,6 +245,14 @@ public final class MobileWorkspaceSnapshotStore {
         )
         guard let data = try? JSONEncoder().encode(record) else { return }
         defaults.set(data, forKey: key(userID: userID, teamID: teamID, pairing: pairing))
+    }
+
+    public func remove(
+        userID: String,
+        teamID: String?,
+        pairing: MacPairingKey
+    ) {
+        defaults.removeObject(forKey: key(userID: userID, teamID: teamID, pairing: pairing))
     }
 
     private func state(

@@ -72,4 +72,37 @@ struct MobileWorkspaceSnapshotStoreTests {
         #expect(loaded.allSatisfy { $0.1.status == .reconnecting })
         #expect(store.loadAll(userID: "user-a", teamID: "team-b").isEmpty)
     }
+
+    @Test
+    func authoritativeEmptyListRemovesThePreviousPreview() {
+        let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
+        let store = MobileWorkspaceSnapshotStore(defaults: defaults)
+        let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-a",
+            macDeviceID: "mac-a",
+            name: "Mario",
+            terminals: []
+        )
+        let connected = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly",
+            workspaces: [workspace],
+            status: .connected,
+            workspaceSnapshotIsAuthoritative: true
+        )
+        let empty = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly",
+            workspaces: [],
+            status: .connected,
+            workspaceSnapshotIsAuthoritative: true
+        )
+
+        store.save(state: connected, userID: "user-a", teamID: "team-a", pairing: pairing)
+        store.save(state: empty, userID: "user-a", teamID: "team-a", pairing: pairing)
+
+        #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing) == nil)
+        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+    }
 }
