@@ -668,7 +668,11 @@ export function useSession(): SessionState {
             break;
         }
       };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
+      ws.onclose = () => {
+        if (closed || wsRef.current !== ws) return;
+        setReady(false);
+        setTimeout(connect, 800);
+      };
     };
     connect();
     return () => {
