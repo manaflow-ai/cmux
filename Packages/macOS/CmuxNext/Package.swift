@@ -242,6 +242,19 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
+            resources: [
+                .process("Extensions.xcstrings"),
+                .process("HibernationActions.xcstrings"),
+                .process("LayoutActions.xcstrings"),
+                .process("Localizable.xcstrings"),
+                .process("PageInfoActions.xcstrings"),
+                .process("ProfileActions.xcstrings"),
+                .process("RemoteActions.xcstrings"),
+                .process("ScreenActions.xcstrings"),
+                .process("SettingsActions.xcstrings"),
+                .process("ShortcutRecorder.xcstrings"),
+                .process("WorkspaceActions.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -312,6 +325,9 @@ let package = Package(
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -359,6 +375,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettings",
             dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -369,6 +388,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettingsWindow",
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -379,6 +401,9 @@ let package = Package(
         .target(
             name: "CmuxNextControl",
             dependencies: ["CmuxNextWakeups", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
