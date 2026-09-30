@@ -5,9 +5,9 @@ extension TerminalController {
     /// `agent.hibernate`: hibernate one named agent now. Runs on the socket
     /// worker because the teardown awaits a transcript snapshot and a fresh
     /// process census before it commits.
-    nonisolated func agentHibernateResponse(_ request: ControlRequest) async -> String {
+    nonisolated func agentHibernateResponse(_ request: ControlRequest) async throws -> String {
         let target: (workspaceId: UUID?, panelId: UUID)
-        switch await agentHibernationTarget(request) {
+        switch try await agentHibernationTarget(request) {
         case .success(let resolved): target = resolved
         case .failure(let response): return response.body
         }
@@ -30,13 +30,13 @@ extension TerminalController {
     }
 
     /// `agent.wake`: resume one hibernated agent in place, without focusing it.
-    nonisolated func agentWakeResponse(_ request: ControlRequest) async -> String {
+    nonisolated func agentWakeResponse(_ request: ControlRequest) async throws -> String {
         let target: (workspaceId: UUID?, panelId: UUID)
-        switch await agentHibernationTarget(request) {
+        switch try await agentHibernationTarget(request) {
         case .success(let resolved): target = resolved
         case .failure(let response): return response.body
         }
-        let refusal = await v2MainAsync {
+        let refusal = try await v2MainAsync {
             AgentHibernationController.shared.wakeNow(
                 workspaceId: target.workspaceId,
                 panelId: target.panelId
@@ -63,10 +63,10 @@ extension TerminalController {
     /// processes.
     private nonisolated func agentHibernationTarget(
         _ request: ControlRequest
-    ) async -> Result<(workspaceId: UUID?, panelId: UUID), AgentHibernationTargetError> {
+    ) async throws -> Result<(workspaceId: UUID?, panelId: UUID), AgentHibernationTargetError> {
         // Refs (`surface:3`) resolve on the main actor; one async hop keeps
         // the socket worker from blocking on the main queue.
-        let resolved = await v2MainAsync { () -> (relayError: ControlCallResult?, workspaceId: UUID?, panelId: UUID?) in
+        let resolved = try await v2MainAsync { () -> (relayError: ControlCallResult?, workspaceId: UUID?, panelId: UUID?) in
             if let relayError = self.controlRemoteRelayDispatchError(method: request.method, params: request.params) {
                 return (relayError, nil, nil)
             }

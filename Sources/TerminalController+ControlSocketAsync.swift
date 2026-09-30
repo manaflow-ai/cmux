@@ -245,10 +245,10 @@ extension TerminalController {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
         if request.method == "agent.hibernate" {
-            return await agentHibernateResponse(request)
+            return try await agentHibernateResponse(request)
         }
         if request.method == "agent.wake" {
-            return await agentWakeResponse(request)
+            return try await agentWakeResponse(request)
         }
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
