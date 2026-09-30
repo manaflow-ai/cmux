@@ -109,14 +109,20 @@ final class CEFPaneHost {
         case .none:
             let request = runtime.makeRequestToken()
             let size = hostView.bounds.size
-            // CEF refuses a request context whose cache directory is missing.
-            let cachePath = runtime.storage.cachePath(for: key.profile, machineKey: key.machineKey)
-            try? FileManager.default.createDirectory(at: cachePath, withIntermediateDirectories: true)
+            let contextKey = runtime.contextKey(for: key)
+            if key.offTheRecord {
+                // An in-memory profile: no directory, released when the
+                // incognito session ends.
+                runtime.offTheRecordContexts[key.profile, default: []].insert(contextKey)
+            } else {
+                // CEF refuses a request context whose cache directory is missing.
+                try? FileManager.default.createDirectory(at: URL(filePath: contextKey), withIntermediateDirectories: true)
+            }
             // A remote-localhost store: its context must use the proxy before
             // its first request, or localhost would reach this Mac.
             if let store = tab.machineStore,
-               shim.setContextProxy(cachePath.path, Int32(store.proxyPort)) != 1
-                || shim.contextProxyState(cachePath.path) < 0 {
+               shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
+                || shim.contextProxyState(contextKey) < 0 {
                 tab.creationFailed()
                 return
             }
@@ -129,7 +135,7 @@ final class CEFPaneHost {
             let started = shim.createWindow(
                 request, Unmanaged.passUnretained(hostView).toOpaque(),
                 max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
-                tab.initialURLString, cachePath.path
+                tab.initialURLString, contextKey
             )
             if started != 1 {
                 runtime.pendingWindows[request] = nil

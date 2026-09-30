@@ -19,6 +19,10 @@ final class ClosedTabTracker {
     private var history = ClosedTabHistory()
     private var lastSeen: [String: TabModel] = [:]
     private var generations: [String: String] = [:]
+    /// Closed tabs that were in an incognito window (qualified tab ids):
+    /// they reopen only in an incognito window, and normal ones only in a
+    /// normal window.
+    private var incognitoRecords: Set<String> = []
     private var observation: Task<Void, Never>?
 
     private struct Structure: Sendable {
@@ -91,8 +95,11 @@ final class ClosedTabTracker {
         generations = structure.generations
         if restarted { history.resetBaseline() }
         let previous = lastSeen
-        history.observe(structure.tabs.map(\.record), liveWorkspaces: structure.live) { record in
+        history.observe(structure.tabs.map(\.record), liveWorkspaces: structure.live) { [weak self] record in
             var record = record
+            if let workspace = Self.split(record.workspaceID)?.id, self?.services.windows.isIncognito(workspace: workspace) == true {
+                self?.incognitoRecords.insert(record.tabID)
+            }
             record.cwd = previous[record.tabID]?.cwd
             record.url = previous[record.tabID]?.url
             record.engine = previous[record.tabID]?.browserEngine
@@ -116,6 +123,11 @@ final class ClosedTabTracker {
         let paneModel = recorded ?? fallback?.pane
         guard let paneModel else {
             services.registry.refuse(RefusalStrings.closedTabPaneGone)
+            return
+        }
+        let target = services.workspaceID(of: paneModel).map { services.windows.isIncognito(workspace: $0) } ?? false
+        guard target == incognitoRecords.contains(record.tabID) else {
+            services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
         let controller = services.paneController(for: paneModel)

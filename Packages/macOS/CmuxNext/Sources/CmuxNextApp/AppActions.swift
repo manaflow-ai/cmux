@@ -63,6 +63,7 @@ enum AppActions {
             }
         }
         registry.bind("newWindow") { services.windows.newWindow() }
+        registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)
         }

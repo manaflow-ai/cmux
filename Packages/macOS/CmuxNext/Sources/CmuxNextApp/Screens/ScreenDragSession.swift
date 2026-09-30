@@ -97,7 +97,7 @@ final class ScreenDragSession {
             switch hit.drop {
             case .intoWorkspace(let id):
                 guard id.rawValue != source.id, let target = services.workspace(id: id.rawValue) else { return }
-                ScreenCommands.move(screen, toWorkspace: target, daemon: daemon)
+                ScreenCommands.move(screen, toWorkspace: target, daemon: daemon, services: services)
             case .newWorkspace, .intoGroup:
                 services.windows.didActivate(controller)
                 ScreenCommands.moveToNewWorkspace(screen, daemon: daemon, services: services, newWindow: false)

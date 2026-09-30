@@ -33,8 +33,14 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
     /// Window features or requested bounds (screen DIPs), when given.
     var bounds: CGRect?
     var url: String
-    /// Chromium profile directory (the request context's cache path).
+    /// The requesting store: the source tab's store when cmux knows the
+    /// tab (its context key, `CEFProfileStorage.contextKey`), else the
+    /// Chromium profile directory the fork reported.
     var profilePath: String
+    /// True when `profilePath` names a persistent cmux profile. False for an
+    /// off-the-record store, or a directory cmux does not own (Chromium
+    /// reports an off-the-record profile by its parent's path): a request
+    /// from such a store never becomes a normal tab.
     var persistentProfile = true
 }
 
@@ -76,6 +82,7 @@ nonisolated enum CEFDisposition: Int32, Equatable, Sendable {
 nonisolated struct CEFWindowCandidate: Equatable, Sendable {
     /// Any tab of the window (`cmux_tab_add` and friends take it).
     var anchor: Int32
+    /// The window's store (`CEFProfileStorage.contextKey`).
     var profilePath: String
     /// The window holds the requesting tab.
     var holdsSource: Bool

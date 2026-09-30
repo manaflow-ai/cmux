@@ -70,7 +70,7 @@ extension TabDragSession {
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
-                if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
+                if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
             }
         case .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace, .cancel:
@@ -109,7 +109,7 @@ extension TabDragSession {
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
             Task {
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
-                if let key { focusTornOff(openTornOff(workspace: key, frame: frame), drag: drag) }
+                if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
             }
         case .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace, .cancel:
@@ -120,8 +120,10 @@ extension TabDragSession {
     /// Opens the torn-off workspace in a new window under the pointer. The
     /// window list and frame persist through `WindowManager`.
     @discardableResult
-    func openTornOff(workspace key: WorkspaceKey, frame: CGRect) -> WindowController? {
-        services.windows.openWindow(workspaces: [key.rawValue], frame: frame)
+    /// A tab torn off an incognito window opens an incognito window.
+    func openTornOff(workspace key: WorkspaceKey, frame: CGRect, drag: Drag) -> WindowController? {
+        let incognito = drag.source.window.map { services.windows.isIncognito(window: $0.state.id) } ?? false
+        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito)
     }
 
     // MARK: Lookup

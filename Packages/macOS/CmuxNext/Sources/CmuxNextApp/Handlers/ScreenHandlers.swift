@@ -104,7 +104,7 @@ enum ScreenHandlers {
             guard let id = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue,
                   let target = ctx.services.workspace(id: id) ?? ctx.refuse(RefusalStrings.noWorkspace(invocation["workspace"]?.stringValue ?? "")) else { return }
             guard target !== ref.workspace else { return ctx.refuse(ScreenStrings.sameWorkspace) }
-            ScreenCommands.move(ref.screen, toWorkspace: target, daemon: ref.daemon)
+            ScreenCommands.move(ref.screen, toWorkspace: target, daemon: ref.daemon, services: ctx.services)
         })
         for (id, newWindow) in [("screen.moveToNewWorkspace", false), ("screen.moveToNewWindow", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in

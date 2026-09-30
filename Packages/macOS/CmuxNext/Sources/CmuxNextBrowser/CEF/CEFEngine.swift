@@ -99,6 +99,15 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
     }
 
+    /// An incognito request from Chromium ("Open Link in Incognito Window",
+    /// Chrome's New Incognito Window): open `url` (nil: a new tab page) in a
+    /// cmux incognito window, or in the incognito window of `source` when
+    /// that page is incognito. Chromium opens nothing.
+    public var openOffTheRecord: ((URL?, (any BrowserTab)?) -> Void)? {
+        get { CEFRuntime.shared.openOffTheRecord.map { handler in { url, tab in handler(url, tab as? CEFTab) } } }
+        set { CEFRuntime.shared.openOffTheRecord = newValue.map { handler in { url, tab in handler(url, tab) } } }
+    }
+
     /// Chromium never opens a window of its own: what the window requests,
     /// the fork's guard and the app's window guard saw (`debug.cef`).
     public var windowReport: CEFWindowReport { CEFRuntime.shared.windowReport }
@@ -113,7 +122,8 @@ public final class CEFEngine: BrowserEngine {
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
-        let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey)
+        let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
+                             offTheRecord: OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key)
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
         tab.machineStore = configuration.machineStore

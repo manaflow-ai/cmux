@@ -44,11 +44,32 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         return root.appending(path: "Profile-" + profile.rawValue.uuidString + "-m-" + machineKey)
     }
 
+    /// Prefix of an off-the-record context key (the shim's
+    /// `kOffTheRecordPrefix`): an in-memory Chromium profile, no directory.
+    public static let offTheRecordPrefix = "cmux-otr:"
+
+    /// The shim's request context key of a store: its directory for a
+    /// persistent profile, an off-the-record key for an incognito window's
+    /// profile (a remote-localhost derived store included, so it keeps its
+    /// own proxy).
     public func contextKey(for profile: BrowserProfileID, machineKey: String?, offTheRecord: Bool) -> String {
-        cachePath(for: profile, machineKey: machineKey).path
+        guard offTheRecord else { return cachePath(for: profile, machineKey: machineKey).path }
+        var key = Self.offTheRecordPrefix + profile.rawValue.uuidString.lowercased()
+        if let machineKey, cachePath(for: profile, machineKey: machineKey) != cachePath(for: profile) {
+            key += "-m-" + machineKey
+        }
+        return key
     }
 
-    public func isPersistentProfilePath(_ path: String) -> Bool { true }
+    /// True when `path` is a persistent cmux profile directory (a direct
+    /// child `Profile-*` of the root). Chromium reports an off-the-record
+    /// profile by its parent's path, which is not one.
+    public func isPersistentProfilePath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        let url = URL(filePath: path).standardizedFileURL.resolvingSymlinksInPath()
+        return url.deletingLastPathComponent().path == root.standardizedFileURL.resolvingSymlinksInPath().path
+            && url.lastPathComponent.hasPrefix("Profile-")
+    }
 
     public var logFile: URL { root.appending(path: "cef.log") }
 }

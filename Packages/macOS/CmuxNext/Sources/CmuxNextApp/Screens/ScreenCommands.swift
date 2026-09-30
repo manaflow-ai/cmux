@@ -103,7 +103,11 @@ enum ScreenCommands {
         daemon.send("move-screen") { _ = try await $0.moveScreen(handle, to: index) }
     }
 
-    static func move(_ screen: ScreenModel, toWorkspace target: WorkspaceModel, daemon: DaemonService) {
+    static func move(_ screen: ScreenModel, toWorkspace target: WorkspaceModel, daemon: DaemonService, services: AppServices) {
+        let source = daemon.store.workspaces.first { $0.screens.contains { $0 === screen } }?.id
+        guard !services.windows.crossesIncognito(from: source, to: target.id) else {
+            return services.registry.refuse(RefusalStrings.incognitoMismatch)
+        }
         let handle = screen.handle, workspace = target.handle
         daemon.send("move-screen") { _ = try await $0.moveScreen(handle, to: nil, workspace: workspace) }
     }
@@ -114,23 +118,15 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = screen.handle
         let state = services.windows.active?.state
+        let origin = services.windows.moveOrigin(of: daemon.store.workspaces.first { $0.screens.contains { $0 === screen } }?.id)
         Task {
             do {
                 let result = try await connection.moveScreen(handle, to: nil, newWorkspace: true)
                 guard let key = result.key?.rawValue else { return }
-                reveal(key, services: services, state: state, newWindow: newWindow)
+                services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
             } catch {
                 daemon.logger.error("move-screen new_workspace failed: \(String(describing: error), privacy: .public)")
             }
-        }
-    }
-
-    /// Shows workspace `key` in `state`'s window, or in a new window.
-    static func reveal(_ key: String, services: AppServices, state: WindowState?, newWindow: Bool) {
-        if newWindow {
-            services.windows.openWindow(workspaces: [key])
-        } else if let state {
-            services.windows.claim(workspaceID: key, in: state)
         }
     }
 }

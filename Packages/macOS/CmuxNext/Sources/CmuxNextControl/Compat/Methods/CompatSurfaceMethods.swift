@@ -120,6 +120,10 @@ enum CompatSurfaceMethods {
             throw CompatErrors.unsupported(ControlStrings.text("control.error.windowsDoNotOwnWorkspaces", "windows do not own workspaces in cmux-next; move to a workspace or pane"), method: call.method)
         }
         guard let destination else { throw CompatErrors.notFound("pane", "destination") }
+        if let from = world.workspaces.first(where: { $0.uuid == surface.workspaceUUID })?.modelID,
+           let to = world.workspaces.first(where: { $0.uuid == destination.workspaceUUID })?.modelID, from != to {
+            try await call.perform(.checkTabMove(fromWorkspaceID: from, toWorkspaceID: to))
+        }
         let paneHandle = destination.handle
         let target = index ?? destination.surfaceUUIDs.count
         _ = try await call.service.daemon("move-tab") { try await $0.moveTab(handle, to: paneHandle, index: target) }

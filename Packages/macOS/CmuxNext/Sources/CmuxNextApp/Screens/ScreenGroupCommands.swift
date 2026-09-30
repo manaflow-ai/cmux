@@ -42,7 +42,11 @@ enum ScreenGroupCommands {
         daemon.send("move-screen-group") { _ = try await $0.moveScreenGroup(group, to: index) }
     }
 
-    static func move(_ group: ScreenGroupID, toWorkspace target: WorkspaceModel, daemon: DaemonService) {
+    static func move(_ group: ScreenGroupID, toWorkspace target: WorkspaceModel, daemon: DaemonService, services: AppServices) {
+        let source = daemon.store.workspaces.first { $0.screenGroups.contains { $0.id == group } }?.id
+        guard !services.windows.crossesIncognito(from: source, to: target.id) else {
+            return services.registry.refuse(RefusalStrings.incognitoMismatch)
+        }
         let workspace = target.handle
         daemon.send("move-screen-group") { _ = try await $0.moveScreenGroup(group, to: nil, workspace: workspace) }
     }
@@ -50,11 +54,12 @@ enum ScreenGroupCommands {
     static func moveToNewWorkspace(_ group: ScreenGroupID, daemon: DaemonService, services: AppServices, newWindow: Bool) {
         guard let connection = daemon.connection else { return }
         let state = services.windows.active?.state
+        let origin = services.windows.moveOrigin(of: daemon.store.workspaces.first { $0.screenGroups.contains { $0.id == group } }?.id)
         Task {
             do {
                 let result = try await connection.moveScreenGroup(group, to: nil, newWorkspace: true)
                 guard let key = result.key?.rawValue else { return }
-                ScreenCommands.reveal(key, services: services, state: state, newWindow: newWindow)
+                services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
             } catch {
                 daemon.logger.error("move-screen-group new_workspace failed: \(String(describing: error), privacy: .public)")
             }

@@ -97,9 +97,15 @@ final class AppServices {
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition in
-            // Chromium wanted a window and has none for that profile: a new
-            // browser tab in the focused pane (Chromium opens nothing).
-            self?.windows?.active?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+            // Chromium wanted a window and has none for that profile (a
+            // normal one; an incognito store never gets here): a new browser
+            // tab in the focused pane of a normal window (Chromium opens nothing).
+            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+        }
+        cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
+        cache.browserProfile = { [weak self] key in
+            guard let self, let windows else { return nil }
+            return windows.browserProfile(forWorkspace: workspaceID(ofTab: key))
         }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
@@ -119,6 +125,7 @@ final class AppServices {
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
+        windows.incognitoHistoryReset = { [weak cache] in cache?.resetIncognitoHistory() }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
         compat = AppCompatFrontend(services: self)

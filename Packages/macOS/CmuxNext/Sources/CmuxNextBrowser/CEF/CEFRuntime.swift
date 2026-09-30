@@ -48,9 +48,14 @@ final class CEFRuntime {
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)?
+    /// An incognito request: the App opens `url` (nil: a new tab page) in a
+    /// cmux incognito window, or in the incognito window of `source`.
+    var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
+    /// Off-the-record context keys created this launch, by profile.
+    var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
     var extensionStores: [BrowserProfileID: BrowserExtensionStore] = [:]
     var nextRequest: Int32 = 1
@@ -91,7 +96,12 @@ final class CEFRuntime {
     private(set) var initializeDuration: Duration?
     private(set) var readyAfterLaunch: Double?
 
-    private init() {}
+    private init() {
+        // An incognito session ended: drop its in-memory contexts, so
+        // Chromium destroys their profiles (and data) once no browser uses
+        // them.
+        OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
+    }
 
     /// Process start, from the kernel (`kinfo_proc.p_starttime`).
     nonisolated static let launchUptime: Double = {
@@ -330,6 +340,18 @@ final class CEFRuntime {
         }
     }
 
+    /// The request context key of a pane's store (`CEFProfileStorage.contextKey`).
+    func contextKey(for key: CEFPaneKey) -> String {
+        storage.contextKey(for: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
+    }
+
+    /// Off-the-record context keys the shim holds, by profile.
+    func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
+        let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
+        for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
+        hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
+    }
+
     func host(for key: CEFPaneKey) -> CEFPaneHost {
         if let host = hosts[key] { return host }
         let host = CEFPaneHost(key: key, runtime: self)
@@ -349,6 +371,8 @@ nonisolated struct CEFPaneKey: Hashable, Sendable {
     /// The remote-localhost derived store's machine, nil for the profile's
     /// own store. A Chromium window holds one store, so it is part of the key.
     var machineKey: String? = nil
+    /// An incognito window's store: an in-memory context, never a directory.
+    var offTheRecord = false
 }
 
 nonisolated struct CEFDevToolsKey: Hashable, Sendable {

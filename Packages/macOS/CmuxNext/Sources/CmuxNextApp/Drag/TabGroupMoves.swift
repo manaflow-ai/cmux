@@ -9,6 +9,7 @@ enum TabGroupMoves {
 
     static func move(_ group: TabGroupID, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID, completion: @escaping Completion) {
+        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
         run("move-tab-group", services: services, transaction: transaction, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
@@ -17,6 +18,7 @@ enum TabGroupMoves {
 
     static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices,
                            transaction: ClientTransactionID, completion: @escaping Completion) {
+        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         switch services.splitRoom(for: pane, edge: edge) {
         case .split:
             break
@@ -34,6 +36,7 @@ enum TabGroupMoves {
 
     static func toNewColumn(_ group: TabGroupID, anchor pane: PaneModel, afterColumn: DaemonColumnID?, services: AppServices,
                             transaction: ClientTransactionID, completion: @escaping Completion) {
+        guard !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
         let spawn = services.newColumnWidth(nextTo: pane)
         let width = spawn.width
@@ -58,6 +61,16 @@ enum TabGroupMoves {
             return try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
         }
         return key ?? nil
+    }
+
+    /// True (and refused with a message) when `group` would move between an
+    /// incognito window and a normal one.
+    static func refusesIncognitoCrossing(_ group: TabGroupID, to pane: PaneModel, services: AppServices) -> Bool {
+        guard services.windows.crossesIncognito(from: services.workspaceID(ofTabGroup: group), to: services.workspaceID(of: pane)) else {
+            return false
+        }
+        services.registry.refuse(RefusalStrings.incognitoMismatch)
+        return true
     }
 
     private static func run(_ label: String, services: AppServices, transaction: ClientTransactionID,

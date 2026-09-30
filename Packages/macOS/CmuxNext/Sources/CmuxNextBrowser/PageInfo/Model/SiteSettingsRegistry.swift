@@ -11,17 +11,23 @@ public final class SiteSettingsRegistry {
     )
 
     private let makePersistence: (BrowserProfileID) -> any SitePermissionPersistence
+    private let offTheRecord: OffTheRecordProfiles
     private var stores: [BrowserProfileID: SitePermissionStore] = [:]
 
     public init(persistence: @escaping (BrowserProfileID) -> any SitePermissionPersistence,
                 offTheRecord: OffTheRecordProfiles = .shared) {
         makePersistence = persistence
+        self.offTheRecord = offTheRecord
+        offTheRecord.observeEnd { [weak self] profile in self?.stores[profile] = nil }
     }
 
-    /// The store for `profile`, loading it on first use.
+    /// The store for `profile`, loading it on first use. An off-the-record
+    /// profile (an incognito window) keeps its decisions in memory only.
     public func permissions(for profile: BrowserProfileID) -> SitePermissionStore {
         if let store = stores[profile] { return store }
-        let store = SitePermissionStore(profile: profile, persistence: makePersistence(profile))
+        let persistence: any SitePermissionPersistence = offTheRecord.isOffTheRecord(profile)
+            ? MemorySitePermissionPersistence() : makePersistence(profile)
+        let store = SitePermissionStore(profile: profile, persistence: persistence)
         stores[profile] = store
         return store
     }

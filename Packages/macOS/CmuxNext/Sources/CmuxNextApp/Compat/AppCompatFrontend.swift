@@ -72,6 +72,10 @@ final class AppCompatFrontend: CompatFrontend {
             try window(windowID).close()
         case .expectNotification:
             services.notifications.expectCreate()
+        case .checkTabMove(let from, let to):
+            if services.windows.crossesIncognito(from: from, to: to) {
+                throw ControlError(code: "invalid_params", message: RefusalStrings.incognitoMismatch)
+            }
         case .noteNotification(let id, let source):
             if let id {
                 services.notifications.record(NotificationID(rawValue: id), source: NotificationSource(rawValue: source) ?? .agent)
@@ -99,6 +103,9 @@ final class AppCompatFrontend: CompatFrontend {
         }
         if let windowID {
             let controller = try window(windowID)
+            if services.windows.registry.value.crossesIncognito([workspaceID], to: controller.state.id) {
+                throw ControlError(code: "invalid_params", message: RefusalStrings.incognitoMismatch)
+            }
             services.windows.claim(workspaceID: workspaceID, in: controller.state)
             return controller
         }

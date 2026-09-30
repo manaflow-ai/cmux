@@ -131,6 +131,268 @@
           }
         }
       }
+    },
+    "window.incognito.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incognito"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التصفح المتخفي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognito"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognito"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incógnito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigation privée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In incognito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シークレット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនាមិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognito"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Incognito"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anônima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инкогнито"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ระบุตัวตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анонімно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn danh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕模式"
+          }
+        }
+      }
+    },
+    "window.incognito.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incognito window. Its browser data is deleted when the last incognito window closes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نافذة التصفح المتخفي. يتم حذف بيانات المتصفح الخاصة بها عند إغلاق آخر نافذة للتصفح المتخفي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimni prozor. Njegovi podaci preglednika brišu se kada se zatvori posljednji anonimni prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovindue. Browserdata slettes, når det sidste inkognitovindue lukkes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitofenster. Seine Browserdaten werden gelöscht, wenn das letzte Inkognitofenster geschlossen wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ventana de incógnito. Sus datos de navegación se eliminan al cerrar la última ventana de incógnito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fenêtre de navigation privée. Ses données de navigation sont supprimées à la fermeture de la dernière fenêtre privée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finestra in incognito. I dati di navigazione vengono eliminati quando si chiude l'ultima finestra in incognito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シークレット ウィンドウ。最後のシークレット ウィンドウを閉じると、ブラウザのデータは削除されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចអនាមិក។ ទិន្នន័យកម្មវិធីរុករករបស់វាត្រូវបានលុប នៅពេលបង្អួចអនាមិកចុងក្រោយត្រូវបានបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿 창입니다. 마지막 시크릿 창을 닫으면 브라우저 데이터가 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovindu. Nettleserdataene slettes når det siste inkognitovinduet lukkes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno incognito. Dane przeglądania są usuwane po zamknięciu ostatniego okna incognito."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Janela anônima. Os dados de navegação são excluídos quando a última janela anônima é fechada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окно в режиме инкогнито. Данные браузера удаляются, когда закрывается последнее такое окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างที่ไม่ระบุตัวตน ข้อมูลเบราว์เซอร์จะถูกลบเมื่อปิดหน้าต่างที่ไม่ระบุตัวตนหน้าต่างสุดท้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli pencere. Son gizli pencere kapatıldığında tarayıcı verileri silinir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вікно анонімного перегляду. Дані браузера видаляються, коли закривається останнє анонімне вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ ẩn danh. Dữ liệu trình duyệt sẽ bị xóa khi đóng cửa sổ ẩn danh cuối cùng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕式窗口。关闭最后一个无痕式窗口后，其浏览器数据会被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕式視窗。關閉最後一個無痕式視窗後，其瀏覽器資料會遭到刪除。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

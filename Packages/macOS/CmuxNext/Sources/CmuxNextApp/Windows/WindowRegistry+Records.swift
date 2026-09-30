@@ -31,12 +31,13 @@ extension WindowRegistry {
         openWindow(id: window.id, workspaceIDs: window.workspaceIDs, frame: window.frame, display: window.display)
     }
 
-    /// The saved record of window `id`, with the window-local fields from
+    /// The saved record of window `id` (nil for an incognito window), with the window-local fields from
     /// `state` (nil when no state exists yet) and `order` (front = 0).
     /// `selectedTabs` is the remembered tab per pane of its workspaces.
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
                 selectedTabs: [String: String] = [:]) -> WindowRecord? {
-        guard let window = window(id) else { return nil }
+        // Incognito windows are never restored: nothing of them is saved.
+        guard let window = window(id), !isIncognito(id) else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
         return WindowRecord(
             id: id,

@@ -48,6 +48,9 @@ extension WindowManager {
         for id in Array(states.keys) where value.window(id) == nil && id != launchWindowID { states[id] = nil }
         if closedKey { handOffKey(to: receivers) }
         checkInvariants()
+        // The last incognito window left (closed, or its last workspace
+        // closed): its browser data goes.
+        endIncognitoSessionIfUnused()
         scheduleSave()
     }
 
@@ -141,7 +144,13 @@ extension WindowManager {
     /// Moves `workspaceID` into `state`'s window and selects it there. Use
     /// for workspaces a window just created (drag to the sidebar, New
     /// Workspace), even before the daemon reports them.
+    /// A workspace of an incognito window never moves into a normal one,
+    /// nor the reverse: refused with a message.
     func claim(workspaceID: String, in state: WindowState) {
+        if registry.value.crossesIncognito([workspaceID], to: state.id) {
+            services.registry.refuse(RefusalStrings.incognitoMismatch)
+            return
+        }
         protectIfUnknown([workspaceID], window: state.id)
         if registry.value.owner(of: workspaceID) == state.id {
             select(workspaceID, in: state)
@@ -152,9 +161,17 @@ extension WindowManager {
 
     /// Moves workspaces into an existing window and selects the first there;
     /// a window left without workspaces closes.
-    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) {
-        guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return }
+    /// Returns false when nothing moved (a move between an incognito
+    /// window and a normal one is refused with a message).
+    @discardableResult
+    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
+        guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
+        if registry.value.crossesIncognito(ids, to: windowID) {
+            services.registry.refuse(RefusalStrings.incognitoMismatch)
+            return false
+        }
         transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
+        return true
     }
 
     /// Opens a new window listing `workspaces` (taken from their windows,
@@ -162,8 +179,19 @@ extension WindowManager {
     /// controller; nil when `workspaces` is empty (no window without one).
     /// A workspace the daemon has not reported yet keeps the window off
     /// screen until its content is installed (`contentDidAppear`).
+    /// `incognito` marks the new window (a tear-off from an incognito
+    /// window whose workspace the daemon has not reported yet); known
+    /// workspaces of incognito windows make it incognito anyway, and a mix
+    /// of both kinds opens nothing (refused with a message).
     @discardableResult
-    func openWindow(id: String = UUID().uuidString.lowercased(), workspaces: [String], frame: CGRect? = nil) -> WindowController? {
+    func openWindow(id: String = UUID().uuidString.lowercased(), workspaces: [String], frame: CGRect? = nil,
+                    incognito: Bool = false) -> WindowController? {
+        let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
+        if kinds.count > 1 || (incognito && kinds == [false]) {
+            services.registry.refuse(RefusalStrings.incognitoMismatch)
+            return nil
+        }
+        if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         protectIfUnknown(workspaces, window: id)
         transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame) }
         guard let controller = controller(for: id) else { return nil }
@@ -172,10 +200,12 @@ extension WindowManager {
     }
 
     /// The user closed window `id`: its workspaces move to the most recent
-    /// other window; the last window stays registered, closed, with its
-    /// workspaces (restorable by a Dock click).
+    /// other window of its kind; the last window stays registered, closed,
+    /// with its workspaces (restorable by a Dock click).
+    /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
-        transition { $0.close(id) }
+        let changes = transition { $0.close(id) }
+        discard(changes.discarded)
     }
 
     /// Reopens the last window after the user closed it (Dock click, Show
@@ -239,7 +269,17 @@ extension WindowManager {
                 seenMachine[id] = daemon.machineID
             }
         }
-        let placements = pendingClaims
+        var placements = pendingClaims
+        // A tab moved out of an incognito window into a new workspace (drag,
+        // action, CLI) keeps its kind: that workspace goes back to the
+        // incognito window it came from, never to a normal one.
+        let registered = registry.value
+        for id in live where registered.owner(of: id) == nil && placements[id] == nil {
+            let tabs = services.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? []
+            if let home = tabs.lazy.compactMap({ self.incognitoTabHomes[$0] }).first(where: { registered.window($0)?.isOpen == true }) {
+                placements[id] = home
+            }
+        }
         for id in live { pendingClaims[id] = nil }
         // A claimed workspace is selected in its window.
         let before = registry.value
@@ -256,6 +296,7 @@ extension WindowManager {
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
+        rememberIncognitoTabs()
         applyPendingPlacements(live: Set(live))
     }
 

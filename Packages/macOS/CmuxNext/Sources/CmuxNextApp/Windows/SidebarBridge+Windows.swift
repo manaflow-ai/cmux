@@ -25,7 +25,7 @@ extension SidebarBridge {
     func accept(_ ids: [SidebarWorkspaceID], at position: DropPosition?) {
         guard let state else { return }
         let before = model.sections
-        services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id)
+        guard services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id) else { return }
         if let position { place(ids, at: position, in: before) }
     }
 
@@ -43,7 +43,7 @@ extension SidebarBridge {
     /// Workspaces dragged from another window onto a group header here.
     func accept(_ ids: [SidebarWorkspaceID], intoGroup group: GroupID) {
         guard let state else { return }
-        services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id)
+        guard services.windows.moveWorkspaces(ids.map(\.rawValue), toWindow: state.id) else { return }
         handle(.move(ids, toGroup: group))
     }
 

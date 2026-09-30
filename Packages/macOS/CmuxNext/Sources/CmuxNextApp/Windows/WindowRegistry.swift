@@ -18,6 +18,13 @@ import Foundation
 /// only open one, it stays registered (closed, still owning them) so
 /// relaunch or reopen restores it.
 ///
+/// Incognito windows (user decision 2026-09-30) are their own kind: no
+/// workspace moves between an incognito window and a normal one (moves and
+/// tear-offs across kinds are refused, a tear-off from an incognito window
+/// is incognito, orphans and a closed window's workspaces go to a window of
+/// their kind only), closing one discards its workspaces instead of handing
+/// them over, and they are never saved.
+///
 /// Pure value type: every transition is a mutating method returning the
 /// `Changes` the App animates. `WindowManager` applies them to controllers.
 struct WindowRegistry: Equatable, Sendable {
@@ -50,21 +57,23 @@ struct WindowRegistry: Equatable, Sendable {
         var emptied: [String] = []
         /// Workspaces whose owner changed, by new owner.
         var moved: [String: [String]] = [:]
+        /// Workspaces of a closed incognito window: no window lists them
+        /// any more, and the caller closes them.
         var discarded: [String] = []
 
-        var isEmpty: Bool { emptied.isEmpty && moved.isEmpty }
+        var isEmpty: Bool { emptied.isEmpty && moved.isEmpty && discarded.isEmpty }
     }
 
     /// Creation order.
     private(set) var windows: [Window] = []
     /// Window ids, most recently active first.
     private(set) var recency: [String] = []
+    /// Incognito windows, registered or about to be (New Incognito Window
+    /// marks the id before its workspace is reported).
     private(set) var incognito: Set<String> = []
+    /// Workspaces of closed incognito windows until the daemons stop
+    /// reporting them: reconcile never gives them to a window.
     private(set) var discarding: Set<String> = []
-
-    func isIncognito(_ windowID: String) -> Bool { false }
-    func crossesIncognito(_ workspaceIDs: [String], to id: String) -> Bool { false }
-    mutating func markIncognito(_ id: String) {}
 
     init(windows: [Window] = []) {
         self.windows = windows
@@ -82,9 +91,20 @@ struct WindowRegistry: Equatable, Sendable {
     var openWindows: [Window] { windows.filter(\.isOpen) }
 
     /// The most recently active open window, excluding `excluded`.
-    func mostRecentOpen(excluding excluded: Set<String> = []) -> String? {
-        let open = Set(openWindows.map(\.id)).subtracting(excluded)
+    /// `incognito` picks the kind: normal windows unless true.
+    func mostRecentOpen(excluding excluded: Set<String> = [], incognito wanted: Bool = false) -> String? {
+        let open = Set(openWindows.map(\.id).filter { isIncognito($0) == wanted }).subtracting(excluded)
         return recency.first { open.contains($0) } ?? windows.first { open.contains($0.id) }?.id
+    }
+
+    func isIncognito(_ windowID: String) -> Bool { incognito.contains(windowID) }
+
+    /// True when moving `workspaceIDs` into window `id` would cross between
+    /// an incognito window and a normal one (a workspace no window lists
+    /// crosses nothing).
+    func crossesIncognito(_ workspaceIDs: [String], to id: String) -> Bool {
+        let target = isIncognito(id)
+        return workspaceIDs.contains { owner(of: $0).map { isIncognito($0) != target } ?? false }
     }
 
     /// Descriptions of broken invariants (empty when consistent).
@@ -110,10 +130,16 @@ struct WindowRegistry: Equatable, Sendable {
     /// Registers a new open window owning `workspaceIDs` (taken from their
     /// current owners) and makes it the most recent. With no workspaces
     /// nothing is registered: a window without one does not exist.
+    /// Workspaces taken from incognito windows make the new window
+    /// incognito; a mix of both kinds, or normal workspaces for a window
+    /// marked incognito, opens nothing.
     @discardableResult
     mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil) -> Changes {
         guard window(id) == nil else { return move(workspaceIDs, to: id) }
         guard !workspaceIDs.isEmpty else { return Changes() }
+        let kinds = Set(workspaceIDs.compactMap { owner(of: $0).map(isIncognito) })
+        if kinds.count > 1 || (isIncognito(id) && kinds == [false]) { return Changes() }
+        if kinds == [true] { incognito.insert(id) }
         var changes = Changes()
         let taken = detach(workspaceIDs)
         windows.append(Window(id: id, workspaceIDs: taken, frame: frame, display: display))
@@ -124,11 +150,20 @@ struct WindowRegistry: Equatable, Sendable {
     }
 
     /// The user closed `id`. Its workspaces move to the most recent other
-    /// open window; the only open window is kept, closed, with its
-    /// workspaces (it owns at least one, so it is never an empty record).
+    /// open window of its kind; the only open normal window is kept, closed,
+    /// with its workspaces (it owns at least one, so it is never an empty
+    /// record). An incognito window closes for good, and its workspaces are
+    /// `discarded`.
     @discardableResult
     mutating func close(_ id: String) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
+        if isIncognito(id) {
+            var changes = Changes()
+            changes.discarded = windows[index].workspaceIDs
+            discarding.formUnion(changes.discarded)
+            remove(id)
+            return changes
+        }
         guard let heir = mostRecentOpen(excluding: [id]) else {
             windows[index].isOpen = false
             return Changes()
@@ -146,7 +181,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// Opens the most recent closed window again (Dock click, Show cmux).
     /// Returns its id, or nil when none is closed.
     mutating func reopen() -> String? {
-        guard let id = recency.first(where: { id in window(id)?.isOpen == false }),
+        guard let id = recency.first(where: { id in window(id)?.isOpen == false && !isIncognito(id) }),
               let index = windows.firstIndex(where: { $0.id == id }) else { return nil }
         windows[index].isOpen = true
         activate(id)
@@ -170,8 +205,9 @@ struct WindowRegistry: Equatable, Sendable {
     /// Moves `workspaceIDs` into window `id`, before `anchor` when it is
     /// already there (else appended). Windows left empty close.
     @discardableResult
+    /// Nothing moves across incognito and normal windows (`crossesIncognito`).
     mutating func move(_ workspaceIDs: [String], to id: String, before anchor: String? = nil) -> Changes {
-        guard window(id) != nil, !workspaceIDs.isEmpty else { return Changes() }
+        guard window(id) != nil, !workspaceIDs.isEmpty, !crossesIncognito(workspaceIDs, to: id) else { return Changes() }
         var changes = Changes()
         let taken = detach(workspaceIDs)
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return changes }
@@ -199,10 +235,11 @@ struct WindowRegistry: Equatable, Sendable {
         for index in windows.indices {
             windows[index].workspaceIDs = windows[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
         }
-        let owned = Set(windows.flatMap(\.workspaceIDs))
+        discarding = discarding.intersection(live).subtracting(dead)
+        let owned = Set(windows.flatMap(\.workspaceIDs)).union(discarding)
         for orphan in live where !owned.contains(orphan) {
             let claimed = placements[orphan].flatMap { placementWindow($0) }
-            let heir = claimed ?? mostRecentOpen() ?? recency.first ?? register(fallbackWindow())
+            let heir = claimed ?? mostRecentOpen() ?? recency.first { !isIncognito($0) } ?? register(fallbackWindow())
             guard let index = windows.firstIndex(where: { $0.id == heir }) else { continue }
             windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [orphan], rank: rank)
             changes.moved[heir, default: []].append(orphan)
@@ -233,6 +270,13 @@ struct WindowRegistry: Equatable, Sendable {
     private mutating func remove(_ id: String) {
         windows.removeAll { $0.id == id }
         recency.removeAll { $0 == id }
+        incognito.remove(id)
+    }
+
+    /// Marks window `id` incognito: a registered window, or the id New
+    /// Incognito Window claims its first workspace for.
+    mutating func markIncognito(_ id: String) {
+        incognito.insert(id)
     }
 
     /// The window a claimed orphan goes to: its window when open, or a new

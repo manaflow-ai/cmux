@@ -64,6 +64,10 @@ extension TabDragSession {
             draggingAllOfSource: !sourceMembers.isEmpty && Set(ids).isSuperset(of: sourceMembers),
             isGroup: group != nil, screenPoint: point
         )
+        // Never across incognito and normal windows: no drop target there.
+        if case .window(let id, _) = drag.workspaceOutcome, services.windows.registry.value.crossesIncognito(ids, to: id) {
+            drag.workspaceOutcome = .cancel
+        }
         if case .window(_, .window) = drag.workspaceOutcome, highlight == nil {
             highlight = controller?.window?.frame
         }

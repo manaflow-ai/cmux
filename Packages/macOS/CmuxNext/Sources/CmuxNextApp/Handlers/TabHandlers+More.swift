@@ -35,19 +35,23 @@ extension TabHandlers {
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
+            let windows = ctx.services.windows!
+            let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             ctx.registry.track(Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
                     return "move-tab-to-new-workspace failed (see the app log)"
                 }
-                if let state = ctx.services.windows.active?.state { ctx.services.windows.claim(workspaceID: key.rawValue, in: state) }
+                windows.placeMoved(key.rawValue, from: origin, preferred: windows.active?.state, newWindow: false)
                 return nil
             })
         })
         registry.bind("tab.moveToNewWindow", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
+            let windows = ctx.services.windows!
+            let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else { return }
-                ctx.services.windows.openWindow(workspaces: [key.rawValue])
+                windows.placeMoved(key.rawValue, from: origin, preferred: nil, newWindow: true)
             }
         })
     }

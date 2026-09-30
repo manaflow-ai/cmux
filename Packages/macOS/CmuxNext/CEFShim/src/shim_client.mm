@@ -134,14 +134,14 @@ class Client : public CefClient,
 
   // MARK: Context menu
 
-  // Link items that open a Chromium window (a new window, an incognito
-  // window, another profile's window, an app window, a split view in the
-  // hidden tab strip) are removed. "Open Link in New Tab" stays: it opens a
-  // cmux tab.
+  // Link items that open a Chromium window (a new window, another profile's
+  // window, an app window, a split view in the hidden tab strip) are
+  // removed. "Open Link in New Tab" stays: it opens a cmux tab. "Open Link
+  // in Incognito Window" stays: its OFF_THE_RECORD request reaches the
+  // window request handler, and cmux opens a cmux incognito window.
   void OnBeforeContextMenu(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefContextMenuParams>,
                            CefRefPtr<CefMenuModel> model) override {
     for (int command : {50101 /* IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW */,
-                        50102 /* IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD */,
                         50108 /* IDC_CONTENT_CONTEXT_OPENLINKINPROFILE */,
                         50109 /* IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP */,
                         50111 /* IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW */,

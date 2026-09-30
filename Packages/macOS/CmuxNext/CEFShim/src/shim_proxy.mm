@@ -151,6 +151,11 @@ void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& 
   if (it != proxies().end()) it->second.state = ok ? 2 : -1;
 }
 
+void ForgetContextProxy(const std::string& key) {
+  std::lock_guard<std::mutex> lock(proxy_mutex());
+  proxies().erase(key);
+}
+
 }  // namespace cmux_shim
 
 using namespace cmux_shim;
@@ -172,6 +177,11 @@ int cmux_shim_set_context_proxy(const char* profile_cache_path, int port) {
     ApplyContextProxy(context, path);
   }
   return 1;
+}
+
+void cmux_shim_release_context(const char* profile_cache_path) {
+  if (!profile_cache_path || !*profile_cache_path) return;
+  ReleaseRequestContext(profile_cache_path);
 }
 
 int cmux_shim_context_proxy_state(const char* profile_cache_path) {

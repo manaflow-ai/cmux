@@ -175,6 +175,12 @@ final class TabDragSession: NSObject {
     func hitTest(_ point: CGPoint, drag: Drag) -> Hit {
         guard let controller = window(at: point) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
+        // A tab never crosses between an incognito window and a normal one:
+        // that window offers no drop target.
+        if let source = drag.source.window?.state.id, services.windows.isIncognito(window: source)
+            != services.windows.isIncognito(window: controller.state.id) {
+            return Hit(window: controller)
+        }
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider

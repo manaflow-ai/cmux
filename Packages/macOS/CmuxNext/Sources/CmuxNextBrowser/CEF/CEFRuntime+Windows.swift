@@ -52,7 +52,8 @@ extension CEFRuntime {
     static let newIncognitoWindowCommand: Int32 = 34001
 
     /// Where a Chromium window request goes (`CEFWindowPolicy`), applied.
-    func windowRequested(_ request: CEFWindowRequest) -> Int32 {
+    func windowRequested(_ reported: CEFWindowRequest) -> Int32 {
+        let request = resolvedStore(of: reported)
         let decision = CEFWindowPolicy.decide(request, candidates: windowCandidates(for: request))
         windowRequestLog.record(request, decision)
         logger.notice("Chromium window request kind=\(request.kind.rawValue) disposition=\(request.disposition.rawValue) source=\(request.sourceBrowser) -> \(String(describing: decision), privacy: .public)")
@@ -68,12 +69,36 @@ extension CEFRuntime {
                 Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition) }
             }
             return 0
-        case .openOffTheRecord:
+        case .openOffTheRecord(let url):
+            let source = tabsByBrowser[request.sourceBrowser]
+            // Not from inside Chromium's navigation: the App opens a window.
+            Task { @MainActor [weak self] in self?.openOffTheRecord?(url.isEmpty ? nil : URL(string: url), source) }
             return 0
         case .refuse(let refusal):
             refused(refusal, source: request.sourceBrowser)
             return 0
         }
+    }
+
+    /// The request with the store cmux knows it came from: the source tab's
+    /// store (an incognito window's in-memory context has no directory of
+    /// its own; Chromium names its parent's), else the reported directory,
+    /// which is persistent only when it is a cmux profile directory.
+    func resolvedStore(of reported: CEFWindowRequest) -> CEFWindowRequest {
+        var request = reported
+        if let host = tabsByBrowser[reported.sourceBrowser]?.host {
+            request.profilePath = storeKey(of: host.key)
+            request.persistentProfile = !host.key.offTheRecord
+        } else {
+            request.persistentProfile = storage.isPersistentProfilePath(reported.profilePath)
+        }
+        return request
+    }
+
+    /// A pane window's store, compared with request stores.
+    func storeKey(of key: CEFPaneKey) -> String {
+        let context = contextKey(for: key)
+        return key.offTheRecord ? context : Self.normalizedPath(context)
     }
 
     /// The first recorded disposition for the next tab inserted into
@@ -91,7 +116,7 @@ extension CEFRuntime {
             guard host.isLive, let anchor = host.anchorBrowser else { return nil }
             return CEFWindowCandidate(
                 anchor: anchor,
-                profilePath: Self.normalizedPath(storage.cachePath(for: host.key.profile).path),
+                profilePath: storeKey(of: host.key),
                 holdsSource: host === sourceHost,
                 lastShown: host === lastShownHost,
                 visible: host.hostView.window != nil && !host.hostView.isHiddenOrHasHiddenAncestor
@@ -110,16 +135,17 @@ extension CEFRuntime {
     func chromeWindowCommandBlocked(_ command: Int32, browser: Int32) {
         windowRequestLog.blocked(command: command)
         logger.notice("Blocked Chrome command \(command) (it opens a Chromium window)")
-        if command == Self.newIncognitoWindowCommand { refused(.offTheRecord, source: browser) }
+        if command == Self.newIncognitoWindowCommand {
+            // Chrome's New Incognito Window (Cmd-Shift-N in a page when cmux
+            // does not bind it): a new cmux incognito window.
+            Task { @MainActor [weak self] in self?.openOffTheRecord?(nil, nil) }
+        }
     }
 
     private func refused(_ refusal: CEFWindowRefusal, source: Int32) {
         switch refusal {
-        case .offTheRecord:
-            let tab = tabsByBrowser[source] ?? lastShownHost?.visibleTab
-            tab?.emit(.notice(Strings.incognitoUnavailable))
         case .noWindow:
-            break
+            logger.notice("Chromium window request from a store with no window refused (source=\(source))")
         }
     }
 

@@ -17,6 +17,9 @@ public enum CompatFrontendIntent: Sendable, Hashable {
     /// `terminal`, `agent`) for per-source notification settings; nil when
     /// the create failed.
     case noteNotification(id: UInt64?, source: String)
+    /// Throws when a tab of workspace `from` may not move into workspace
+    /// `to` (between an incognito window and a normal one).
+    case checkTabMove(fromWorkspaceID: String, toWorkspaceID: String)
 }
 
 public enum CompatBrowserOperation: Sendable, Hashable {

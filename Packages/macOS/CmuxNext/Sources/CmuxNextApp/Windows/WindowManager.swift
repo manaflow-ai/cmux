@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -70,6 +71,13 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
+    /// The incognito session's off-the-record browser profile while any
+    /// incognito window is open (`WindowManager+Incognito`).
+    var incognitoSession: BrowserProfileID?
+    /// Incognito window of each tab it lists (`rememberIncognitoTabs`).
+    var incognitoTabHomes: [String: String] = [:]
+    /// Clears what the incognito session kept in memory (omnibar history).
+    var incognitoHistoryReset: (() -> Void)?
 
     init(services: AppServices) {
         self.services = services
@@ -220,6 +228,9 @@ final class WindowManager {
         }
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
+        if registry.value.isIncognito(window.id) {
+            controller.sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
+        }
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         // A window none of whose workspaces is mirrored yet stays off screen
@@ -315,6 +326,7 @@ final class WindowManager {
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
         saveTimer.cancel()
+        await closeIncognitoWindowsForTermination()
         await saveNow()
         isTerminating = true
         membershipObservation?.cancel()

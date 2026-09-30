@@ -18,6 +18,16 @@ nonisolated extension ActionCatalog {
                 symbol: "macwindow.badge.plus", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 cliName: "app new-window", mainMenu: .window
             ),
+            // Incognito window (user decision 2026-09-30): palette, CLI,
+            // menu and a bindable shortcut with no default (Cmd-Shift-N is
+            // New Window).
+            ActionDescriptor(
+                id: "newIncognitoWindow",
+                title: String(localized: "action.newIncognitoWindow", defaultValue: "New Incognito Window", bundle: .module),
+                keywords: ["private", "incognito", "browser", "off the record"], category: .window,
+                symbol: "eyeglasses", surfaces: [.palette, .keyboard, .menu],
+                cliName: "app new-incognito-window", mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "closeWindow",
                 title: String(localized: "action.closeWindow", defaultValue: "Close Window", bundle: .module),

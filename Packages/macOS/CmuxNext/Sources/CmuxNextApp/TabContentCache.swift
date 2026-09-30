@@ -40,6 +40,11 @@ final class TabContentCache {
     /// and inline autocomplete (in memory; not persisted yet).
     let history = InMemoryBrowserHistory()
     private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
+    /// Incognito pages' omnibar history, never in `history`; replaced when
+    /// the incognito session ends.
+    var incognitoMemory = IncognitoPageMemory()
+    /// Tab `key`'s browser profile: an incognito window's, else nil (default).
+    var browserProfile: ((String) -> BrowserProfileID?)?
     private(set) var browserTabs: BrowserTabService!
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
@@ -141,11 +146,13 @@ final class TabContentCache {
 
     // MARK: Browsers
 
-    func browser(for key: String, url: URL?) -> BrowserEntry {
+    func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
-        let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+        let profile = profile ?? browserProfile?(key) ?? .default
+        let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url))
         return install(tab, for: key)
     }
+
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
 
@@ -208,7 +215,8 @@ final class TabContentCache {
     /// The Chromium configuration of `tab` showing `url`, with its
     /// remote-localhost store. A failed proxy start leaves the page blank.
     private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
-        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
+        await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(
+            id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default, initialURL: url))
     }
 
     /// `base` with the remote-localhost store of `tab` (every Chromium page a
@@ -290,7 +298,10 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
+        // An incognito page never records into or suggests from `history`.
+        let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
+        let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestionEngine,
+                                 history: incognito?.history ?? history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         onBrowserEntryCreated?(entry)

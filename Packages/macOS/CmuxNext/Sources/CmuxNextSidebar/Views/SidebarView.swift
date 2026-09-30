@@ -63,6 +63,20 @@ public final class SidebarView: NSView {
         set { list.onRenameEnded = newValue }
     }
 
+    /// A small view in the titlebar row, after the traffic lights (an
+    /// incognito window's badge). Nil removes it.
+    public var titlebarAccessory: NSView? {
+        didSet {
+            guard oldValue !== titlebarAccessory else { return }
+            oldValue?.removeFromSuperview()
+            if let titlebarAccessory {
+                titlebarAccessory.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(titlebarAccessory)
+            }
+            needsLayout = true
+        }
+    }
+
     /// Installs (or removes, with nil) the view in a footer slot.
     public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
         accessories[slot]?.removeFromSuperview()
@@ -183,6 +197,13 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
+        if let accessory = titlebarAccessory {
+            let size = accessory.fittingSize
+            let x = Metrics.trafficLightInset
+            let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
+            accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
+            accessory.isHidden = width < size.height
+        }
 
         // Footer slots.
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in

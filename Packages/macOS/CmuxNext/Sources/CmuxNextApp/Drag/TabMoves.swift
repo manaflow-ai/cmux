@@ -16,6 +16,7 @@ enum TabMoves {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
@@ -36,6 +37,7 @@ enum TabMoves {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         switch services.splitRoom(for: pane, edge: edge, movingFrom: services.locateTab(tab.id)?.1) {
         case .split:
             break
@@ -67,6 +69,7 @@ enum TabMoves {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
@@ -116,6 +119,10 @@ enum TabMoves {
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         guard services.machines.daemon(forWorkspace: workspace.id) === daemon else { return completion(false) }
+        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab.id), to: workspace.id) {
+            services.registry.refuse(RefusalStrings.incognitoMismatch)
+            return completion(false)
+        }
         let surface = tab.surface, handle = workspace.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
         services.registry.track(Task {
@@ -126,6 +133,14 @@ enum TabMoves {
             completion(ok)
             return ok ? nil : "move-tab-to-workspace failed (see the app log)"
         })
+    }
+
+    /// True (and refused with a message) when `tab` would move between an
+    /// incognito window and a normal one.
+    static func refusesIncognitoCrossing(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
+        guard services.crossesIncognito(tab, to: pane) else { return false }
+        services.registry.refuse(RefusalStrings.incognitoMismatch)
+        return true
     }
 
     // MARK: Fallbacks (daemons without tab-drag-v1)

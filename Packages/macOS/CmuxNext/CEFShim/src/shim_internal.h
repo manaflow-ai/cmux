@@ -88,6 +88,12 @@ cef_color_t BackgroundColor();
 
 // Request contexts per profile cache path.
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path);
+// Keys with this prefix name an off-the-record (in-memory) context.
+inline constexpr char kOffTheRecordPrefix[] = "cmux-otr:";
+bool IsOffTheRecordKey(const std::string& key);
+// Drops the shim's reference to the context of key (and its proxy entry).
+void ReleaseRequestContext(const std::string& key);
+void ForgetContextProxy(const std::string& key);
 // The initialized context of cache_path this launch, or null.
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path);
 

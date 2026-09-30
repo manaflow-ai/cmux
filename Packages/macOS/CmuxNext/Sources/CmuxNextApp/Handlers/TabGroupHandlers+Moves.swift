@@ -30,6 +30,9 @@ extension TabGroupHandlers {
         }
         bind("tabGroup.moveToWorkspace") { invocation in
             guard let (group, pane) = group(invocation, ctx), let workspace = ctx.workspaceArgument(invocation) else { return }
+            guard !ctx.services.windows.crossesIncognito(from: ctx.services.workspaceID(of: pane), to: workspace.id) else {
+                return ctx.refuse(RefusalStrings.incognitoMismatch)
+            }
             let screen = workspace.screens.first
             guard let target = screen?.defaultPane.flatMap({ screen?.pane($0) }) ?? screen?.panes.first
                 ?? ctx.refuse(RefusalStrings.workspaceHasNoPane(workspace.id)) else { return }
@@ -54,17 +57,15 @@ extension TabGroupHandlers {
 
     private static func moveToNewWorkspace(_ invocation: ActionInvocation, newWindow: Bool, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx), ctx.connection() != nil else { return }
+        let windows = ctx.services.windows!
+        let origin = windows.moveOrigin(of: ctx.services.workspaceID(of: pane))
         Task {
             guard let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: ctx.services,
                                                                transaction: .generate()) else {
                 ctx.services.paneController(for: pane)?.resyncStrip()
                 return
             }
-            if newWindow {
-                ctx.services.windows.openWindow(workspaces: [key.rawValue])
-            } else if let state = ctx.services.windows.active?.state {
-                ctx.services.windows.claim(workspaceID: key.rawValue, in: state)
-            }
+            windows.placeMoved(key.rawValue, from: origin, preferred: windows.active?.state, newWindow: newWindow)
         }
     }
 }

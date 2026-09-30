@@ -310,6 +310,11 @@ CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path,
 // 2 applied to the request context, 1 pending (not initialized yet),
 // 0 none, -1 Chromium refused the preference.
 CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);
+// Drops the shim's request context for profile_cache_path. A key that starts
+// with "cmux-otr:" names an off-the-record context (an empty cache path: a
+// unique in-memory profile); Chromium destroys that profile, with all of its
+// data, once no browser uses it.
+CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path);
 // Main-frame http(s) navigations of browser_id: 0 unrestricted, 1 must stay
 // loopback (a remote machine's store), 2 must not be loopback (a normal
 // store in a remote workspace). A violation is cancelled and reported as

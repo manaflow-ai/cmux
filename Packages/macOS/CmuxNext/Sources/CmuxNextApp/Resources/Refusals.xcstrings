@@ -13362,6 +13362,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.incognitoMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incognito and normal windows can't share workspaces, tabs or screens."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لنوافذ التصفح المتخفي والنوافذ العادية مشاركة مساحات العمل أو علامات التبويب أو الشاشات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimni i obični prozori ne mogu dijeliti radne prostore, kartice ni ekrane."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduer og almindelige vinduer kan ikke dele arbejdsområder, faner eller skærme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognito- und normale Fenster können keine Arbeitsbereiche, Tabs oder Bildschirme teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las ventanas de incógnito y las normales no pueden compartir espacios de trabajo, pestañas ni pantallas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les fenêtres privées et normales ne peuvent pas partager d'espaces de travail, d'onglets ni d'écrans."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le finestre in incognito e quelle normali non possono condividere spazi di lavoro, schede o schermate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シークレット ウィンドウと通常のウィンドウの間では、ワークスペース、タブ、画面を移動できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចអនាមិក និងបង្អួចធម្មតា មិនអាចចែករំលែកកន្លែងធ្វើការ ផ្ទាំង ឬអេក្រង់បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿 창과 일반 창은 작업 공간, 탭, 화면을 공유할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduer og vanlige vinduer kan ikke dele arbeidsområder, faner eller skjermer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okna incognito i zwykłe nie mogą współdzielić obszarów roboczych, kart ani ekranów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Janelas anônimas e normais não podem compartilhar espaços de trabalho, abas ou telas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окна инкогнито и обычные окна не могут делить рабочие области, вкладки и экраны."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างที่ไม่ระบุตัวตนและหน้าต่างปกติไม่สามารถใช้พื้นที่ทำงาน แท็บ หรือหน้าจอร่วมกันได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli ve normal pencereler çalışma alanlarını, sekmeleri veya ekranları paylaşamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анонімні та звичайні вікна не можуть спільно використовувати робочі простори, вкладки чи екрани."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ ẩn danh và cửa sổ thường không thể dùng chung không gian làm việc, thẻ hoặc màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕式窗口和普通窗口不能共用工作区、标签页或屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕式視窗和一般視窗無法共用工作區、分頁或畫面。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

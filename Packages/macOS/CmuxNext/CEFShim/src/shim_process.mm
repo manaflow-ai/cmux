@@ -103,6 +103,10 @@ static std::map<std::string, CefRefPtr<CefRequestContext>>& request_contexts() {
   return map;
 }
 
+bool IsOffTheRecordKey(const std::string& key) {
+  return key.rfind(kOffTheRecordPrefix, 0) == 0;
+}
+
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   auto& contexts = request_contexts();
   if (cache_path.empty()) {
@@ -113,7 +117,13 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
     return it->second;
   }
   CefRequestContextSettings settings;
-  CefString(&settings.cache_path) = cache_path;
+  // An off-the-record key (an incognito window's store) gets an empty cache
+  // path: Chrome style then makes a new, unique in-memory profile for this
+  // context, which Chromium destroys once the context and its browsers are
+  // gone (cmux_shim_release_context). Nothing of it is written to disk.
+  if (!IsOffTheRecordKey(cache_path)) {
+    CefString(&settings.cache_path) = cache_path;
+  }
   // Not persisted: in Chrome style this flag also sets the profile's
   // "restore on startup" to the last session, and with tabbed windows
   // Chromium then restores old tabs into the first new window. The daemon
@@ -126,6 +136,12 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler(cache_path));
   contexts[cache_path] = context;
   return context;
+}
+
+void ReleaseRequestContext(const std::string& key) {
+  request_contexts().erase(key);
+  initialized_contexts().erase(key);
+  ForgetContextProxy(key);
 }
 
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path) {
