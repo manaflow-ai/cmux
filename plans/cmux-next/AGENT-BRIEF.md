@@ -23,3 +23,5 @@
 - Then `git push origin HEAD:feat-cmux-next`. If rejected (someone pushed first), rebase again, re-run the gate, push again. Never force-push feat-cmux-next.
 - Keep commits self-describing (what/why, root cause for fixes, failing-test commit before the fix for regressions) since there is no PR body; end each with the Co-Authored-By trailer.
 - Report the landed commit SHAs in your final reply.
+
+- Launching a tagged build: run the binary directly so the env applies, e.g. `env -i HOME=$HOME USER=$USER TMPDIR=$TMPDIR PATH=/usr/bin:/bin:/usr/sbin:/sbin CMUX_NEXT_NO_ACTIVATE=1 CMUX_NEXT_SOCKET_MODE=automation CMUX_NEXT_TEST_WINDOW_SCREEN=last "<App>/Contents/MacOS/cmux DEV" &`. `env -i ... open -g <App>` does NOT pass the environment (no-activate is lost and the app steals focus); if you must use `open`, use `open -g --env CMUX_NEXT_NO_ACTIVATE=1 --env ...`.
