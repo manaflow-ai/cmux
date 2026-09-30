@@ -50,6 +50,9 @@ final class AppServices {
     /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
     var inputMonitor: InputInvariantMonitor!
     var inputGeometryObservers: [any NSObjectProtocol] = []
+    /// No-activate mode only: gives back a keyboard the user did not give.
+    var keyboardGuard: NoActivateKeyboardGuard?
+    var keyboardGuardObservers: [any NSObjectProtocol] = []
     /// Hook statuses shown in sidebar rows (`set_status`).
     let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -176,6 +179,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         startInputVerification()
+        startNoActivateGuard()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }

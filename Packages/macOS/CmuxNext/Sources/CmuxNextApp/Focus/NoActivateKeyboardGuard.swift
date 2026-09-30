@@ -33,7 +33,11 @@ final class NoActivateKeyboardGuard {
     /// Input this recent counts as the user choosing the app.
     static let userInputWindow: Duration = .seconds(1)
 
+    /// Most recent give-backs (bounded), for `debug.focus`.
     private(set) var giveBacks: [GiveBack] = []
+    /// Every give-back since launch.
+    var giveBackCount: Int { totalGiveBacks }
+    private var totalGiveBacks = 0
     private(set) var previousApp: pid_t?
     private let host: any Host
     private let onGiveBack: (GiveBack) -> Void
@@ -44,13 +48,53 @@ final class NoActivateKeyboardGuard {
         self.onGiveBack = onGiveBack
     }
 
+    private var lastUserInput: ContinuousClock.Instant?
+
     /// Another app became frontmost: that is where the keyboard goes back.
-    func otherAppActivated(_ pid: pid_t) {}
+    func otherAppActivated(_ pid: pid_t) { previousApp = pid }
 
     /// A key press or mouse press reached this app.
-    func userInput() {}
+    func userInput() { lastUserInput = host.now }
 
-    func appDidBecomeActive() {}
+    func appDidBecomeActive() { check(.appActivated) }
 
-    func windowDidBecomeKey() {}
+    /// A window became key. Only an active app holds the keyboard, so a key
+    /// window in an inactive app is left alone.
+    func windowDidBecomeKey() { check(.windowKey) }
+
+    /// The user chose this app: a click on its window (the mouse is still
+    /// down at activation), Cmd-Tab (Command held), or input this recent.
+    private var userIntends: Bool {
+        if host.mouseButtonDown || host.commandHeld { return true }
+        guard let lastUserInput else { return false }
+        return host.now - lastUserInput <= Self.userInputWindow
+    }
+
+    private func check(_ trigger: Trigger) {
+        guard host.isAppActive, !userIntends else { return }
+        let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousApp)
+        host.giveActivationBack(to: previousApp)
+        giveBacks.append(giveBack)
+        totalGiveBacks += 1
+        if giveBacks.count > 32 { giveBacks.removeFirst() }
+        onGiveBack(giveBack)
+    }
+}
+
+/// The AppKit host: global input state and cooperative activation.
+@MainActor
+final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
+    var mouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
+    var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
+    var isAppActive: Bool { NSApp.isActive }
+    var now: ContinuousClock.Instant { .now }
+
+    func giveActivationBack(to app: pid_t?) {
+        if let app, let running = NSRunningApplication(processIdentifier: app), !running.isTerminated {
+            NSApp.yieldActivation(to: running)
+            running.activate(from: .current, options: [])
+        }
+        // With no app to hand to (or if it refused), step aside anyway.
+        NSApp.deactivate()
+    }
 }
