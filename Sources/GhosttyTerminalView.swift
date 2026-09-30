@@ -4032,6 +4032,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
+    /// The terminal cell the GitHub-reference hover answer below was computed
+    /// for. Pointer motion inside one cell cannot change the answer, and the
+    /// line read behind it is far too expensive to repeat on every event.
+    ///
+    /// Content scrolling under a stationary pointer does go stale. Landing on
+    /// another cell recomputes it and every event with cmd up clears it, so the
+    /// window is one continuous cmd-hold. Motion inside a single cell does not
+    /// correct it, which is where this is more tolerant than the path hover:
+    /// that one re-resolves on every event.
+    private var gitHubHoverCell: (row: Int, column: Int)?
+    /// The memoized answer for ``gitHubHoverCell``.
+    private var gitHubHoverActive = false
+    /// The directory a background repository lookup is out for, so a pointer
+    /// resting over a reference starts one lookup rather than one per event.
+    private var gitHubHoverWarmupDirectory: String?
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
@@ -8563,6 +8578,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 wordPathHoverActive = false
                 NSCursor.pop()
             }
+            // The next cmd-hover must decide afresh: the line under this cell
+            // may have changed entirely while cmd was up.
+            gitHubHoverCell = nil
+            gitHubHoverActive = false
 #if DEBUG
             if cmdHeld || suppressPathHover || hoverWasActive {
                 runtimeDebugLog(
@@ -8583,7 +8602,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let resolution = resolveWordUnderCursorPath(at: point)
+        // A path wins when there is one, so a file named `#1` still opens as a
+        // file. Only text that resolves to nothing on disk is offered to
+        // GitHub, which is the same order cmd-click itself uses.
+        //
+        // `||` short circuits, so a cell that resolves to a path never reaches
+        // the GitHub memo below. That memo is a single slot keyed by cell and
+        // is only invalidated by being overwritten, so crossing a path-bearing
+        // cell would leave an earlier cell's answer in it: come back to that
+        // cell after the line scrolled and the cursor uses the stale answer.
+        // Clearing it here keeps the saving the short circuit exists for.
         if resolution != nil {
+            gitHubHoverCell = nil
+            gitHubHoverActive = false
+        }
+        let hasTarget = resolution != nil || gitHubReferenceIsUnderPointer(at: point)
+        if hasTarget {
             if !wordPathHoverActive {
                 wordPathHoverActive = true
                 NSCursor.pointingHand.push()
@@ -8721,7 +8755,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+    /// The terminal cell a view point falls in, counted from the top of the
+    /// surface.
+    ///
+    /// Separate from ``visibleWordPathSnapshot(at:panel:)`` because it reads
+    /// nothing but geometry: callers that only need to know whether the pointer
+    /// moved to a different cell must not pay for a terminal text read.
+    private func pointerCell(at point: NSPoint) -> (row: Int, column: Int)? {
         guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
@@ -8730,22 +8770,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+        let yFromTop = bounds.height - point.y
+        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
+        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
+        return (rowFromTop, column)
+    }
+
+    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+        guard let surface, let cell = pointerCell(at: point) else { return nil }
+        let rows = max(Int(ghostty_surface_size(surface).rows), 1)
+
         let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
             terminalPanel: panel,
             lineLimit: max(200, rows * 4)
         ) ?? ""
         let visibleLines = visibleText.visibleLines(rows: rows)
         let rowOffset = max(0, rows - visibleLines.count)
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
 
-        let yFromTop = bounds.height - point.y
-        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
-        let visibleRow = rowFromTop - rowOffset
+        let visibleRow = cell.row - rowOffset
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
-
-        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        return (visibleLines[visibleRow], column)
+        return (visibleLines[visibleRow], cell.column)
     }
 
     private func resolveVisibleWordPath(
@@ -8943,6 +8989,104 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return resolution
     }
 
+    /// Whether the pointer is over a GitHub reference that a cmd-click would
+    /// open, so the pane can offer the same affordance it offers for paths.
+    ///
+    /// Answers from ``GitHubRepositorySlugCache`` synchronously. A bare `#123`
+    /// needs the pane's repository, and reading `git` on the main thread once
+    /// per pointer event is not an option, so an unresolved directory starts a
+    /// background lookup and reports nothing this time; the lookup re-runs the
+    /// hover when it lands, so the cursor still appears without the user having
+    /// to move again.
+    private func gitHubReferenceIsUnderPointer(at point: NSPoint?) -> Bool {
+        guard let resolvedPoint = preferredPointerPoint(from: point),
+              let cell = pointerCell(at: resolvedPoint) else {
+            gitHubHoverCell = nil
+            gitHubHoverActive = false
+            return false
+        }
+        if let memoized = gitHubHoverCell, memoized == cell { return gitHubHoverActive }
+
+        gitHubHoverCell = cell
+        gitHubHoverActive = false
+
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              let panel = wordPathSnapshotTerminalPanel(
+                  workspace: workspace,
+                  terminalSurface: termSurface
+              ),
+              let snapshot = visibleWordPathSnapshot(at: resolvedPoint, panel: panel) else { return false }
+
+        let policy = TerminalGitHubReferenceClickPolicy()
+        switch policy.decision(
+            runtimeOutcome: .unhandled,
+            inVisibleLine: snapshot.line,
+            column: snapshot.column
+        ) {
+        case .ignore:
+            return false
+        case .open:
+            gitHubHoverActive = true
+            return true
+        case .resolveRepository:
+            guard let cwd = resolvedWordPathWorkingDirectory(
+                workspace: workspace,
+                terminalSurface: termSurface
+            ) else { return false }
+
+            switch GitHubRepositorySlugCache.shared.cachedSlug(forDirectory: cwd) {
+            case .resolved(let slug):
+                guard case .open = policy.decision(
+                    inVisibleLine: snapshot.line,
+                    column: snapshot.column,
+                    repositorySlug: slug
+                ) else { return false }
+                gitHubHoverActive = true
+                return true
+            case .unresolved:
+                warmRepositorySlug(forDirectory: cwd)
+                return false
+            }
+        }
+    }
+
+    /// Resolves a directory's repository in the background, then re-runs the
+    /// hover so the affordance appears under a pointer that never moved.
+    ///
+    /// One lookup at a time: a pointer resting over a reference would otherwise
+    /// start one per event, and while the cache folds them into a single `git`
+    /// call, the tasks themselves are not free.
+    private func warmRepositorySlug(forDirectory directory: String) {
+        guard gitHubHoverWarmupDirectory != directory else { return }
+        gitHubHoverWarmupDirectory = directory
+
+        Task { @MainActor [weak self] in
+            _ = await GitHubRepositorySlugCache.shared.slug(forDirectory: directory)
+            guard let self else { return }
+            self.gitHubHoverWarmupDirectory = nil
+            self.gitHubHoverCell = nil
+            // The only asynchronous way back into the hover, so it has to
+            // re-establish by hand everything a pointer event would have
+            // carried. Modifier state alone is not enough: the pointer may
+            // have left the view or the pane may have been closed while git
+            // ran, and `updateWordPathHover` falls back to the last in-bounds
+            // point it saw, so it would happily push a pointing hand that
+            // nothing is left to pop. The selection check is the one every
+            // synchronous caller makes, so a lookup landing mid cmd-drag does
+            // not light the affordance over a selection either.
+            let flags = NSEvent.modifierFlags
+            guard flags.contains(.command),
+                  let point = self.currentMousePointInView(),
+                  self.pointIsUsableForWordResolution(point) else { return }
+            self.updateWordPathHover(
+                at: point,
+                cmdHeld: true,
+                suppressPathHover: self.shouldSuppressCommandPathHover(for: flags)
+            )
+        }
+    }
+
     /// Opens the GitHub issue, pull request, or commit named under the pointer
     /// when no local path resolved there.
     ///
@@ -9128,6 +9272,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "hoverActive": wordPathHoverActive ? "1" : "0",
             "suppressed": suppressCommandPathHover ? "1" : "0"
         ]
+        // The GitHub half of the answer, and the cell it was computed for, so a
+        // tour can walk path cell -> reference cell -> path cell and see the
+        // memo follow the pointer instead of trailing a cell behind it.
+        payload["gitHubHoverActive"] = gitHubHoverActive ? "1" : "0"
+        if let hoverCell = gitHubHoverCell {
+            payload["gitHubHoverCell"] = "\(hoverCell.row),\(hoverCell.column)"
+        }
         if let resolution {
             payload["resolvedPath"] = resolution.path
             payload["resolutionSource"] = resolution.source.rawValue

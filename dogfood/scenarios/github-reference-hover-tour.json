@@ -1,0 +1,209 @@
+{
+  "paths": [
+    "Sources/TerminalLinkOpenCoordinator.swift",
+    "Sources/Ghostty*",
+    "Sources/*Terminal*Link*",
+    "Packages/macOS/CmuxTerminalCore/*",
+    "Packages/macOS/CmuxGit/*"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "bare-ref hover",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/bare/.git/objects /tmp/cmux-ref-hover/bare/.git/refs/heads && cd /tmp/cmux-ref-hover/bare && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \\\"origin\\\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo '#15221 #15221 #15221 #15221 #15221 #15221 #15221 #15221 '; done\n",
+        "focus": true
+      },
+      "save": "bare"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "01-bare-ref-hover",
+      "screen": true
+    },
+    {
+      "tree": "01-bare-ref-hover"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "bare-ref negative",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/bare-negative/.git/objects /tmp/cmux-ref-hover/bare-negative/.git/refs/heads && cd /tmp/cmux-ref-hover/bare-negative && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \\\"origin\\\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo 'nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all '; done\n",
+        "focus": true
+      },
+      "save": "bare-negative"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "01-negative-ordinary-word-hover",
+      "screen": true
+    },
+    {
+      "tree": "01-negative-ordinary-word-hover"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "slug-ref hover",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/slug && cd /tmp/cmux-ref-hover/slug && clear; for i in $(seq 60); do echo 'manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 '; done\n",
+        "focus": true
+      },
+      "save": "slug"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "02-slug-ref-hover",
+      "screen": true
+    },
+    {
+      "tree": "02-slug-ref-hover"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "slug-ref negative",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/slug-negative/.git/objects /tmp/cmux-ref-hover/slug-negative/.git/refs/heads && cd /tmp/cmux-ref-hover/slug-negative && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \\\"origin\\\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo 'nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all '; done\n",
+        "focus": true
+      },
+      "save": "slug-negative"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "02-negative-ordinary-word-hover",
+      "screen": true
+    },
+    {
+      "tree": "02-negative-ordinary-word-hover"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "commit-ref hover",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/commit/.git/objects /tmp/cmux-ref-hover/commit/.git/refs/heads && cd /tmp/cmux-ref-hover/commit && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \\\"origin\\\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo '9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f '; done\n",
+        "focus": true
+      },
+      "save": "commit"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "03-commit-ref-hover",
+      "screen": true
+    },
+    {
+      "tree": "03-commit-ref-hover"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "commit-ref negative",
+        "initial_input": "mkdir -p /tmp/cmux-ref-hover/commit-negative/.git/objects /tmp/cmux-ref-hover/commit-negative/.git/refs/heads && cd /tmp/cmux-ref-hover/commit-negative && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \\\"origin\\\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo 'nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all nothing-at-all '; done\n",
+        "focus": true
+      },
+      "save": "commit-negative"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "03-negative-ordinary-word-hover",
+      "screen": true
+    },
+    {
+      "tree": "03-negative-ordinary-word-hover"
+    }
+  ]
+}

@@ -214,4 +214,88 @@ import Testing
         #expect(await cache.slug(forDirectory: "/work") == "manaflow-ai/cmux")
         #expect(await recorder.callCount == 2)
     }
+
+    // MARK: Synchronous reads
+
+    /// Pointer motion runs on the main thread many times a second and cannot
+    /// await an actor, so hover needs to ask "do we already know?" without
+    /// suspending. Before anything is resolved the honest answer is "no", not
+    /// "there is no repository": those two must not look the same, or a hover
+    /// arriving before the first lookup would decide there is nothing to click.
+    @Test func aDirectoryNobodyHasAskedAboutReadsAsUnresolved() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: ["/work": "manaflow-ai/cmux"])
+        let cache = GitHubRepositorySlugCache { await recorder.discover($0) }
+
+        #expect(cache.cachedSlug(forDirectory: "/work") == .unresolved)
+        #expect(await recorder.callCount == 0)
+    }
+
+    @Test func aResolvedDirectoryReadsSynchronously() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: ["/work": "manaflow-ai/cmux"])
+        let cache = GitHubRepositorySlugCache { await recorder.discover($0) }
+
+        _ = await cache.slug(forDirectory: "/work")
+        #expect(cache.cachedSlug(forDirectory: "/work") == .resolved("manaflow-ai/cmux"))
+    }
+
+    /// A pane with no GitHub remote is a resolved answer, not an unresolved
+    /// one, or every pointer event there would keep asking.
+    @Test func aResolvedMissReadsAsResolvedNil() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: [:])
+        let cache = GitHubRepositorySlugCache { await recorder.discover($0) }
+
+        _ = await cache.slug(forDirectory: "/plain")
+        #expect(cache.cachedSlug(forDirectory: "/plain") == .resolved(nil))
+    }
+
+    @Test func anExpiredEntryReadsAsUnresolved() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: ["/work": "manaflow-ai/cmux"])
+        let clock = TestClock()
+        let cache = GitHubRepositorySlugCache(
+            entryLifetime: .seconds(600),
+            discover: { await recorder.discover($0) },
+            now: clock.now
+        )
+
+        _ = await cache.slug(forDirectory: "/work")
+        clock.advance(by: .seconds(599))
+        #expect(cache.cachedSlug(forDirectory: "/work") == .resolved("manaflow-ai/cmux"))
+
+        clock.advance(by: .seconds(2))
+        #expect(cache.cachedSlug(forDirectory: "/work") == .unresolved)
+    }
+
+    /// The synchronous mirror has to be invalidated with everything else, or a
+    /// hover would keep drawing an affordance from an answer the actor has
+    /// already thrown away.
+    @Test func removeAllClearsTheSynchronousReadToo() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: ["/work": "manaflow-ai/cmux"])
+        let cache = GitHubRepositorySlugCache { await recorder.discover($0) }
+
+        _ = await cache.slug(forDirectory: "/work")
+        #expect(cache.cachedSlug(forDirectory: "/work") == .resolved("manaflow-ai/cmux"))
+
+        await cache.removeAll()
+        #expect(cache.cachedSlug(forDirectory: "/work") == .unresolved)
+    }
+
+    /// An invalidation mid-lookup must not repopulate the mirror when that
+    /// lookup lands, for the same reason it must not repopulate the actor.
+    @Test func removeAllDuringAnInFlightLookupLeavesTheMirrorEmpty() async {
+        let recorder = DiscoveryRecorder(slugsByDirectory: ["/work": "old/name"])
+        let gate = DiscoveryGate()
+        let cache = GitHubRepositorySlugCache { directory in
+            await gate.signalStarted()
+            await gate.waitUntilReleased()
+            return await recorder.discover(directory)
+        }
+
+        async let firstSlug = cache.slug(forDirectory: "/work")
+        await gate.waitUntilStarted()
+        await cache.removeAll()
+        await gate.release()
+        #expect(await firstSlug == "old/name")
+
+        #expect(cache.cachedSlug(forDirectory: "/work") == .unresolved)
+    }
 }
