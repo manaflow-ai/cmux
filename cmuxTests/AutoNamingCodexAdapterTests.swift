@@ -56,6 +56,21 @@ import Testing
         #expect(messages[0].text == "Actual user question about flaky tests")
     }
 
+    @Test func htmlLikeConversationTextIsNotMistakenForInjectedContext() {
+        let lines = [
+            messageLine(role: "user", content: "<Button> does not render in dark mode"),
+            messageLine(role: "user", content: "</div> is unbalanced in this file"),
+            messageLine(role: "assistant", content: "<environment_context> is the wrapper I found")
+        ]
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+
+        #expect(messages == [
+            AutoNamingTranscriptMessage(role: "user", text: "<Button> does not render in dark mode"),
+            AutoNamingTranscriptMessage(role: "user", text: "</div> is unbalanced in this file"),
+            AutoNamingTranscriptMessage(role: "assistant", text: "<environment_context> is the wrapper I found")
+        ])
+    }
+
     @Test func missingOrEmptyRolloutYieldsNoContext() {
         #expect(engine.extractCodexMessages(fromRolloutLines: []).isEmpty)
         let onlyNoise = [
