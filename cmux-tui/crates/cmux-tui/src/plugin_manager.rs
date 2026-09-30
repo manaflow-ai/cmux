@@ -55,6 +55,15 @@ impl PluginKind {
             Self::Agent => "agent_plugin_",
         }
     }
+
+    /// Resource noun named by `validation.invalid` errors about the selected
+    /// plugin, matching the `sidebar_plugin.*` operations in the resource spec.
+    fn resource_field(self) -> &'static str {
+        match self {
+            Self::Sidebar => "sidebar_plugin",
+            Self::Agent => "agent_plugin",
+        }
+    }
 }
 
 /// A userland plugin build must not hold the CLI forever.
@@ -353,12 +362,14 @@ fn update_command(
     let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
         ManagerError::validation(
-            Some("plugin"),
+            Some(kind.resource_field()),
             format!("plugin {} has no readable origin remote", plugin.name),
         )
     })?;
     validate_git_source(&source)
-        .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
+        .map_err(|error| {
+            ManagerError::validation(Some(kind.resource_field()), error.to_string())
+        })?;
 
     // Build and validate a fresh clone before touching the active install.
     // Updating in place would let a failed pull or build leave the selected
@@ -631,17 +642,21 @@ fn resolve_installed_plugin(
     let by_id = forced_name.is_none() && selector.starts_with(kind.id_prefix());
     if by_id {
         validate_plugin_id_for(selector, kind)
-            .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
+            .map_err(|error| {
+                ManagerError::validation(Some(kind.resource_field()), error.to_string())
+            })?;
     } else {
         validate_plugin_name(selector)
-            .map_err(|error| ManagerError::validation(Some("plugin"), error.to_string()))?;
+            .map_err(|error| {
+                ManagerError::validation(Some(kind.resource_field()), error.to_string())
+            })?;
     }
     installed_plugins(kind)?
         .into_iter()
         .find(|plugin| if by_id { plugin.id == selector } else { plugin.name == selector })
         .ok_or_else(|| {
             ManagerError::validation(
-                Some("plugin"),
+                Some(kind.resource_field()),
                 format!("plugin {selector:?} is not installed"),
             )
         })
