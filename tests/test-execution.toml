@@ -617,6 +617,10 @@ path = "tests/test_ci_sidebar_lazy_layout_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cli_contract_verb_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
@@ -710,6 +714,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_lint_feature_flags_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_lead_time.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_drift_issue.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1399,14 +1411,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_admission_placement.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_catch_up_pr.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_auto_catch_up_select.py"
 lane = "linux-guard"
 
 [[test]]
