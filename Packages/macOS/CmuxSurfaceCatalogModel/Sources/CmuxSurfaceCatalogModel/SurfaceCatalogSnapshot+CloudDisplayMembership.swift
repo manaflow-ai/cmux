@@ -4,7 +4,8 @@ extension SurfaceCatalogSnapshot {
     /// Returns the machine pool plus one presentation copy for every accepted
     /// display/workspace membership. The copies retain the same resource id and
     /// are used only by workspace rows and groups; the pool remains one row per
-    /// discovered display resource.
+    /// discovered display resource. A copy contains only its frontend views, so
+    /// an existing daemon display tab is not emitted a second time.
     public func cloudWorkspaceResources(on machine: SurfaceMachineID) -> [SurfaceResource] {
         let base = resources(on: machine)
         let byID = Dictionary(base.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -31,8 +32,8 @@ extension SurfaceCatalogSnapshot {
                 )
             }
             guard !views.isEmpty else { continue }
-            placed.remoteViews = (baseResource.remoteViews ?? []) + views
-            placed.remoteWorkspace = placed.remoteViews?.first?.workspace
+            placed.remoteViews = views
+            placed.remoteWorkspace = views.first?.workspace
             result.append(placed)
         }
         return result

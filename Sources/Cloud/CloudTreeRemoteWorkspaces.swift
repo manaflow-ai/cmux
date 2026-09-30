@@ -35,6 +35,19 @@ enum CloudTreeRemoteWorkspaceLookup: Equatable {
 }
 
 extension CloudTreeNodeBuilder {
+    static func hasCloudDisplayMembershipProjection(
+        _ projection: SurfaceProjection,
+        snapshot: SurfaceCatalogSnapshot,
+        workspaceID: String
+    ) -> Bool {
+        projection.resource.kind == .display && projection.remoteTabID == nil
+            && snapshot.cloudDisplayMemberships.contains {
+                $0.machine == projection.resource.machine
+                    && $0.displayID == projection.resource.key
+                    && $0.workspaceID == workspaceID
+            }
+    }
+
     /// Every cmux-tui workspace on a machine, in the daemon's order: the ones the
     /// machine itself reports (including empty workspaces needed by lookup and
     /// persistence) plus any that a resource's views name before the machine list

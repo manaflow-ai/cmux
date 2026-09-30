@@ -18,9 +18,13 @@ struct CloudDisplayMembershipProjectionTests {
         revision: Int,
         memberships: [[String: Any]] = [],
         display: String = "display:1",
-        generation: String = "membership"
+        generation: String = "membership",
+        frontendID: String = CloudVMDisplayMembership.projectionFrontendID,
+        projectionGeneration: String = CloudVMDisplayMembership.projectionGeneration,
+        windowID: String? = nil,
+        sessionID: String? = nil
     ) -> [String: Any] {
-        [
+        var snapshot: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": [["id": workspaceID, "name": "Cloud", "index": 0, "focused": true]],
             "screens": [["id": "screen_cloud", "workspace_id": workspaceID]],
@@ -33,9 +37,9 @@ struct CloudDisplayMembershipProjectionTests {
             "frontend_projections": [[
                 "id": "projection_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "session_id": "session_cloud",
-                "frontend_id": "cmux-macos-cloud-layout-v1",
-                "window_id": "cloud-workspace",
-                "generation": "cmux-cloud-display-layout-v1",
+                "frontend_id": frontendID,
+                "window_id": windowID ?? CloudVMDisplayMembership.projectionWindowID(machine: machine, workspaceID: workspaceID),
+                "generation": projectionGeneration,
                 "projection_revision": "\(revision)",
                 "projection": [
                     "schema": "cmux.cloud.workspace-displays.v1",
@@ -46,6 +50,10 @@ struct CloudDisplayMembershipProjectionTests {
             ]],
             "display_hint": display,
         ]
+        if let sessionID {
+            snapshot["session"] = ["id": sessionID]
+        }
+        return snapshot
     }
 
     private func state(
@@ -98,6 +106,32 @@ struct CloudDisplayMembershipProjectionTests {
         }
     }
 
+    @Test("Workspace open retains the exact synthetic display membership identity")
+    func workspaceGroupResolvesMembershipView() throws {
+        let accepted = try state()
+        let catalog = SurfaceCatalog()
+        catalog.replaceCloudState(accepted, resources: resources(accepted), info: info(accepted))
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspaceID)
+        let display = try #require(group.placements.first { $0.resource.kind == .display })
+        #expect(display.cloudDisplayMembershipViewID == "panel-a")
+        let view = try #require(catalog.remoteView(for: display, fallbackWorkspaceID: workspaceID))
+        #expect(view.isCloudDisplayMembershipView)
+        #expect(view.cloudDisplayMembershipViewID == "panel-a")
+    }
+
+    @Test("Installing a newer snapshot replaces membership rows without touching the display pool")
+    func catalogSnapshotRefreshReconcilesMembership() throws {
+        let initial = try state()
+        let catalog = SurfaceCatalog()
+        catalog.replaceCloudState(initial, resources: resources(initial), info: info(initial))
+        #expect(catalog.snapshot.cloudDisplayMemberships.count == 1)
+        let next = try state(revision: 2, memberships: [])
+        catalog.replaceCloudState(next, resources: resources(next), info: info(next))
+        #expect(catalog.snapshot.cloudDisplayMemberships.isEmpty)
+        #expect(catalog.snapshot.resources(on: machine).filter { $0.kind == .display }.count == 1)
+        #expect(catalog.snapshot.cloudWorkspaceResources(on: machine).filter { $0.id.key == displayID }.count == 1)
+    }
+
     @Test("Foreign and unknown display provenance stays out of workspace membership")
     func ownershipIsCheckedAtProjectionBoundary() throws {
         let state = try state(memberships: [
@@ -112,6 +146,19 @@ struct CloudDisplayMembershipProjectionTests {
         #expect(workspaceResources.filter { $0.id.key == displayID }.count == 2)
         #expect(workspaceResources.last?.remoteViews?.first?.isCloudDisplayMembershipView == true)
         #expect(!workspaceResources.contains { $0.id.key == "display:99" })
+    }
+
+    @Test("Frontend provenance fences reject rows from another client implementation")
+    func rejectsForeignProjectionProvenance() throws {
+        for mutation in [
+            ("frontend", document(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-a", "view_id": "panel-a"]], frontendID: "other-frontend")),
+            ("generation", document(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-a", "view_id": "panel-a"]], projectionGeneration: "old-generation")),
+            ("window", document(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-a", "view_id": "panel-a"]], windowID: "cloud-workspace:other-vm:ws_cloud")),
+            ("session", document(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-a", "view_id": "panel-a"]], sessionID: "other-session")),
+        ] {
+            let parsed = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: mutation.1, machine: machine))
+            #expect(parsed.displayMemberships.isEmpty, "\(mutation.0) provenance must not enter the accepted state")
+        }
     }
 
     @Test("Revision updates replace display membership and stale deltas cannot win")

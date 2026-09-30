@@ -22,15 +22,41 @@ extension CloudPlacementCoordinator {
                   latest.resource == projection.resource else { return false }
             let old = self.localDisplayMemberships[projection.panelID]
             let next = latest.remoteWorkspaceID
+            var attachedNext = false
             if let old, old != next {
-                try await provider.syncCloudDisplayMembership(
-                    displayID: projection.resource.key,
-                    workspaceID: old,
-                    panelID: projection.panelID,
-                    attached: false
-                )
+                // Each workspace has its own projection row, so a move cannot
+                // be one backend transaction. Attach first to keep the old
+                // placement live if the new write fails; compensate on a
+                // failed detach so a transient move never loses membership.
+                if let next {
+                    try await provider.syncCloudDisplayMembership(
+                        displayID: projection.resource.key,
+                        workspaceID: next,
+                        panelID: projection.panelID,
+                        attached: true
+                    )
+                    attachedNext = true
+                }
+                do {
+                    try await provider.syncCloudDisplayMembership(
+                        displayID: projection.resource.key,
+                        workspaceID: old,
+                        panelID: projection.panelID,
+                        attached: false
+                    )
+                } catch {
+                    if let next {
+                        try? await provider.syncCloudDisplayMembership(
+                            displayID: projection.resource.key,
+                            workspaceID: next,
+                            panelID: projection.panelID,
+                            attached: false
+                        )
+                    }
+                    throw error
+                }
             }
-            if let next {
+            if let next, !attachedNext {
                 try await provider.syncCloudDisplayMembership(
                     displayID: projection.resource.key,
                     workspaceID: next,

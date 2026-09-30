@@ -6,10 +6,6 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
-    private static let displayMembershipSchema = "cmux.cloud.workspace-displays.v1"
-    private static let displayMembershipFrontend = "cmux-macos-cloud-layout-v1"
-    private static let displayMembershipGeneration = "cmux-cloud-display-layout-v1"
-
     func syncCloudDisplayMembership(
         displayID: String,
         workspaceID: String,
@@ -27,7 +23,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
         let clientID = CloudTuiClientPaths().notificationClientID()
         let viewID = panelID.uuidString.lowercased()
         let projectionID = Self.displayMembershipProjectionID(machine: machine, workspaceID: workspaceID)
-        let windowID = "cloud-workspace:\(machine.rawValue):\(workspaceID)"
+        let windowID = CloudVMDisplayMembership.projectionWindowID(machine: machine, workspaceID: workspaceID)
         let idempotencyKey = "cmux-cloud-display-membership-\(UUID().uuidString.lowercased())"
         var lastError: Error?
         for _ in 0..<4 {
@@ -41,7 +37,10 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             guard state.workspaceIDs.contains(workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound("workspace \(workspaceID) on \(machine.rawValue)")
             }
-            var memberships = Set(state.displayMemberships.filter { $0.workspaceID == workspaceID })
+            let knownDisplayIDs = Set(catalog.resources.keys.filter { $0.machine == machine && $0.kind == .display }.map(\.key))
+            var memberships = Set(state.displayMemberships.filter {
+                $0.workspaceID == workspaceID && knownDisplayIDs.contains($0.displayID)
+            })
             let token = CloudVMDisplayMembership(
                 machine: machine,
                 workspaceID: workspaceID,
@@ -52,10 +51,12 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             if attached { memberships.insert(token) } else { memberships.remove(token) }
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
-            let previousMemberships = Set(state.displayMemberships.filter { $0.workspaceID == workspaceID })
+            let previousMemberships = Set(state.displayMemberships.filter {
+                $0.workspaceID == workspaceID && knownDisplayIDs.contains($0.displayID)
+            })
             if row != nil, memberships == previousMemberships { return }
             let projection: [String: Any] = [
-                "schema": Self.displayMembershipSchema,
+                "schema": CloudVMDisplayMembership.projectionSchema,
                 "machine_id": machine.rawValue,
                 "workspace_id": workspaceID,
                 "memberships": memberships.sorted {
@@ -69,9 +70,9 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             let expected = row.flatMap { CloudWireNumber.unsigned($0["projection_revision"]) }
             let request = CloudTuiRequests.putCloudDisplayMembershipProjection(
                 projectionID: projectionID,
-                frontendID: Self.displayMembershipFrontend,
+                frontendID: CloudVMDisplayMembership.projectionFrontendID,
                 windowID: windowID,
-                generation: Self.displayMembershipGeneration,
+                generation: CloudVMDisplayMembership.projectionGeneration,
                 projection: projection,
                 expectedProjectionRevision: expected,
                 idempotencyKey: idempotencyKey
@@ -89,7 +90,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     private static func displayMembershipProjectionID(machine: SurfaceMachineID, workspaceID: String) -> String {
-        let input = Data("\(machine.rawValue)/\(workspaceID)/\(displayMembershipSchema)".utf8)
+        let input = Data("\(machine.rawValue)/\(workspaceID)/\(CloudVMDisplayMembership.projectionSchema)".utf8)
         let digest = SHA256.hash(data: input)
         return "projection_" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }

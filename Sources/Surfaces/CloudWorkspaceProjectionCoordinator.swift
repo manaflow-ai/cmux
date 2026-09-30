@@ -74,6 +74,24 @@ final class CloudWorkspaceProjectionCoordinator {
         }
     }
 
+    /// Applies the catalog's known display inventory to the graph check. A
+    /// frontend row can carry a syntactically valid `display:*` value that is
+    /// no longer an exposed display after reconnect; that row must not retain
+    /// or recreate a local pane.
+    func retainsProjection(
+        _ projection: SurfaceProjection,
+        in state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) -> Bool {
+        guard retainsProjection(projection, in: state) else { return false }
+        guard projection.resource.kind == .display, projection.remoteTabID == nil else { return true }
+        return catalog.cloudDisplayMemberships().contains {
+            $0.machine == projection.resource.machine
+                && $0.displayID == projection.resource.key
+                && $0.workspaceID == projection.remoteWorkspaceID
+        }
+    }
+
     func cancel(machine: SurfaceMachineID) {
         tasks.removeValue(forKey: machine)?.task.cancel()
         requested.remove(machine)
@@ -118,8 +136,10 @@ final class CloudWorkspaceProjectionCoordinator {
                         if !Task.isCancelled { requested.insert(machine) }
                         return
                     }
-                    let view = try catalog.remoteView(for: placement.resource, tabID: placement.remoteTabID,
-                                                      workspaceID: placement.remoteTabID == nil ? nil : remoteID)
+                    let view = try catalog.remoteView(
+                        for: placement,
+                        fallbackWorkspaceID: remoteID
+                    )
                     _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }
