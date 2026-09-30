@@ -34,7 +34,7 @@ final class TabGroupEditorController {
 }
 
 /// Liquid Glass bubble: name field, color swatches, and group actions.
-final class TabGroupEditorPanel: NSPanel, NSTextFieldDelegate {
+final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onCommand: ((TabGroupCommand) -> Void)?
     var onClose: (() -> Void)?
 
@@ -60,9 +60,10 @@ final class TabGroupEditorPanel: NSPanel, NSTextFieldDelegate {
         contentView = glass
         build(in: content)
         setAccessibilityLabel(Strings.axGroupEditor)
+        // Shown without the keys (app inactive): close once another window takes them.
+        onKeyElsewhere = { [weak self] in self?.dismiss() }
     }
 
-    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     private func build(in content: NSView) {

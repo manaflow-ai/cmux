@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// Borderless floating panel that can become key without activating other
 /// windows' chrome, and routes key-downs to the palette first.
-final class PalettePanel: NSPanel {
+final class PalettePanel: ActiveAppKeyPanel {
     var keyHandler: ((NSEvent) -> Bool)?
     var onResignKey: (() -> Void)?
 
@@ -29,7 +29,6 @@ final class PalettePanel: NSPanel {
         setAccessibilityIdentifier("cmux.commandPalette")
     }
 
-    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {

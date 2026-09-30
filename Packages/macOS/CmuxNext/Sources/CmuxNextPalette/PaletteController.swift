@@ -31,9 +31,6 @@ public final class PaletteController {
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
-    /// While open without the keys: closes the palette when the keys go to
-    /// another window of the app (activation by a click or Cmd-Tab).
-    private var keylessObserver: (any NSObjectProtocol)?
 
     public init(
         registry: ActionRegistry,
@@ -111,7 +108,7 @@ public final class PaletteController {
         registry.context.insert(.paletteOpen)
         if isVisible {
             // Already open: switch pages in place.
-            if Self.mayTakeKey { panel.makeKey() }
+            panel.makeKey()
             return
         }
         isVisible = true
@@ -123,22 +120,11 @@ public final class PaletteController {
             parent.addChildWindow(panel, ordered: .above)
         }
         contentView?.resetAnimations()
-        if Self.mayTakeKey {
-            panel.makeKeyAndOrderFront(nil)
-        } else {
-            panel.orderFront(nil)
-            observeKeyElsewhere(panel)
-        }
+        // Without the keys while the app is inactive (ActiveAppKeyPanel).
+        panel.makeKeyAndOrderFront(nil)
         contentView?.focusField()
         contentView?.animateIn()
     }
-
-    /// The panel is nonactivating: made key, it takes the system keyboard
-    /// even while this app is not active, from whatever app the user is
-    /// typing in. It takes the keys only while the app is active; opened
-    /// otherwise (a CLI request, a `CMUX_NEXT_NO_ACTIVATE=1` run) it shows
-    /// without them, and activating the app gives the keys to its window.
-    private static var mayTakeKey: Bool { NSApp.isActive }
 
     /// Closes the palette. The parent window becomes key immediately so a
     /// command that runs right after sees the right focus; the panel fades
@@ -162,8 +148,6 @@ public final class PaletteController {
         model.hover(nil)
         presentationGeneration += 1
         let generation = presentationGeneration
-        keylessObserver.map(NotificationCenter.default.removeObserver)
-        keylessObserver = nil
         // Only a panel that has the keys gives them back.
         if restoringKey, panel.isKeyWindow, let parentWindow, parentWindow.isVisible {
             parentWindow.makeKey()
@@ -173,21 +157,6 @@ public final class PaletteController {
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
             self.contentView?.resetAnimations()
-        }
-    }
-
-    /// A palette shown without the keys closes once another window of the
-    /// app takes them, as a click elsewhere closes a key palette: it never
-    /// stays open over content that has the keyboard.
-    private func observeKeyElsewhere(_ panel: PalettePanel) {
-        keylessObserver.map(NotificationCenter.default.removeObserver)
-        keylessObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
-                                                                 queue: .main) { [weak self, weak panel] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
-                guard let self, let panel, let window, window !== panel, self.isVisible, !panel.isKeyWindow else { return }
-                self.hide(restoringKey: false)
-            }
         }
     }
 
@@ -208,6 +177,9 @@ public final class PaletteController {
         }
         panel.contentView = content
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        // Shown without the keys (app inactive): the keys going to another
+        // window closes it like a click outside.
+        panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
         panel.onResignKey = { [weak self] in
             // Clicking elsewhere closes the palette, like Spotlight; the
             // clicked window keeps the keys.

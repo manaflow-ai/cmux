@@ -133,6 +133,7 @@ public final class PageInfoController {
             window.addChildWindow(panel, ordered: .above)
         }
         panel.onResignKey = { [weak self] in self?.dismissForResign() }
+        panel.onKeyElsewhere = { [weak self] in self?.dismissForResign() }
         if !panel.isVisible { panel.orderFront(nil) }
         panel.makeKey()
         panel.makeFirstResponder(card)

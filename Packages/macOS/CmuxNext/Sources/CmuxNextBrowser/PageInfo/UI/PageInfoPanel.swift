@@ -3,9 +3,10 @@ import CmuxNextDesign
 
 /// The bubble's window: a borderless child panel of the browser window, so
 /// it draws above Chromium page windows (which are child windows too) and
-/// moves with the window. It takes key status for keyboard navigation and
-/// closes when it loses it (a click outside, another window, the anchor).
-final class PageInfoPanel: NSPanel {
+/// moves with the window. It takes key status for keyboard navigation (only
+/// while the app is active, `ActiveAppKeyPanel`) and closes when it loses it
+/// or, shown without it, when another window takes it.
+final class PageInfoPanel: ActiveAppKeyPanel {
     var onKey: ((NSEvent) -> Bool)?
     var onResignKey: (() -> Void)?
 
@@ -27,7 +28,6 @@ final class PageInfoPanel: NSPanel {
         setAccessibilityRole(.popover)
     }
 
-    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
