@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What one cmux-tui workspace on a cloud machine holds, in the order the
@@ -33,6 +35,19 @@ enum CloudTreeRemoteWorkspaceLookup: Equatable {
 }
 
 extension CloudTreeNodeBuilder {
+    static func hasCloudDisplayMembershipProjection(
+        _ projection: SurfaceProjection,
+        snapshot: SurfaceCatalogSnapshot,
+        workspaceID: String
+    ) -> Bool {
+        projection.resource.kind == .display && projection.remoteTabID == nil
+            && snapshot.cloudDisplayMemberships.contains {
+                $0.machine == projection.resource.machine
+                    && $0.displayID == projection.resource.key
+                    && $0.workspaceID == workspaceID
+            }
+    }
+
     /// Every cmux-tui workspace on a machine, in the daemon's order: the ones the
     /// machine itself reports (including empty workspaces needed by lookup and
     /// persistence) plus any that a resource's views name before the machine list
@@ -75,9 +90,10 @@ extension CloudTreeNodeBuilder {
                 byWorkspace[workspace.id] = members
             }
         }
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: projections) {
             var members = byWorkspace[member.workspaceID] ?? .none
-            members.displays.append(member.resource)
+            if member.resource.kind == .browser { members.browsers.append(member.resource) }
+            else { members.displays.append(member.resource) }
             byWorkspace[member.workspaceID] = members
         }
         return byWorkspace
@@ -115,7 +131,7 @@ extension CloudTreeNodeBuilder {
     static func lookupRemoteWorkspace(_ selector: String, on machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> CloudTreeRemoteWorkspaceLookup {
         let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .notFound }
-        let resources = snapshot.resources(on: machine)
+        let resources = snapshot.cloudWorkspaceResources(on: machine)
         let workspaces = remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: resources)
         if let byID = workspaces.first(where: { $0.id == trimmed }) {
             return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources, projections: snapshot.projections))

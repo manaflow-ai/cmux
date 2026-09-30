@@ -109,6 +109,7 @@ export default async function ChangelogVersionPage({
     fixed: t("sections.fixed"),
     removed: t("sections.removed"),
     contributors: t("sections.contributors"),
+    tryIt: t("tryIt"),
   };
   const newerRelease = versions[releaseIndex - 1];
   const olderRelease = versions[releaseIndex + 1];

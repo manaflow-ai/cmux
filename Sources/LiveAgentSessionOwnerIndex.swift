@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -50,6 +51,7 @@ struct LiveAgentSessionOwnerIndex: Sendable {
                 guard processIdentityProvider(owner.processID) == owner.processIdentity else {
                     return false
                 }
+                if owner.kind == "codex", owner.hermesSessionValidation == .currentHookRecord { return true }
                 guard let processArgumentsProvider else { return true }
                 guard let process = processArgumentsProvider(owner.processID) else {
                     // A matching process generation with temporarily unreadable
@@ -108,16 +110,15 @@ struct LiveAgentSessionOwnerIndex: Sendable {
         let validator = CachedAgentProcessIdentityValidator()
         return Self(observations: ownersBySession.values.flatMap { owners in
             owners.compactMap { owner in
-                guard processIdentityProvider(owner.processID) == owner.processIdentity,
-                      let process = processArgumentsProvider(owner.processID),
-                      processIdentityProvider(owner.processID) == owner.processIdentity,
-                      validator.currentProcess(
-                          process,
-                          matches: owner.validationSnapshot,
-                          hermesSessionValidation: owner.hermesSessionValidation
-                      ) else {
-                    return nil
+                guard processIdentityProvider(owner.processID) == owner.processIdentity else { return nil }
+                if owner.kind != "codex" || owner.hermesSessionValidation != .currentHookRecord {
+                    guard let process = processArgumentsProvider(owner.processID),
+                          validator.currentProcess(
+                              process, matches: owner.validationSnapshot,
+                              hermesSessionValidation: owner.hermesSessionValidation
+                          ) else { return nil }
                 }
+                guard processIdentityProvider(owner.processID) == owner.processIdentity else { return nil }
                 return LiveAgentSessionOwnerObservation(owner: owner)
             }
         })

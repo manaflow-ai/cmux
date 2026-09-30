@@ -9,6 +9,8 @@ final class BrowserPaneDropTargetView: NSView {
         didSet {
             if dropContext != oldValue {
                 transferDropRouter.clear()
+                dropRoutingRegistration.clear()
+                clearDragPresentationForContextChange()
             }
         }
     }
@@ -44,6 +46,7 @@ final class BrowserPaneDropTargetView: NSView {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
             transferDropRouter.clear()
+            clearDragPresentationForContextChange()
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -57,10 +60,19 @@ final class BrowserPaneDropTargetView: NSView {
         hasLiveFileDropPayload: Bool = false
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+        let hasLiveInternalTransfer = hasLiveTabTransfer
+            || (hasFilePreviewTransfer && hasLiveFileDropPayload)
+        // Mouse-up belongs to a drop destination only while its native drag
+        // registration is live. Pasteboard payloads outlive completed drags.
+        if routingContext.eventKind == .pointerUp,
+           !hasActiveDropDrag,
+           !hasLiveInternalTransfer {
+            return false
+        }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
-        let routingContext = WindowInputRoutingContext(eventType: eventType)
         // A Finder file URL remains on NSPasteboard.Name.drag after the drag
         // ends. During ordinary hover, require the registered native drag
         // session before letting that stale payload own the hit test.
@@ -435,6 +447,16 @@ final class BrowserPaneDropTargetView: NSView {
             )
         }
 #endif
+    }
+
+    /// Clears a preview whose pane identity is no longer current.
+    private func clearDragPresentationForContextChange() {
+        exitActiveFileDropWebView(nil)
+        activeZone = nil
+        preparedFileDropWebView = nil
+        performedFileDropWebView = nil
+        didRequestWebViewRestoreForDrag = false
+        slotView?.clearPortalDragOverlayForContextChange()
     }
 
 #if DEBUG

@@ -8,9 +8,13 @@ and do not depend on the real history.
 """
 
 import os
+import json
+import shutil
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(REPO_ROOT, "ios", "scripts", "generate-testflight-notes.sh")
@@ -51,7 +55,75 @@ def _gen(repo, base, audience="internal"):
     return out.stdout
 
 
+def test_deferred_notes():
+    """Execute the production post-upload block with a fake ASC boundary."""
+    upload = Path(REPO_ROOT, "ios/scripts/upload-testflight.sh").read_text()
+    block = upload[upload.index('# Audience: --external uses'):]
+    block = block[:block.index('# --external means')]
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        calls = root / "calls.json"
+        request = root / "notes.json"
+        setter = root / "set-testflight-notes.sh"
+        setter.write_text('#!/usr/bin/env python3\nimport json, os, sys\nfrom pathlib import Path\nPath(os.environ["CALLS"]).write_text(json.dumps(sys.argv[1:]))\nsys.exit(int(os.environ.get("SETTER_EXIT", "0")))\n')
+        setter.chmod(0o755)
+        env = dict(os.environ, TESTFLIGHT_NOTES_LANE="1", SKIP_NOTES="0",
+                   ASC_API_KEY_ID="fixture", ASC_API_ISSUER_ID="fixture", ASC_API_KEY_PATH="fixture",
+                   SCRIPT_DIR=temp, PLISTBUDDY="false", ARCHIVE_PATH=temp,
+                   RANGE_NOTES_MODE="0", NOTES_VERSION_GUARD="0", NOTES_AUDIENCE="internal",
+                   SHIPPED_BUILD_NUMBER="20260923010101", PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.internal",
+                   CALLS=str(calls), CMUX_TESTFLIGHT_NOTES_REQUEST_FILE=str(request))
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(result.returncode == 0, "deferred notes do not fail the accepted upload")
+        _check(not calls.exists(), "Mac upload does not contact ASC for deferred notes")
+        _check(request.exists(), "Mac writes a portable notes request")
+        if request.exists():
+            args = json.loads(request.read_text())
+            _check(args == ["--build-number", "20260923010101", "--audience", "internal", "--bundle-id", "dev.cmux.app.internal"], "deferred request preserves shipped build identity")
+        consumer = root / "apply-deferred-testflight-notes.py"
+        shutil.copyfile(Path(REPO_ROOT, "ios/scripts/apply-deferred-testflight-notes.py"), consumer)
+        if request.exists():
+            result = subprocess.run([sys.executable, str(consumer), str(request)], env=env, capture_output=True, text=True)
+            _check(result.returncode == 0 and json.loads(calls.read_text()) == args, "Linux consumer passes identical arguments to ASC setter")
+            env["SETTER_EXIT"] = "3"
+            result = subprocess.run([sys.executable, str(consumer), str(request)], env=env, capture_output=True, text=True)
+            _check(result.returncode == 0 and "warning:" in result.stderr, "Linux processing timeout remains best effort")
+            calls.unlink()
+            # Run actual range-note generation path; Unicode/multiline text
+            # remains one literal argument throughout the artifact round trip.
+            literal = "- Fix café 'quotes' and \"double\"; $(touch SHOULD_NOT_EXIST)\n- Next line"
+            generator = root / "generate-testflight-notes.sh"
+            generator.write_text("#!/usr/bin/env python3\nprint(" + repr(literal) + ")\n")
+            generator.chmod(0o755)
+            env.update(RANGE_NOTES_MODE="1", NOTES_RANGE_BASE="base-fixture")
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+            rich = args + ["--notes", literal]
+            _check(result.returncode == 0 and not calls.exists() and json.loads(request.read_text()) == rich, "Mac defers literal generated range notes without contacting ASC")
+            subprocess.run([sys.executable, str(consumer), str(request)], env=env, check=True, capture_output=True)
+            _check(json.loads(calls.read_text()) == rich, "Linux preserves literal multiline notes without evaluating them")
+            env["RANGE_NOTES_MODE"] = "0"
+        # A skipped override must not create a request or call ASC.
+        calls.unlink(missing_ok=True)
+        request.write_text("stale request from earlier build")
+        env["SKIP_NOTES"] = "1"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(result.returncode == 0 and not request.exists() and not calls.exists(), "skip-notes overrides remain skipped")
+        env["SKIP_NOTES"] = "0"
+        request.write_text("stale request from earlier build")
+        env["ASC_API_KEY_ID"] = ""
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(result.returncode == 0 and not request.exists() and not calls.exists(), "missing credentials never publish a stale deferred request")
+        env["ASC_API_KEY_ID"] = "fixture"
+        # Local callers keep their existing synchronous behavior.
+        env.pop("CMUX_TESTFLIGHT_NOTES_REQUEST_FILE")
+        env["SETTER_EXIT"] = "3"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(calls.exists(), "local uploads still apply notes directly")
+        _check(result.returncode == 0 and "warning:" in result.stderr, "notes timeout remains nonfatal after upload")
+
+
 def main():
+    test_deferred_notes()
     _check(os.access(SCRIPT, os.X_OK), "generator script is executable")
 
     with tempfile.TemporaryDirectory() as repo:

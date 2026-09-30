@@ -46,3 +46,13 @@ Mac の `vm link` 登録処理はありません。新規の接続許可の作�
 プロセスを終了します。出力ファイルの繰り返し走査や待機用の `sleep` は使いません。
 ゲストの案内文は両方の web メッセージカタログの `guestCLI` にあり、
 `LC_ALL`、`LC_MESSAGES`、`LANG` の順に英語または日本語を選びます。
+
+## 端末の URL を Mac で開く
+
+`guestBrowser.ts` は作成・修復時に `cmux-open-url` と OS オープナーの
+ラッパーを導入し、Bash/zsh/fish の `BROWSER` と `GH_BROWSER` を設定します。
+明示的な環境変数は上書きしません。`cmux open-url <URL>` は接続中の
+cmux-tui リンクで送信し、同じ端末の Mac 側ペインに配信します。Mac の
+リンク設定を使い、フォーカスを移動しません。受信先がない場合、旧バージョン、
+配信拒否、切断、5 秒の期限切れでは URL を表示して正常終了します。
+認証 URL は永続通知に記録せず、Chrome と CUA の `DISPLAY=:1` は維持します。

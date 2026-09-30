@@ -7,7 +7,7 @@ import { CloudTelemetryConflictError, CloudTelemetryLimitError } from "./cloudTe
 export type StoredCloudDiagnostic = {
   readonly userId: string;
   readonly eventId: string;
-  readonly payload: { readonly client: CloudTelemetryClient; readonly span: CloudTelemetrySpan; readonly source?: "client" | "server"; readonly serverErrorCode?: string };
+  readonly payload: { readonly client: CloudTelemetryClient; readonly span: CloudTelemetrySpan; readonly source?: "client" | "server"; readonly serverErrorCode?: string; readonly backend?: { tag?: string; revision?: string; sourceSha256?: string } };
   readonly attempts: number;
 };
 
@@ -16,7 +16,14 @@ export async function acceptCloudTelemetry(userId: string, batch: CloudTelemetry
   const rows = batch.spans.map((span) => {
     const payload = { client: batch.client, span, source: serverErrorCode ? "server" : "client", ...(serverErrorCode ? { serverErrorCode } : {}) };
     const encoded = canonicalJSON(payload);
-    return { id: span.eventId, payload: encoded, hash: createHash("sha256").update(encoded).digest("hex") };
+    // Hash only the submitted event: retries across deployments remain idempotent.
+    // Store origin metadata separately so a later drain cannot relabel old errors.
+    const backend = {
+      tag: process.env.CMUX_DEV_BUILD_TAG ?? "unknown",
+      revision: process.env.CMUX_DEV_BUILD_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
+      sourceSha256: process.env.CMUX_DEV_BUILD_SOURCE_SHA256 ?? "unknown",
+    };
+    return { id: span.eventId, payload: canonicalJSON({ ...payload, backend }), hash: createHash("sha256").update(encoded).digest("hex") };
   });
   return cloudDb().transaction(async (tx) => {
     await tx.execute(sql`set local statement_timeout = '3000ms'`);

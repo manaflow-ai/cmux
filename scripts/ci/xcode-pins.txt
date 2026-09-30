@@ -1,0 +1,14 @@
+# The Xcode each macOS runner pool builds with, keyed by the runner's macOS
+# major version (`sw_vers -productVersion`).
+#
+# scripts/select-ci-xcode.sh reads this file when a job does not pin an Xcode
+# itself, so a job selects by the pool it actually landed on rather than by the
+# lane it was routed through. Every version here must have the major named in
+# .xcode-version; tests/test_ci_macos_xcode_selection.py enforces that.
+#
+# The macOS 15 pool carries Xcode 26.3 at most; the macOS 26 pool defaults to
+# 26.6. Bump a line only after the pool's image carries that Xcode.
+#
+# macOS  Xcode
+15       26.3
+26       26.6

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Materializes the accepted Cloud graph into bound native workspaces. The graph
@@ -61,11 +63,32 @@ final class CloudWorkspaceProjectionCoordinator {
         guard let binding = environment.bindings()[projection.workspaceID], binding.vmID == state.machine.rawValue,
               let workspaceID = binding.remoteWorkspaceID else { return true }
         let tabs = state.lookupIndex.tabs(contentKind: projection.resource.kind.rawValue, contentID: projection.resource.key)
+        if projection.resource.kind == .display && projection.remoteTabID == nil {
+            return state.displayMemberships.contains { $0.workspaceID == workspaceID && $0.displayID == projection.resource.key }
+        }
         return tabs.contains { tab in
             guard projection.remoteTabID == nil || projection.remoteTabID == tab.id,
                   let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
             return screen.workspaceID == workspaceID
+        }
+    }
+
+    /// Applies the catalog's known display inventory to the graph check. A
+    /// frontend row can carry a syntactically valid `display:*` value that is
+    /// no longer an exposed display after reconnect; that row must not retain
+    /// or recreate a local pane.
+    func retainsProjection(
+        _ projection: SurfaceProjection,
+        in state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) -> Bool {
+        guard retainsProjection(projection, in: state) else { return false }
+        guard projection.resource.kind == .display, projection.remoteTabID == nil else { return true }
+        return catalog.cloudDisplayMemberships().contains {
+            $0.machine == projection.resource.machine
+                && $0.displayID == projection.resource.key
+                && $0.workspaceID == projection.remoteWorkspaceID
         }
     }
 
@@ -90,6 +113,13 @@ final class CloudWorkspaceProjectionCoordinator {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
+            if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
+            // A delete owns this workspace's visible lifecycle. Do not let a
+            // late projection refresh recreate its panes while the backend
+            // request is pending; a committed delete will reconcile them once.
+            if catalog.isCloudWorkspaceDeletionPending(machine: machine, workspaceID: remoteID) {
+                continue
+            }
             guard isCurrent(state, catalog: catalog) else {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
@@ -106,8 +136,10 @@ final class CloudWorkspaceProjectionCoordinator {
                         if !Task.isCancelled { requested.insert(machine) }
                         return
                     }
-                    let view = try catalog.remoteView(for: placement.resource, tabID: placement.remoteTabID,
-                                                      workspaceID: placement.remoteTabID == nil ? nil : remoteID)
+                    let view = try catalog.remoteView(
+                        for: placement,
+                        fallbackWorkspaceID: remoteID
+                    )
                     _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }
@@ -116,6 +148,9 @@ final class CloudWorkspaceProjectionCoordinator {
                     return
                 }
                 for projection in plan.obsolete {
+#if DEBUG
+                    cmuxDebugLog("cloudWorkspace.projection.obsolete workspace=\(workspaceID) panel=\(projection.panelID) resource=\(projection.resource.rawValue) remoteWorkspace=\(projection.remoteWorkspaceID ?? "nil") tab=\(projection.remoteTabID ?? "nil") desired=\(desired.count)")
+#endif
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }

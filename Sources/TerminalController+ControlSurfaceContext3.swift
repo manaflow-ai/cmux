@@ -7,7 +7,6 @@ import Foundation
 /// `TerminalController+ControlSurfaceContext` to keep the conformance readable; see
 /// that file's doc comment for the overview.
 extension TerminalController {
-
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: String(
@@ -24,9 +23,7 @@ extension TerminalController {
             )
         )
     }
-
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
-
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
         if let surfaceID = remoteTmuxMirrorContainerID(in: params) {
             return .err(
@@ -284,6 +281,9 @@ extension TerminalController {
             }
             guard target.terminalPanel != nil else {
                 return .surfaceNotTerminal(surfaceId)
+            }
+            guard remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
             }
             guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
                 return .surfaceUnavailable(surfaceId)

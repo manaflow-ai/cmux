@@ -5,6 +5,24 @@ import SwiftUI
 import Testing
 @testable import cmux_DEV
 
+/// Counts the async notifications that land inside a measured window, so a
+/// failure can name the input that drove an extra sidebar body pass.
+@MainActor
+private final class RevealSignalLog {
+    private var countsByName: [String: Int] = [:]
+
+    func record(_ name: Notification.Name) {
+        countsByName[name.rawValue, default: 0] += 1
+    }
+
+    var summary: String {
+        countsByName
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct SidebarHiddenPresentationTests {
@@ -177,6 +195,30 @@ struct SidebarHiddenPresentationTests {
         #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
     }
 
+    @Test
+    func hiddenSpinnerRemovesItsInstalledAnimation() {
+        let spinner = GPUSpinnerNSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        spinner.contentLayer.add(
+            CABasicAnimation(keyPath: "transform.rotation.z"),
+            forKey: GPUSpinnerNSView.animationKey
+        )
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) != nil)
+
+        spinner.isHidden = true
+
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
+    }
+
+    @Test
+    func spinnerAnimationsRequestTheirStepRateFromTheCompositor() {
+        let spokes = GPUSpinnerNSView.makeRotationAnimation(style: .macOSSpokes, beginTime: 0)
+        #expect(spokes.preferredFrameRateRange.maximum <= 20)
+        #expect(spokes.preferredFrameRateRange.minimum >= 10)
+
+        let arc = GPUSpinnerNSView.makeRotationAnimation(style: .arc, beginTime: 0)
+        #expect(arc.preferredFrameRateRange.maximum <= 60)
+    }
+
     /// Ensures a hidden sidebar rebuilds retained rows from current Cloud state.
     @Test
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {
@@ -209,6 +251,7 @@ struct SidebarHiddenPresentationTests {
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
         var revealRowInputProjections = 0
+        var isMeasuringRevealInvalidations = false
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             windowId: UUID(),
@@ -223,6 +266,7 @@ struct SidebarHiddenPresentationTests {
             .environment(
                 \.sidebarLazyContractProbe,
                 SidebarLazyContractProbe(
+                    shouldTraceBodyChanges: { isMeasuringRevealInvalidations },
                     workspaceRowInputProjection: { revealRowInputProjections += 1 }
                 )
             )
@@ -235,6 +279,8 @@ struct SidebarHiddenPresentationTests {
             defer: false
         )
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()
@@ -283,9 +329,40 @@ struct SidebarHiddenPresentationTests {
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()
 
+        // A doubled projection count means a SECOND sidebar body pass followed
+        // the reveal. Record what landed inside the reveal window (the async
+        // inputs the hidden phase queued: the workspace's directory channel,
+        // workspace order, the shared agent index) and how many projections
+        // the first run-loop turn alone produced, so the failure names which
+        // input drove the extra pass instead of only reporting the count.
+        let revealSignals = RevealSignalLog()
+        let revealSignalNames: [Notification.Name] = [
+            .workspaceCurrentDirectoryDidChange,
+            .workspaceOrderDidChange,
+            .sharedLiveAgentIndexDidChange,
+        ]
+        let revealSignalObservers = revealSignalNames.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { revealSignals.record(name) }
+            }
+        }
+        defer {
+            for observer in revealSignalObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
         revealRowInputProjections = 0
+        isMeasuringRevealInvalidations = true
+        defer { isMeasuringRevealInvalidations = false }
         sidebarState.toggle()
+        await drainMainRunLoop(for: window, iterations: 1)
+        let projectionsAfterFirstRevealTurn = revealRowInputProjections
         await drainMainRunLoop(for: window)
+        isMeasuringRevealInvalidations = false
         let reopenedContainers = descendants(
             of: SidebarWorkspaceTableContainerView.self,
             in: window.contentView
@@ -301,7 +378,11 @@ struct SidebarHiddenPresentationTests {
         )
         #expect(
             revealRowInputProjections == tabManager.tabs.count,
-            "Reopening must project each current workspace row exactly once."
+            """
+            Reopening must project each current workspace row exactly once. \
+            firstTurn=\(projectionsAfterFirstRevealTurn) \
+            signals=[\(revealSignals.summary)]
+            """
         )
         var cloudRow: SidebarWorkspaceRowTableCellView?
         let deadline = Date(timeIntervalSinceNow: 1)
@@ -329,10 +410,19 @@ struct SidebarHiddenPresentationTests {
         )
 
         let contentView = try #require(window.contentView)
-        let sidebarFocusHost = try #require(descendants(of: SidebarPointerEventHostView.self, in: contentView).first)
+        let sidebarFocusHost = try #require(
+            descendants(of: SidebarPointerEventHostView.self, in: contentView)
+                .max { lhs, rhs in
+                    lhs.bounds.width * lhs.bounds.height < rhs.bounds.width * rhs.bounds.height
+                }
+        )
         let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
-        let sidebarField = NSTextField(frame: NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24))
-        contentView.addSubview(sidebarField)
+        let fieldFrameInHost = sidebarFocusHost.convert(
+            NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24),
+            from: contentView
+        )
+        let sidebarField = NSTextField(frame: fieldFrameInHost)
+        sidebarFocusHost.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
         let sidebarEditor = try #require(sidebarField.currentEditor())
         let sidebarBoundary = SidebarFocusBoundaryReference()

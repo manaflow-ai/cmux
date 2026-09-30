@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxSettings
@@ -108,6 +109,7 @@ struct ManagedPolicyCloudGateTests {
         let client = VMClient(
             session: URLSession(configuration: configuration),
             auth: coordinator,
+            resourceStats: VMResourceStatsStore(),
             checkpointRenames: CloudRenameCoordinator(),
             isDisabledByManagedPolicy: { policy.isEnforced }
         )
@@ -147,6 +149,54 @@ struct ManagedPolicyCloudGateTests {
         } catch VMClientError.disabledByManagedPolicy {
             Issue.record("revocation must stay available under DisableCloud")
         }
+    }
+
+    @Test func cloudReadsAndInteractiveOpensUseBoundedSingleAttempts() async throws {
+        let suiteName = "ManagedPolicyCloudGateTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingCloudURLProtocol.self]
+        let client = VMClient(
+            session: URLSession(configuration: configuration),
+            auth: coordinator,
+            resourceStats: VMResourceStatsStore(),
+            checkpointRenames: CloudRenameCoordinator(),
+            isDisabledByManagedPolicy: { false }
+        )
+
+        RecordingCloudURLProtocol.recorder.reset()
+        RecordingCloudURLProtocol.recorder.configure(
+            statusCode: 503,
+            body: Data(#"{"error":"vm_cloud_service_unavailable"}"#.utf8)
+        )
+        defer { RecordingCloudURLProtocol.recorder.reset() }
+        do {
+            _ = try await client.openCmuxRemote(id: "vm-1")
+            Issue.record("an unavailable interactive attach unexpectedly succeeded")
+        } catch {
+            // The request should fail once inside the interactive budget; the
+            // next catalog refresh is the retry boundary.
+        }
+        let attachRequests = RecordingCloudURLProtocol.recorder.requests
+        #expect(attachRequests.count == 1)
+        #expect(attachRequests.first?.timeoutInterval == 20)
+
+        RecordingCloudURLProtocol.recorder.reset()
+        do {
+            _ = try await client.listPage()
+        } catch {
+            // The empty fixture is intentionally malformed after the request
+            // reaches the URL protocol; timeout metadata is the assertion.
+        }
+        let listRequest = try #require(RecordingCloudURLProtocol.recorder.requests.first)
+        #expect(listRequest.timeoutInterval == 15)
     }
 
     // MARK: - Helpers
@@ -231,10 +281,27 @@ private final class RecordingCloudURLProtocol: URLProtocol {
     final class Recorder: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: [URLRequest] = []
+        private var storedStatusCode = 200
+        private var storedBody = Data("{}".utf8)
 
         var requests: [URLRequest] { lock.withLock { stored } }
         func record(_ request: URLRequest) { lock.withLock { stored.append(request) } }
-        func reset() { lock.withLock { stored.removeAll() } }
+        func configure(statusCode: Int, body: Data) {
+            lock.withLock {
+                storedStatusCode = statusCode
+                storedBody = body
+            }
+        }
+        func response() -> (statusCode: Int, body: Data) {
+            lock.withLock { (storedStatusCode, storedBody) }
+        }
+        func reset() {
+            lock.withLock {
+                stored.removeAll()
+                storedStatusCode = 200
+                storedBody = Data("{}".utf8)
+            }
+        }
     }
 
     static let recorder = Recorder()
@@ -244,10 +311,11 @@ private final class RecordingCloudURLProtocol: URLProtocol {
 
     override func startLoading() {
         Self.recorder.record(request)
+        let fixture = Self.recorder.response()
         guard let url = request.url,
               let response = HTTPURLResponse(
                   url: url,
-                  statusCode: 200,
+                  statusCode: fixture.statusCode,
                   httpVersion: "HTTP/1.1",
                   headerFields: ["Content-Type": "application/json"]
               ) else {
@@ -255,7 +323,7 @@ private final class RecordingCloudURLProtocol: URLProtocol {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocol(self, didLoad: fixture.body)
         client?.urlProtocolDidFinishLoading(self)
     }
 

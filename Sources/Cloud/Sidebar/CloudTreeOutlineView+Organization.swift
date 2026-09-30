@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 extension CloudTreeOutlineView.Coordinator {
@@ -40,32 +41,36 @@ extension CloudTreeOutlineView.Coordinator {
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        let rejection = ownershipRejection(info: info, item: item)
-        (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.update(rejection, over: outlineView)
-        guard rejection == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+        // The tree is a navigation/source surface. Pane destinations own the
+        // ownership warning and announcement; the tree draws no drag hints.
+        guard ownershipRejection(info: info, item: item) == nil else {
+            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        defer { (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.clear() }
+        defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
         guard ownershipRejection(info: info, item: item) == nil else { return false }
-        defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
-        return organize(drop.action, nodeID: drop.sourceID)
+        switch drop.operation {
+        case .organization(let action):
+            return organize(action, nodeID: drop.sourceID)
+        case .machine(let id, let move):
+            guard let actions = machineOrdering(for: info, nodeID: drop.sourceID) else { return false }
+            return moveMachine(id, move: move, using: actions)
+        }
     }
 
-    /// Tree reordering stays sibling-only, but hovering a foreign workspace
-    /// still explains its ownership boundary rather than silently rejecting it.
+    /// Keeps the shared ownership boundary ahead of sidebar organization mutations.
     private func ownershipRejection(info: any NSDraggingInfo, item: Any?) -> SurfaceTransferRejection? {
         guard let node = item as? CloudTreeNode, !node.machine.isLocal,
               DragOverlayRoutingPolicy.hasBonsplitTabTransfer(info.draggingPasteboard.types) else { return nil }
@@ -95,10 +100,14 @@ extension CloudTreeOutlineView.Coordinator {
         let point = outlineView.convert(info.draggingLocation, from: nil)
         // Native indices refer to the frozen, displayed tree. Fresh catalog
         // membership is checked by organize, never substituted into this index.
-        return CloudSidebarOrganizationDrop(
+        guard let drop = CloudSidebarOrganizationDrop(
             sourceID: id, nodes: nodes, state: organization.state,
             proposedItem: item as? CloudTreeNode, proposedChildIndex: index,
             dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY
-        )
+        ) else { return nil }
+        if case .machine(let machineID, let move) = drop.operation {
+            guard machineOrdering(for: info, nodeID: id)?.canMove(machineID, move) == true else { return nil }
+        }
+        return drop
     }
 }

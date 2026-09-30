@@ -36,4 +36,3 @@ enum RightSidebarModeDragPayload {
         return provider
     }
 }
-

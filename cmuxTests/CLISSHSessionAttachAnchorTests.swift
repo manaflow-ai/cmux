@@ -4,9 +4,10 @@ import Testing
 
 /// Regression coverage for issue #7367: `ssh-session-attach --workspace <B> --split`
 /// must not anchor the split to the caller's `CMUX_SURFACE_ID` from workspace A.
-/// Gated by the dedicated non-tolerant focused CI step ("Run ssh-session-attach
-/// anchor regression"): the sharded unit-test run tolerates any failure summary
-/// reporting "(0 unexpected)", so a failing test there cannot red the shard.
+/// Runs in the timed app-host shard. CI aggregates every XCTest/Swift Testing
+/// summary and rejects ordinary assertion failures and incomplete crash/restart
+/// runs, so this regression remains a required failure signal without a duplicate
+/// focused invocation.
 @Suite(.serialized)
 struct CLISSHSessionAttachAnchorTests {
     @Test func unknownSessionIDFailsBeforeCreatingSurface() throws {
@@ -515,18 +516,13 @@ struct CLISSHSessionAttachAnchorTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 

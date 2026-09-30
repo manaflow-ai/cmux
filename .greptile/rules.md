@@ -56,6 +56,10 @@ Pass for tests, operational docs not shown to end users, developer-only comments
 
 ## User-Facing Error Messages
 
+Establish the audience before reporting: cite a concrete path by which the changed text reaches a cmux end user (app UI, product CLI, or product API). A deployed service, HTTP response, or production file alone does not establish that scope.
+
+Internal CI/build/deployment tools, artifact brokers, and operator-only diagnostics may name the services, providers, and configuration needed to diagnose or recover an operation. For example, an artifact broker telling CI to fall back to GitHub is allowed. Do not request provider-neutral wording for these surfaces solely because a vendor is named. This exception never permits secrets, credentials, personal data, or unredacted sensitive payloads, and does not apply when internal errors are forwarded to end users.
+
 For production user-facing errors, alerts, command output, API error bodies, and recovery copy, do not expose implementation details.
 
 Flag copy that includes upstream vendor or service names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variable names, database or migration details, raw upstream error messages, stack traces, request ids from third-party systems unless the user supplied that exact id, billing item ids, billing customer ids, team ids not supplied by the user, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps.
@@ -147,3 +151,9 @@ Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when i
 Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
 
 Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.
+
+## Cloud Persistent Session and Early Input
+
+For Cloud terminal creation and transport, keep one authenticated machine-owned cmux-tui session and multiplex control replies and revisioned events over it. Logical per-terminal streams are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing. Reserve the focused user-created manual pane and request its empty Ghostty runtime immediately; remote PTY creation, shell startup, and attachment populate that runtime later. Preserve ordered input ownership, auth, idempotency keys, revision fences, and attachment leases. Reuse a current validated event graph and refresh only for cold, stale, missing, or revision-conflict state.
+
+Hidden panes retain bounded restore admission. Manual renderers must not wait for local command-wrapper installation: that startup work belongs to surfaces that execute a local child. Never replay early input to a replacement terminal or generation.

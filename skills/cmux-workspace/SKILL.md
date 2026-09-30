@@ -94,7 +94,7 @@ For cmux app/runtime changes in a cmux source checkout, use a tagged reload from
 
 ```bash
 ./scripts/reload.sh --tag <short-tag>
-CMUX_SOCKET_PATH=/tmp/cmux-debug-<short-tag>.sock cmux identify --json
+CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh identify --json
 ```
 
 ## Socket access

@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxBrowser
+import CmuxMobileHost
 import CoreGraphics
 import Foundation
 import WebKit

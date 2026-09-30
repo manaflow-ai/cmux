@@ -18,10 +18,16 @@ extension WorkspaceDetailView {
     let shouldAutoFocus = activeSurface == .terminal
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
+    // SSH terminals have no Mac artifact scan; their Files chip browses the
+    // server over SFTP instead.
+    let isSSH = isSSHTerminal(terminalID)
     GhosttySurfaceRepresentable(
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
         store: store,
+        terminalWorkPopulation: .init(
+            population: .workspace, workspaceCount: 1, surfaceCount: workspace.surfaces.count
+        ),
         fontSize: MobileTerminalFontPreference.defaultSize,
         terminalPresentationIsActive: scenePhase == .active,
         // Do not let a terminal reattach steal focus while the
@@ -38,13 +44,19 @@ extension WorkspaceDetailView {
         // letterbox, default cell colors) without a remount, so
         // scrollback survives a theme change.
         configThemeGeneration: store.terminalConfigThemeGeneration,
-        artifactFilesEnabled: store.supportsTerminalArtifacts,
-        terminalFolderTapEnabled: terminalFolderTapEnabled,
+        artifactFilesEnabled: !isSSH && store.supportsTerminalArtifacts,
+        terminalFolderTapEnabled: !isSSH && terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
-        sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
+        useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
+        sessionArtifactCountEnabled: !isSSH && store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
+        sshFilesChipEnabled: isSSH,
         onArtifactFilesRequested: { anchor in
+            if isSSH {
+                presentSSHFiles(terminalID: terminalID)
+                return
+            }
             store.recordAppEvent(
                 .terminalArtifactGalleryOpened,
                 correlationID: terminalID
@@ -73,6 +85,9 @@ extension WorkspaceDetailView {
             if artifactGalleryRefreshSignal != signal {
                 artifactGalleryRefreshSignal = signal
             }
+        },
+        onSharedSizingChipTapped: {
+            isTerminalSizeSheetPresented = true
         }
     )
     .popover(

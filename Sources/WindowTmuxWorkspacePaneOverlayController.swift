@@ -21,6 +21,11 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         lastRenderState != nil || !containerView.isHidden
     }
 
+    /// Geometry supplied to the overlay is measured in this view's coordinates.
+    var coordinateReferenceView: NSView? {
+        ensureInstalled() ? installedReferenceView : nil
+    }
+
     static func controller(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
         if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
             return existing

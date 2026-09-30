@@ -17,6 +17,49 @@ An agent (Claude Code, Codex, or any open-source-model harness) should be able t
 
 Supporting primitives shipped alongside: `vm push` (SCP over private userspace WireGuard) / `vm pull` (digest-verified chunks over exec), and `vm wait` (readiness gate).
 
+## Machine-local admission handoff
+
+Routing and physical ownership are separate decisions.
+
+For a CMUX-owned node that uses Glaeda as its execution-side admission layer,
+the router result is either a candidate-node choice or external reservation
+evidence. The semantic workload still crosses the adapter without raw host
+paths, cache directories, cgroup properties, arbitrary environment, or a
+caller-authored shell string.
+
+Candidate-only flow:
+
+```text
+router selects node A
+-> node A receives caller identity + semantic workload
+-> node A freshly checks drain/pressure/interference/resources
+-> local physical lease accepted or refused
+```
+
+Reserved-node flow:
+
+```text
+MachineCoordinator/controller holds reservation for node A
+-> adapter presents bounded owner/scope/generation/expiry evidence
+-> node A validates the reservation and current local state
+-> local physical lease binds beneath that reservation
+```
+
+The control-plane lease prevents another fleet scheduler from assigning the
+same globally scarce node allocation. The machine-local lease prevents GitHub
+Actions, `cmux-ci`, direct agent work, operator commands, or another adapter
+from colliding over native build lanes, heavy slots, project locks, publisher
+slots, or resident workspaces after they reach the node.
+
+A route or reservation never becomes permission to bypass fresh machine-local
+admission. Process names, runner liveness, and apparent idleness never establish
+ownership. A local refusal can return pressure/drain/conflict evidence to the
+router so it may choose another eligible target under its own replay rules.
+
+Caller identity remains independent from the semantic operation. Two callers
+may ask for the same operation while retaining separate request namespaces;
+same external request strings from unrelated callers stay independent.
+
 ## Why coderouter is the template
 
 cmux-coderouter (`manaflow/cmux-coderouter`) already solved this shape for model credentials: Worker edge → per-`team:family` `PoolCoordinator` Durable Object → upstreams, with the control plane owning durable state and billing. Model coverage there is exactly the set we care about — **Claude** (Anthropic OAuth/BYOK/managed via `/anthropic/*`), **Codex** (`/codex/*`, OAuth), and **open-source models** through OpenAI-compatible BYOK families (Groq for Llama/Kimi, z.ai for GLM, OpenRouter for anything, plus Gemini/xAI) — so agents on any of those model families can be given the same machine story.

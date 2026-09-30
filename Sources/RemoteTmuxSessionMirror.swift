@@ -217,6 +217,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onPaneReflow: { [weak self] paneId, noReflow in
                 self?.routeNoReflow(paneId: paneId, noReflow: noReflow)
             },
+            onPaneTitleChanged: { [weak self] paneId in
+                self?.handlePaneTitleChanged(paneId: paneId)
+            },
             onActivePaneChanged: { [weak self] windowId, paneId in
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
@@ -484,6 +487,15 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
         mirror.updatePaneTitle(paneId)
+    }
+
+    /// Updates only the mirror-owned tab for a pane whose tmux title changed.
+    /// Title events do not alter topology, so rebuilding every window here would
+    /// turn a single-pane retitle into a session-wide reconciliation.
+    private func handlePaneTitleChanged(paneId: Int) {
+        guard let windowId = windowIdContaining(pane: paneId),
+              let mirror = windowMirrorByWindowId[windowId] else { return }
+        mirror.updatePaneTitleMetadata(paneId)
     }
 
     /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route

@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -170,23 +169,89 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 
 // --- Format string rendering ---
 
-var tmuxFormatVarRe = regexp.MustCompile(`#\{[^}]+\}`)
+var tmuxShortFormatKeys = map[byte]string{
+	'D': "pane_id",
+	'F': "window_flags",
+	'I': "window_index",
+	'P': "pane_index",
+	'S': "session_name",
+	'T': "pane_title",
+	'W': "window_name",
+}
+
+func tmuxStripUnresolvedLongFormatTokens(value string) string {
+	var cleaned strings.Builder
+	cleaned.Grow(len(value))
+	for i := 0; i < len(value); {
+		if value[i] != '#' || i+1 >= len(value) || value[i+1] != '{' {
+			cleaned.WriteByte(value[i])
+			i++
+			continue
+		}
+		closeOffset := strings.IndexByte(value[i+2:], '}')
+		if closeOffset < 0 {
+			cleaned.WriteString(value[i:])
+			break
+		}
+		i += 2 + closeOffset + 1
+	}
+	return cleaned.String()
+}
 
 func tmuxRenderFormat(format string, context map[string]string, fallback string) string {
 	if format == "" {
 		return fallback
 	}
-	rendered := format
-	for key, value := range context {
-		rendered = strings.ReplaceAll(rendered, "#{"+key+"}", value)
+
+	var rendered strings.Builder
+	rendered.Grow(len(format))
+	for i := 0; i < len(format); {
+		if format[i] != '#' {
+			rendered.WriteByte(format[i])
+			i++
+			continue
+		}
+		if i+1 >= len(format) {
+			rendered.WriteByte('#')
+			break
+		}
+
+		next := format[i+1]
+		if next == '#' {
+			rendered.WriteByte('#')
+			i += 2
+			continue
+		}
+		if next == '{' {
+			closeOffset := strings.IndexByte(format[i+2:], '}')
+			if closeOffset < 0 {
+				rendered.WriteString(format[i:])
+				break
+			}
+			closeIndex := i + 2 + closeOffset
+			if value, ok := context[format[i+2:closeIndex]]; ok {
+				rendered.WriteString(tmuxStripUnresolvedLongFormatTokens(value))
+			}
+			i = closeIndex + 1
+			continue
+		}
+		if key, ok := tmuxShortFormatKeys[next]; ok {
+			if value, exists := context[key]; exists {
+				rendered.WriteString(tmuxStripUnresolvedLongFormatTokens(value))
+			}
+			i += 2
+			continue
+		}
+
+		rendered.WriteByte('#')
+		i++
 	}
-	// Remove any remaining unresolved #{...} variables
-	rendered = tmuxFormatVarRe.ReplaceAllString(rendered, "")
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
+
+	result := strings.TrimSpace(rendered.String())
+	if result == "" {
 		return fallback
 	}
-	return rendered
+	return result
 }
 
 // --- Format context building ---
@@ -1609,6 +1674,8 @@ func dispatchTmuxCommand(rc *rpcContext, command string, args []string) error {
 		return tmuxSelectLayout(rc, args)
 	case "show-buffer", "showb":
 		return tmuxShowBuffer(args)
+	case "show-options", "show-option", "show":
+		return tmuxShowOptions(args)
 	case "save-buffer", "saveb":
 		return tmuxSaveBuffer(args)
 
@@ -2088,6 +2155,29 @@ func tmuxDisplayMessage(rc *rpcContext, args []string) error {
 	rendered := tmuxRenderFormat(format, ctx, "")
 	if p.hasFlag("-p") || rendered != "" {
 		fmt.Println(rendered)
+	}
+	return nil
+}
+
+func tmuxShowOptions(args []string) error {
+	p := parseTmuxArgs(args, []string{"-t"}, []string{"-g", "-q", "-s", "-v", "-w"})
+	if len(p.positional) == 0 {
+		return nil
+	}
+
+	optionName := p.positional[len(p.positional)-1]
+	if optionName != "extended-keys" {
+		if p.hasFlag("-q") {
+			return nil
+		}
+		return fmt.Errorf("unsupported option")
+	}
+
+	const value = "on"
+	if p.hasFlag("-v") {
+		fmt.Println(value)
+	} else {
+		fmt.Printf("%s %s\n", optionName, value)
 	}
 	return nil
 }

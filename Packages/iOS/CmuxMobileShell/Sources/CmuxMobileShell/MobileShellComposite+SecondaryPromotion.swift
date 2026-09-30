@@ -565,8 +565,7 @@ extension MobileShellComposite {
                 // flight. Re-read membership immediately before demotion.
                 previousForegroundCanStayWarm =
                     await canRetainFocusedConnectionInControlPool(
-                        previousForegroundConnection,
-                        vacatingControlOwnerKey: ownerKey
+                        previousForegroundConnection
                     )
             }
             if !previousForegroundCanStayWarm,
@@ -867,6 +866,7 @@ extension MobileShellComposite {
                 // metadata from this promotion before trusting a destination.
                 workspaceGroupsAreAuthoritative: authoritativeSnapshot.groups != nil,
                 status: .connected,
+                workspaceSnapshotIsAuthoritative: true,
                 actionCapabilities: sub.actionCapabilities
             )
             foregroundWorkspaceStateRevision &+= 1

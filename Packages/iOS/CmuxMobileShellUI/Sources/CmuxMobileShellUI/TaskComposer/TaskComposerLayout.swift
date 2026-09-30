@@ -169,7 +169,7 @@ struct TaskComposerLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            TaskComposerPillBar {
+            HorizontalEdgeFadePillBar(accessibilityIdentifier: "MobileTaskComposerPillScroller") {
                 leadingUtilityButtons
             } pills: {
                 HStack(spacing: 8) {

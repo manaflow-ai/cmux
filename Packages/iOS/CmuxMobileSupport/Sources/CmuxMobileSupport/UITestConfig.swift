@@ -124,6 +124,7 @@ public struct UITestConfig {
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
+            || workspaceDetailDisconnectedPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
@@ -156,6 +157,30 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Suppresses the one-time What's New launch sheet for automated Debug
+    /// launches. The app composition root converts this input into an explicit
+    /// presentation policy; the catalog model does not read process state.
+    public static var suppressWhatsNewLaunch: Bool {
+        suppressWhatsNewLaunch(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the What's New launch suppression flag from explicit process
+    /// inputs so the Debug composition policy remains testable.
+    public static func suppressWhatsNewLaunch(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_SUPPRESS_WHATS_NEW"] == "1"
+            || arguments.contains("CMUX_UITEST_SUPPRESS_WHATS_NEW=1")
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the full-app UI-test harness should treat the account-owned
     /// revoke step of Forget Computer as successful. The remaining operation,
     /// including durable paired-Mac deletion, store refresh, shell routing, and
@@ -179,6 +204,16 @@ public struct UITestConfig {
             from: ProcessInfo.processInfo.environment,
             arguments: ProcessInfo.processInfo.arguments
         )
+    }
+
+    /// Whether the deterministic push-tab navigation fixture is enabled.
+    /// DEBUG-only so the fixture never becomes a production entry point.
+    public static var pushTabNavigationPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_PUSH_TAB_NAVIGATION_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
     }
 
     /// Resolves the push-readiness preview fixture from explicit process inputs.
@@ -317,6 +352,23 @@ public struct UITestConfig {
     public static var workspaceDetailCreateDelayedTerminalPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail disconnected-terminal layout preview is
+    /// enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED=1`, the root view renders
+    /// a workspace shell whose store is signed in but disconnected
+    /// (`macConnectionStatus == .unavailable`), already opened to a workspace
+    /// with one retained terminal. This is the exact state where the terminal is
+    /// opened while its Mac is unreachable, so the composer dock's keyboard-down
+    /// seat can be screenshotted and asserted without a paired Mac. DEBUG-only.
+    public static var workspaceDetailDisconnectedPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED"] == "1"
         #else
         return false
         #endif

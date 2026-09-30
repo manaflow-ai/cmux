@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { StackServerApp } from "@stackframe/stack";
+import type { StackServerApp } from "@hexclave/next";
 import { NextRequest } from "next/server";
 
 process.env.SKIP_ENV_VALIDATION = "1";

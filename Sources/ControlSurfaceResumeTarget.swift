@@ -63,6 +63,15 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    func hasRestorableAgentSession(_ sessionID: String) -> Bool {
+        guard let restoredAgent = restorableAgent else { return false }
+        return ManagedAgentSessionIdentity.sessionIDsMatch(
+            kind: restoredAgent.kind.rawValue,
+            lhs: sessionID,
+            rhs: restoredAgent.sessionId
+        )
+    }
+
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         switch self {
@@ -114,15 +123,29 @@ enum ControlSurfaceResumeTarget {
 
     func clearBinding(
         _ binding: SurfaceResumeBindingSnapshot?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedCheckpointID: String?
     ) {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
+            if binding == nil,
+               agentSessionEnded,
+               let expectedCheckpointID,
+               let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[surfaceID],
+               hasRestorableAgentSession(expectedCheckpointID) {
+                workspace.markRestoredAgentCompleted(panelId: surfaceID, snapshot: restoredAgent)
+            }
             _ = workspace.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 agentSessionEnded: agentSessionEnded
             )
         case .dock(_, let dock, let surfaceID):
+            if binding == nil,
+               agentSessionEnded,
+               let expectedCheckpointID,
+               hasRestorableAgentSession(expectedCheckpointID) {
+                dock.markRestoredAgentCompleted(panelId: surfaceID)
+            }
             _ = dock.clearSurfaceResumeBinding(
                 panelId: surfaceID,
                 binding: binding,
@@ -131,35 +154,13 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    /// Relay-originated registrations named a persistent-SSH daemon slot. TTY
+    /// SSH runs through cmux-tui without one, so no relay binding can resume.
     func registeredBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         inputs: ControlSurfaceResumeSetInputs
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let remoteWorkspaceID = inputs.remoteWorkspaceID else { return binding }
-        guard let relayParameters = inputs.remoteRelayParameters else { return nil }
-
-        switch self {
-        case .workspace(_, let workspace, let surfaceID):
-            guard remoteWorkspaceID == workspace.id,
-                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-                      relayParameters.mapValues(\.foundationObject),
-                      remoteRelayTokenHex: workspace.remoteConfiguration?.relayToken
-                  ),
-                  let context = workspace.persistentSSHResumeContext(panelID: surfaceID) else {
-                return nil
-            }
-            return binding.registeredForPersistentSSH(context)
-        case .dock(_, let dock, let surfaceID):
-            guard let registration = dock.persistentSSHResumeRegistration(panelId: surfaceID),
-                  remoteWorkspaceID == registration.context.workspaceID,
-                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-                      relayParameters.mapValues(\.foundationObject),
-                      remoteRelayTokenHex: registration.relayToken
-                  ) else {
-                return nil
-            }
-            return binding.registeredForPersistentSSH(registration.context)
-        }
+        inputs.remoteWorkspaceID == nil ? binding : nil
     }
 }
 

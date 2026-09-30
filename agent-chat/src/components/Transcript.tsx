@@ -2,6 +2,7 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
+import { agentChatText } from "../i18n";
 import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
@@ -225,6 +226,8 @@ export function TurnActions({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   copiedPreview,
 }: {
   stats: string;
@@ -232,6 +235,8 @@ export function TurnActions({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   copiedPreview?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -259,10 +264,16 @@ export function TurnActions({
             <Popover.Positioner sideOffset={6} align="start">
               <Popover.Popup className="turn-menu menu" data-agent-popup="true">
                 {stats ? <div className="turn-menu-stats tabular-nums">{stats}</div> : null}
-                {actions.fork ? (
+                {actions.fork && !actions.handoff ? (
                   <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
                     {forkPending ? <PinwheelSpinner size={11} /> : null}
-                    <span>Fork chat</span>
+                    <span>{agentChatText("continueNewChat")}</span>
+                  </button>
+                ) : null}
+                {actions.handoff && onHandoff ? (
+                  <button className="turn-menu-item" type="button" disabled={handoffPending} onClick={onHandoff}>
+                    {handoffPending ? <PinwheelSpinner size={11} /> : null}
+                    <span>{agentChatText("continueElsewhere")}</span>
                   </button>
                 ) : null}
               </Popover.Popup>
@@ -662,6 +673,8 @@ function activityBlockHasDetail(block: Block): boolean {
       return Boolean(block.text.trim());
     case "status":
       return Boolean(block.text.trim());
+    case "plan":
+      return block.entries.length > 0;
     case "error":
       return Boolean(block.text.trim());
     case "files":
@@ -669,6 +682,20 @@ function activityBlockHasDetail(block: Block): boolean {
     default:
       return false;
   }
+}
+
+function PlanBlock({ entries }: { entries: Extract<Block, { kind: "plan" }>['entries'] }) {
+  return (
+    <div className="plan-block">
+      {entries.map((entry, index) => (
+        <div className={`plan-entry plan-entry-${entry.status}`} key={`${index}:${entry.text}`}>
+          <span className="plan-entry-status">{entry.status.replace("_", " ")}</span>
+          <span className="plan-entry-text">{entry.text}</span>
+          {entry.priority ? <span className="plan-entry-priority">{entry.priority}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ActivityDisclosureRow({
@@ -739,6 +766,8 @@ function ActivityBlock({
       return <div className="turn-thinking-detail">{block.text}</div>;
     case "status":
       return <div className="status-line">{block.text}</div>;
+    case "plan":
+      return <PlanBlock entries={block.entries} />;
     case "error":
       return <div className="error-block-wrap"><div className="error-block">{block.text}</div></div>;
     case "files":
@@ -828,6 +857,8 @@ function TurnGroupView({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   fileDiffs,
   onFileDiff,
   thinkingDefaultOpen,
@@ -841,6 +872,8 @@ function TurnGroupView({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   fileDiffs: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
@@ -855,7 +888,13 @@ function TurnGroupView({
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
       {live
         ? group.activity.map((block, i) => (
-          <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+          block.kind === "thinking" || block.kind === "assistant"
+            ? (
+              <div className="turn-live-activity" key={i}>
+                <ActivityBlock block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+              </div>
+            )
+            : <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
         ))
         : (
           <TurnActivity
@@ -870,7 +909,7 @@ function TurnGroupView({
           />
         )}
       {group.assistant ? <div className="msg assistant"><div className="body selectable"><ChatMarkdown text={group.assistant.text} streaming={group.assistant.open} /></div></div> : null}
-      {group.footer ? <TurnActions stats={group.footer.text} text={group.assistant?.text ?? ""} actions={actions} onFork={onFork} forkPending={forkPending} /> : null}
+      {group.footer ? <TurnActions stats={group.footer.text} text={group.assistant?.text ?? ""} actions={actions} onFork={onFork} forkPending={forkPending} onHandoff={onHandoff} handoffPending={handoffPending} /> : null}
     </div>
   );
 }
@@ -881,6 +920,8 @@ export function Blocks({
   actions,
   onFork,
   forkPending,
+  onHandoff,
+  handoffPending,
   fileDiffs = {},
   onFileDiff = () => {},
   thinkingDefaultOpen = false,
@@ -892,6 +933,8 @@ export function Blocks({
   actions: SessionActions;
   onFork: () => void;
   forkPending: boolean;
+  onHandoff?: () => void;
+  handoffPending?: boolean;
   fileDiffs?: Record<string, string>;
   onFileDiff?: (path: string) => void;
   thinkingDefaultOpen?: boolean;
@@ -922,6 +965,8 @@ export function Blocks({
               actions={actions}
               onFork={onFork}
               forkPending={forkPending}
+              onHandoff={onHandoff}
+              handoffPending={handoffPending}
               fileDiffs={fileDiffs}
               onFileDiff={onFileDiff}
               thinkingDefaultOpen={thinkingDefaultOpen}

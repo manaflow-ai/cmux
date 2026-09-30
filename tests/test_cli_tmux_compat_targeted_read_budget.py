@@ -148,13 +148,14 @@ def serve(directory, limiter, fault=None, wire_reply=None):
         path.unlink(missing_ok=True)
 
 
-def run(cli, path, directory, arguments, timeout=15):
+def run(cli, path, directory, arguments, timeout=15, extra_env=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("CMUX", "TMUX"))}
     env.update({
         "CMUX_SOCKET_PATH": str(path), "CMUX_WORKSPACE_ID": WORKSPACE_ID,
         "CMUX_SURFACE_ID": SURFACE_ID, "CMUX_PANE_ID": PANE_ID, "TMUX_PANE": PANE,
         "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": str(timeout), "HOME": str(directory),
     })
+    env.update(extra_env or {})
     return subprocess.run(
         [cli, "--socket", str(path), *arguments], env=env,
         text=True, capture_output=True, timeout=30,
@@ -193,6 +194,71 @@ def tmux_flow(cli, directory, limiter):
         for connection, request, _ in server.limited:
             assert server.requests.count((connection, request)) >= 2
         print("PASS: targeted display, detached split, command delivery, and multi-pane list under real rate limits")
+
+
+def managed_teammate_flow(cli, directory, limiter):
+    """Exercise the real-session launcher, not its --version fallback.
+
+    Claude Code 2.1.280 reads TMUX_PANE, looks up #{window_id} with -t,
+    counts that window's panes, then splits the leader with -d -h -l 70%.
+    The stand-in runs that sequence through the launcher's managed tmux shim.
+    """
+    managed = directory / "cmux-cli-shims" / SURFACE_ID
+    managed.mkdir(parents=True, mode=0o700)
+    real_bin = directory / "real-bin"
+    real_bin.mkdir()
+    wrapper = managed / "claude"
+    wrapper.write_text(
+        '#!/bin/sh\nset -eu\n'
+        '[ "${CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH:-}" = 1 ]\n'
+        'exec "$CMUX_TEST_REAL_CLAUDE" "$@"\n'
+    )
+    wrapper.chmod(0o700)
+    agent = real_bin / "claude"
+    agent.write_text(r'''#!/bin/sh
+set -eu
+[ "$1" = --teammate-mode ] && [ "$2" = auto ]
+[ "$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" = 1 ]
+[ "$TMUX_PANE" = "$CMUX_TEST_PANE" ]
+# Restore a shell snapshot containing only the app's managed wrapper root.
+# This must still reach cmux's tmux shim, without a launcher-only PATH entry.
+export PATH="$CMUX_TEST_SNAPSHOT_PATH"
+[ "$(command -v tmux)" = "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT/tmux" ]
+window="$(tmux display-message -t "$TMUX_PANE" -p '#{window_id}')"
+[ "$window" = "$CMUX_TEST_WINDOW" ]
+[ "$(tmux list-panes -t "$window" -F '#{pane_id}')" = "$TMUX_PANE" ]
+teammate="$(tmux split-window -d -t "$TMUX_PANE" -h -l 70% -P -F '#{pane_id}' -- sleep 20)"
+[ "$teammate" = "$CMUX_TEST_NEW_PANE" ]
+[ "$(tmux display-message -t "$TMUX_PANE" -p '#S:#I.#P')" = cmux:0.0 ]
+[ "$(tmux display-message -t "$teammate" -p '#P')" = 1 ]
+tmux list-panes -t "$window" -F '#{pane_id}'
+''')
+    agent.chmod(0o700)
+    extra_env = {
+        "PATH": f"{managed}:{real_bin}:/usr/bin:/bin",
+        "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(managed),
+        "CMUX_CLAUDE_WRAPPER_SHIM": str(wrapper),
+        "CMUX_CUSTOM_CLAUDE_PATH": str(agent),
+        "CMUX_TEST_REAL_CLAUDE": str(agent),
+        "CMUX_TEST_SNAPSHOT_PATH": f"{managed}:/usr/bin:/bin",
+        "CMUX_TEST_PANE": PANE,
+        "CMUX_TEST_WINDOW": WINDOW,
+        "CMUX_TEST_NEW_PANE": NEW_PANE,
+    }
+    # Each fresh launch gets fresh socket state and a fresh polling budget.
+    for _ in range(2):
+        with serve(directory, limiter) as (server, path):
+            success(run(cli, path, directory, [
+                "claude-teams", "--teammate-mode", "auto",
+            ], extra_env=extra_env), PANE + "\n" + NEW_PANE)
+            assert server.state.split_count == 1
+            assert not server.state.focus_new, "a detached teammate must not steal leader focus"
+            assert server.state.sent_text == ["sleep 20\r"]
+            assert server.limited, "the real launcher flow must exercise polling backpressure"
+            assert not server.early_retries
+            for connection, request, _ in server.limited:
+                assert server.requests.count((connection, request)) >= 2
+    print("PASS: fresh managed Claude Teams launches discover and split teammates under real rate limits")
 
 
 def error_contract(cli, directory, limiter):
@@ -291,6 +357,7 @@ def main():
         limiter = ProductionLimiter(directory)
         try:
             tmux_flow(cli, directory, limiter)
+            managed_teammate_flow(cli, directory, limiter)
             error_contract(cli, directory, limiter)
             limiter_isolation(directory, limiter)
         finally:

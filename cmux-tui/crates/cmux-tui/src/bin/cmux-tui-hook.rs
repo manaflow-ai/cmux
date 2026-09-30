@@ -47,8 +47,16 @@ struct Args {
     native_event: String,
 }
 
+// cmux-tui embeds this file as a module and enters through `run_cli`.
+#[allow(dead_code)]
 fn main() -> ExitCode {
-    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    run_cli(env::args().skip(1).collect(), &[])
+}
+
+/// Runs the helper with `arguments` (argv without the program name).
+/// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
+/// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -62,7 +70,7 @@ fn main() -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
-    match parse_args(arguments).and_then(run) {
+    match parse_args(arguments).and_then(|args| run(args, exe_prefix)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -71,19 +79,18 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
+fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
         return Ok(());
     }
-    let socket = match env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
-        Some(socket) => PathBuf::from(socket),
+    let (socket, terminal) = match session_route() {
+        Some(route) => route,
         None => {
             drain_native_payload()?;
             return Ok(());
         }
     };
-    let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
     let native = read_native_payload(io::stdin().lock())?;
     let ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
@@ -94,12 +101,164 @@ fn run(args: Args) -> anyhow::Result<()> {
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff)? {
+    match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => Ok(()),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
+    }
+}
+
+/// The session socket and terminal that receive this event: the terminal's
+/// own `CMUX_TUI_*` values, or, for an agent in a tmux session started
+/// outside cmux-tui (which has none), the cmux-tui terminal attached to the
+/// pane's tmux session.
+fn session_route() -> Option<(PathBuf, Option<String>)> {
+    if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
+        let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
+        return Some((PathBuf::from(socket), terminal));
+    }
+    let route = tmux_route::attached_terminal()?;
+    Some((route.socket, Some(route.terminal)))
+}
+
+/// Finds the cmux-tui terminal whose tmux client shows the hook's pane.
+///
+/// An agent in a tmux session started outside cmux-tui (by a launcher over
+/// SSH, say) has no `CMUX_TUI_*` variables, but the `tmux attach` running in
+/// a cmux-tui terminal does. Clients of the pane's session, or of a session
+/// grouped with it, are candidates: one whose current window holds the pane
+/// first, then the most recently active. The first whose environment names a
+/// session socket and terminal wins. Client environments are read from
+/// `/proc`, so this is Linux only.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod tmux_route {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    #[cfg(target_os = "linux")]
+    use std::time::{Duration, Instant};
+
+    /// Bound on both tmux queries together. It comes out of the provider's
+    /// hook budget, and codex kills SessionEnd hooks at 3s.
+    #[cfg(target_os = "linux")]
+    const TMUX_BUDGET: Duration = Duration::from_millis(500);
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) struct Route {
+        pub(super) socket: PathBuf,
+        pub(super) terminal: String,
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn attached_terminal() -> Option<Route> {
+        std::env::var_os("TMUX").filter(|value| !value.is_empty())?;
+        let deadline = Instant::now() + TMUX_BUDGET;
+        let pane = std::env::var("TMUX_PANE").ok().filter(|value| !value.is_empty());
+        let mut display = vec!["display-message", "-p"];
+        if let Some(pane) = pane.as_deref() {
+            display.extend(["-t", pane]);
+        }
+        display.push(PANE_FORMAT);
+        let pane_line = run_tmux(&display, deadline)?;
+        let clients = run_tmux(&["list-clients", "-F", CLIENT_FORMAT], deadline)?;
+        select(&pane_line, &clients, proc_environ)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(super) fn attached_terminal() -> Option<Route> {
+        None
+    }
+
+    pub(super) const PANE_FORMAT: &str = "#{session_id}\t#{session_group}\t#{window_id}";
+    pub(super) const CLIENT_FORMAT: &str =
+        "#{client_pid}\t#{client_activity}\t#{session_id}\t#{session_group}\t#{window_id}";
+
+    /// Picks the route from `display-message` output for the pane and
+    /// `list-clients` output, reading each candidate's environment.
+    pub(super) fn select(
+        pane_line: &str,
+        clients: &str,
+        environ: impl Fn(u32) -> Option<HashMap<String, String>>,
+    ) -> Option<Route> {
+        let pane_line = pane_line.strip_suffix('\n').unwrap_or(pane_line);
+        let pane: Vec<&str> = pane_line.split('\t').collect();
+        let [session, group, window] = pane[..] else { return None };
+        if session.is_empty() {
+            return None;
+        }
+        let mut candidates: Vec<(bool, i64, u32)> = clients
+            .lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let [pid, activity, client_session, client_group, client_window] = fields[..]
+                else {
+                    return None;
+                };
+                let same_session =
+                    client_session == session || (!group.is_empty() && client_group == group);
+                let pid = pid.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                same_session.then(|| {
+                    let shows_pane = !window.is_empty() && client_window == window;
+                    (shows_pane, activity.parse().unwrap_or(0), pid)
+                })
+            })
+            .collect();
+        candidates.sort_by(|left, right| right.0.cmp(&left.0).then(right.1.cmp(&left.1)));
+        candidates.into_iter().find_map(|(_, _, pid)| {
+            let environment = environ(pid)?;
+            let value = |key: &str| environment.get(key).filter(|value| !value.is_empty()).cloned();
+            Some(Route {
+                socket: value("CMUX_TUI_SOCKET")?.into(),
+                terminal: value("CMUX_TUI_TERMINAL_ID")?,
+            })
+        })
+    }
+
+    /// A same-user process environment; other users' are unreadable.
+    #[cfg(target_os = "linux")]
+    fn proc_environ(pid: u32) -> Option<HashMap<String, String>> {
+        let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+        Some(
+            data.split(|byte| *byte == 0)
+                .filter_map(|entry| {
+                    let entry = std::str::from_utf8(entry).ok()?;
+                    let (key, value) = entry.split_once('=')?;
+                    (!key.is_empty()).then(|| (key.to_owned(), value.to_owned()))
+                })
+                .collect(),
+        )
+    }
+
+    /// Runs tmux against the server named by `$TMUX`, killed at `deadline`.
+    #[cfg(target_os = "linux")]
+    fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("tmux")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => break,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+        let mut output = String::new();
+        child.stdout.take()?.read_to_string(&mut output).ok()?;
+        Some(output)
     }
 }
 
@@ -547,6 +706,7 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: std::time::Duration,
+        _exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let mut fds = [0_i32; 2];
         // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
@@ -662,11 +822,13 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         use std::os::unix::process::CommandExt;
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
@@ -738,10 +900,12 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
@@ -803,6 +967,49 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
+        let environment = |terminal: &str| {
+            Some(
+                [("CMUX_TUI_SOCKET", "/run/cmux.sock"), ("CMUX_TUI_TERMINAL_ID", terminal)]
+                    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                    .into(),
+            )
+        };
+        match pid {
+            10 => environment("term_other_window"),
+            11 => environment("term_shows_pane"),
+            12 => environment("term_recent"),
+            // A plain SSH client: no cmux-tui terminal.
+            13 => Some([("SSH_TTY".to_owned(), "/dev/pts/3".to_owned())].into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn tmux_route_prefers_the_client_showing_the_pane() {
+        let clients = "10\t500\t$1\t\t@2\n11\t100\t$1\t\t@1\n12\t900\t$7\t\t@9\n";
+        let route = tmux_route::select("$1\t\t@1\n", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_shows_pane");
+        assert_eq!(route.socket, PathBuf::from("/run/cmux.sock"));
+    }
+
+    #[test]
+    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
+        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
+        // grouped session and is newer than 10.
+        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
+        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_recent");
+    }
+
+    #[test]
+    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
+        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
+        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
+    }
 
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
