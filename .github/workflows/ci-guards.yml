@@ -304,7 +304,7 @@ jobs:
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
         env:
-          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
         run: |
           set -euo pipefail
           args=()
@@ -513,6 +513,10 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate simple live macOS pool choice
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_simple_pool_picker.py
 
       - name: Validate delta CI from the last green head
         if: ${{ matrix.group == 'ci' }}
@@ -1110,6 +1114,12 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
+
+      - name: Validate CLI contract verb coverage
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_cli_contract_verb_guard.py
+          python3 scripts/check-cli-contract-verbs.py
 
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
