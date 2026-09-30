@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { withDashboardRouter } from "./helpers/dashboard-router";
 import { NextIntlClientProvider } from "next-intl";
 import { loadMessages } from "../i18n/messages";
 import { locales } from "../i18n/routing";
@@ -71,11 +72,13 @@ describe("mobile devices dashboard", () => {
 
   test.each(locales)("renders product naming in %s", async (locale) => {
     const messages = await loadMessages(locale);
-    const html = renderToStaticMarkup(
+    const { element } = await withDashboardRouter(
       <NextIntlClientProvider locale={locale} messages={messages} timeZone="UTC">
         <MobileDevicesPage userId="fixture-user" />
       </NextIntlClientProvider>,
+      "/dashboard/mobile-devices",
     );
+    const html = renderToStaticMarkup(element);
     expect(html).toContain('data-testid="mobile-devices-dashboard"');
     expect(html).not.toMatch(/iroh|Stack|Cloudflare|Durable Object/i);
     const title = (messages.dashboard as Record<string, Record<string, string>>).mobileDevices!.title!;

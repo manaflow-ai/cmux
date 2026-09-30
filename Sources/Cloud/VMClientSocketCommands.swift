@@ -793,17 +793,9 @@ extension TerminalController {
             "kind": vm.resolvedKind.rawValue,
             // What the provider can honor; the list response is authoritative and
             // older action responses retain the model's compatibility defaults.
-            "capabilities": [
-                "snapshot": vm.capabilities.snapshot,
-                "restore": vm.capabilities.restore,
-                "fork": vm.capabilities.fork,
-                "exec": vm.capabilities.exec,
-                "stats": vm.capabilities.stats,
-                "ports": vm.capabilities.ports,
-                "desktop": vm.capabilities.desktop,
-                "sizing": vm.capabilities.sizing,
-                "persistentHome": vm.capabilities.persistentHome,
-            ],
+            // Reuse the model's wire representation so newer capability fields,
+            // including attach transports, cannot be dropped by this summary.
+            "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
