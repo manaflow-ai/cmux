@@ -64,6 +64,10 @@ public final class BrowserChromeView: NSView {
     /// commit and cancel return focus to the page.
     public var onOmnibarEvent: ((OmnibarEvent) -> Void)?
 
+    /// A modified omnibar commit (Cmd-Enter, Cmd-click): the host opens `url`
+    /// in another tab or window. When nil, this tab loads it.
+    public var onOpenURL: ((URL, OmnibarDisposition) -> Void)?
+
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
 
@@ -248,9 +252,10 @@ public final class BrowserChromeView: NSView {
 
     private func omnibarEvent(_ event: OmnibarEvent) {
         if case .didEndEditing(.commit(let url)) = event { tab.load(url) }
+        if case .didEndEditing(.open(let url, let disposition)) = event { onOpenURL.map { $0(url, disposition) } ?? tab.load(url) }
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
-        case .didEndEditing(.commit), .didEndEditing(.cancel): returnFocusToPage()
+        case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel): returnFocusToPage()
         case .didBeginEditing, .didEndEditing(.blur): break
         }
     }

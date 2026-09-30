@@ -8,8 +8,13 @@ import QuartzCore
 /// icon and text line up with the bar's chip and text. A separate window, so
 /// it stays above child-window engines (CEF) and never takes key status from
 /// the field being edited.
+///
+/// Rows only report the pointer and clicks; the omnibar state machine
+/// decides which one row is highlighted.
 final class OmniboxSuggestionPanel {
-    var onPick: ((Int) -> Void)?
+    var onPick: ((Int, NSEvent.ModifierFlags) -> Void)?
+    /// Pointer over row (nil: left the rows), in screen points.
+    var onHover: ((Int?, CGPoint) -> Void)?
 
     private var panel: SuggestionWindow?
     private let content = SuggestionCardView()
@@ -21,13 +26,14 @@ final class OmniboxSuggestionPanel {
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
-    func show(_ suggestions: [BrowserSuggestion], selected: Int?, below anchor: NSView, in window: NSWindow) {
+    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, in window: NSWindow) {
         let panel = panel ?? makePanel()
         rows.forEach { $0.removeFromSuperview() }
         rows = suggestions.enumerated().map { index, suggestion in
             let row = SuggestionRowView(suggestion: suggestion)
-            row.onClick = { [weak self] in self?.onPick?(index) }
-            row.isSelected = index == selected
+            row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
+            row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+            row.isHighlighted = index == highlighted
             return row
         }
         rows.forEach { content.card.addSubview($0) }
@@ -73,11 +79,14 @@ final class OmniboxSuggestionPanel {
         }
     }
 
-    func select(_ index: Int?) {
+    func highlight(_ index: Int?) {
         for (offset, row) in rows.enumerated() {
-            row.isSelected = offset == index
+            row.isHighlighted = offset == index
         }
     }
+
+    /// Rows on screen (tests).
+    var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
         guard let panel, panel.isVisible else { return }
@@ -100,6 +109,7 @@ final class OmniboxSuggestionPanel {
         window.level = .popUpMenu
         window.hidesOnDeactivate = true
         window.isReleasedWhenClosed = false
+        window.acceptsMouseMovedEvents = true
         window.contentView = content
         panel = window
         return window
@@ -109,6 +119,9 @@ final class OmniboxSuggestionPanel {
 final class SuggestionWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    /// The card never scrolls (at most 8 rows); the wheel must not reach
+    /// the page under it either.
+    override func scrollWheel(with event: NSEvent) {}
 }
 
 /// Transparent panel content holding the card layer and its shadow.

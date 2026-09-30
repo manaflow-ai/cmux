@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesign
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
-/// detail dimmed (Helium: "query - Engine Search"). Selected and hovered rows
-/// get an 8 pt rounded gray fill.
+/// detail dimmed (Helium: "query - Engine Search"). The one highlighted row
+/// (keyboard or mouse, the state machine decides) gets an 8 pt rounded gray
+/// fill. The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
-    var onClick: (() -> Void)?
-    var isSelected = false { didSet { if oldValue != isSelected { updateFill() } } }
-    /// Hover only draws; it never changes the selection or the field text.
-    private var isHovering = false { didSet { if oldValue != isHovering { updateFill() } } }
+    var onClick: ((NSEvent.ModifierFlags) -> Void)?
+    /// Pointer inside (true) or leaving (false), at a screen point.
+    var onPointer: ((Bool, CGPoint) -> Void)?
+    var isHighlighted = false { didSet { if oldValue != isHighlighted { updateFill() } } }
     var leadingIconCenter: CGFloat = 16 { didSet { needsLayout = true } }
     var textLeading: CGFloat = 33 { didSet { needsLayout = true } }
 
@@ -73,16 +74,21 @@ final class SuggestionRowView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
-    override func mouseUp(with event: NSEvent) { onClick?() }
+    override func mouseEntered(with event: NSEvent) { onPointer?(true, Self.screenPoint(event)) }
+    override func mouseMoved(with event: NSEvent) { onPointer?(true, Self.screenPoint(event)) }
+    override func mouseExited(with event: NSEvent) { onPointer?(false, Self.screenPoint(event)) }
+    override func mouseUp(with event: NSEvent) { onClick?(event.modifierFlags) }
     override func mouseDown(with event: NSEvent) {}
-    override func accessibilityPerformPress() -> Bool { onClick?(); return true }
+    override func accessibilityPerformPress() -> Bool { onClick?([]); return true }
+
+    private static func screenPoint(_ event: NSEvent) -> CGPoint {
+        event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -91,7 +97,7 @@ final class SuggestionRowView: NSView {
 
     private func updateFill() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = (isSelected || isHovering ? OmnibarStyle.rowSelectedFill : .clear).cgColor
+            layer?.backgroundColor = (isHighlighted ? OmnibarStyle.rowSelectedFill : .clear).cgColor
         }
     }
 }
