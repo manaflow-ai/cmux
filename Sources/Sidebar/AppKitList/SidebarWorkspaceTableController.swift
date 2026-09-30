@@ -1478,6 +1478,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             releaseRetainedWorkspaceDragContainerIfPossible()
         }
         isWorkspaceDragSourceActive = true
+        SidebarReorderInteractionState.shared.setDragging(true, owner: self)
         workspaceDragSourceCompletionReceived = false
         if let sourceTableView {
             retainWorkspaceDragSource(sourceTableView)
@@ -1643,6 +1644,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // this same AppKit generation and must not keep the old graph alive.
         clearPendingWorkspaceDragWriters()
         isWorkspaceDragSourceActive = false
+        SidebarReorderInteractionState.shared.setDragging(false, owner: self)
         let sessionId = activeWorkspaceDragSessionId ?? pendingWorkspaceDragSessionId
         let capabilityValue = activeWorkspaceDragCapabilityValue ?? {
             guard let sessionId,
@@ -2785,6 +2787,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         let rowId = configuration.id
+        cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
             actions: actions,

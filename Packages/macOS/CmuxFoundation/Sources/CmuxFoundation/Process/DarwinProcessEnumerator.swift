@@ -4,19 +4,26 @@ import Darwin
 public struct DarwinProcessEnumerator {
     private let listPIDs: (UnsafeMutableRawPointer?, Int32) -> Int32
     private let readProcess: (pid_t) -> proc_bsdinfo?
+    private let processHasExited: (pid_t) -> Bool
 
     /// Creates an enumerator backed by Darwin's PID and public topology APIs.
     public init() {
         let reader = DarwinProcessInfoReader()
-        self.init(listPIDs: proc_listallpids, readProcess: reader.readBSDInfo)
+        self.init(
+            listPIDs: proc_listallpids,
+            readProcess: reader.readBSDInfo,
+            processHasExited: reader.processHasExited
+        )
     }
 
     init(
         listPIDs: @escaping (UnsafeMutableRawPointer?, Int32) -> Int32,
-        readProcess: @escaping (pid_t) -> proc_bsdinfo?
+        readProcess: @escaping (pid_t) -> proc_bsdinfo?,
+        processHasExited: @escaping (pid_t) -> Bool = DarwinProcessInfoReader().processHasExited
     ) {
         self.listPIDs = listPIDs
         self.readProcess = readProcess
+        self.processHasExited = processHasExited
     }
 
     /// Captures topology with at most three PID-buffer attempts.
@@ -63,7 +70,12 @@ public struct DarwinProcessEnumerator {
         var seen: Set<pid_t> = []
         for pid in pids where pid > 0 && seen.insert(pid).inserted {
             guard let info = readProcess(pid), info.pbi_pid == UInt32(pid) else {
-                missingCount += 1
+                // Processes exit between the listing and this read constantly.
+                // An exited PID hides nothing; only a live one we could not
+                // read leaves the topology incomplete.
+                if !processHasExited(pid) {
+                    missingCount += 1
+                }
                 continue
             }
             processes.append(info)

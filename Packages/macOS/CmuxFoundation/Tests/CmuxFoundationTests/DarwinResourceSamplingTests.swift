@@ -19,12 +19,40 @@ struct DarwinResourceSamplingTests {
                 var info = proc_bsdinfo()
                 info.pbi_pid = UInt32(pid)
                 return info
-            }
+            },
+            processHasExited: { _ in false }
         ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
         // A PID that vanished after listing is not a truncated PID list.
         #expect(!listing.isTruncated)
+    }
+
+    /// Processes exit between the PID listing and the per-PID reads all the time
+    /// on a busy Mac. A PID that no longer exists hides nothing, so it must not
+    /// turn the whole topology incomplete.
+    @Test("A process that exits after listing leaves the topology complete")
+    func exitedProcessKeepsTopologyComplete() throws {
+        let exited = Process()
+        exited.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try exited.run()
+        exited.waitUntilExit()
+        let exitedPID = exited.processIdentifier
+        let livePID = getpid()
+        let reader = DarwinProcessInfoReader()
+        let listing = DarwinProcessEnumerator(
+            listPIDs: { pointer, _ in
+                guard let pointer else { return 2 }
+                let pids = pointer.assumingMemoryBound(to: pid_t.self)
+                pids[0] = livePID
+                pids[1] = exitedPID
+                return 2
+            },
+            readProcess: reader.readBSDInfo
+        ).capture()
+        #expect(listing.isComplete)
+        #expect(listing.missingProcessCount == 0)
+        #expect(listing.processes.map(\.pbi_pid) == [UInt32(livePID)])
     }
 
     @Test("Truncated PID buffers remain incomplete after bounded retries")

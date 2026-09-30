@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// `cmux vm layout export|apply` and `cmux vm env set|ls|rm`: layouts as data, and a
@@ -118,7 +119,11 @@ extension CMUXCLI {
     }
 
     private func runVMLayoutApply(_ args: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let (workspaceOpt, r1) = parseOption(args, name: "--workspace")
+        // `--open` shows the result here: in front when run interactively, in the
+        // background for an agent or script, unless --focus / --no-focus says otherwise.
+        let (explicitFocus, focusArgs) = try parseOpenFocusFlags(args, command: "vm layout apply")
+        let focus = explicitFocus ?? Self.defaultFocusForUserOpen()
+        let (workspaceOpt, r1) = parseOption(focusArgs, name: "--workspace")
         let (nameOpt, r2) = parseOption(r1, name: "--name")
         let (cwdOpt, r3) = parseOption(r2, name: "--cwd")
         let (savedOpt, r4) = parseOption(r3, name: "--from-saved")
@@ -165,7 +170,7 @@ extension CMUXCLI {
             guard let remoteWorkspace else {
                 throw CLIError(message: String(format: String(localized: "cli.vm.layout.applyTheLayoutWasAppliedButTheMachine", defaultValue: "vm layout apply: the layout was applied but the machine reported no workspace id to open (output: %1$@)"), String(describing: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))))
             }
-            openedPayload = try openAppliedVMWorkspace(machine: machine, remoteWorkspace: remoteWorkspace, client: client)
+            openedPayload = try openAppliedVMWorkspace(machine: machine, remoteWorkspace: remoteWorkspace, focus: focus, client: client)
         }
 
         if jsonOutput {
@@ -206,14 +211,14 @@ extension CMUXCLI {
     /// which can lag the exec: re-sync the machine first (`vm.tree {refresh}`), then
     /// open; a not-found or still-empty answer is retried briefly so a slow link never
     /// turns a successful apply into a failure. Other errors propagate untouched.
-    private func openAppliedVMWorkspace(machine: String, remoteWorkspace: String, client: SocketClient) throws -> [String: Any] {
+    private func openAppliedVMWorkspace(machine: String, remoteWorkspace: String, focus: Bool, client: SocketClient) throws -> [String: Any] {
         _ = try client.sendV2(method: "vm.tree", params: ["id": machine, "refresh": true], responseTimeout: 120)
         var lastFailure = ""
         for attempt in 1...Self.vmLayoutOpenAttempts {
             do {
                 let payload = try client.sendV2(
                     method: "vm.workspace_open",
-                    params: ["id": machine, "workspace_id": remoteWorkspace],
+                    params: ["id": machine, "workspace_id": remoteWorkspace, "focus": focus],
                     responseTimeout: 240
                 )
                 let opened = (payload["opened"] as? Int) ?? 0
@@ -525,7 +530,7 @@ extension CMUXCLI {
     }
 
     static func isValidVMEnvKey(_ key: String) -> Bool {
-        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil
+        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
     /// One argv `KEY=VALUE`. The value is taken literally (it already went through the
@@ -782,10 +787,6 @@ extension CMUXCLI {
     /// The instance `shellQuote` rules, as a static so the pure command builders (and
     /// their tests) need no CLI instance: bare when safe, else single-quoted.
     static func vmShimShellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

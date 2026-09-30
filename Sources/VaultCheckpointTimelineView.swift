@@ -146,8 +146,11 @@ struct VaultCheckpointTimelineView: View {
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(cmuxAccent.color.opacity(0.13))
+                    RoundedRectangle(
+                        cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(cmuxAccent.color.opacity(0.13))
                 )
             }
             .buttonStyle(.borderless)
@@ -418,7 +421,7 @@ private struct VaultCheckpointRow: View, Equatable {
             .padding(.horizontal, 8)
             .frame(height: 22)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(
                         isForkEnabled
                             ? cmuxAccent.color.opacity(isHovered ? 0.16 : 0.10)
