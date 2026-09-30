@@ -9,8 +9,10 @@ public struct CloudWorkspaceProjectionPlan {
 
     public init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection]) {
         let wanted = Set(desired)
+        // Desired placements an existing pane already shows: exact daemon tabs
+        // and the display memberships a local preview satisfies. None of them
+        // is missing, so reconciliation never reprojects a pane it already has.
         var seen = Set<SurfaceResourcePlacement>()
-        var satisfied = Set<SurfaceResourcePlacement>()
         var obsolete: [SurfaceProjection] = []
         for projection in existing.sorted(by: { $0.panelID.uuidString < $1.panelID.uuidString }) {
             let placement = SurfaceResourcePlacement(
@@ -27,7 +29,6 @@ public struct CloudWorkspaceProjectionPlan {
                     matching.cloudDisplayMembershipViewID != nil
                         && matching.resource == projection.resource
                         && matching.remoteWorkspaceID == projection.remoteWorkspaceID {
-                    satisfied.insert(matching)
                     seen.insert(matching)
                 }
                 continue
@@ -35,7 +36,7 @@ public struct CloudWorkspaceProjectionPlan {
             if !wanted.contains(placement) || !seen.insert(placement).inserted { obsolete.append(projection) }
         }
         var missingSeen = Set<SurfaceResourcePlacement>()
-        missing = desired.filter { !satisfied.contains($0) && missingSeen.insert($0).inserted }
+        missing = desired.filter { !seen.contains($0) && missingSeen.insert($0).inserted }
         self.obsolete = obsolete
     }
 }
