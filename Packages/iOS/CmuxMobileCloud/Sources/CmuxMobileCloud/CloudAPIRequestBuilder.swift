@@ -99,6 +99,25 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         return try request("POST", path: "/api/vm/tunnel", body: body, accessToken: accessToken, refreshToken: refreshToken)
     }
 
+    /// `DELETE /api/vm/tunnel` for one device role.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) throws -> URLRequest {
+        try request(
+            "DELETE",
+            path: "/api/vm/tunnel",
+            body: [
+                "deviceFingerprint": deviceFingerprint,
+                "tunnelPurpose": tunnelPurpose.rawValue,
+            ],
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
     /// `POST /api/vm/<id>/attach-endpoint` for the `cmux-remote` transport.
     public func openAttach(
         machineID: String,

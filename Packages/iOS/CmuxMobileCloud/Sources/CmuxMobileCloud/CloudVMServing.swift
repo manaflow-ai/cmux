@@ -15,6 +15,33 @@ public protocol CloudVMServing: Sendable {
     /// Enroll this device's WireGuard peer. Idempotent per fingerprint.
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws
         -> CloudTunnelEnrollment
+    /// Enroll this device's peer using the auth session captured for the
+    /// operation. Production services must not replace it with live tokens.
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment
+    /// Remove one device role's WireGuard peer without touching its other roles.
+    func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws
+    /// Remove one device role using tokens captured before local sign-out.
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws
+    /// Remove one device role using captured tokens and the team that owned
+    /// those tokens.
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws
     /// Open a `cmux-remote` attach for `machineID`.
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint
     /// Approve a first-contact invitation. Returns whether the daemon has

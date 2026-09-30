@@ -58,6 +58,49 @@ public actor CloudVMService: CloudVMServing {
         deviceName: String?
     ) async throws -> CloudTunnelEnrollment {
         let (access, refresh) = try await credentials()
+        return try await enrollTunnel(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            accessToken: access,
+            refreshToken: refresh,
+            teamID: await tokens.teamID()
+        )
+    }
+
+    /// Enrolls a browser peer using the token context captured when the
+    /// operation started.
+    public func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        guard let credentials else {
+            throw CloudAPIError.notSignedIn
+        }
+        return try await enrollTunnel(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            teamID: credentials.teamID
+        )
+    }
+
+    private func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws -> CloudTunnelEnrollment {
         guard let deviceID = await deviceID()?.trimmingCharacters(in: .whitespacesAndNewlines),
               !deviceID.isEmpty else {
             throw CloudDeviceIdentityResolver.Failure.storeUnavailable
@@ -69,12 +112,57 @@ public actor CloudVMService: CloudVMServing {
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             deviceName: deviceName,
-            accessToken: access,
-            refreshToken: refresh
-        ))
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        ), teamRouting: .explicit(teamID))
         let enrollment = try decoding.tunnelEnrollment(from: data)
         log.info("Cloud enrollment succeeded purpose=\(tunnelPurpose.rawValue, privacy: .public)")
         return enrollment
+    }
+
+    /// Revokes one role with the currently signed-in credentials.
+    public func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        let (access, refresh) = try await credentials()
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: access,
+            refreshToken: refresh,
+            teamID: await tokens.teamID()
+        )
+    }
+
+    /// Revokes one role with a token pair captured before local sign-out.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws {
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            teamID: nil
+        )
+    }
+
+    /// Revokes one role with tokens and the team captured before sign-out.
+    public func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
+        let request = try requests.revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        _ = try await send(request, teamRouting: .explicit(teamID))
     }
 
     public func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
@@ -137,9 +225,24 @@ public actor CloudVMService: CloudVMServing {
         _ = try await send(requests.deleteMachine(id: id, accessToken: access, refreshToken: refresh))
     }
 
-    private func send(_ request: URLRequest) async throws -> Data {
+    private enum TeamRouting {
+        case current
+        case explicit(String?)
+    }
+
+    private func send(
+        _ request: URLRequest,
+        teamRouting: TeamRouting = .current
+    ) async throws -> Data {
         var request = request
-        if let teamID = await tokens.teamID(), !teamID.isEmpty {
+        let teamID: String?
+        switch teamRouting {
+        case .current:
+            teamID = await tokens.teamID()
+        case .explicit(let capturedTeamID):
+            teamID = capturedTeamID
+        }
+        if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         let (data, response) = try await session.data(for: request)

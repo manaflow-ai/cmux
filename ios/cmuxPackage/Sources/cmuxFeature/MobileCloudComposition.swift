@@ -28,17 +28,73 @@ struct MobileCloudComposition {
     /// The Application Support subdirectory for the link client's state.
     static let stateDirectoryName = "cmux-cloud-remote"
 
+    /// The Keychain service base for the system VPN's configuration item.
+    static let systemVPNKeychainServiceBase = "com.cmuxterm.cloud.system-vpn.v1"
+    /// The Info.plist key naming the packet tunnel extension's bundle id.
+    static let systemVPNProviderInfoKey = "CMUXCloudVPNProviderBundleIdentifier"
+
     @MainActor
     func makeController() -> CloudSessionController? {
+        guard let service = makeService(), let identityStore = makeIdentityStore() else { return nil }
+        return CloudSessionController(
+            service: service,
+            identityStore: identityStore,
+            tunnelStarter: CmuxTerminalClientCloudTunnelStarter(),
+            connector: CmuxTerminalClientCloudConnector(),
+            stateDirectory: stateDirectory(),
+            deviceName: UIDevice.current.name
+        )
+    }
+
+    /// Builds the optional system VPN, or nil when this build does not embed
+    /// the packet tunnel extension, which hides its switch.
+    @MainActor
+    func makeSystemVPNController(bundle: Bundle = .main) -> CloudSystemVPNController? {
+        guard let service = makeService(),
+              let identityStore = makeIdentityStore(),
+              let appNamespace = auth.appNamespace,
+              let providerID = bundle.object(forInfoDictionaryKey: Self.systemVPNProviderInfoKey) as? String,
+              let plugIns = bundle.builtInPlugInsURL,
+              let provider = Bundle(url: plugIns.appendingPathComponent("CloudVPN.appex")),
+              provider.bundleIdentifier == providerID else { return nil }
+        let coordinator = auth.coordinator
+        return CloudSystemVPNController(
+            service: service,
+            identityStore: identityStore,
+            manager: CloudSystemVPNPreferences(
+                providerBundleIdentifier: providerID,
+                keychainService: appNamespace.keychainService(base: Self.systemVPNKeychainServiceBase),
+                keychainAccessGroup: auth.keychainAccessGroup
+            ),
+            deviceName: UIDevice.current.name,
+            credentials: {
+                try? await coordinator.coherentTokenPair()
+            },
+            pendingRevocationStore: UserDefaultsCloudSystemVPNPendingRevocationStore(
+                defaults: .standard
+            )
+        )
+    }
+
+    /// Builds the bridge that publishes a controller's machines into the
+    /// workspace experience, so their terminals open in the Workspaces tab
+    /// through the same views a paired Mac's do.
+    @MainActor
+    func makeWorkspaceBridge(controller: CloudSessionController) -> CloudWorkspaceBridge {
+        CloudWorkspaceBridge(links: controller, visibility: controller)
+    }
+
+    /// The `/api/vm` client, or nil when the build has no API origin.
+    private func makeService() -> CloudVMService? {
         let baseURL = MobileAuthComposition.cloudAPIBaseURL(
             authEnvironment: auth.authEnvironment,
             configuredBaseURL: auth.config.apiBaseURL
         )
-        guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else { return nil }
+        guard !baseURL.isEmpty else { return nil }
         let coordinator = auth.coordinator
         // The app injects the active Iroh installation's identity reader.
         // Unavailable protected storage defers enrollment without minting a new ID.
-        let service = CloudVMService(
+        return CloudVMService(
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
                 accessToken: { try? await coordinator.accessToken() },
@@ -57,34 +113,24 @@ struct MobileCloudComposition {
             ),
             deviceID: deviceID
         )
+    }
+
+    /// The device identity store both Cloud controllers read, so the terminal
+    /// tunnel and the system VPN are filed under one device.
+    private func makeIdentityStore() -> (any CloudDeviceIdentityStoring)? {
+        guard let appNamespace = auth.appNamespace else { return nil }
         // Unsigned simulator apps cannot use the data-protection Keychain (no
         // application-identifier entitlement), mirroring DeviceIdentityStore's
         // simulator split. Physical devices always use the Keychain.
         #if targetEnvironment(simulator)
-        let identityStore: any CloudDeviceIdentityStoring = UserDefaultsCloudDeviceIdentityStore(defaults: .standard)
         _ = appNamespace
+        return UserDefaultsCloudDeviceIdentityStore(defaults: .standard)
         #else
-        let identityStore: any CloudDeviceIdentityStoring = KeychainCloudDeviceIdentityStore(
+        return KeychainCloudDeviceIdentityStore(
             service: appNamespace.keychainService(base: Self.keychainServiceBase),
             accessGroup: auth.keychainAccessGroup
         )
         #endif
-        return CloudSessionController(
-            service: service,
-            identityStore: identityStore,
-            tunnelStarter: CmuxTerminalClientCloudTunnelStarter(),
-            connector: CmuxTerminalClientCloudConnector(),
-            stateDirectory: stateDirectory(),
-            deviceName: UIDevice.current.name
-        )
-    }
-
-    /// Builds the bridge that publishes a controller's machines into the
-    /// workspace experience, so their terminals open in the Workspaces tab
-    /// through the same views a paired Mac's do.
-    @MainActor
-    func makeWorkspaceBridge(controller: CloudSessionController) -> CloudWorkspaceBridge {
-        CloudWorkspaceBridge(links: controller, visibility: controller)
     }
 
     /// `<Application Support>/cmux-cloud-remote`, created 0700 on first use.

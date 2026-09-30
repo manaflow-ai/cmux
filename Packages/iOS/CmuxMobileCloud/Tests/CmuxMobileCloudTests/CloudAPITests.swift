@@ -72,6 +72,21 @@ import Testing
         #expect(json["tunnelPurpose"] as? String == purpose.rawValue)
     }
 
+    @Test func revokeTargetsOnlyTheRequestedTunnelRole() throws {
+        let request = try builder.revokeTunnel(
+            deviceFingerprint: "ios-role",
+            tunnelPurpose: .browser,
+            accessToken: "acc",
+            refreshToken: "ref"
+        )
+        #expect(request.url?.path == "/api/vm/tunnel")
+        #expect(request.httpMethod == "DELETE")
+        let json = try body(request)
+        #expect(json["deviceFingerprint"] as? String == "ios-role")
+        #expect(json["tunnelPurpose"] as? String == "browser")
+        #expect(json.keys.sorted() == ["deviceFingerprint", "tunnelPurpose"])
+    }
+
     @Test func attachUsesCmuxRemoteTransportAndLongTimeout() throws {
         let request = try builder.openAttach(
             machineID: "vm a/b", deviceFingerprint: "ios-1", clientCapabilities: ["Bad Token", "direct-ws-user-agent", "direct-ws-user-agent"],

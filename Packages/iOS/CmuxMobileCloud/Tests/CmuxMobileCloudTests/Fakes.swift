@@ -8,6 +8,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         var list = 0
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
+        var enrollCredentials: [CloudAPITokenSource.TokenContext?] = []
+        var revoke: [(fingerprint: String, purpose: CloudTunnelPurpose)] = []
+        var revokeCredentials: [(accessToken: String, refreshToken: String, teamID: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
         var pause: [String] = []
@@ -16,11 +19,23 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: Calls())
+    private let revocationGate = OSAllocatedUnfairLock(initialState: 0)
     var calls: Calls { lock.withLock { $0 } }
 
     var machines: Result<[CloudMachine], any Error> = .success([])
     var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
+    var enrollmentSequence: [CloudTunnelEnrollment] = []
+    var enrollmentDelay: Duration?
+    private let enrollmentCompletion = TestSignal()
+    private let revocationStarted = TestSignal()
+    private let revocationCompletion = TestSignal()
+    private let releaseRevocation = TestSignal()
+    var revocationFailure: (any Error)?
+    var revocationsToHold: Int {
+        get { revocationGate.withLock { $0 } }
+        set { revocationGate.withLock { $0 = newValue } }
+    }
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
     /// Thrown by pause, resume and delete when set.
@@ -37,8 +52,123 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
 
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
-        lock.withLock { $0.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName)) }
-        return try enrollment.get()
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: nil
+        )
+    }
+
+    func enrollTunnel(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        try await performEnrollment(
+            clientPublicKey: clientPublicKey,
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            deviceName: deviceName,
+            credentials: credentials
+        )
+    }
+
+    private func performEnrollment(
+        clientPublicKey: String,
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        deviceName: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    ) async throws -> CloudTunnelEnrollment {
+        let callIndex = lock.withLock { calls -> Int in
+            calls.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName))
+            calls.enrollCredentials.append(credentials)
+            return calls.enroll.count - 1
+        }
+        if let enrollmentDelay {
+            try? await ContinuousClock().sleep(for: enrollmentDelay)
+        }
+        await enrollmentCompletion.signal()
+        let result = enrollmentSequence.indices.contains(callIndex)
+            ? .success(enrollmentSequence[callIndex])
+            : enrollment
+        return try result.get()
+    }
+
+    func waitForEnrollmentCompletion() async {
+        await enrollmentCompletion.wait()
+    }
+
+    func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
+    }
+
+    private func performRevocation(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose
+    ) async throws {
+        lock.withLock { $0.revoke.append((deviceFingerprint, tunnelPurpose)) }
+        let shouldHold = revocationGate.withLock { remaining -> Bool in
+            guard remaining > 0 else { return false }
+            remaining -= 1
+            return true
+        }
+        await revocationStarted.signal()
+        if shouldHold {
+            await releaseRevocation.wait()
+        }
+        await revocationCompletion.signal()
+        if let revocationFailure { throw revocationFailure }
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String
+    ) async throws {
+        try await revokeTunnel(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            teamID: nil
+        )
+    }
+
+    func revokeTunnel(
+        deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
+        accessToken: String,
+        refreshToken: String,
+        teamID: String?
+    ) async throws {
+        lock.withLock {
+            $0.revokeCredentials.append((accessToken, refreshToken, teamID))
+        }
+        try await performRevocation(
+            deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose
+        )
+    }
+
+    func waitForRevocation() async {
+        await revocationCompletion.wait()
+    }
+
+    func waitForRevocationStart() async {
+        await revocationStarted.wait()
+    }
+
+    func releaseHeldRevocation() async {
+        await releaseRevocation.signal()
     }
 
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {

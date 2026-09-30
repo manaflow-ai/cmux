@@ -10,26 +10,79 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     }
 
     var body: some View {
-        Group {
+        if value.asksForComputer, actions.createWorkspaceOnComputer != nil {
+            computerMenu
+        } else {
+            singleComputerMenu
+        }
+    }
+
+    /// One scoped computer, or the only available computer under All
+    /// Computers: the tap creates directly and the long press keeps the
+    /// existing group action.
+    private var singleComputerMenu: some View {
+        Menu {
             if value.canCreate {
-                // The plain tap keeps its old meaning: create on the scoped
-                // computer. The menu carries the alternatives.
-                Menu {
-                    menuContent
-                } label: {
-                    Image(systemName: "plus")
-                } primaryAction: {
+                Button {
                     actions.createWorkspace()
-                }
-            } else {
-                // Nothing to create on the scoped computer, so the tap opens
-                // the menu of Cloud targets instead of dying on a guard.
-                Menu {
-                    menuContent
                 } label: {
-                    Image(systemName: "plus")
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            } else if let target = value.singleConnectedTarget,
+                      actions.createWorkspaceOnComputer != nil {
+                Button {
+                    actions.createWorkspaceOnComputer?(target)
+                } label: {
+                    Label(
+                        L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
+            }
+            groupButton
+        } label: {
+            Image(systemName: "plus")
+        } primaryAction: {
+            actions.performPrimaryAction(for: value)
+        }
+        .disabled(!value.isEnabled)
+        .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
+        .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    /// Several computers under All Computers: the tap asks where the new
+    /// workspace goes instead of silently using the foreground Mac.
+    private var computerMenu: some View {
+        Menu {
+            Section(L10n.string("mobile.workspace.new", defaultValue: "New Workspace")) {
+                ForEach(value.computerTargets) { target in
+                    Button {
+                        guard target.isConnected else { return }
+                        actions.createWorkspaceOnComputer?(target)
+                    } label: {
+                        Text(
+                            String(
+                                format: L10n.string(
+                                    "mobile.workspace.newOnMachine",
+                                    defaultValue: "New Workspace on %@"
+                                ),
+                                target.name
+                            )
+                        )
+                        Image(systemName: target.systemImage)
+                    }
+                    .disabled(!target.isConnected)
+                    .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
                 }
             }
+            groupButton
+        } label: {
+            Image(systemName: "plus")
         }
         .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
@@ -37,15 +90,7 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     }
 
     @ViewBuilder
-    private var menuContent: some View {
-        if value.canCreate {
-            Button {
-                actions.createWorkspace()
-            } label: {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-        }
+    private var groupButton: some View {
         if value.canCreateGroup {
             Button {
                 guard value.canCreate else { return }
@@ -57,28 +102,6 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
                 )
             }
             .accessibilityIdentifier("MobileNewWorkspaceGroupMenuItem")
-        }
-        if !value.cloudTargets.isEmpty {
-            Section {
-                ForEach(value.cloudTargets) { target in
-                    Button {
-                        actions.createWorkspaceOnCloudMachine?(target.hostID)
-                    } label: {
-                        Label(
-                            String(
-                                format: L10n.string(
-                                    "mobile.workspace.newOnMachine",
-                                    defaultValue: "New Workspace on %@"
-                                ),
-                                target.name
-                            ),
-                            systemImage: "cloud"
-                        )
-                    }
-                    .disabled(!target.isConnected)
-                    .accessibilityIdentifier("MobileNewWorkspaceOnCloudMachine-\(target.hostID)")
-                }
-            }
         }
     }
 }

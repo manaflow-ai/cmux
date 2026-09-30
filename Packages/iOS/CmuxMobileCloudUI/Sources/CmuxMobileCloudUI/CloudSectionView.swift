@@ -16,6 +16,7 @@ import SwiftUI
 /// reflects it.
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
+    @Environment(\.cloudSystemVPNController) private var systemVPN
     @State private var isCreateSheetPresented = false
     /// The machine awaiting delete confirmation.
     @State private var pendingDelete: CloudMachine?
@@ -29,6 +30,7 @@ public struct CloudSectionView: View {
         List {
             tunnelSection
             machinesSection
+            systemVPNSection
         }
         .listStyle(.insetGrouped)
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
@@ -62,6 +64,21 @@ public struct CloudSectionView: View {
             CloudCreateMachineSheet(
                 controller: controller,
                 availableKinds: controller.availableMachineKinds
+            )
+        }
+    }
+
+    /// The system VPN only matters once there is a machine to reach, but stays
+    /// visible while it is on so it can always be turned off here.
+    @ViewBuilder
+    private var systemVPNSection: some View {
+        if let systemVPN, !controller.machines.elements.isEmpty || systemVPN.phase != .off {
+            CloudSystemVPNSection(
+                phase: systemVPN.phase,
+                isAvailable: systemVPN.isAvailable,
+                enable: { systemVPN.enable() },
+                disable: { systemVPN.disable() },
+                retry: { systemVPN.retry() }
             )
         }
     }

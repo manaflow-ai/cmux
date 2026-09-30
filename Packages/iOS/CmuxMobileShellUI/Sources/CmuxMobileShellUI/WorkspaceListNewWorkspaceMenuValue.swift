@@ -1,17 +1,31 @@
-struct WorkspaceListNewWorkspaceMenuValue: Equatable {
-    /// A Cloud machine the menu can create a workspace on directly.
-    struct CloudTarget: Equatable, Identifiable {
-        let hostID: String
-        let name: String
-        let isConnected: Bool
-        var id: String { hostID }
-    }
+import SwiftUI
 
+struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     let canCreate: Bool
     let canCreateGroup: Bool
-    /// Cloud machines offered as create targets under All Computers; empty
-    /// when the list is scoped to one computer.
-    var cloudTargets: [CloudTarget] = []
+    /// Computers offered as create targets under All Computers. Empty when
+    /// the list is scoped to one computer.
+    var computerTargets: [ComputerTarget] = []
 
-    var isEnabled: Bool { canCreate || cloudTargets.contains(where: \.isConnected) }
+    var asksForComputer: Bool { computerTargets.count > 1 }
+    var singleConnectedTarget: ComputerTarget? {
+        guard computerTargets.count == 1,
+              let target = computerTargets.first,
+              target.isConnected
+        else {
+            return nil
+        }
+        return target
+    }
+    var isEnabled: Bool { canCreate || computerTargets.contains(where: \.isConnected) }
+
+    static func soleConnectedTarget(
+        scopedExternalHostID: String?,
+        targets: [ComputerTarget]
+    ) -> ComputerTarget? {
+        guard scopedExternalHostID == nil else { return nil }
+        let connectedTargets = targets.filter(\.isConnected)
+        guard connectedTargets.count == 1 else { return nil }
+        return connectedTargets.first
+    }
 }
