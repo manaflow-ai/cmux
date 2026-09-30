@@ -100,7 +100,7 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         )
     }
 
-    func testWindowWarningOffClosesRunningWindowWithoutPrompt() throws {
+    func testWindowWarningOffStillPromptsForRunningWindow() throws {
         let appDelegate = try XCTUnwrap(AppDelegate.shared)
         let targetWindow = try makeMainWindow(appDelegate)
         try setShellActivity(.commandRunning, appDelegate)
@@ -125,9 +125,8 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
 
         appDelegate.closeWindowWithConfirmation(targetWindow)
 
-        XCTAssertEqual(prompts, 0)
-        XCTAssertEqual(requests.values.count, 1)
-        XCTAssertEqual(requests.values.first?.confirmed, false)
+        XCTAssertEqual(prompts, 1)
+        XCTAssertEqual(requests.values.count, 0)
     }
 
     func testTickingDontAskAgainTurnsOffWindowWarning() throws {
@@ -156,17 +155,18 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
             return true
         }
 
-        // Cancel with the box ticked: the window stays, the warning turns off.
+        // Cancel with the box ticked: the window stays and the ordinary window
+        // warning turns off, while the live-process safety warning remains.
         appDelegate.closeWindowWithConfirmation(targetWindow)
         XCTAssertEqual(prompts, 1)
-        XCTAssertEqual(offered, [.window])
+        XCTAssertEqual(offered, [.window, .safety])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWindow.value(in: defaults))
         XCTAssertTrue(targetWindow.isVisible)
 
         let requests = recordShouldCloseRequests(appDelegate)
         appDelegate.closeWindowWithConfirmation(targetWindow)
-        XCTAssertEqual(prompts, 1, "The next Close Window should not ask")
-        XCTAssertEqual(requests.values.count, 1)
+        XCTAssertEqual(prompts, 2, "The safety warning cannot be disabled")
+        XCTAssertEqual(requests.values.count, 0)
     }
 
     func testUnconfirmedWindowCloseStillReachesShouldCloseUnconfirmed() throws {
