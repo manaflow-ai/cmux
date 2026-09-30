@@ -38,6 +38,10 @@ public enum DaemonCapabilities {
     public static let notificationAck = "notification-ack-v1"
     public static let tabGroups = "tab-groups-v1"
     public static let savedTabGroups = "saved-tab-groups-v1"
+    /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
+    public static let screenMetadata = "screen-metadata-v1"
+    /// Screen groups and saved screen groups.
+    public static let screenGroups = "screen-groups-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public static let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
@@ -62,7 +66,7 @@ public enum DaemonCapabilities {
     public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, profiles]
+                                            terminalReap, batchClose, profiles, screenMetadata, screenGroups]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

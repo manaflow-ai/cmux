@@ -15,6 +15,13 @@ public final class ScreenModel: Identifiable {
     public internal(set) var zoomedPane: PaneID?
     public internal(set) var defaultPane: PaneID?
     public internal(set) var panes: [PaneModel]
+    /// Palette token, nil = none (`screen-metadata-v1`).
+    public internal(set) var color: String?
+    /// SF Symbol name or one emoji grapheme.
+    public internal(set) var icon: String?
+    public internal(set) var pinned: Bool
+    /// The screen group this screen belongs to (`screen-groups-v1`).
+    public internal(set) var group: ScreenGroupID?
 
     init(_ s: ScreenSnapshot) {
         id = Self.identity(s)
@@ -27,6 +34,10 @@ public final class ScreenModel: Identifiable {
         zoomedPane = s.zoomedPane
         defaultPane = s.activePane
         panes = s.panes.map(PaneModel.init)
+        color = s.color
+        icon = s.icon
+        pinned = s.pinned
+        group = s.group
     }
 
     static func identity(_ s: ScreenSnapshot) -> String {
@@ -42,6 +53,10 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
+        if color != s.color { color = s.color }
+        if icon != s.icon { icon = s.icon }
+        if pinned != s.pinned { pinned = s.pinned }
+        if group != s.group { group = s.group }
         if let reordered = reconcile(panes, with: s.panes, id: PaneModel.identity, make: PaneModel.init, update: { $0.update($1) }) {
             panes = reordered
         }
