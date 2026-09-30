@@ -55,16 +55,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, cwdChecks, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, checkCwd, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
-  // The transcript resolves bare GitHub references against the session's
-  // repository, and the working-directory check is what reports it. A session
-  // started elsewhere, or restored on a reconnect, never went through the
-  // composer, so its directory may not have been checked yet.
-  const sessionCwd = session?.cwd;
-  useEffect(() => {
-    if (!ready || !sessionCwd || cwdChecks[sessionCwd]) return;
-    checkCwd(sessionCwd);
-  }, [checkCwd, cwdChecks, ready, sessionCwd]);
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);

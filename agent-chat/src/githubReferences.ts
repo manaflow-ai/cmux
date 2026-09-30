@@ -74,47 +74,138 @@ export function gitHubReference(token: string, repositorySlug: string | null): G
   return null;
 }
 
-/// Rewrites bare GitHub references in markdown source into markdown links.
+/// The markdown nodes this plugin reads and writes.
 ///
-/// This runs before the transcript parses the markdown, so the renderer itself
-/// is untouched and a reference ends up as an ordinary link with the transcript's
-/// own link handling. Code spans, fenced blocks, existing links and autolinks are
-/// left exactly as written: in those places the characters are the content.
-export function linkifyGitHubReferences(markdown: string, repositorySlug: string | null): string {
-  let output = "";
-  let index = 0;
-  for (const match of markdown.matchAll(PROTECTED_SPAN)) {
-    const start = match.index ?? 0;
-    output += linkifyProse(markdown.slice(index, start), repositorySlug);
-    output += match[0];
-    index = start + match[0].length;
-  }
-  return output + linkifyProse(markdown.slice(index), repositorySlug);
+/// Only the handful of fields the walk touches are named, so the transcript
+/// does not take a dependency on the mdast type packages for four properties.
+interface MarkdownNode {
+  type: string;
+  value?: string;
+  children?: MarkdownNode[];
+  url?: string;
+  position?: { end?: { offset?: number } };
 }
 
-/// Spans whose contents are never rewritten, in the order they win:
-/// fenced code, inline code, images and links, then autolinks.
-const PROTECTED_SPAN =
-  /```[\s\S]*?(?:```|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[^>\s]+>/g;
+/// Node types whose text is content rather than prose, so nothing inside them
+/// is rewritten.
+///
+/// `code` and `inlineCode` hold characters the author asked to see verbatim.
+/// `link`, `linkReference` and `definition` already point somewhere, and
+/// turning part of their text into a second link would nest one link inside
+/// another. `html` is passed through untouched by the renderer.
+///
+/// The parser has already decided which of these each run of characters
+/// belongs to, which is the whole reason this is a tree walk rather than a
+/// search over the markdown source: a source-level guess has to re-derive the
+/// fence, span and escape rules, and it gets them wrong for `~~~` blocks,
+/// indented blocks, double-backtick spans and spans that wrap a line.
+const OPAQUE_NODE_TYPES = new Set(["code", "inlineCode", "link", "linkReference", "definition", "html", "imageReference", "image", "yaml"]);
 
-/// Rewrites references in a run of ordinary prose.
-function linkifyProse(text: string, repositorySlug: string | null): string {
-  if (!text) return text;
+/// How the transcript resolves bare references.
+export interface GitHubReferenceOptions {
+  /// The session's repository, used for references that do not name one.
+  repositorySlug: string | null;
+  /// Whether the message is still arriving.
+  ///
+  /// A number that is still being typed is a prefix of the number the agent
+  /// means, so `#8471` passes through `#8`, `#84` and `#847` on its way in, and
+  /// each of those is a link to a different issue that someone can click during
+  /// a pause. While a message streams, the token at the very end of it is left
+  /// as text until something follows it.
+  streaming?: boolean;
+}
+
+/// A remark plugin that turns bare GitHub references into links.
+///
+/// It runs on the parsed document rather than on the markdown source, so code
+/// spans, code blocks, existing links and autolinks are skipped because the
+/// parser has already put them in their own nodes.
+///
+/// Goes in a plugin list the way remark takes options, as
+/// `[remarkGitHubReferences, options]`: remark calls the plugin itself with the
+/// options and keeps what it returns as the transform.
+export function remarkGitHubReferences(options: GitHubReferenceOptions) {
+  return function transform(tree: MarkdownNode, file: unknown): void {
+    const sourceLength = String(file as { toString(): string }).length;
+    visit(tree, options, options.streaming === true ? sourceLength : null);
+  };
+}
+
+/// Rewrites every prose text node under `node`.
+function visit(node: MarkdownNode, options: GitHubReferenceOptions, protectedEndOffset: number | null): void {
+  const children = node.children;
+  if (!children) return;
+  let index = 0;
+  while (index < children.length) {
+    const child = children[index];
+    if (OPAQUE_NODE_TYPES.has(child.type)) {
+      index += 1;
+      continue;
+    }
+    if (child.type !== "text") {
+      visit(child, options, protectedEndOffset);
+      index += 1;
+      continue;
+    }
+    const endsDocument = protectedEndOffset !== null && child.position?.end?.offset === protectedEndOffset;
+    const replacement = referenceNodes(child.value ?? "", options.repositorySlug, endsDocument);
+    if (!replacement) {
+      index += 1;
+      continue;
+    }
+    children.splice(index, 1, ...replacement);
+    index += replacement.length;
+  }
+}
+
+/// The nodes a run of prose becomes, or `null` when it holds no reference.
+///
+/// `holdFinalToken` leaves the last token alone, for the end of a message that
+/// is still streaming.
+export function referenceNodes(value: string, repositorySlug: string | null, holdFinalToken = false): MarkdownNode[] | null {
   // Splitting on whitespace and keeping it is what makes a token here the same
   // token the terminal detector sees, so the two surfaces agree on boundaries.
-  return text
-    .split(/(\s+)/)
-    .map((token) => {
-      if (!token.trim()) return token;
-      const { leading, core, trailing } = splitWrappingPunctuation(token);
-      if (!core) return token;
-      const reference = gitHubReference(core, repositorySlug);
-      if (!reference) return token;
-      return `${leading}[${core}](${reference.url})${trailing}`;
-    })
-    .join("");
+  const parts = value.split(/(\s+)/);
+  const lastTokenIndex = lastNonEmptyIndex(parts);
+  const nodes: MarkdownNode[] = [];
+  let pending = "";
+  let linked = false;
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const held = holdFinalToken && index === lastTokenIndex;
+    const reference = part.trim() && !held ? referenceInToken(part, repositorySlug) : null;
+    if (!reference) {
+      pending += part;
+      continue;
+    }
+    if (pending || reference.leading) nodes.push({ type: "text", value: pending + reference.leading });
+    nodes.push({ type: "link", url: reference.url, children: [{ type: "text", value: reference.core }] });
+    pending = reference.trailing;
+    linked = true;
+  }
+
+  if (!linked) return null;
+  if (pending) nodes.push({ type: "text", value: pending });
+  return nodes;
 }
 
+/// The index of the last part that is not whitespace, or `-1`.
+function lastNonEmptyIndex(parts: string[]): number {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index].trim()) return index;
+  }
+  return -1;
+}
+
+/// The reference a whitespace-delimited token names, with the punctuation that
+/// wrapped it kept aside so it stays outside the link.
+function referenceInToken(token: string, repositorySlug: string | null): { leading: string; core: string; trailing: string; url: string } | null {
+  const { leading, core, trailing } = splitWrappingPunctuation(token);
+  if (!core) return null;
+  const reference = gitHubReference(core, repositorySlug);
+  return reference ? { leading, core, trailing, url: reference.url } : null;
+}
 /// Builds an issue or pull request reference.
 function issue(slug: string, number: number, rawToken: string): GitHubReference {
   return { kind: "issue", repositorySlug: slug, rawToken, url: `https://github.com/${slug}/issues/${number}` };
@@ -199,7 +290,10 @@ export function gitHubSlugFromRemoteURL(remoteURL: string): string | null {
   // rather than through the URL parser.
   const scpLike = /^[^@/\s]+@([^:/\s]+):(.+)$/.exec(trimmed);
   if (scpLike) {
-    return scpLike[1] === "github.com" ? normalizedSlug(stripGitSuffix(scpLike[2])) : null;
+    // Host comparison is case-insensitive here because the `URL` parser lowers
+    // the host on the other branch, and a remote written `git@GitHub.com:` is
+    // the same host as one written in lower case.
+    return scpLike[1].toLowerCase() === "github.com" ? normalizedSlug(stripGitSuffix(scpLike[2])) : null;
   }
 
   let parsed: URL;

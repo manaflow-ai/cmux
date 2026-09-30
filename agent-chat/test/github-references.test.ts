@@ -88,6 +88,13 @@ describe("gitHubSlugFromRemoteURL", () => {
     expect(gitHubSlugFromRemoteURL("ssh://git@github.com/manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
   });
 
+  test("reads an SSH remote whose host is not in lower case", () => {
+    // The URL parser lowers the host on the other branch, so a remote typed
+    // with capitals is the same host and has to be read the same way.
+    expect(gitHubSlugFromRemoteURL("git@GitHub.com:manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
+    expect(gitHubSlugFromRemoteURL("https://GitHub.com/manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
+  });
+
   test("ignores trailing whitespace git prints", () => {
     expect(gitHubSlugFromRemoteURL("git@github.com:manaflow-ai/cmux.git\n")).toBe("manaflow-ai/cmux");
   });
