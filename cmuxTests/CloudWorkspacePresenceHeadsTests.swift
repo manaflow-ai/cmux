@@ -51,6 +51,29 @@ struct CloudWorkspacePresenceHeadsTests {
         #expect(cell.toolTip?.contains("Grace Hopper") == true)
     }
 
+    @Test("reconfiguring a visible workspace does not re-register its presence observer")
+    func steadyStateConfigurationDoesNotReconcilePresence() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        var observations = 0
+        let cell = CloudTreeCellView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 24),
+            collaborators: { _, _ in [] },
+            observeWorkspace: { _, _, _ in observations += 1 }
+        )
+        fixture.window.contentView = cell
+        let node = CloudTreeNode(id: "workspace", kind: .workspace(
+            machine: fixture.machine,
+            .init(id: "workspace", name: "Workspace", index: 0, focused: false),
+            terminalCount: 0, hiddenTabCount: 0, openIn: nil
+        ))
+        cell.configure(node: node, machineActions: fixture.coordinator.machineActions, nodeActions: fixture.coordinator.nodeActions)
+        let first = observations
+        #expect(first > 0)
+        cell.configure(node: node, machineActions: fixture.coordinator.machineActions, nodeActions: fixture.coordinator.nodeActions)
+        #expect(observations == first)
+    }
+
     @Test("many viewers use four heads plus overflow and keep all names accessible")
     func compactOverflow() {
         let participants = (1...12).map { WorkspacePresenceParticipant(id: "u\($0)", displayName: "Person \($0)") }

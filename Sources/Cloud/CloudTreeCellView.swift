@@ -18,8 +18,10 @@ final class CloudTreeCellView: NSTableCellView {
     private var configuredNode: CloudTreeNode?
     private var configuredNodeActions: CloudTreeNodeActions?
     private var configuredStyle = CloudTreeStyleStore.current
+    private var observedWorkspace: (machine: SurfaceMachineID, workspaceID: String)?
     private let presenceObserverID = UUID()
     private let collaborators: @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]
+    private let observeWorkspace: @MainActor (SurfaceMachineID?, String?, UUID) -> Void
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
@@ -41,11 +43,24 @@ final class CloudTreeCellView: NSTableCellView {
     override convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, collaborators: { machine, workspaceID in
             AppDelegate.shared?.workspacePresenceController.collaborators(forCloudMachine: machine, workspaceID: workspaceID) ?? []
+        }, observeWorkspace: { machine, workspaceID, owner in
+            AppDelegate.shared?.workspacePresenceController.observeCloudWorkspace(
+                machine: machine, workspaceID: workspaceID, owner: owner
+            )
         })
     }
 
-    init(frame frameRect: NSRect, collaborators: @escaping @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]) {
+    init(
+        frame frameRect: NSRect,
+        collaborators: @escaping @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant],
+        observeWorkspace: @escaping @MainActor (SurfaceMachineID?, String?, UUID) -> Void = { machine, workspaceID, owner in
+            AppDelegate.shared?.workspacePresenceController.observeCloudWorkspace(
+                machine: machine, workspaceID: workspaceID, owner: owner
+            )
+        }
+    ) {
         self.collaborators = collaborators
+        self.observeWorkspace = observeWorkspace
         super.init(frame: frameRect)
         identifier = Self.identifier
         NotificationCenter.default.addObserver(
@@ -106,13 +121,22 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private func updatePresenceSubscription() {
-        let controller = AppDelegate.shared?.workspacePresenceController
-        if window != nil, superview != nil, !isHiddenOrHasHiddenAncestor,
-           let configuredNode, case .workspace(let machine, let workspace, _, _, _) = configuredNode.kind {
-            controller?.observeCloudWorkspace(machine: machine, workspaceID: workspace.id, owner: presenceObserverID)
+        let next: (machine: SurfaceMachineID, workspaceID: String)? = {
+            guard window != nil, superview != nil, !isHiddenOrHasHiddenAncestor,
+                  let configuredNode, case .workspace(let machine, let workspace, _, _, _) = configuredNode.kind
+            else { return nil }
+            return (machine, workspace.id)
+        }()
+        guard next?.machine != observedWorkspace?.machine || next?.workspaceID != observedWorkspace?.workspaceID else {
+            return
+        }
+        observedWorkspace = next
+        observeWorkspace(next?.machine, next?.workspaceID, presenceObserverID)
+        // A cell can become visible after it was configured. Refresh once at
+        // that boundary; steady-state configure calls must not rehost SwiftUI
+        // or re-run the presence roster reconciliation.
+        if next != nil, let configuredNode {
             configureDisplayHost(node: configuredNode, style: configuredStyle)
-        } else {
-            controller?.observeCloudWorkspace(machine: nil, workspaceID: nil, owner: presenceObserverID)
         }
     }
 

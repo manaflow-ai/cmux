@@ -14,6 +14,7 @@ struct RemoteTmuxMirrorTopTopologyTests {
     /// mirror topology. `system.top` and `system.tree` must expose the same
     /// actionable pane and surface identities.
     @Test func topUsesTreeTopologyForMirrorWorkspaces() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
         defer { harness.tearDown() }
 
@@ -94,11 +95,13 @@ struct RemoteTmuxMirrorTopTopologyTests {
                 #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == paneID)
             }
         }
+        }
     }
 
     /// Task Manager navigation must consume the same projected surface IDs
     /// that its top snapshot displays.
     @Test func taskManagerViewsProjectedMirrorSurface() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
             activeTmuxPaneID: 11,
             connectedTransport: true
@@ -131,12 +134,14 @@ struct RemoteTmuxMirrorTopTopologyTests {
         ))
         let commandLines = commands.split(separator: "\n").map(String.init)
         #expect(commandLines.last == "select-pane -t @3.%\(targetTmuxPaneID)")
+        }
     }
 
     /// A one-pane window uses the same stable container + projected pane model
     /// as a split window. Explicit focus of its pane surface must select that
     /// pane remotely while workspace focus remains on the outer container.
-    @Test func singlePaneSessionWindowFocusProjectsThroughItsContainer() throws {
+    @Test func singlePaneSessionWindowFocusProjectsThroughItsContainer() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let harness = try RemoteTmuxSessionMirrorLayoutHarness()
         defer { harness.tearDown() }
 
@@ -148,5 +153,6 @@ struct RemoteTmuxMirrorTopTopologyTests {
         harness.workspace.focusPanel(panel.id)
         #expect(harness.workspace.focusedPanelId == location.containerPanelID)
         #expect(harness.connection.pendingCommandKindsForTesting.count == baselinePendingCount + 1)
+        }
     }
 }

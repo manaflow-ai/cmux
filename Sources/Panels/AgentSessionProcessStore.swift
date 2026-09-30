@@ -1,8 +1,10 @@
 import Foundation
 import Darwin
+import CmuxSettings
 
 @MainActor
 final class AgentSessionProcessStore {
+    private let scratchDirectory: AgentSessionScratchDirectory
     var eventSink: (([String: Any]) -> Void)?
     var activeProviderSink: ((Bool) -> Void)? {
         didSet {
@@ -16,13 +18,25 @@ final class AgentSessionProcessStore {
     private var lastEmittedHasActiveProviderSession: Bool?
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
 
+    init(scratchDirectory: AgentSessionScratchDirectory = AgentSessionScratchDirectory()) {
+        self.scratchDirectory = scratchDirectory
+    }
+
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
         let launchArguments = plan.arguments
-        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        var launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        if AutomationCatalogSection().canonicalAgentScratch.value(in: .standard) {
+            let preparedScratchDirectory = try scratchDirectory.prepare(
+                sessionID: sessionId,
+                provider: plan.provider
+            )
+            launchEnvironment["TMPDIR"] = preparedScratchDirectory.path
+            launchEnvironment["CMUX_AGENT_ARTIFACT_ROOT"] = preparedScratchDirectory.path
+        }
         let process = try AgentSessionOwnedProcessLauncher().prepare(
             plan: plan, workingDirectory: workingDirectory, environment: launchEnvironment
         )

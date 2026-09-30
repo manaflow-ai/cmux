@@ -215,6 +215,11 @@ extension MobileHostAuthorizationTests {
                 first,
                 authorization: authorization,
                 registry: registry,
+                // Keep this lifecycle test independent of the machine's MDM
+                // profile. The production default reads the real managed
+                // policy, which can be disabled on a CI host and would close
+                // the scripted transport before it is admitted.
+                remoteControlDisabledByPolicy: { false },
                 isCurrent: { true }
             )
         }
@@ -228,6 +233,7 @@ extension MobileHostAuthorizationTests {
                 second,
                 authorization: authorization,
                 registry: registry,
+                remoteControlDisabledByPolicy: { false },
                 isCurrent: { true }
             )
         }
@@ -294,6 +300,7 @@ extension MobileHostAuthorizationTests {
                 persistentTransport,
                 authorization: authorization,
                 registry: registry,
+                remoteControlDisabledByPolicy: { false },
                 isCurrent: { true }
             )
         }
@@ -333,6 +340,7 @@ extension MobileHostAuthorizationTests {
                 authorization: authorization,
                 registry: registry,
                 firstFrameTimeoutNanoseconds: 0,
+                remoteControlDisabledByPolicy: { false },
                 isCurrent: { true }
             )
         }
@@ -347,6 +355,7 @@ extension MobileHostAuthorizationTests {
                 authorization: .stackBearer,
                 registry: registry,
                 firstFrameTimeoutNanoseconds: 1_000_000,
+                remoteControlDisabledByPolicy: { false },
                 isCurrent: { true }
             )
         }
