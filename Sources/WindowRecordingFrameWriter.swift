@@ -315,8 +315,16 @@ final class WindowRecordingGIFWriter: WindowRecordingFrameWriter {
 
     func finish() async throws {
         if let pending {
-            try add(pending.image, delaySeconds: nominalDelaySeconds)
+            // The last frame is staged here, and a clip that ran out of staging
+            // room cannot stage it. Dropping that one frame keeps the frames
+            // before it, which is what a failed recording promises its caller;
+            // a clip with nothing staged still reports why it has no frames.
             self.pending = nil
+            do {
+                try add(pending.image, delaySeconds: nominalDelaySeconds)
+            } catch {
+                guard !frames.isEmpty else { throw error }
+            }
         }
         guard !frames.isEmpty else {
             throw WindowRecordingWriterError.noFrames
