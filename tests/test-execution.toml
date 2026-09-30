@@ -777,6 +777,10 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_e2e_backend_scripts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_e2e_compilation_cache.py"
 lane = "linux-guard"
 
@@ -1492,4 +1496,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_iroh_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_submodule_forward_only.py"
 lane = "linux-guard"
