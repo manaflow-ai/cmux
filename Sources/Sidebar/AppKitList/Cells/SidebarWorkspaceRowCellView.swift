@@ -882,7 +882,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
-            model.settings.showsUnreadStyling ? model.unreadCount : 0,
+            model.settings.showsUnreadStyling || model.hasLatestNotification ? model.unreadCount : 0,
             latestNotificationText: model.latestNotificationText
         )
         compactStatusGlyphView.isPresentationActive = isPresentationActive

@@ -110,6 +110,11 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.markVisibleAgentSessionRead(panelId: panel.id)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
     }
 }
 
@@ -276,8 +281,13 @@ struct WorkspaceContentView: View {
                                         surfaceId: $0
                                     )
                                 }
+                        ),
+                        onVisible: {
+                            for surfaceId in windowMirror.surfaceIDsInLayoutOrder {
+                                workspace.markVisibleNotificationRead(surfaceId: surfaceId)
+                            }
+                        }
                         )
-                    )
                     .onTapGesture {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
@@ -375,6 +385,7 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
+            workspace.markVisibleSessionUnreadRead()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
@@ -387,6 +398,9 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            workspace.markVisibleSessionUnreadRead()
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")

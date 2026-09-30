@@ -9,6 +9,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onOuterFocus: () -> Void
+    var onVisible: () -> Void = {}
     var unreadSurfaceIDs: Set<UUID> = []
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
@@ -54,7 +55,10 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 // bonsplit's AppKit-level switch (it sets isHidden on the
                 // split tree), so it follows the same visibility edge.
                 mirror.bonsplitController.isInteractive = isVisibleInUI
-                if isVisibleInUI { becameVisible() }
+                if isVisibleInUI {
+                    onVisible()
+                    becameVisible()
+                }
             }
             .onChange(of: isVisibleInUI) { _, visible in
                 mirror.isVisibleForSizing = visible
@@ -63,7 +67,15 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     mirror.cancelPendingCreatedPaneFocus()
                 }
                 mirror.bonsplitController.isInteractive = visible
-                if visible { becameVisible() }
+                if visible {
+                    onVisible()
+                    becameVisible()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                if isVisibleInUI {
+                    onVisible()
+                }
             }
             .onChange(of: mirror.layoutStructureVersion) { _, _ in
                 pushClientSize(pointSize: containerSize)

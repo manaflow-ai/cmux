@@ -3983,6 +3983,17 @@ class TabManager: ObservableObject {
     func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
+
+    /// Dismisses the notification and session marker for a pane that is
+    /// actually visible after workspace selection or app activation.
+    @discardableResult
+    func dismissNotificationOnVisiblePanel(tabId: UUID, surfaceId: UUID) -> Bool {
+        notificationDismissal.dismissNotification(
+            workspaceId: tabId,
+            surfaceId: surfaceId,
+            context: .explicitWorkspaceResume
+        )
+    }
     private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
         let trimmed = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return }

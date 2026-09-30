@@ -26,6 +26,7 @@ struct SidebarWorkspaceRowInput {
     let canCloseWorkspace: Bool
     let unreadCount: Int
     let latestNotificationText: String?
+    let hasLatestNotification: Bool
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
@@ -66,6 +67,7 @@ struct SidebarWorkspaceRowInput {
             canCloseWorkspace: canCloseWorkspace,
             unreadCount: unreadCount,
             latestNotificationText: latestNotificationText,
+            hasLatestNotification: hasLatestNotification,
             showsAgentActivity: showsAgentActivity,
             rowSpacing: rowSpacing,
             showsModifierShortcutHints: showsModifierShortcutHints,
