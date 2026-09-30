@@ -1,6 +1,8 @@
 import { vmToken } from "./vm-authorization-fixture";
 const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   __test,
   openCodeClientConfig,
@@ -80,17 +82,19 @@ describe("coderouter OpenCode Go proxy", () => {
     expect(target).toMatchObject({ hostname: "provider.example", pinnedAddress: "2001:db8::10", pinnedFamily: 6 });
 
     const seen: string[] = [];
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch(request) {
-        seen.push(request.headers.get("host") ?? "");
-        return new Response("pinned", { status: 200, headers: { "content-type": "text/plain" } });
-      },
+    const server = createServer((request, response) => {
+      seen.push(request.headers.host ?? "");
+      request.resume();
+      request.on("end", () => {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end("pinned");
+      });
     });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
     try {
       // The name does not resolve at all; only the pin makes this connect.
-      const url = `http://rebind.invalid:${server.port}/v1/chat`;
+      const url = `http://rebind.invalid:${port}/v1/chat`;
       const response = await __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -98,9 +102,9 @@ describe("coderouter OpenCode Go proxy", () => {
       });
       expect(response.status).toBe(200);
       await expect(response.text()).resolves.toBe("pinned");
-      expect(seen).toEqual([`rebind.invalid:${server.port}`]);
+      expect(seen).toEqual([`rebind.invalid:${port}`]);
     } finally {
-      server.stop(true);
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 
