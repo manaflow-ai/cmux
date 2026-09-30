@@ -204,6 +204,18 @@ struct TerminalWindowPortalCommittedGeometryTests {
         try await fixture.requireCommit()
         #expect(fixture.surface.committedPaneGeometry?.size.width != before.size.width)
     }
+
+    /// A pane whose command-shim install is held to its deadline spawns at that
+    /// deadline (#9769) and must then reach a settled grid and PTY like any other.
+    @Test func publicationReachesThePTYWhenTheShimInstallRunsToItsDeadline() async throws {
+        let fixture = TerminalPortalGeometryFixture(stalledShimInstallDeadline: .seconds(3))
+        defer { fixture.close() }
+        fixture.bind()
+        try await fixture.requireCommit()
+        let geometry = try #require(fixture.surface.committedPaneGeometry)
+        #expect(geometry.phase == .settled)
+        #expect(fixture.surface.surface != nil)
+    }
 }
 
 @MainActor
