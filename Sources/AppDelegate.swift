@@ -1662,8 +1662,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
         TerminalPredictionCenter.shared.bindEnabledSetting(
-            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey,
-            defaultValue: SettingCatalog().betaFeatures.predictedEcho.defaultValue
+            userDefaultsKey: SettingCatalog().terminal.predictiveLocalEcho.userDefaultsKey,
+            defaultValue: SettingCatalog().terminal.predictiveLocalEcho.defaultValue
         )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
@@ -18049,7 +18049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace:
+        case .command, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }
@@ -18063,6 +18063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: context.tabManager,
                 baseCwd: baseCwd,
                 globalConfigPath: cmuxConfigStore.globalConfigPath,
+                settingPresets: cmuxConfigStore.settingPresets,
                 presentingWindow: preferredWindow,
                 onExecuted: onExecuted
             )
