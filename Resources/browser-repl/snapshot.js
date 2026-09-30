@@ -199,6 +199,8 @@
     if (n.focused) head += " [focused]";
     if (n.hidden) head += " [hidden]";
     if (n.scrollable) head += " [scrollable]";
+    // An iframe whose frame did not answer in time.
+    if (n.unread) head += ` [not read: ${n.unread}]`;
     if (n.url && options.urls) head += ` [url=${n.url}]`;
     else if (n.offsite) head += ` [url=${n.offsite}]`;
     // An unnamed link's on-site URL, capped: enough to tell such links apart.
@@ -878,12 +880,34 @@
     };
   }
 
+  // A frame inside the page that does not answer within this time is left
+  // out (its iframe line says so) instead of holding up the snapshot.
+  const FRAME_TIMEOUT = 10000;
+  class FrameTimeout extends Error {}
+  function withDeadline(page, promise, ms) {
+    const host = page._session.host;
+    return new Promise((resolve, reject) => {
+      const timer = host.setTimeout(() => reject(new FrameTimeout("frame did not answer")), ms || FRAME_TIMEOUT);
+      promise.then(
+        (value) => {
+          host.clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          host.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
   // Reads a frame's tree and, a few at a time, the trees of the frames
   // inside it.
-  async function frameTree(page, frame, rootHandle, options) {
+  async function frameTree(page, frame, rootHandle, options, inner) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
     let called = 0;
-    const r = await limit(() => ((called = clock()), frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame) })));
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame) });
+    const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
     const timing = options._timing;
@@ -904,8 +928,14 @@
     };
     collect(r.nodes);
     await Promise.all(iframes.map(async (node) => {
-      const child = node.frame ? await limit(() => frame._contentFrame(node.frame)).catch(() => null) : null;
-      if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options).catch(() => null) };
+      let child = null;
+      try {
+        child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
+        if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
+      } catch (e) {
+        if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
+        else if (child && !child._detached) node._child = { frame: child, tree: null };
+      }
     }));
     return { frame, nodes: r.nodes };
   }
@@ -930,10 +960,11 @@
           delete node.frame;
           delete node.frameFocused;
           delete node._child;
+          if (child && child.timedOut) node.unread = "timed out";
           if (child && child.tree) {
             const inner = stitch(page, child.tree, focusChain && focused, shown);
             if (inner.length) node.children = inner;
-          } else if (child) page._prefixFor(child.frame);
+          } else if (child && child.frame) page._prefixFor(child.frame);
         } else if (node.children) fix(node.children);
       }
     };
@@ -1053,5 +1084,5 @@
     };
   }
 
-  ns.snapshot = { takeSnapshot, annotate, shape, interactiveOnly, render, condense, diffLines, diffOps, textChanges, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR, PRINT_BUDGET };
+  ns.snapshot = { takeSnapshot, annotate, frameNodes, shape, interactiveOnly, render, condense, diffLines, diffOps, textChanges, myers, Snapshot, DIFF_SAVING, DIFF_FLOOR, PRINT_BUDGET };
 })(typeof globalThis !== "undefined" ? globalThis : this);

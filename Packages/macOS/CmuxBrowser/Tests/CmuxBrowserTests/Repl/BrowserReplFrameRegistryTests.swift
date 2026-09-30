@@ -15,11 +15,12 @@ private final class FakeFrameTree {
 
     func read() async -> [String] {
         reads += 1
+        let snapshot = ids
         if holdNextRead {
             holdNextRead = false
             await withCheckedContinuation { gate = $0 }
         }
-        return ids
+        return snapshot
     }
 
     func release() {
@@ -40,18 +41,15 @@ struct BrowserReplFrameRegistryTests {
         let tree = FakeFrameTree((0..<401).map { "f\($0)" })
         let registry = registry(tree)
         tree.holdNextRead = true
-        let lookups = Task { @MainActor in
-            await withTaskGroup(of: String?.self) { group in
-                for i in 0..<400 { group.addTask { @MainActor in await registry.frame("f\(i)") } }
-                var found = 0
-                for await frame in group where frame != nil { found += 1 }
-                return found
-            }
+        let lookups = (0..<400).map { i in
+            Task { @MainActor in await registry.frame("f\(i)") != nil }
         }
         while tree.reads == 0 { await Task.yield() }
         for _ in 0..<50 { await Task.yield() }
         tree.release()
-        #expect(await lookups.value == 400)
+        var found = 0
+        for lookup in lookups where await lookup.value { found += 1 }
+        #expect(found == 400)
         #expect(tree.reads == 1)
     }
 
@@ -69,6 +67,24 @@ struct BrowserReplFrameRegistryTests {
         #expect(tree.reads == 3)
         #expect(await registry.frame("b") == "b")
         #expect(tree.reads == 3)
+    }
+
+    @Test("A fresh read starts after the request; a burst shares one more read")
+    func freshReadsAfterRequest() async {
+        let tree = FakeFrameTree(["main"])
+        let registry = registry(tree)
+        tree.holdNextRead = true
+        let first = Task { @MainActor in await registry.frames(refresh: true) }
+        while tree.reads == 0 { await Task.yield() }
+        // The page adds a frame while the first read is in flight.
+        tree.ids = ["main", "late"]
+        let burst = (0..<300).map { _ in Task { @MainActor in await registry.frames(refresh: true) } }
+        for _ in 0..<50 { await Task.yield() }
+        tree.release()
+        // The first caller gets the newest read too.
+        #expect(await first.value == ["main", "late"])
+        for request in burst { #expect(await request.value == ["main", "late"]) }
+        #expect(tree.reads == 2)
     }
 
     @Test("A refresh or an invalidation reads the tree again")

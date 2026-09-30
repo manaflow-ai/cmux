@@ -670,14 +670,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func listFrames(_ params: [String: Any]) async throws -> [[String: Any]] {
         let panel = try panel(params)
         let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+        let webView = panel.webView
+        // Names are read all at once: frames in other web processes answer
+        // in parallel instead of one after another (401 frames, 100 ms).
+        let names = frames.map { frame in
+            Task { @MainActor in
+                (try? await webView.callAsyncJavaScript(
+                    "return window.name;",
+                    arguments: [:],
+                    in: frame.info,
+                    contentWorld: BrowserReplAgentWorld.world
+                )) as? String
+            }
+        }
         var result: [[String: Any]] = []
-        for frame in frames {
-            let name = (try? await panel.webView.callAsyncJavaScript(
-                "return window.name;",
-                arguments: [:],
-                in: frame.info,
-                contentWorld: BrowserReplAgentWorld.world
-            )) as? String
+        for (frame, nameTask) in zip(frames, names) {
+            let name = await nameTask.value
             result.append([
                 "frameId": frame.frameID,
                 "parentFrameId": frame.parentFrameID ?? NSNull(),
