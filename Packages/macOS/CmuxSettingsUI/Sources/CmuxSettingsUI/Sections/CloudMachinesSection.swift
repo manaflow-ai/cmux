@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// **Cloud Machines** settings: first-use activation, plan details, and
@@ -38,6 +39,15 @@ public struct CloudMachinesSection: View {
                 "setting:cloudMachines:vpn",
             ])
             .task { await observeActivation() }
+            .task(id: activationState.isEnabled) {
+                plan = nil
+                hasLoaded = false
+                guard activationState.isEnabled else { return }
+                let loaded = await hostActions.cloudMachinesPlanSummary()
+                guard !Task.isCancelled, activationState.isEnabled else { return }
+                plan = loaded
+                hasLoaded = true
+            }
         }
     }
 
@@ -291,13 +301,6 @@ public struct CloudMachinesSection: View {
         for await state in hostActions.cloudMachinesActivationUpdates() {
             guard !Task.isCancelled else { return }
             activationState = state
-            if state.isEnabled {
-                plan = await hostActions.cloudMachinesPlanSummary()
-                hasLoaded = true
-            } else {
-                plan = nil
-                hasLoaded = false
-            }
         }
     }
 }

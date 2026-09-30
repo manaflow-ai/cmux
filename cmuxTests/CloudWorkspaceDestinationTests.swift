@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 struct CloudWorkspaceDestinationTests {
     @Test func receiptReplacesSelectedPlaceholder() throws {
         let suite = "cloud-destination-\(UUID().uuidString)"

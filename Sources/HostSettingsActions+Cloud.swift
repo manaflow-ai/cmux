@@ -11,27 +11,27 @@ extension HostSettingsActions {
         CloudMachinesFeature.isEnabled
     }
     var cloudMachinesActivationState: CloudMachinesActivationState {
-        Self.settingsActivationState(from: AppDelegate.shared?.cloudActivationCoordinator.state)
+        Self.settingsActivationState(from: cloudActivationCoordinator?.state)
     }
 
     func enableCloudMachines() {
-        AppDelegate.shared?.cloudActivationCoordinator.enable()
+        cloudActivationCoordinator?.enable()
     }
 
     func cancelCloudMachinesActivation() {
-        AppDelegate.shared?.cloudActivationCoordinator.cancel()
+        cloudActivationCoordinator?.cancel()
     }
 
     func retryCloudMachinesActivation() {
-        AppDelegate.shared?.cloudActivationCoordinator.retry()
+        cloudActivationCoordinator?.retry()
     }
 
     func disableCloudMachines() {
-        AppDelegate.shared?.cloudActivationCoordinator.disable()
+        cloudActivationCoordinator?.disable()
     }
 
     func cloudMachinesActivationUpdates() -> AsyncStream<CloudMachinesActivationState> {
-        guard let coordinator = AppDelegate.shared?.cloudActivationCoordinator else {
+        guard let coordinator = cloudActivationCoordinator else {
             return AsyncStream { $0.yield(.unavailable); $0.finish() }
         }
         return AsyncStream { continuation in

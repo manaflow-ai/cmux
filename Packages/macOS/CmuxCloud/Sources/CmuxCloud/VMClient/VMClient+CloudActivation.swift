@@ -63,6 +63,7 @@ extension VMClient {
                     summary.displayName = label
                 }
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.createdBy = VMCreator(vmResponse: dict)
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }

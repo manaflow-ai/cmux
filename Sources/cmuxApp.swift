@@ -199,7 +199,7 @@ struct cmuxApp: App {
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
                 browserDataImportCoordinator: browserDataImportCoordinator,
-                computersActions: devices.settingsActions,
+                computersActions: devices.settingsActions, cloudActivationCoordinator: appDelegate.cloudActivationCoordinator,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
                         startingAt: startingPoint

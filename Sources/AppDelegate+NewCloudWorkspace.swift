@@ -123,22 +123,9 @@ extension AppDelegate {
         debugSource: String = "newCloudWorkspace",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
-        // Cmd-Y and the equivalent menu/palette actions are discovery paths.
-        // When rollout is available but first-use setup has not completed,
-        // route to the one shared Settings toggle instead of silently failing
-        // inside the unavailable operation controller.
-        if CloudMachinesFeature.isAvailable {
-            cloudActivationCoordinator.reconcile()
-            if case .enabled = cloudActivationCoordinator.state {
-                // Continue into the existing machine-sheet flow below.
-            } else if cloudWorkspaceOperationController?.isCurrentlyAvailable != true {
-                // The live composition fences the operation controller with
-                // the same activation marker. A test or embedded host may
-                // inject an already-admitted controller; preserve that seam
-                // so it can exercise the machine action without presenting UI.
-                Self.presentPreferencesWindow(navigationTarget: .cloudMachines)
-                return true
-            }
+        if CloudMachinesFeature.isAvailable, !CloudMachinesFeature.isEnabled {
+            Self.presentPreferencesWindow(navigationTarget: .cloudMachines)
+            return true
         }
         guard let operationController = cloudWorkspaceOperationController,
               operationController.isCurrentlyAvailable else { return false }

@@ -34,7 +34,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         if AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope != expectedTeamScope {
             throw VMClientError.notSignedIn
         }
-        guard let wireGuardHub else { return }
+        guard let wireGuardHub else { throw VMClientError.cloudMachinesDisabled }
         _ = try await wireGuardHub.prewarm(
             allowWhenCloudDisabled: true,
             expectedTeamScope: expectedTeamScope

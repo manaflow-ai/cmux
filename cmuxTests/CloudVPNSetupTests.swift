@@ -12,7 +12,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud VPN setup", .serialized, .timeLimit(.minutes(1)))
+@Suite("Cloud VPN setup", .serialized, .exclusiveAppContext, .timeLimit(.minutes(1)))
 struct CloudVPNSetupTests {
     private let backend = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: "test.cloud.vpn")
 

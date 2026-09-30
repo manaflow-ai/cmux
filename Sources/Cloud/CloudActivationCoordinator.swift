@@ -13,13 +13,13 @@ import Observation
 @MainActor
 @Observable
 final class CloudActivationCoordinator {
-    enum Failure: Equatable {
+    enum Failure: Equatable, Sendable {
         case requiresPro
         case signInRequired
         case serviceUnavailable
     }
 
-    enum State: Equatable {
+    enum State: Equatable, Sendable {
         case disabled
         case enabling
         case enabled
@@ -31,7 +31,7 @@ final class CloudActivationCoordinator {
     static let activationKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
 
     private(set) var state: State {
-        didSet { publishState() }
+        didSet { if oldValue != state { publishState() } }
     }
 
     private let defaults: UserDefaults
@@ -212,10 +212,7 @@ final class CloudActivationCoordinator {
     /// Cancels first-use setup and returns to the disabled state without
     /// touching existing Cloud identities or workspaces.
     func cancel() {
-        guard activationTask != nil else {
-            state = .cancelled
-            return
-        }
+        guard activationTask != nil else { return }
         let task = activationTask
         activationID = nil
         activationTask = nil
@@ -259,8 +256,10 @@ final class CloudActivationCoordinator {
             // cancellation-insensitive preparation closure to unwind before
             // a retry can start. A second stop closes any late resource it
             // managed to acquire while unwinding.
-            await activationTask?.value
-            await cleanup()
+            if let activationTask {
+                await activationTask.value
+                await cleanup()
+            }
             guard let self, self.cleanupID == id else { return }
             self.cleanupID = nil
             self.cleanupTask = nil
