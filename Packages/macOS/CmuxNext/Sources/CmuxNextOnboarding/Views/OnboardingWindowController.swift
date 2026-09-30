@@ -9,9 +9,12 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
+    private var shownDensity: Density
+    private var densityLoop: RenderLoop?
 
     public init(model: OnboardingModel) {
         self.model = model
+        shownDensity = DesignSettings.shared.density
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -42,6 +45,22 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
             }
         }
         model.onEnd = { [weak self] _ in self?.window?.close() }
+        densityLoop = RenderLoop { [weak self] in self?.densityDidChange(DesignSettings.shared.density) }
+    }
+
+    /// Density changes every metric and font: rebuild the content at the
+    /// new sizes and resize the window around its center.
+    private func densityDidChange(_ density: Density) {
+        guard density != shownDensity, let window else { return }
+        shownDensity = density
+        let size = OnboardingMetrics.windowSize
+        let old = window.frame
+        let content = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
+        let frame = NSRect(x: old.midX - content.width / 2, y: old.maxY - content.height, width: content.width, height: content.height)
+        window.contentMinSize = size
+        window.contentMaxSize = size
+        window.contentView = OnboardingRootView(model: model)
+        Motion.animateTimed(.move) { window.animator().setFrame(frame, display: true) }
     }
 
     @available(*, unavailable)
