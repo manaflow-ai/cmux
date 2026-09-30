@@ -95,6 +95,10 @@ final class AppControl {
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .mainActor("debug.webkit_inspector") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWebInspector.handle(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
