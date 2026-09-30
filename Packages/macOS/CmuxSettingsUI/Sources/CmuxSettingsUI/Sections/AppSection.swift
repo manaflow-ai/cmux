@@ -57,6 +57,7 @@ public struct AppSection: View {
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
     @State private var paneFlashDoubleBlink: DefaultsValueModel<Bool>
+    @State private var paneFlashThemeColor: DefaultsValueModel<Bool>
     @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
@@ -130,6 +131,7 @@ public struct AppSection: View {
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
         _paneFlashDoubleBlink = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashDoubleBlink))
+        _paneFlashThemeColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashThemeColor))
         _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
@@ -173,7 +175,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, accentColor, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -744,6 +746,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.paneFlashDoubleBlink.subtitle", defaultValue: "Blink the pane flash twice instead of one short pulse.")
             ) {
                 Toggle("", isOn: Binding(get: { paneFlashDoubleBlink.current }, set: { paneFlashDoubleBlink.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashThemeColor"),
+                String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"),
+                subtitle: String(localized: "settings.notifications.paneFlashThemeColor.subtitle", defaultValue: "Use the terminal theme foreground for flashes; unread rings stay cmux blue.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashThemeColor.current }, set: { paneFlashThemeColor.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .disabled(!paneFlash.current)

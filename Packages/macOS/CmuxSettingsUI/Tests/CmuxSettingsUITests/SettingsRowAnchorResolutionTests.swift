@@ -104,6 +104,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.dockBadge",
         "notifications.paneFlash",
         "notifications.paneFlashDoubleBlink",
+        "notifications.paneFlashThemeColor",
         "notifications.paneFlashColor",
         "notifications.showInMenuBar",
         "notifications.sound",

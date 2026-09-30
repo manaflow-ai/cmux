@@ -26,6 +26,8 @@ enum NotificationPaneFlashSettings {
     static let defaultEnabled = true
     static let doubleBlinkKey = "notificationPaneFlashDoubleBlink"
     static let defaultDoubleBlink = true
+    static let themeColorKey = "notificationPaneFlashThemeColor"
+    static let defaultThemeColor = false
 
     /// Whether the pane flash blinks twice instead of one short pulse.
     static func usesDoubleBlink(defaults: UserDefaults = .standard) -> Bool {

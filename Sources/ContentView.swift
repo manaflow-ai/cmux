@@ -904,6 +904,7 @@ struct ContentView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
+    @AppStorage("notificationPaneFlashThemeColor") private var paneFlashThemeColor = false
     /// Resolved cmux accent, seeded from the app delegate's observer and
     /// updated from its change notification. This view is the window root,
     /// so it cannot read the accent from its own environment modifier.
@@ -924,7 +925,8 @@ struct ContentView: View {
         WorkspaceAttentionColor(
             configuredHex: configuredHex ?? paneFlashColorHex,
             accent: accent ?? cmuxAccent,
-            themeForeground: themeForeground ?? terminalThemeForeground
+            themeForeground: themeForeground ?? terminalThemeForeground,
+            useThemeForeground: paneFlashThemeColor
         )
     }
 

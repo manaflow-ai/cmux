@@ -4,9 +4,8 @@ import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
 ///
-/// A configured color paints both. Without one, unread rings use the cmux
-/// accent and flashes use the terminal theme's foreground, so the flash stays
-/// quiet against whatever theme is active.
+/// A configured color paints both. Without one, both signals use the existing
+/// cmux accent, preserving the established blue default.
 ///
 /// The setting store remains the only owner of the configured string. This
 /// value validates one immutable snapshot before it reaches a renderer, so
@@ -16,14 +15,18 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     private let rgb: UInt32?
     /// The resolved cmux accent used when no valid color is configured.
     private let accent: CmuxAccentColor
+    private let themeForegroundHex: String?
+    private let useThemeForeground: Bool
     init(
         configuredHex: String?,
         accent: CmuxAccentColor = CmuxAccentColor(),
-        themeForeground: NSColor? = nil
+        themeForeground: NSColor? = nil,
+        useThemeForeground: Bool = false
     ) {
         self.rgb = Self.strictRGB(configuredHex)
         self.accent = accent
-        _ = themeForeground
+        self.themeForegroundHex = themeForeground?.hexString()
+        self.useThemeForeground = useThemeForeground
     }
 
     var nsColor: NSColor {
@@ -34,7 +37,12 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     }
 
     /// The pane flash keeps the configured color or the existing cmux accent.
-    var flashNSColor: NSColor { nsColor }
+    var flashNSColor: NSColor {
+        guard rgb == nil, useThemeForeground,
+              let themeForegroundHex,
+              let themeForeground = NSColor(hex: themeForegroundHex) else { return nsColor }
+        return themeForeground
+    }
 
     private static func color(rgb: UInt32, alpha: CGFloat) -> NSColor {
         NSColor(
