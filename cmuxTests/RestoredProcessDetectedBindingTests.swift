@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -75,6 +76,17 @@ struct RestoredProcessDetectedBindingTests {
         #expect(pending.preservesRestoredProcessDetection())
         pending.clearRestoredProcessDetectionObservation()
         #expect(!pending.preservesRestoredProcessDetection())
+    }
+
+    @Test func anUnobservedRestoreBindingRetiresAfterTheObservationWindow() throws {
+        // With no queued launch or prompt transition, nothing clears the
+        // observation; it must still expire so an empty scan can retire it.
+        let armedAt = ContinuousClock.now
+        var pending = binding(kind: "tmux")
+        pending.armRestoredProcessDetectionObservation(at: armedAt)
+        let expired = armedAt.advanced(by: RestoredProcessDetectionObservation.observationWindow)
+        #expect(pending.preservesRestoredProcessDetection(at: armedAt))
+        #expect(!pending.preservesRestoredProcessDetection(at: expired))
     }
 
     @Test func aFinishedCommandReleasesTheWorkspaceRestoreIntent() throws {

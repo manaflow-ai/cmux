@@ -637,6 +637,37 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(task.isCancelled)
     }
 
+    @Test("Windowless freeze retries are bounded and carry their attempt")
+    func windowlessFreezeRetriesAreBoundedAndCarryTheirAttempt() {
+        // An incomplete hook store or a scan slower than the deadline never
+        // becomes fresh and complete. Each retry must back off and the chain
+        // must end instead of rescanning for as long as the route is orphaned.
+        let coordinator = MainWindowLifecycleCoordinator()
+        let windowId = UUID()
+        var attempt = 0
+        var delays: [Duration] = []
+        while let next = MainWindowLifecycleCoordinator.nextWindowlessRouteFreezeRetryAttempt(after: attempt) {
+            #expect(next == attempt + 1)
+            delays.append(MainWindowLifecycleCoordinator.windowlessRouteFreezeRetryDelay(attempt: next))
+            let token = UUID()
+            let task: Task<Void, Never> = Task {}
+            coordinator.retainWindowlessRouteFreezeTask(task, windowId: windowId, token: token)
+            coordinator.releaseWindowlessRouteFreezeTask(
+                windowId: windowId,
+                token: token,
+                retryAttemptWhenWorkerCompletes: next
+            )
+            let retries = coordinator.consumeWindowlessRouteFreezeRetries()
+            #expect(retries.map(\.windowId) == [windowId])
+            #expect(retries.map(\.attempt) == [next])
+            #expect(coordinator.consumeWindowlessRouteFreezeRetries().isEmpty)
+            attempt = next
+        }
+        #expect(attempt == MainWindowLifecycleCoordinator.windowlessRouteFreezeMaximumRetries)
+        #expect(delays.allSatisfy { $0 > .zero })
+        #expect(delays == delays.sorted())
+    }
+
     private func emptyWindowSnapshot(windowId: UUID) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
             windowId: windowId,
