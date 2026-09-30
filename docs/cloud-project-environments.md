@@ -1,7 +1,8 @@
 # Project environments in the cloud: `cmux vm dev`
 
-Status: design. The command examples below use the shipped grammar; manifest
-replay and automatic machine selection remain proposed. Builds on the shipped primitives (route/push/exec/workspace/terminal,
+Status: in progress. `cmux vm dev` now replays a checked-in `.cmux/cloud.json`
+recipe when present and gates setup on a deterministic lockfile digest. Automatic
+machine selection remains proposed. Builds on the shipped primitives (route/push/exec/workspace/terminal,
 per-size snapshots, VPC + tunnel, in-VM `cmux`); nothing here invents a new transport.
 
 ## The user's mental model
@@ -64,6 +65,11 @@ Setup must be automatic on first contact and deterministic after.
 - **Replay** — later `vm dev` runs sync + the recipe's delta only (lockfile hash
   gates the install). A repo that ships `.cmux/cloud.json` never runs detection:
   what the file says is what happens, on every machine, for every teammate.
+  The current slice accepts `setup` and `checks`; setup commands are wrapped in
+  a marker under `$HOME/.cache/cmux/setup/<lockfile-sha256>`, so every warm
+  machine runs the setup once per lockfile revision. The marker contains no
+  credentials or command output. Checks are carried in the recipe for the next
+  verification step and are surfaced in `vm dev --json`.
 - **Secrets** (`env`) are *named*, never valued, in the repo. Values come from
   `cmux vm env set <machine> DATABASE_URL=…` — shipped today as a machine-local
   file (`~/.config/cmux/env` in the work user's home, 0600, on the persistent volume, sourced by every

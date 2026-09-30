@@ -348,6 +348,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(document["cwd"] as? String, "/srv/web")
     }
 
+    func testVMDevReplaysCheckedInRecipeAndGatesSetupOnLockfileHash() throws {
+        let fixture = try vmDevFixture("recipe", files: [
+            ".cmux/cloud.json": #"{"setup":["bun install"],"checks":["bun test"]}"#,
+            "package.json": #"{"scripts":{"dev":"bun run dev"}}"#,
+            "bun.lock": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let plan = try vmDevDryRunPlan("recipe", project: fixture.project, home: fixture.home)
+        let command = try XCTUnwrap(plan["command"] as? String)
+        XCTAssertTrue(command.contains("$HOME/.cache/cmux/setup/"), command)
+        XCTAssertTrue(command.contains("bun install"), command)
+        XCTAssertTrue(command.contains("bun run dev"), command)
+        let recipe = try XCTUnwrap(plan["recipe"] as? [String: Any])
+        XCTAssertEqual(recipe["source"] as? String, ".cmux/cloud.json")
+        XCTAssertEqual(recipe["setup"] as? [String], ["bun install"])
+        XCTAssertEqual(recipe["checks"] as? [String], ["bun test"])
+        XCTAssertNotNil(recipe["lock_hash"] as? String)
+    }
+
     // MARK: - The socket sequence
 
     func testVMDevBuildsTheLayoutInAFreshWorkspaceAndOpensItHere() throws {
