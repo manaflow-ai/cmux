@@ -74,6 +74,7 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+const originalFetch = globalThis.fetch;
 
 // Capture the real implementations BY VALUE before mocking. bun's
 // mock.module can mutate an already-loaded module namespace in place, so a
@@ -247,11 +248,15 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  // POST /api/vm now awaits the provider connection probe. Keep this route
+  // suite deterministic and local while still exercising that await.
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  globalThis.fetch = originalFetch;
 });
 
 beforeEach(() => {
