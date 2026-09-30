@@ -100,6 +100,25 @@ struct TerminalScrollbackCheckpointActivityTests {
         #expect(activity.beginCapture(surfaceID: surface) == true)
     }
 
+    @Test func outputRacingCaptureCannotBeLost() {
+        let activity = TerminalScrollbackCheckpointActivity()
+        let surface = UUID()
+        let flags = activity.register(surfaceID: surface)
+        activity.clearRecentOutput(surfaceID: surface)
+
+        // Reproduce the PTY callback interleaving: it reads pending first,
+        // capture clears pending and samples recent, then the callback writes recent.
+        let callbackSawPending = flags.pending.loadRelaxed()
+        flags.pending.storeRelease(false)
+        #expect(flags.recent.loadAcquire() == false)
+        if !callbackSawPending {
+            flags.pending.storeRelease(true)
+        }
+        flags.recent.storeRelease(true)
+
+        #expect(activity.hasPendingOutput(surfaceID: surface) == true)
+    }
+
     @Test func releasingAnOlderRuntimeKeepsTheNewerRegistration() {
         let activity = TerminalScrollbackCheckpointActivity()
         let surface = UUID()
