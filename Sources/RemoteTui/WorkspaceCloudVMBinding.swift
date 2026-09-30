@@ -10,11 +10,16 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     /// recorded when a remote workspace is opened locally. Local workspace renames
     /// write through to it (`CloudWorkspaceRenameService`).
     let remoteWorkspaceID: String?
+    /// The team that owns the machine, captured when the workspace was bound.
+    /// Nil for SSH machines and for legacy bindings not yet re-persisted.
+    let teamID: String?
 
-    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
+    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil, teamID: String? = nil) {
         self.vmID = vmID
         self.isBase = isBase
         self.remoteWorkspaceID = remoteWorkspaceID
+        let trimmedTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.teamID = trimmedTeam?.isEmpty == false ? trimmedTeam : nil
     }
 
     /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
