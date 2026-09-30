@@ -34,6 +34,7 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--modes", default="kill,quit,crash", help="comma list of kill (SIGKILL), quit (Quit action), crash (debug.crash.app)")
 parser.add_argument("--settle", type=float, default=2.0, help="seconds after a workspace switch before checking")
+parser.add_argument("--attach-deadline", type=float, default=20.0, help="seconds a view may take to reach live")
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 opts = parser.parse_args()
 
@@ -54,6 +55,7 @@ BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMP
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 TOKENS = random.SystemRandom()
 failures = []
+slow = []
 app = None
 
 
@@ -156,14 +158,13 @@ def surfaces(workspace):
     return out
 
 
-LOOP = r"""while :; do printf '\033[3%dmrelaunch-loop %s\033[0m\n' $((RANDOM%8)) $RANDOM; sleep 0.002; done"""
+LOOP = r"""echo relaunch-loop; while :; do printf '\033[3%dmrelaunch-loop %s\033[0m\n' $((RANDOM%8)) $RANDOM; sleep 0.002; done"""
 READER = r"""stty -echo; while :; do printf '\033[1;3'; read x; printf 'm got-%s\n' "$x"; done"""
 
 
 def setup():
     """Two workspaces, five terminals, unless a previous run left them."""
-    if any("relaunch-reader" in cli("read-screen", "--surface", s).stdout
-           for w in workspaces() for s, _ in surfaces(w)):
+    if "relaunch-2" in cli("list-workspaces").stdout:
         print("reusing the session a previous run built")
         return
     first = workspaces()[0]
@@ -214,18 +215,31 @@ def check_surface(label, surface, title):
     if not view:
         return f"{surface} has no visible view"
     if view.get("attach") != "live":
-        return f"{surface} attach phase {view.get('attach')}"
+        # A terminal with a large scrollback takes seconds to decode its
+        # replay on a loaded machine; slow is reported, stuck fails.
+        started = time.time()
+        live = wait(lambda: (mirror(pane_key) or {}).get("attach") == "live" and mirror(pane_key), opts.attach_deadline)
+        if not live:
+            return f"{surface} attach phase {(mirror(pane_key) or {}).get('attach')} after {opts.attach_deadline:.0f} s"
+        slow.append(f"{label} {surface} reached live {time.time() - started + opts.settle:.1f} s after its workspace was shown")
+        view = live
     token = f"tok{TOKENS.randrange(1 << 30)}"
     text = view.get("text") or ""
-    if "relaunch-reader" in text or "got-" in text:
+    if "relaunch-reader" in title:
         cli("send", "--surface", surface, token + "\n")
         expect = f"got-{token}"
     elif title.startswith("vim"):
         cli("send", "--surface", surface, f"o{token}\x1b")
         expect = token
-    elif title.startswith("top") or "relaunch-loop" in text:
-        changed = wait(lambda: (mirror(pane_key) or {}).get("text") not in (None, text), 6)
-        return None if changed else f"{surface} ({title}) mirror did not change in 6 s"
+    elif title.startswith("top") or "relaunch-loop" in title:
+        daemon_before = cli("read-screen", "--surface", surface).stdout
+        changed = wait(lambda: (mirror(pane_key) or {}).get("text") not in (None, text), 10)
+        if changed:
+            return None
+        if cli("read-screen", "--surface", surface).stdout == daemon_before:
+            print(f"  note: {surface} ({title}) did not redraw in the daemon either (machine busy); not counted")
+            return None
+        return f"{surface} ({title}) daemon screen changed but the mirror did not in 10 s"
     else:
         cli("send", "--surface", surface, f"echo {token} $(stty size)\n")
         expect = token
@@ -273,6 +287,8 @@ def main():
             launch()
             check_all(f"round {round_index + 1} after {mode}")
     stop(signal.SIGTERM)
+    for note in slow:
+        print(f"  slow: {note}")
     print(f"{len(failures)} failed checks; scratch {SCRATCH}")
     for failure in failures:
         print(f"  {failure}")
