@@ -126,6 +126,8 @@
       if (n.options && !(options.options || n.expanded === true)) {
         // A closed drop-down lists its options on its own line, capped.
         n.inlineOptions = n.options.map((o) => o.name);
+        // The page agent sends only the first options of a long list.
+        if (n.optionCount) n.inlineCount = n.optionCount;
         delete n.options;
       }
 
@@ -204,7 +206,7 @@
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
       const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
-      const more = n.inlineOptions.length - INLINE_OPTIONS;
+      const more = (n.inlineCount || n.inlineOptions.length) - INLINE_OPTIONS;
       head += ` [options: ${shown}${more > 0 ? `, +${more} more` : ""}]`;
     }
     return head;
@@ -855,12 +857,33 @@
 
   const clock = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
 
-  // Reads a frame's tree and, concurrently, the trees of all frames inside
-  // it (a page with 300 iframes costs about one round trip per level, not
-  // one per frame).
+  // Driver calls in flight at once while reading a page's frames. The app's
+  // WebKit driver stopped answering with 300 concurrent frame calls (a page
+  // of 300 iframes; 200 worked) and serves them about as fast at 8 as at
+  // 64; the dev driver gains up to about 32.
+  const FRAME_CONCURRENCY = 32;
+  function limiter(max) {
+    let active = 0;
+    const waiting = [];
+    return async (fn) => {
+      if (active >= max) await new Promise((resolve) => waiting.push(resolve));
+      active++;
+      try {
+        return await fn();
+      } finally {
+        active--;
+        const next = waiting.shift();
+        if (next) next();
+      }
+    };
+  }
+
+  // Reads a frame's tree and, a few at a time, the trees of the frames
+  // inside it.
   async function frameTree(page, frame, rootHandle, options) {
-    const called = clock();
-    const r = await frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, base: page._refMaxFor(frame) });
+    const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
+    let called = 0;
+    const r = await limit(() => ((called = clock()), frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame) })));
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
     const timing = options._timing;
@@ -881,7 +904,7 @@
     };
     collect(r.nodes);
     await Promise.all(iframes.map(async (node) => {
-      const child = node.frame ? await frame._contentFrame(node.frame).catch(() => null) : null;
+      const child = node.frame ? await limit(() => frame._contentFrame(node.frame)).catch(() => null) : null;
       if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options).catch(() => null) };
     }));
     return { frame, nodes: r.nodes };

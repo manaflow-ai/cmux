@@ -285,6 +285,8 @@
   const VALUE_ROLES = new Set(["slider", "progressbar", "meter", "spinbutton", "scrollbar"]);
   const NO_VALUE_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "hidden"]);
   const NOT_READONLY_INPUTS = new Set(["checkbox", "radio", "file", "button", "submit", "reset", "image", "range", "color", "hidden"]);
+  // Options of a closed drop-down the host prints inline (snapshot.js).
+  const INLINE_OPTIONS = 10;
   const LEAF_TAGS = new Set(["input", "textarea", "select", "img", "svg", "canvas", "progress", "meter", "video", "audio", "iframe", "frame"]);
   const BREAK = { brk: true };
   // Where a clipped element was left out; text brackets around it close up.
@@ -750,10 +752,18 @@
     const placeholder = el.getAttribute("placeholder");
     if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = normalize(placeholder);
     if (tag === "select") {
-      const options = [...el.options].map((o) => (o.selected ? { name: normalize(o.label || o.textContent), selected: true } : { name: normalize(o.label || o.textContent) }));
-      // A list box shows its options; a drop-down shows them on request.
-      if (el.multiple || el.size > 1) node.children = options.map((o) => Object.assign({ role: "option" }, o));
-      else node.options = options;
+      const option = (o) => (o.selected ? { name: normalize(o.label || o.textContent), selected: true } : { name: normalize(o.label || o.textContent) });
+      // A list box shows its options; a drop-down shows them on request. A
+      // closed drop-down prints its first INLINE_OPTIONS and a count, so only
+      // those cross to the host.
+      if (el.multiple || el.size > 1) node.children = [...el.options].map((o) => Object.assign({ role: "option" }, option(o)));
+      else if (ctx.allOptions || node.expanded === true) node.options = [...el.options].map(option);
+      else {
+        const all = el.options;
+        node.options = [];
+        for (let i = 0; i < all.length && i < INLINE_OPTIONS; i++) node.options.push(option(all[i]));
+        if (all.length > INLINE_OPTIONS) node.optionCount = all.length;
+      }
     }
     if (!LEAF_TAGS.has(tag) && !isContentEditableHost(el)) {
       const kids = [];
@@ -824,6 +834,7 @@
       transformed: -1,
       viewport: opts.viewport ? { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight } : null,
       screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
+      allOptions: !!opts.options,
       offscreen: 0,
     };
     const out = [];

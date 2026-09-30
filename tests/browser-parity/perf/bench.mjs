@@ -248,6 +248,7 @@ function cmuxAppBackend() {
   return {
     async page(p) {
       const r = await call(cmuxProgram(p), `perf-${process.pid}`);
+      if (!r.out.includes(MARK)) throw new Error(`exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-600)}`);
       return parseMarked(r.out);
     },
     async overhead() {
@@ -282,14 +283,14 @@ try {
   await sleep(${p.settle});
   for (let i = 0; i < ${runs}; i++) {
     const t = Date.now();
-    const s = await snapshot(__tab);
+    const s = await snapshot(page);
     __out.runs.push({ snapMs: Date.now() - t, treeChars: s.tree.length });
     if (i === 0) __out.tree = s.tree;
   }
-  await __tab.evaluate(${JSON.stringify(MUTATE)});
+  await page.evaluate(${JSON.stringify(MUTATE)});
   {
     const t = Date.now();
-    const s = await snapshot(__tab);
+    const s = await snapshot(page);
     __out.diff = { snapMs: Date.now() - t, diffChars: (s.diff || "").length, printed: String(s.diff || "").slice(0, 4000) };
   }
   const refs = [...__out.tree.matchAll(/\\[ref=(\\w+)\\]/g)].map((m) => m[1]).filter((r) => !r.startsWith("f"));
@@ -297,7 +298,7 @@ try {
   const last = refs.pop();
   if (last) {
     const t = Date.now();
-    await __tab.locator(last).textContent({ timeout: 10000 }).catch(() => null);
+    await page.locator(last).textContent({ timeout: 10000 }).catch(() => null);
     __out.locatorMs = Date.now() - t;
   }
 } catch (e) { __out.error = String(e && e.stack || e); }
@@ -342,6 +343,8 @@ function summarize(result) {
     firstMs: result.runs[0]?.snapMs,
     treeBytes: Buffer.byteLength(result.tree ?? ""),
     printedBytes: Buffer.byteLength(text),
+    printedChars: text.length,
+    treeChars: (result.tree ?? "").length,
     printedTokens: tokens(text),
     treeTokens: tokens(result.tree ?? ""),
     breakdown: t.length ? { agentMs: avg("agentMs"), transportMs: avg("callMs") - avg("agentMs"), hostMs: avg("totalMs") - avg("callMs"), diffMs: avg("diffMs"), frames: t[0].frames } : null,
@@ -359,10 +362,14 @@ async function main() {
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const save = () => {
     const slim = JSON.parse(JSON.stringify(results));
-    for (const r of Object.values(slim.pages)) {
-      if (r && r.tree) delete r.tree;
-      if (r && r.printed) r.printed = r.printed.slice(0, 2000);
-    }
+    const trim = (r) => {
+      if (!r) return;
+      delete r.tree;
+      if (r.printed) r.printed = r.printed.slice(0, 2000);
+      if (r.diff && r.diff.printed) r.diff.printed = r.diff.printed.slice(0, 2000);
+      for (const v of Object.values(r.tools || {})) trim(v);
+    };
+    for (const r of Object.values(slim.pages)) trim(r);
     fs.writeFileSync(outFile, JSON.stringify(slim, null, 1));
   };
   try {

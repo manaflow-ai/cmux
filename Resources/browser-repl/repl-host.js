@@ -210,7 +210,8 @@
     const cap = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
     if (!(cap > 0) || cap === Infinity) return { print: (level, text) => host.print(level, text), finish() {}, spilled: () => null };
     const headCap = Math.floor(cap * 0.8);
-    const tailCap = cap - headCap - 400;
+    // Room for the last lines; a cap too small for them shows none.
+    const tailCap = Math.max(0, cap - headCap - 400);
     const printedTexts = [];
     let shown = 0;
     let total = 0;
@@ -266,6 +267,7 @@
       // The last lines and the summary, once the call has printed everything.
       finish() {
         if (!file) return;
+        if (!tailCap) tail = "";
         let last = tail.length > tailCap ? tail.slice(-tailCap) : tail;
         if (last.length < tail.length) {
           const nl = last.indexOf("\n");
