@@ -25,6 +25,9 @@ extension TerminalSurface {
     ) {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
+        // A new lifecycle attempt must not inherit a prior native creation
+        // failure while it is still queued behind an async creation gate.
+        runtimeSurfaceCreationFailed = false
 
         backgroundSurfaceStartSource = backgroundSurfaceStartSource.promoted(with: source)
         guard !backgroundSurfaceStartQueued else { return }
