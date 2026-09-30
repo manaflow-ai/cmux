@@ -516,6 +516,14 @@ public struct CMUXMobileRootScene: View {
                     bridge.refreshCatalog(for: machine)
                 }
             }
+            #if DEBUG
+            .environment(
+                \.mobileWhatsNewPresentationPolicy,
+                MobileWhatsNewPresentationPolicy(
+                    suppressLaunchPresentation: UITestConfig.suppressWhatsNewLaunch
+                )
+            )
+            #endif
             #endif
     }
 

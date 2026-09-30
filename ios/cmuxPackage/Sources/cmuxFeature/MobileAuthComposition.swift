@@ -444,7 +444,12 @@ public struct MobileAuthComposition {
         legacyProjectID: String
     ) -> TokenStoreInit {
         guard let appNamespace else {
-            return .none
+            // A malformed or test bundle must not leave StackClientApp without
+            // a token store: any authenticated operation would fatalError in
+            // the SDK. Memory storage keeps the failure recoverable (and
+            // deliberately avoids attributing persisted credentials to an
+            // unknown bundle).
+            return .memory
         }
         #if DEBUG && targetEnvironment(simulator)
         // Unsigned simulator apps cannot rely on Keychain entitlements. Keep

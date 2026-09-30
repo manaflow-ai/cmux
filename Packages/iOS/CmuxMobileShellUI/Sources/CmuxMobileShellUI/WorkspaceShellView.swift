@@ -232,6 +232,7 @@ struct WorkspaceShellView: View {
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
     @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @Environment(\.mobileWhatsNewPresentationPolicy) private var whatsNewPresentationPolicy
     @Environment(\.mobileWebAppSession) private var whatsNewWebAppSession
     @Environment(\.colorScheme) private var whatsNewColorScheme
     @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
@@ -697,7 +698,8 @@ struct WorkspaceShellView: View {
     /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
         guard let whatsNewCenter, whatsNewCenter.hasCompletedInitialRefresh,
-              !showsWhatsNewSheet else { return }
+              !showsWhatsNewSheet,
+              !whatsNewPresentationPolicy.suppressLaunchPresentation else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
         whatsNewCandidatePages = pages
