@@ -586365,6 +586365,90 @@
         }
       }
     },
+    "cli.send.reason.dialogBeforeSubmission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "text was pasted but the target opened a dialog before submission"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم لصق النص لكن الهدف فتح مربع حوار قبل الإرسال"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Text wurde eingefügt, aber das Ziel öffnete vor dem Senden einen Dialog"}},
+        "es": {"stringUnit": {"state": "translated", "value": "El texto se pegó, pero el destino abrió un diálogo antes del envío"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le texte a été collé, mais la cible a ouvert une boîte de dialogue avant l'envoi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキストは貼り付けられましたが、送信前に対象がダイアログを開きました"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트를 붙여넣었지만 전송 전에 대상이 대화상자를 열었습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文本已粘贴，但目标在提交前打开了对话框"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字已貼上，但目標在提交前開啟了對話框"}}
+      }
+    },
+    "cli.send.reason.pasteNotVisible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "the pasted message never became visible in the agent composer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لم تظهر الرسالة الملصقة في محرر الوكيل"}},
+        "de": {"stringUnit": {"state": "translated", "value": "die eingefügte Nachricht wurde im Agent-Composer nie sichtbar"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el mensaje pegado nunca apareció en el compositor del agente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "le message collé n'est jamais apparu dans le compositeur de l'agent"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "貼り付けたメッセージがエージェントの入力欄に表示されませんでした"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "붙여넣은 메시지가 에이전트 입력창에 표시되지 않았습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "粘贴的消息未在代理编辑框中显示"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "貼上的訊息未在代理編輯器中顯示"}}
+      }
+    },
+    "cli.send.reason.dialogRetryRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "the target opened a dialog; retry was refused"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فتح الهدف مربع حوار؛ رُفضت إعادة المحاولة"}},
+        "de": {"stringUnit": {"state": "translated", "value": "das Ziel öffnete einen Dialog; der erneute Versuch wurde abgelehnt"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el destino abrió un diálogo; se rechazó el reintento"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "la cible a ouvert une boîte de dialogue ; la nouvelle tentative a été refusée"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "対象がダイアログを開いたため、再試行を拒否しました"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "대상이 대화상자를 열어 재시도가 거부되었습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "目标打开了对话框；已拒绝重试"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "目標開啟了對話框；已拒絕重試"}}
+      }
+    },
+    "cli.send.reason.composerChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "the composer changed or could not be identified; retry was refused to preserve human input"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تغير محرر الكتابة أو تعذر تحديده؛ رُفضت إعادة المحاولة للحفاظ على إدخال المستخدم"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Composer wurde geändert oder konnte nicht erkannt werden; der Versuch wurde zum Schutz menschlicher Eingaben abgelehnt"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el compositor cambió o no pudo identificarse; se rechazó el reintento para proteger la entrada humana"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "le compositeur a changé ou n'a pas pu être identifié ; la nouvelle tentative a été refusée pour préserver la saisie humaine"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄が変更されたか識別できないため、人の入力を保護して再試行を拒否しました"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창이 변경되었거나 식별할 수 없어 사람의 입력을 보호하기 위해 재시도가 거부되었습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "编辑框已更改或无法识别；为保护人工输入，已拒绝重试"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "編輯器已變更或無法識別；為保護人工輸入，已拒絕重試"}}
+      }
+    },
+    "cli.send.reason.dialogDuringSubmission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "text was pasted and the target opened a dialog while submitting"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم لصق النص وفتح الهدف مربع حوار أثناء الإرسال"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Text wurde eingefügt und das Ziel öffnete während des Sendens einen Dialog"}},
+        "es": {"stringUnit": {"state": "translated", "value": "el texto se pegó y el destino abrió un diálogo durante el envío"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "le texte a été collé et la cible a ouvert une boîte de dialogue pendant l'envoi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テキストを貼り付けた後、送信中に対象がダイアログを開きました"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "텍스트를 붙여넣은 뒤 전송 중 대상이 대화상자를 열었습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "文本已粘贴，目标在提交时打开了对话框"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "文字已貼上，目標在提交時開啟了對話框"}}
+      }
+    },
+    "cli.send.reason.submitUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "the submit key was sent but submission was not confirmed after bounded retries"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تم إرسال مفتاح الإرسال لكن لم يتأكد الإرسال بعد محاولات محدودة"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Senden-Taste wurde gesendet, aber der Versand wurde nach begrenzten Versuchen nicht bestätigt"}},
+        "es": {"stringUnit": {"state": "translated", "value": "se envió la tecla de envío, pero el envío no se confirmó tras reintentos limitados"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "la touche d'envoi a été envoyée, mais l'envoi n'a pas été confirmé après des tentatives limitées"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "送信キーを送信しましたが、限られた再試行後も送信を確認できませんでした"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "전송 키를 보냈지만 제한된 재시도 후에도 전송이 확인되지 않았습니다"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已发送提交键，但在有限重试后仍未确认提交"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "已送出提交鍵，但在有限重試後仍未確認提交"}}
+      }
+    },
     "cli.send.error.submitUnconfirmed": {
       "extractionState": "manual",
       "localizations": {

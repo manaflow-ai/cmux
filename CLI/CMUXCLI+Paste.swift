@@ -267,7 +267,7 @@ extension CMUXCLI {
                         return try sendSubmitUnconfirmed(
                             command: command,
                             target: target,
-                            reason: "text was pasted but the target opened a dialog before submission",
+                            reason: String(localized: "cli.send.reason.dialogBeforeSubmission", defaultValue: "text was pasted but the target opened a dialog before submission"),
                             jsonOutput: jsonOutput,
                             idFormat: idFormat
                         )
@@ -291,7 +291,7 @@ extension CMUXCLI {
                 return try sendSubmitUnconfirmed(
                     command: command,
                     target: target,
-                    reason: "the pasted message never became visible in the agent composer",
+                    reason: String(localized: "cli.send.reason.pasteNotVisible", defaultValue: "the pasted message never became visible in the agent composer"),
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
@@ -329,7 +329,7 @@ extension CMUXCLI {
                     return try sendSubmitUnconfirmed(
                         command: command,
                         target: target,
-                        reason: "the target opened a dialog; retry was refused",
+                        reason: String(localized: "cli.send.reason.dialogRetryRefused", defaultValue: "the target opened a dialog; retry was refused"),
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
                     )
@@ -343,7 +343,7 @@ extension CMUXCLI {
                     return try sendSubmitUnconfirmed(
                         command: command,
                         target: target,
-                        reason: "the composer changed or could not be identified; retry was refused to preserve human input",
+                        reason: String(localized: "cli.send.reason.composerChanged", defaultValue: "the composer changed or could not be identified; retry was refused to preserve human input"),
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
                     )
@@ -391,7 +391,7 @@ extension CMUXCLI {
                 return try sendSubmitUnconfirmed(
                     command: command,
                     target: target,
-                    reason: "text was pasted and the target opened a dialog while submitting",
+                    reason: String(localized: "cli.send.reason.dialogDuringSubmission", defaultValue: "text was pasted and the target opened a dialog while submitting"),
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
@@ -434,7 +434,7 @@ extension CMUXCLI {
         return try sendSubmitUnconfirmed(
             command: command,
             target: target,
-            reason: "the submit key was sent but submission was not confirmed after bounded retries",
+            reason: String(localized: "cli.send.reason.submitUnconfirmed", defaultValue: "the submit key was sent but submission was not confirmed after bounded retries"),
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
