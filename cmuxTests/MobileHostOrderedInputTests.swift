@@ -113,6 +113,13 @@ struct MobileHostOrderedInputTests {
             ]
         )
 
+        // The two requests must land in different ordering buckets, or the
+        // wait for input-2 below can never finish while input-1 is held.
+        // Check the buckets up front so a keying change fails here at once.
+        let orderingKeys = try Self.orderedInputSurfaceKeys(in: batch)
+        try #require(orderingKeys.count == 2)
+        try #require(orderingKeys[0] != orderingKeys[1])
+
         await connection.debugHandleReceiveDataForTesting(batch)
         await gate.waitUntilFirstInputStarts()
         await gate.waitUntilSecondInputStarts()
@@ -170,6 +177,13 @@ struct MobileHostOrderedInputTests {
         let responses = await transport.waitForResponseCount(2)
         #expect(Set(responses) == Set(["stall-1", "stall-2"]))
         await connection.close(reason: "test complete")
+    }
+
+    private static func orderedInputSurfaceKeys(in batch: Data) throws -> [String] {
+        var buffer = batch
+        return try MobileSyncFrameCodec.decodeFrames(from: &buffer).map {
+            try MobileHostRPCEnvelope.decodeRequest($0).get().orderedInputSurfaceKey
+        }
     }
 
     private static func framedBatch(
