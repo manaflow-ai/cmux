@@ -391,7 +391,7 @@ public actor IrxConnection {
     /// is the relay URL for relayed paths and the socket address otherwise.
     public nonisolated func selectedPath() -> (isRelay: Bool, remoteAddress: String)? {
         let paths = connection.paths()
-        guard let selected = paths.first(where: { $0.isSelected }) else {
+        guard let selected = paths.first(where: { $0.isSelected }) ?? paths.first else {
             return nil
         }
         return (selected.isRelay, "\(selected.remoteAddr)")
