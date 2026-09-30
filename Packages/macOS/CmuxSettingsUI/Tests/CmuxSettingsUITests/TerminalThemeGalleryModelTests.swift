@@ -18,7 +18,8 @@ struct TerminalThemeGalleryModelTests {
     private func makeModel(
         existingConfig: String?,
         currentThemeValue: String?,
-        prefersDark: Bool = false
+        prefersDark: Bool = false,
+        themeDirectories: [URL] = []
     ) throws -> (TerminalThemeGalleryModel, CmuxManagedThemeConfigFile, ReloadLog) {
         let file = CmuxManagedThemeConfigFile(url: root.appendingPathComponent("config.ghostty"))
         if let existingConfig {
@@ -29,7 +30,7 @@ struct TerminalThemeGalleryModelTests {
         let model = TerminalThemeGalleryModel(
             context: TerminalThemeGalleryContext(
                 configFile: file,
-                themeDirectories: [],
+                themeDirectories: themeDirectories,
                 readCurrentThemeValue: { currentThemeValue },
                 prefersDarkAppearance: prefersDark
             ),
@@ -81,6 +82,40 @@ struct TerminalThemeGalleryModelTests {
 
         #expect(model.selection == CmuxTerminalThemePair(light: "Front End Delight", dark: "Front End Delight"))
         #expect(model.themeInUse == "Front End Delight")
+    }
+
+    @Test("Changing the app appearance moves the highlight to the side now shown")
+    func appearanceChangeFollowsThemeInUse() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (model, _, _) = try makeModel(
+            existingConfig: nil,
+            currentThemeValue: "light:Violet Light,dark:3024 Night",
+            prefersDark: false
+        )
+        #expect(model.themeInUse == "Violet Light")
+
+        model.appearanceDidChange(prefersDark: true)
+
+        #expect(model.slotInUse == .dark)
+        #expect(model.themeInUse == "3024 Night")
+    }
+
+    @Test("A later gallery shows cached themes, then picks up theme files added since")
+    func reloadPicksUpAddedThemes() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let themesDirectory = root.appendingPathComponent("themes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: themesDirectory, withIntermediateDirectories: true)
+        try "background = #000000\n".write(to: themesDirectory.appendingPathComponent("Alpha"), atomically: true, encoding: .utf8)
+
+        let (first, _, _) = try makeModel(existingConfig: nil, currentThemeValue: nil, themeDirectories: [themesDirectory])
+        await first.load()
+        #expect(first.themes.map(\.name) == ["Alpha"])
+
+        try "background = #ffffff\n".write(to: themesDirectory.appendingPathComponent("Beta"), atomically: true, encoding: .utf8)
+        let (second, _, _) = try makeModel(existingConfig: nil, currentThemeValue: nil, themeDirectories: [themesDirectory])
+        await second.load()
+
+        #expect(second.themes.map(\.name) == ["Alpha", "Beta"])
     }
 
     @Test("With no theme set, a pick fills both sides so Ghostty accepts it")
