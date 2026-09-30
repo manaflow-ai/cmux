@@ -354,23 +354,66 @@ Items I did not verify, or did out of laziness:
 - The spike's GhosttyKit symlink target (ghostty `e168fd3`) was pruned from the cache. I built the spike with ghostty `72ff13a` (a descendant) and restored the symlink after.
 - Each case ran once. No video.
 
-## Known issue: Chromium top band (2026-09-29)
+## Chromium top band: fixed (2026-09-29)
 
-In the cmux-next app, every CEF tab shows a dark band about 31 pt high at the top of the page area. The page is shifted down by the band's height, and the bottom of the page is cut off by the same amount.
+Symptom (PR #15776): every CEF tab in cmux-next showed a dark band about 31 pt high at the top of the page, the page was shifted down by that height, and its bottom was cut off.
 
-Measured on local tagged build `omnib` (`feat-cmux-next` after PR #15772, artifact `cef-154.0.28-cmux.2-clip`, fork `909710c`), window 1100x720 pt:
+Cause, measured on tagged build `cefbnd` with `enable-ui-devtools` (Views tree) and lldb (`_subtreeDescription` of the page `NSWindow`):
+- Chromium's Views layout was correct: `TopContainerView` height 0, `ContentsWebView` at y=1, 628 pt high in the 629 pt window.
+- The AppKit layer was wrong: the `BridgedContentView` of the page window sat at y=-31 in its frame view, with an `NSTitlebarContainerView` (32 pt, backdrop) above it. That titlebar container is the band; its bottom line is the separator.
+- The -31 is set at `-[NSWindow setContentView:]` inside `NativeWidgetNSWindowBridge::CreateContentView`. `CefNativeWidgetMac::CreateNSWindow` created the page window titled; AppKit's `constrainFrameRect:toScreen:` moved the titled window below the menu bar at its initial bounds (0,0 on the main screen), and Views placed the content view that far below the window top. The tracker's later switch to `NSWindowStyleMaskBorderless` kept the offset, and `CefNSWindow +frameViewClassForStyleMask:` returned the theme frame (`CefThemeFrame`) for every style mask, so the titlebar container and rounded corners stayed too.
+- Why the spike never showed the band is not determined (same fork code); its hosts may never hit the constraint.
 
-- The host geometry is correct. The CEF child window is exactly the pane's content rect: 880x629 pt, 91 pt below the main window's top, directly under the toolbar.
-- The page viewport reports `innerHeight` 628 in that 629 pt window, so Chromium sizes the web contents to the full window.
-- A `position: fixed; top: 0` element draws about 31 pt below the child window's top, under the band. A `bottom: 0` element is not visible.
-- The band is flat `#111` with a 1 px separator line at its bottom edge. That line looks like Chromium's top-container separator.
+Fix: fork branch `cmux/8037-band` (pushed to `manaflow` only) on top of `cmux/8037-clip`:
+1. `5364b925a` Only titled windows get the theme frame; a borderless window gets Chromium's `NativeWidgetMacNSWindowBorderlessFrame`. This also makes the page corners square, and removes the `_getCachedWindowCornerRadius` override from `909710c` that had no effect.
+2. `3a68cdd61` `CefNativeWidgetMac` creates the page window borderless from the start when its Window delegate is the embedded child-window delegate (`chrome_child_window::IsEmbeddedWindowDelegate`, a registry of live `ChildWindowDelegate`s). Borderless windows are never moved by `constrainFrameRect`.
 
-Conclusion: the web contents view is offset inside the fork's child `NSWindow`. Chromium's layout still reserves a title-bar-sized top inset (about macOS's 28 pt title bar plus the separator) above the contents. `SupportsWindowFeature` hides `kFeatureTitleBar`, tab strip, toolbar, location bar and bookmark bar (fork `libcef/browser/chrome/chrome_browser_delegate.cc:420`), but the frame view's top inset for a normal-type `Browser` without a tab strip is not zeroed.
+Incremental builds: 178 s and 132 s (`nice -n 19`). Dist: `~/fun/cef-cmux-dist-band`. Release: https://github.com/manaflow-ai/cef/releases/tag/cef-154.0.28-cmux.3-band (same packaging as `cmux.2-clip`), pinned in `scripts/cmux-next/cef-manifest.json`.
 
-cmux cannot fix this in its host view: a child window is always drawn above the main window, so moving or growing it to hide the band would cover the toolbar.
+Verification:
+- cmux-next tagged build with the published (stripped) artifact: a page with `position: fixed` bars at `top: 0` and `bottom: 0` shows both bars at the pane edges, in one pane and in two side-by-side panes (Chromium windows 880x629 and 440x629). Page window hierarchy: frame view and content view both at (0,0).
+- Spike (`~/fun/cmux2-spike`, rebuilt with the new dist): two browsers, page corners now square, clip at the viewport edge unchanged. Evidence: `docs/spike-2026-09-29-band/` (not committed).
+- Only the first patch (5364b925a) alone made it worse (the frame view itself moved to y=-31), which is how the constraint cause was found.
 
-Not compared:
-- The user's `nxdog2` build. It uses the same artifact and would need its tag's socket, which the user's running instance owns.
-- The spike screenshot `docs/spike-2026-09-28-clip/01-static-two-browsers.png` (cmux2-spike, same fork) shows no band. The spike created its browsers differently (`--spike` mode, one first tab per window), which points at a path difference, not at a different dist.
+## First Chromium tab: main-thread cost (2026-09-29)
 
-Follow-up (fork): in `--cmux-tabbed-windows`, make the browser frame's top inset 0 when the title bar and tab strip features are off (look at `BrowserFrameMac`/`BrowserNonClientFrameViewMac::GetTopInset` and the tabbed layout's top container). Verify with a `top:0`/`bottom:0` fixed-element page in the cmux-next app, then bump `scripts/cmux-next/cef-manifest.json`.
+PR #15776 saw `pane split-right` miss the 2 s action deadline right after the first Chromium tab. Measured on `cefbnd` (old code): one 2592 ms main-thread stall (`debug.hangs`), sampled in `dlopen` of the Chromium framework (`cmux_shim_load` from `CEFRuntime.boot`, called synchronously from `makeTab`), and one pane action timed out.
+
+Change: `CEFRuntime.start` is async. The shim and framework `dlopen` (`CEFRuntime.loadLibrary`, plain `dlopen`/`dlsym`) runs on a detached task; concurrent first tabs share it. Only the NSApp check, the pump and `CefInitialize` run on the main thread. `CEFEngine.makeTab` awaits the start, so the App keeps its existing "nil until ready" path and shows the tab at once. `CEFEngine.preload()` maps the framework early without starting CEF (not called by the App yet). Quit during the load marks CEF shut down, so it never initializes after quit starts.
+
+New check `scripts/cmux-next/check-first-chromium.py <tag>`: opens the first Chromium tab of a fresh launch while 2 clients send 20 pane actions over about 1.5 s, and fails on a deadline miss or a stall over 50 ms. Results with the change (5 fresh launches): 0 deadline misses, max action latency 9-193 ms, and two remaining stalls per launch of 81-161 ms. The check still fails on those two.
+
+The two remaining stalls are Chromium work that must run on the main thread: inside `CefInitialize` (`ScopedNativeScreen`/display enumeration, Perfetto tracing setup, profile keyed services) and the first `Browser` window (`CefNativeWidgetMac::CreateNSWindow`, `BrowserView::InitBrowser`, GPU channel setup). Removing them needs Chromium changes (for example, initializing CEF at app idle when a Chromium tab is likely) and is a decision for Lawrence, see the PR.
+
+## Chromium warm start (2026-09-29)
+
+Owner: `CmuxNextApp/ChromiumWarmup.swift` (architecture.md 5a, the one allowed exception).
+
+- Launch + 3 s: `CEFEngine.preload()` maps the shim and framework on a background thread and primes ImageIO's plugin list there (the first Chromium window otherwise built it on the main thread, 70 ms measured). No Chromium code runs.
+- `CefInitialize` runs early only when a Chromium tab is likely: a Chromium tab exists in any window (`MachineRegistry.hasChromiumTab`, so a restored tab in a background workspace counts), the "+" engine menu opens (`contextMenu(for: .newTabButton)`), or the palette selects or hovers `openBrowser.chromium` / `browser.openInChromium`. It waits for an idle moment: no key or mouse input to this app for 750 ms (a local event monitor installed only while waiting) and no menu tracking; it gives up after 60 s and stays lazy. Otherwise CEF stays lazy.
+- `debug.cef` reports state (`idle`, `loading`, `loaded`, `ready`), `preloaded`, `likely`, `trigger` (`tab` or the warm reason), load and initialize times, and the app footprint.
+
+Measured on tagged build `cefwrm` (Debug, pinned `cmux.3-band`), 3 fresh launches each:
+
+| State | App footprint | App RSS | Helpers (footprint) |
+| --- | --- | --- | --- |
+| Launch, before preload (t=1.5 s) | 66-82 MB | 110-113 MiB | none |
+| After preload (t=9.5 s) | 82-96 MB | 130-131 MiB | none |
+| Warm init, no tab shown | 124-137 MB | 265-276 MiB | 83-86 MB (GPU, network, storage) |
+| One Chromium tab open (cold) | 146-158 MB | 345-351 MiB | ~620 MiB RSS (adds renderer) |
+
+So preload costs about +10-15 MB footprint (+20 MiB RSS, mostly file-backed), and a warm init costs about +40 MB in the app plus about 85 MB in three helpers.
+
+`check-first-chromium.py` results:
+- `--mode cold` (no Chromium tab likely): PASS 3/3, 0 deadline misses, two stalls each (97-112 ms `CefInitialize`, 76-87 ms window).
+- `--mode warm` (restored Chromium tab in a background workspace): `CefInitialize` ran at idle 0.9-1 s after launch (75-100 ms), before any input. PASS 3/3 with one stall each (73-87 ms, the new Chromium window).
+
+Finding: creating a Chromium window costs 70-90 ms on the main thread every time, not only the first time (a second pane's window measured 70 and 85 ms). The 5a exception therefore covers one stall per pane that gets its first Chromium tab. Removing it would need a spare pre-created Chromium window per profile (a hidden `Browser` with a blank tab that the next pane adopts), which costs a renderer process; not done.
+
+TODO (decided 2026-09-29: not now, revisit after dogfood): spare Chromium window. Measured cost to remove: every pane that gets its first Chromium tab blocks the main thread 70-90 ms creating its Chromium window (first window per process 76-148 ms cold, 73-87 ms after a warm start; a second pane 70 and 85 ms). The fix is one hidden pre-created `Browser` per profile with a blank tab, created at idle and adopted by the next pane (navigate its tab, reparent the host view), then replaced at idle. Expected cost: one extra renderer process per profile while Chromium is running (not measured). Until then the 5a exception allows this stall once per new pane.
+
+Not verified live: the "+" menu and palette triggers (Computer Use is not set up, and the palette does not open in a `CMUX_NEXT_NO_ACTIVATE` launch). The restored-tab trigger is verified.
+
+## Chromium diagnostics
+
+Debug builds of development bundles (`com.cmuxterm.app.debug.*`) read `CMUX_NEXT_CEF_EXTRA_SWITCHES`, a colon-separated list of Chromium switches (leading dashes optional), for example `enable-ui-devtools=9311` (Views tree over the DevTools protocol, `ws://127.0.0.1:9311/0`) or `show-browser-frame-regions`. Release builds ignore it (`#if DEBUG` in `CEFSwitches.current`).

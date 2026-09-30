@@ -212,7 +212,7 @@ class ChromeTextField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted, let editor = currentEditor() as? NSTextView {
             editor.insertionPointColor = Palette.textPrimary
-            editor.selectedTextAttributes = [.backgroundColor: NSColor(white: 0.5, alpha: 0.35)]
+            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
         return accepted
     }

@@ -70,7 +70,7 @@ extension PaneHandlers {
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.borderWidth = 3
         ring.cornerRadius = 8
-        ring.borderColor = NSColor.labelColor.withAlphaComponent(0.45).cgColor
+        ring.borderColor = Palette.focusRing.cgColor
         ring.opacity = 0
         host.addSublayer(ring)
         let fade = CAKeyframeAnimation(keyPath: "opacity")

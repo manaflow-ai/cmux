@@ -32,6 +32,40 @@ import Testing
         #expect(!switches.useMockKeychain)
         #expect(switches.loadExtensions.isEmpty)
     }
+
+    @Test func extraSwitchesOnlyForDevelopmentBundles() {
+        let environment = ["CMUX_NEXT_CEF_EXTRA_SWITCHES": "--enable-ui-devtools=9311::show-browser-frame-regions"]
+        #expect(CEFSwitches.extraSwitches("--enable-ui-devtools=9311::show-browser-frame-regions")
+            == ["enable-ui-devtools=9311", "show-browser-frame-regions"])
+        #if DEBUG
+        let dev = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app.debug.x", environment: environment)
+        #expect(dev.arguments.suffix(2) == ["enable-ui-devtools=9311", "show-browser-frame-regions"])
+        #endif
+        let release = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app", environment: environment)
+        #expect(release.extraSwitches.isEmpty)
+    }
+}
+
+@Suite struct CEFLibraryLoadTests {
+    @Test func loadWithoutRuntimeFailsOffMain() async {
+        let result = await Task.detached { CEFRuntime.loadLibrary(nil) }.value
+        guard case .failure(.notEmbedded) = result else {
+            Issue.record("expected notEmbedded, got \(result)")
+            return
+        }
+    }
+
+    @Test func loadWithMissingShimReportsShimError() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "cef-missing-\(UUID().uuidString)")
+        let layout = CEFRuntimeLayout(
+            frameworksDirectory: root, mainBundle: root, helperApp: root.appending(path: "Helper.app")
+        )
+        let result = await Task.detached { CEFRuntime.loadLibrary(layout) }.value
+        guard case .failure(.shim(.open)) = result else {
+            Issue.record("expected a shim open error, got \(result)")
+            return
+        }
+    }
 }
 
 @Suite struct CEFZoomAndPumpTests {

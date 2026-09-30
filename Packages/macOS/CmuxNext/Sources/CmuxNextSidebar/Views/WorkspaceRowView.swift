@@ -14,6 +14,7 @@ final class WorkspaceRowView: SidebarRowView {
     private var hasSubtitle = false
     private var grouped = false
     private var groupColor: GroupColor?
+    private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row sits on the shared pill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
@@ -56,7 +57,8 @@ final class WorkspaceRowView: SidebarRowView {
         self.compact = compact
         grouped = row.group != nil
         groupColor = row.groupColor
-        icon.configure(icon: ws.icon, title: ws.title)
+        icon.configure(icon: ws.icon, title: ws.title, compact: compact)
+        iconKind = ws.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
@@ -111,7 +113,7 @@ final class WorkspaceRowView: SidebarRowView {
         if isDropTarget {
             layer.backgroundColor = resolvedCGColor(Palette.selectionFill)
         } else if isSecondarySelected {
-            layer.backgroundColor = resolvedCGColor(SidebarStyle.secondarySelectionFill)
+            layer.backgroundColor = resolvedCGColor(Palette.secondarySelectionFill)
         } else if isHovered {
             layer.backgroundColor = resolvedCGColor(Palette.hoverFill)
         } else {
@@ -151,9 +153,16 @@ final class WorkspaceRowView: SidebarRowView {
 
         let indent: CGFloat = grouped ? SidebarStyle.groupIndent : 0
         rail.frame = CGRect(x: Metrics.space2, y: Metrics.space3, width: SidebarStyle.railWidth, height: b.height - Metrics.space5)
-        let iconX = Metrics.space3 + indent
-        let side = SidebarStyle.iconBox
-        icon.frame = NSRect(x: iconX, y: (b.height - side) / 2, width: side, height: side)
+        // Text-first: the title starts at the inset unless the user chose
+        // an icon (a color is a small dot, a symbol a glyph).
+        let leading = SidebarStyle.horizontalInset + indent
+        let side: CGFloat
+        switch iconKind {
+        case nil: side = 0
+        case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
+        case .symbol?: side = SidebarStyle.iconBox
+        }
+        icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 
         // Trailing cluster, right to left: close-or-badge, then activity.
         var trailing = b.width - Metrics.space3
@@ -177,7 +186,7 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= ind + Metrics.space2
         }
 
-        let textX = icon.frame.maxX + Metrics.space3
+        let textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
         let textW = max(0, trailing - textX)
         title.isHidden = renaming
         let th = ceil(title.intrinsicContentSize.height)

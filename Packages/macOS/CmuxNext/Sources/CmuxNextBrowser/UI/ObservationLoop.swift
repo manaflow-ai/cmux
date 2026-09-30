@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Observation
 
 /// Re-runs `render` whenever any observable property it read changes.
@@ -65,7 +66,8 @@ final class OverlayBackingView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        layer?.backgroundColor = NSColor(white: isDark ? 0.14 : 0.98, alpha: isDark ? 0.62 : 0.66).cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.64).cgColor
+        }
     }
 }

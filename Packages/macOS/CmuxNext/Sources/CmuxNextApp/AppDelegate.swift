@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         control.startWatchdog()
+        // Chrome colors derive from the Ghostty theme; load it before any window.
+        ThemeBridge.start()
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)
@@ -27,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext = services.startCloud()
         services.updater.start()
         services.windows.restoreWhenLoaded()
+        services.startChromiumWarmup()
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }

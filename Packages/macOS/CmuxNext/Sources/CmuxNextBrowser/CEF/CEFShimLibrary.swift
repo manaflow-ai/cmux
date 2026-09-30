@@ -7,7 +7,9 @@ import Foundation
 /// is loaded only when the first CEF tab is created, so a session without CEF
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
-struct CEFShimLibrary {
+/// Immutable C function pointers: safe to hand from the loading thread to the
+/// main thread.
+nonisolated struct CEFShimLibrary: @unchecked Sendable {
     static let abiVersion: Int32 = 2
 
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void

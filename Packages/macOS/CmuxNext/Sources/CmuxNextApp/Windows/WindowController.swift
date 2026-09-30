@@ -40,6 +40,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
         window.backgroundColor = Palette.windowBackground
+        ThemeStore.shared.adopt(window)
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed

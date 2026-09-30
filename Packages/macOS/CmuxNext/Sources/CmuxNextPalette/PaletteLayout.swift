@@ -39,7 +39,7 @@ enum PaletteLayout {
 
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
-    static func label(_ font: NSFont, color: NSColor = .labelColor) -> NSTextField {
+    static func label(_ font: NSFont, color: NSColor = Palette.textPrimary) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
         field.textColor = color
@@ -55,7 +55,7 @@ enum PaletteText {
         ceil(field.attributedStringValue.size().width) + Metrics.space2
     }
 
-    static func symbol(_ name: String, size: CGFloat, color: NSColor = .secondaryLabelColor) -> NSImage? {
+    static func symbol(_ name: String, size: CGFloat, color: NSColor = Palette.textSecondary) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
     }

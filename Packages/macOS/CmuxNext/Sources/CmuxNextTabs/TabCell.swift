@@ -156,7 +156,7 @@ final class TabCell {
     }
 
     private func updateLift() {
-        backgroundLayer.shadowColor = NSColor.black.cgColor
+        backgroundLayer.shadowColor = Palette.shadow.cgColor
         backgroundLayer.shadowRadius = Metrics.space3
         backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         backgroundLayer.shadowOpacity = isLifted ? 0.22 : 0
@@ -207,9 +207,9 @@ final class TabCell {
 
     var badgeColor: NSColor? {
         switch item.status {
-        case .needsInput: return .systemOrange
-        case .success: return .systemGreen
-        case .failure: return .systemRed
+        case .needsInput: return Palette.attention
+        case .success: return Palette.success
+        case .failure: return Palette.danger
         case .none: return item.isUnread ? Palette.textPrimary : nil
         }
     }

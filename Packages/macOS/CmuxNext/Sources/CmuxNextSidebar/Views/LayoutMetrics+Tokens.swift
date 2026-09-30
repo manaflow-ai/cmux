@@ -8,7 +8,7 @@ extension SidebarLayoutMetrics {
             topPadding: Metrics.space2,
             bottomPadding: Metrics.space6,
             sectionHeaderHeight: Metrics.sidebarHeaderHeight,
-            sectionSpacing: Metrics.space5,
+            sectionSpacing: Metrics.space4,
             groupHeaderHeight: Metrics.sidebarRowHeight,
             rowHeight: Metrics.sidebarRowHeight,
             rowHeightWithSubtitle: Metrics.sidebarRowHeightWithSubtitle,

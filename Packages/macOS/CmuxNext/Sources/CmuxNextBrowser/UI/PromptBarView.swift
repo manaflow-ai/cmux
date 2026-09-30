@@ -19,8 +19,8 @@ final class PromptBarView: NSView {
         messageLabel.maximumNumberOfLines = 6
 
         inputField.wantsLayer = true
-        inputField.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.12).cgColor
         inputField.delegate = self
+        applyColors()
 
         buttons.setHuggingPriority(.required, for: .horizontal)
 
@@ -60,6 +60,17 @@ final class PromptBarView: NSView {
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
         density.start()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            inputField.layer?.backgroundColor = Palette.chromeBackground.cgColor
+        }
     }
 
     @available(*, unavailable)

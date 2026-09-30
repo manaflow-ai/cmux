@@ -9,8 +9,8 @@ final class PaletteActionsMenuView: NSView {
 
     private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
-    private let title = PaletteText.label(Typography.header, color: .secondaryLabelColor)
-    private let filter = PaletteText.label(Typography.body, color: .tertiaryLabelColor)
+    private let title = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let filter = PaletteText.label(Typography.body, color: Palette.textTertiary)
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
 
@@ -36,7 +36,7 @@ final class PaletteActionsMenuView: NSView {
     func update(_ state: PaletteActionsMenuState, alternateID: String?) {
         title.stringValue = state.itemTitle
         filter.stringValue = state.filter.isEmpty ? PaletteStrings.searchActionsPlaceholder : state.filter
-        filter.textColor = state.filter.isEmpty ? .tertiaryLabelColor : .labelColor
+        filter.textColor = state.filter.isEmpty ? Palette.textTertiary : Palette.textPrimary
         rowViews.forEach { $0.removeFromSuperview() }
         rowViews = state.visibleCommands.enumerated().map { index, command in
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
@@ -86,9 +86,9 @@ final class PaletteMenuRow: NSView {
         self.isSelected = isSelected
         super.init(frame: .zero)
         icon.image = PaletteText.symbol(command.symbol ?? "circle", size: Metrics.smallIconSize)
-        icon.contentTintColor = .secondaryLabelColor
+        icon.contentTintColor = Palette.textSecondary
         label.stringValue = command.title
-        label.textColor = command.isDestructive ? .secondaryLabelColor : .labelColor
+        label.textColor = command.isDestructive ? Palette.textSecondary : Palette.textPrimary
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)

@@ -28,6 +28,7 @@ final class TabDragGhostPanel {
                            height: max(cardSize.height, tabSize.height * 1.6) + Self.pad * 2)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
+        ThemeStore.shared.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -59,7 +60,7 @@ final class TabDragGhostPanel {
         tabLayer.contents = tabImage
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
-        tabLayer.shadowColor = NSColor.black.cgColor
+        tabLayer.shadowColor = Palette.shadow.cgColor
         tabLayer.shadowOpacity = 0.28
         tabLayer.shadowRadius = 10
         tabLayer.shadowOffset = CGSize(width: 0, height: -3)
