@@ -23,6 +23,8 @@ for line in sys.stdin:
             f.write("cancel %s\n" % msg["id"])
         continue
     path = msg["request"].get("path", "")
+    with open(log, "a") as f:
+        f.write("request %s\n" % msg["id"])
     if path == "exit":
         os._exit(3)
     if path == "missing":
@@ -55,6 +57,17 @@ for line in sys.stdin:
         let data = try await process.request(body)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return object?["path"] as? String
+    }
+
+    /// Waits until the fake peer has logged `line`, so a test acts only after the
+    /// request actually reached the peer.
+    private func waitForLog(_ log: URL, contains line: String) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            if let text = try? String(contentsOf: log, encoding: .utf8), text.contains(line) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("peer never logged \(line)")
     }
 
     private func temporaryLog() -> URL {
@@ -93,7 +106,7 @@ for line in sys.stdin:
         let process = try await start(log: log, releases: Releases())
         defer { Task { await process.stop() } }
         let waiting = Task { try await request(process, path: "delay:30") }
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForLog(log, contains: "request 1\n")
         waiting.cancel()
         await #expect(throws: CancellationError.self) { _ = try await waiting.value }
         // The next answer is ordered after the cancel line on the peer's stdin.
@@ -109,7 +122,7 @@ for line in sys.stdin:
         let releases = Releases()
         let process = try await start(log: log, releases: releases)
         let waiting = Task { try await request(process, path: "delay:30") }
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForLog(log, contains: "request 1\n")
         await #expect(throws: CloudMachineLink.LinkError.self) {
             _ = try await request(process, path: "exit")
         }

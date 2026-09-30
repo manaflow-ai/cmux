@@ -704,11 +704,25 @@ impl WorkspaceService {
         }
         let watches = Arc::clone(&self.inner.watches);
         let owner = scope.clone();
+        let leased = workspace.clone();
         let watch = self
             .inner
             .blocking
             .run("watch-directories", move || watches.watch(&owner, workspace, directories))
             .await?;
+        // A close-workspace or client close that ran while the watch was being
+        // registered has already released this scope's watches; do not leave
+        // this one behind.
+        let still_open = {
+            let catalog = self.inner.catalog.read().await;
+            catalog.leases.get(scope).is_some_and(|leases| leases.contains(&leased))
+        };
+        if !still_open {
+            let watches = Arc::clone(&self.inner.watches);
+            let orphan = watch.clone();
+            let _ = tokio::task::spawn_blocking(move || watches.remove_id(&orphan)).await;
+            return Err(unknown_workspace(&leased));
+        }
         Ok(WorkspaceResponse::WatchStarted { watch })
     }
 
