@@ -95,6 +95,18 @@ final class cmuxUITests: XCTestCase {
         app.buttons["MobileAgentFeedFullTextClose"].tap()
         XCTAssertTrue(open.waitForExistence(timeout: 5))
         XCTAssertTrue(open.isHittable)
+        let longRow = app.descendants(matching: .any)["MobileAgentFeedRow-full-text-preview"]
+        let reply = longRow.buttons["MobileAgentFeedReplyButton"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 5))
+        reply.tap()
+        let composeSeeMore = app.buttons["MobileAgentFeedComposeSeeMore"]
+        XCTAssertTrue(composeSeeMore.waitForExistence(timeout: 5))
+        composeSeeMore.tap()
+        let composeFinalParagraph = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")
+        ).firstMatch
+        XCTAssertTrue(composeFinalParagraph.waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
         let shortText = app.textViews.matching(NSPredicate(format: "label == %@", "Stopped.")).firstMatch
         XCTAssertTrue(shortText.exists)
         shortText.press(forDuration: 1)
