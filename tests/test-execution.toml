@@ -1493,3 +1493,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_iroh_drift_issue.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_vm_mutation_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
