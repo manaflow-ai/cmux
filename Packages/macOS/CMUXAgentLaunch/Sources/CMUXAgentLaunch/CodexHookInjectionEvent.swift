@@ -44,6 +44,7 @@ public struct CodexHookInjectionEvent: Equatable, Sendable {
     }
 
     /// Returns a copy that renders the supplied literal timeout value.
+    /// - Parameter value: The timeout literal to preserve in generated argv.
     func withCodexTimeoutValue(_ value: Int) -> Self {
         Self(
             agentEvent: agentEvent,
@@ -55,6 +56,7 @@ public struct CodexHookInjectionEvent: Equatable, Sendable {
         )
     }
 
+    /// Converts a positive millisecond policy value to a ceiling-rounded second value.
     private static func codexTimeoutSeconds(fromMilliseconds milliseconds: Int) -> Int {
         ((max(milliseconds, 1) - 1) / 1_000) + 1
     }
@@ -73,12 +75,18 @@ public struct CodexHookCompanion: Equatable, Sendable {
     /// The literal timeout value rendered into Codex configuration.
     public let codexTimeoutValue: Int
 
+    /// Creates a companion handler timeout entry.
+    /// - Parameters:
+    ///   - cmuxSubcommand: The cmux hook subcommand invoked by the handler.
+    ///   - timeoutMs: The source timeout policy in milliseconds.
+    ///   - codexTimeoutValue: An optional literal override used by replay compatibility schemas.
     public init(cmuxSubcommand: String, timeoutMs: Int, codexTimeoutValue: Int? = nil) {
         self.cmuxSubcommand = cmuxSubcommand
         self.timeoutMs = timeoutMs
         self.codexTimeoutValue = codexTimeoutValue ?? ((max(timeoutMs, 1) - 1) / 1_000) + 1
     }
 
+    /// Returns a copy that renders the supplied literal timeout value.
     func withCodexTimeoutValue(_ value: Int) -> Self {
         Self(cmuxSubcommand: cmuxSubcommand, timeoutMs: timeoutMs, codexTimeoutValue: value)
     }

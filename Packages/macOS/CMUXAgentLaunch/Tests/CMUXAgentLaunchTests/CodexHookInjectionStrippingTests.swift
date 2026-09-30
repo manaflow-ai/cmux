@@ -56,6 +56,7 @@ struct CodexHookInjectionStrippingTests {
     }
 
     @Test("The current block pairs the agent message handlers with prompt submit and stop")
+    /// Verifies that the current schema renders Codex timeout values in seconds.
     func currentBlockHasInboxCompanions() {
         let companions = CodexHookInjectionSchema.current.events.compactMap { event in
             event.companion.map { "\(event.agentEvent):\($0.cmuxSubcommand)" }
@@ -66,6 +67,7 @@ struct CodexHookInjectionStrippingTests {
     }
 
     @Test("Strips the current Codex hook block with second-based timeouts")
+    /// Verifies replay stripping for the current second-based schema.
     func stripsCurrentCodexHookBlockWithSecondTimeouts() {
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
             legacyNamedScriptPath(subcommand)
@@ -80,6 +82,7 @@ struct CodexHookInjectionStrippingTests {
     }
 
     @Test("Strips a saved current Codex hook block with millisecond timeouts")
+    /// Verifies replay compatibility for saved millisecond timeout values.
     func stripsSavedCurrentCodexHookBlockWithMillisecondTimeouts() {
         let arguments = ["codex"] + oldCurrentCodexHookArguments { subcommand in
             legacyNamedScriptPath(subcommand)
@@ -696,6 +699,7 @@ struct CodexHookInjectionStrippingTests {
         return arguments
     }
 
+    /// Builds a saved current-schema argv block with historical millisecond literals.
     private func oldCurrentCodexHookArguments(
         command: (String) -> String
     ) -> [String] {
