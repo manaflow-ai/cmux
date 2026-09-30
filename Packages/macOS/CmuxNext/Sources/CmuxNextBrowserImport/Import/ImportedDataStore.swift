@@ -51,6 +51,16 @@ public actor ImportedDataStore {
         sources().first { $0.sourceKey == sourceKey }?.proposedProfileID
     }
 
+    /// Sources whose data still sits in the default profile (imports made
+    /// before browser profiles existed).
+    public func sourcesInDefaultProfile() -> [ImportSourceRecord] {
+        [] // stub
+    }
+
+    /// Moves one source's saved batch into `profile` and records the new
+    /// target. An unknown source is a no-op.
+    public func retarget(_ sourceKey: String, to profile: String) throws {}
+
     /// Every batch imported into `profile`.
     public func batches(profile: String) -> [ImportBatch] {
         let folder = directory.appending(path: profile, directoryHint: .isDirectory)

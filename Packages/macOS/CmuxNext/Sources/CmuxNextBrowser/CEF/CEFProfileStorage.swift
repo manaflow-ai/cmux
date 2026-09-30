@@ -71,5 +71,11 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
             && url.lastPathComponent.hasPrefix("Profile-")
     }
 
+    /// The cmux profile of a persistent store directory (`Profile-<UUID>`
+    /// or one of its remote-localhost stores `Profile-<UUID>-m-<key>`).
+    public func profile(forPath path: String) -> BrowserProfileID? {
+        nil // stub
+    }
+
     public var logFile: URL { root.appending(path: "cef.log") }
 }
