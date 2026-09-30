@@ -10,7 +10,10 @@ extension SurfaceProjection {
     /// their bound workspace; availability in the machine resource pool never does.
     /// A daemon placement of the same resource already supplies that workspace row.
     public static func localWorkspaceMembers(resources: [SurfaceResource], projections: [SurfaceProjection]) -> [(resource: SurfaceResource, workspaceID: String)] {
-        let previews = Dictionary(uniqueKeysWithValues: resources.filter { $0.kind == .display || $0.id.isForwardedPort }.map { ($0.id, $0) })
+        let previews = Dictionary(
+            resources.filter { $0.kind == .display || $0.id.isForwardedPort }.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var seen: [SurfaceResourceID: Set<String>] = [:]
         return projections.compactMap { projection in
             guard projection.isLocalWorkspaceView,

@@ -153,7 +153,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         let hooks = try #require(settings["hooks"] as? [String: Any])
         let queuedHooks = [
             ("SessionStart", "session-start"),
-            ("Stop", "stop"),
+            ("Stop", "stop"), ("StopFailure", "stop"),
             ("Stop", "feed"),
             ("SubagentStop", "feed"),
             ("SessionEnd", "session-end"),

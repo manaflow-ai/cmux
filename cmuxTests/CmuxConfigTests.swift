@@ -1411,6 +1411,101 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(store.surfaceTabBarActionReferenceIDs["hidden-ref-button"])
     }
 
+    @MainActor
+    func testCopyBuiltInsResolveAsSurfaceTabBarButtonsAndHonorActionOverrides() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "cmux.copyScreen": { "title": "Grab Screen", "palette": false }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                "cmux.copyWorkingDirectory",
+                { "action": "copyProjectRoot", "title": "Root" },
+                "cmux.copyScreen"
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.map(\.action),
+            [
+                .builtIn(.copyWorkingDirectory),
+                .builtIn(.copyProjectRoot),
+                .builtIn(.copyScreen)
+            ]
+        )
+        let copyActions: [TerminalCopyAction] = store.surfaceTabBarButtons.compactMap { button in
+            guard case .builtIn(let builtIn) = button.action else { return nil }
+            return builtIn.terminalCopyAction
+        }
+        XCTAssertEqual(copyActions, [.workingDirectory, .projectRoot, .visibleScreen])
+        // Copy built-ins never create a Bonsplit split/tab, so the tab bar
+        // routes them to the workspace's executable-button path.
+        XCTAssertTrue(store.surfaceTabBarButtons.allSatisfy { button in
+            guard case .builtIn(let builtIn) = button.action else { return false }
+            return builtIn.bonsplitAction == nil
+        })
+
+        let copyScreen = try XCTUnwrap(store.resolvedAction(id: "cmux.copyScreen"))
+        XCTAssertEqual(copyScreen.title, "Grab Screen")
+        XCTAssertFalse(copyScreen.palette)
+        // The native palette rows look up their overrides through these ids.
+        XCTAssertEqual(
+            ContentView.commandPaletteCopyActionCommandID(.copyScreen),
+            "palette.copyScreen"
+        )
+        XCTAssertEqual(store.resolvedAction(id: "copyWorkingDirectory")?.id, "cmux.copyWorkingDirectory")
+    }
+
+    /// A copy-action shortcut pressed while a browser (or any non-terminal)
+    /// panel is focused must not claim the keystroke: returning false lets
+    /// the shortcut router pass the key through to that panel instead of
+    /// beeping and swallowing it.
+    @MainActor
+    func testCopyActionShortcutPassesThroughWhenNoTerminalIsFocused() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let workspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        let terminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let browser = try XCTUnwrap(workspace.newBrowserSplit(from: terminalId, orientation: .horizontal))
+        workspace.focusPanel(browser.id)
+        XCTAssertEqual(workspace.focusedPanelId, browser.id)
+
+        for builtIn in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            XCTAssertFalse(
+                appDelegate.executeConfiguredCmuxAction(.builtIn(builtIn), context: context),
+                "\(builtIn.configID) claimed a shortcut with a browser panel focused"
+            )
+        }
+    }
+
     func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {

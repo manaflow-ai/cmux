@@ -4,6 +4,7 @@ import { pruneClientMessages } from "@/i18n/client-messages";
 import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
+import { SiteFooter } from "@/app/[locale]/components/site-footer";
 import { docsChannel } from "@/app/lib/docs-channel";
 
 export async function generateMetadata({
@@ -39,8 +40,8 @@ export default async function DocsLayout({
   return (
     <NextIntlClientProvider messages={messages}>
       <div className="min-h-screen">
-        <SiteHeader section="docs" />
-        <DocsNav channel={channel}>
+        <SiteHeader section="docs" wide />
+        <DocsNav channel={channel} footer={<SiteFooter />}>
           {children}
         </DocsNav>
       </div>

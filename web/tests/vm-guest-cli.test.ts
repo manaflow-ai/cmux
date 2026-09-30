@@ -656,6 +656,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 a="\${1:-}"; b="\${2:-}"; c="\${3:-}"; d="\${4:-}"
+# cmux-tui exits 1 when a screen wait ends unmatched.
+fake_wait_exit() { [ "\${FAKE_MATCHED:-true}" = true ] && exit 0; exit 1; }
 if [ "$a" = session ] && [ "$c" = snapshot ]; then cat "$FAKE_SNAPSHOT"; exit 0; fi
 if [ "$a" = workspace ] && [ "$b" = create ]; then
   case "$*" in
@@ -678,12 +680,12 @@ if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = wait ]; then
   case "$*" in
     *CMUX-FILE-\\(OK*) printf '{"matched":true,"text":"CMUX-FILE-READY\\\\nCMUX-FILE-OK bytes=%s path=%s mode=%s\\\\n"}\\n' "\${FAKE_FILE_BYTES:-11}" "\${FAKE_FILE_PATH:-/root/app/.env}" "\${FAKE_FILE_MODE:-640}"; exit 0 ;;
     *CMUX-FILE-READY*)
-      if [ "\${FAKE_FILE_REFUSE:-0}" = 1 ]; then printf '{"matched":false,"text":"CMUX-FILE-ERR is-directory /root/app\\\\n"}\\n'; exit 0; fi
-      printf '{"matched":%s,"text":"CMUX-FILE-READY\\\\n"}\\n' "\${FAKE_MATCHED:-true}"; exit 0 ;;
+      if [ "\${FAKE_FILE_REFUSE:-0}" = 1 ]; then printf '{"matched":false,"text":"CMUX-FILE-ERR is-directory /root/app\\\\n"}\\n'; exit 1; fi
+      printf '{"matched":%s,"text":"CMUX-FILE-READY\\\\n"}\\n' "\${FAKE_MATCHED:-true}"; fake_wait_exit ;;
     *CMUX-ENV-\\(OK*) printf '{"matched":true,"text":"CMUX-ENV-READY\\\\nCMUX-ENV-OK keys=2 path=/root/.config/cmux/env\\\\n"}\\n'; exit 0 ;;
-    *CMUX-ENV-READY*) printf '{"matched":%s,"text":"CMUX-ENV-READY\\\\n"}\\n' "\${FAKE_MATCHED:-true}"; exit 0 ;;
+    *CMUX-ENV-READY*) printf '{"matched":%s,"text":"CMUX-ENV-READY\\\\n"}\\n' "\${FAKE_MATCHED:-true}"; fake_wait_exit ;;
   esac
-  printf '{"matched":%s,"text":"λ "}\\n' "\${FAKE_MATCHED:-true}"; exit 0
+  printf '{"matched":%s,"text":"λ "}\\n' "\${FAKE_MATCHED:-true}"; fake_wait_exit
 fi
 if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = read ]; then printf '{"cols":80,"rows":24,"text":"hello screen"}\\n'; exit 0; fi
 if [ "$a" = terminal ] && [ "$c" = process ] && [ "$d" = wait ]; then

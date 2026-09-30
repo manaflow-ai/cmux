@@ -1,5 +1,5 @@
 name: CI UI tests
-run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
+run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id, inputs.run_attempt) }}
 
 # Runs the UI test classes a pull request changes, for ci.yml's `ui-tests` job.
 # Dispatching test-e2e.yml takes actions: write, and a pull_request run takes
@@ -7,19 +7,19 @@ run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id || git
 # job validates the selectors and uploads them as `ui-tests-request-<attempt>`,
 # then waits for this workflow's verdict and reports it, which keeps the result
 # on the pull request and under ci-status. This workflow, and the dispatcher it
-# runs, always come from the default branch. It starts with every CI run
-# attempt, returns at once for anything but a
-# same-repository pull request that changes cmuxUITests/, and otherwise waits
-# for the attempt's request. It cancels the dispatched run when the CI attempt
-# finishes first. A re-run made with GITHUB_TOKEN may emit no workflow_run
-# event, so the bots that re-run CI (owned_pool_rescue.py, classify_failures.py)
-# dispatch this workflow for the new attempt themselves; a duplicate joins the
-# same concurrency group. scripts/ci/ui_tests_dispatch.py has the rules. The run-name
-# is how `ui-tests` finds its run; keep it in step with dispatch_title() there.
+# runs, always come from the default branch. The build controller dispatches it
+# once per CI run attempt when that attempt's `ui-tests` job starts
+# (cmuxterm-hq build-fleet/cmd/controller/ui_tests.go, keyed on the job name
+# `ui-tests` of workflow `CI`), so no runner waits here for a request that
+# never comes. It returns at once for anything but a same-repository pull
+# request that changes cmuxUITests/ or a path the UI fuzzer's regression replays cover
+# (FUZZ_REGRESSION_PATHS), and cancels the dispatched run when the CI attempt
+# finishes first. The bots that re-run CI (owned_pool_rescue.py,
+# classify_failures.py) still dispatch it for the new attempt; a duplicate
+# joins the same concurrency group. scripts/ci/ui_tests_dispatch.py has the
+# rules. The run-name is how `ui-tests` finds its run; keep it in step with
+# dispatch_title() there.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [requested]
   workflow_dispatch:
     inputs:
       run_id:
@@ -34,20 +34,17 @@ on:
 
 permissions: {}
 
-env:
-  # `workflows:` spells a display name; this is the file behind it
-  # (tests/test_ci_workflow_run_sources.py). The script confirms the CI run's
-  # own `path` before it acts.
-  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
-
 concurrency:
-  group: ci-ui-tests-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+  group: ci-ui-tests-${{ inputs.run_id }}-${{ inputs.run_attempt }}
   cancel-in-progress: true
 
 jobs:
   dispatch:
     name: Run requested UI tests
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
+    # non-UI diffs out of the downstream test runner.
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
     runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits; keeps CI's Linux pool free
     # A request can follow a long compile admission; the dispatch then waits up
     # to 50 minutes for the compile it adopts, then runs the tests.
@@ -85,8 +82,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           READ_TOKEN: ${{ steps.read-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
-          SOURCE_RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
-          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt }}
         run: python3 scripts/ci/ui_tests_dispatch.py await-request
 
       - name: Checkout the dispatcher from the default branch
@@ -117,8 +114,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           READ_TOKEN: ${{ steps.read-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
-          SOURCE_RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
-          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt }}
           HEAD_SHA: ${{ steps.request.outputs.head_sha }}
           SELECTORS: ${{ steps.request.outputs.selectors }}
           # A job token cannot list repository variables (HTTP 403), so the

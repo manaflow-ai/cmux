@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CryptoKit
 import Darwin
 import Foundation
@@ -65,13 +66,19 @@ extension RemoteCLIRelayServer {
             case closed
         }
 
+        /// The challenge needs one round trip over SSH, and the CLI gives the
+        /// whole dial and handshake five seconds, so a connection that has
+        /// not authenticated by then only holds a pre-auth slot.
+        private static let preAuthTimeoutMilliseconds = 5_000
         private static let handshakeTimeoutMilliseconds = 10_000
 
         private let connection: NWConnection
         private let localSocketPath: String
+        private let localSocketPeerCheck: UnixSocketPeerCheck
         private let relayID: String
         private let relayToken: Data
         private let commandEvaluator: (Data) -> CommandDisposition
+        private let admitAuthenticated: () -> Bool
         private let queue: DispatchQueue
         private let clock: any RemoteProxyRetryClock
         private let onClose: () -> Void
@@ -93,18 +100,22 @@ extension RemoteCLIRelayServer {
         init(
             connection: NWConnection,
             localSocketPath: String,
+            localSocketPeerCheck: UnixSocketPeerCheck,
             relayID: String,
             relayToken: Data,
             commandEvaluator: @escaping (Data) -> CommandDisposition,
+            admitAuthenticated: @escaping () -> Bool,
             queue: DispatchQueue,
             clock: any RemoteProxyRetryClock,
             onClose: @escaping () -> Void
         ) {
             self.connection = connection
             self.localSocketPath = localSocketPath
+            self.localSocketPeerCheck = localSocketPeerCheck
             self.relayID = relayID
             self.relayToken = relayToken
             self.commandEvaluator = commandEvaluator
+            self.admitAuthenticated = admitAuthenticated
             self.queue = queue
             self.clock = clock
             self.onClose = onClose
@@ -216,16 +227,44 @@ extension RemoteCLIRelayServer {
                 return
             }
 
-            let message = Self.authMessage(relayID: relayID, nonce: challengeNonce, version: challengeVersion)
-            let expectedMAC = Self.authMAC(token: relayToken, message: message)
-            guard Self.constantTimeEqual(receivedMAC, expectedMAC) else {
+            let authentication = RemoteRelayAuthentication(token: relayToken)
+            let expectedMAC = authentication.clientMAC(
+                relayID: relayID,
+                nonce: challengeNonce,
+                version: challengeVersion
+            )
+            guard receivedMAC.constantTimeEquals(expectedMAC) else {
                 sendFailureAndClose()
                 return
             }
 
+            // A client that sends its own nonce requires the relay to prove it
+            // holds the token too, so a listener another remote user bound on
+            // the forwarded port cannot pose as the relay. Older clients send
+            // no nonce and get the plain success line.
+            var success: [String: Any] = ["ok": true]
+            if let clientNonceValue = object["client_nonce"] {
+                guard let clientNonce = clientNonceValue as? String,
+                      Self.isValidClientNonce(clientNonce) else {
+                    sendFailureAndClose()
+                    return
+                }
+                let proof = authentication.relayProofMAC(
+                    relayID: relayID,
+                    clientNonce: clientNonce,
+                    serverNonce: challengeNonce,
+                    version: challengeVersion
+                )
+                success["relay_mac"] = proof.relayHexString
+            }
+
+            guard admitAuthenticated() else {
+                sendFailureAndClose()
+                return
+            }
             phase = .awaitingCommand
             armPhaseTimeout(for: .awaitingCommand)
-            sendJSONLine(["ok": true]) { [weak self] _ in
+            sendJSONLine(success) { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {
                     self.processBufferedLines()
@@ -259,11 +298,12 @@ extension RemoteCLIRelayServer {
             }
             forwardingSocketDescriptor = socketDescriptor
             DispatchQueue.global(qos: .utility).async {
-                [self, localSocketPath, forwardedCommandLine, queue] in
+                [self, localSocketPath, localSocketPeerCheck, forwardedCommandLine, queue] in
                 let result = Result {
                     try Self.roundTripUnixSocket(
                         socketDescriptor: socketDescriptor,
                         socketPath: localSocketPath,
+                        peerCheck: localSocketPeerCheck,
                         request: forwardedCommandLine,
                         maximumResponseBytes: maximumResponseBytes,
                         shouldContinue: {
@@ -348,9 +388,12 @@ extension RemoteCLIRelayServer {
 
         private func armPhaseTimeout(for expectedPhase: Phase) {
             phaseTimeoutTask?.cancel()
+            let timeoutMilliseconds = expectedPhase == .awaitingAuth
+                ? Self.preAuthTimeoutMilliseconds
+                : Self.handshakeTimeoutMilliseconds
             phaseTimeoutTask = Task { [weak self, clock] in
                 guard (try? await clock.sleep(
-                    forMilliseconds: Self.handshakeTimeoutMilliseconds
+                    forMilliseconds: timeoutMilliseconds
                 )) != nil else {
                     return
                 }
@@ -394,8 +437,14 @@ extension RemoteCLIRelayServer {
             onClose()
         }
 
-        private static func authMessage(relayID: String, nonce: String, version: Int) -> Data {
-            Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
+        /// Accepts 16 to 64 bytes of lowercase hex.
+        private static func isValidClientNonce(_ nonce: String) -> Bool {
+            guard (32...128).contains(nonce.utf8.count),
+                  nonce.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
+            else {
+                return false
+            }
+            return hexData(from: nonce) != nil
         }
 
         static func authMAC(token: Data, message: Data) -> Data {
@@ -404,27 +453,8 @@ extension RemoteCLIRelayServer {
             return Data(code)
         }
 
-        private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
-            guard lhs.count == rhs.count else { return false }
-            var diff: UInt8 = 0
-            for index in lhs.indices {
-                diff |= lhs[index] ^ rhs[index]
-            }
-            return diff == 0
-        }
-
         static func hexData(from string: String) -> Data? {
-            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard normalized.count.isMultiple(of: 2), !normalized.isEmpty else { return nil }
-            var data = Data(capacity: normalized.count / 2)
-            var cursor = normalized.startIndex
-            while cursor < normalized.endIndex {
-                let next = normalized.index(cursor, offsetBy: 2)
-                guard let byte = UInt8(normalized[cursor..<next], radix: 16) else { return nil }
-                data.append(byte)
-                cursor = next
-            }
-            return data
+            Data(relayHex: string)
         }
 
         private static func randomHex(byteCount: Int) -> String? {
