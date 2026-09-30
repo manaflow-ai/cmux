@@ -114,6 +114,12 @@ pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// sub-views on `resize-attached-view`, client identity on `set-client-info`,
 /// and `reason`/`by` on `detached`.
 pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
+/// A client that lists this in `set-client-info` survives losing its own
+/// view of a terminal: `detach-client` naming that view's participant
+/// detaches the view only (event `detached` with `scope:"view"`) and keeps
+/// the connection and its relay sub-views; `reattach-view` restores it. The
+/// daemon advertises it in `identify`.
+pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -243,6 +249,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
+        SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
@@ -795,6 +802,24 @@ fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&
     event
 }
 
+/// The connection's own view that a `detach-client` target names, when that
+/// connection opted into [`SIZING_VIEW_DETACH_CAPABILITY`]: the view leaves
+/// and the connection stays. `None` keeps the whole-client kick.
+fn own_view_detach_target(
+    mux: &Mux,
+    target: &DetachClientTarget,
+    surface: Option<SurfaceId>,
+) -> Option<(u64, SurfaceId)> {
+    let DetachClientTarget::Participant(participant) = target else { return None };
+    let (client, placement, view) = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant)?,
+        None => mux.terminal_participant_member(participant)?,
+    };
+    (view.is_none()
+        && mux.control_clients.supports_capability(client, SIZING_VIEW_DETACH_CAPABILITY))
+    .then_some((client, placement))
+}
+
 fn size_state_event_json(
     surface: SurfaceId,
     runtime: SurfaceId,
@@ -931,6 +956,17 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
+        /// Resolves a participant id on this terminal only (participant ids
+        /// are per terminal).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Restore the caller's own view of a terminal after a view detach.
+    /// `counts:false` reattaches as a viewer.
+    ReattachView {
+        surface: SurfaceId,
+        #[serde(default)]
+        counts: Option<bool>,
     },
     /// Set the shared sizing policy of one terminal (override) or the default
     /// of one workspace. `policy:null` clears it.
@@ -1661,6 +1697,7 @@ impl Command {
             | Self::DetachAttachedView { surface, .. }
             | Self::SetSizeCounts { surface, .. }
             | Self::GetSizeState { surface }
+            | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
@@ -4390,6 +4427,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
+                    || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -6118,17 +6156,39 @@ fn complete_daemon_shutdown_after_ack(
     requester_notice_sent
 }
 
+/// Detaches `owner`'s own view of `placement` and tells it with
+/// `detached {scope:"view"}`; its connection and relay sub-views stay.
+fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDetachActor) {
+    mux.detach_terminal_own_view(placement, owner);
+    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+    let mut event = detached_event_json(placement, &notice, None);
+    event["scope"] = json!("view");
+    mux.control_clients.send_surface_event(owner, placement, None, &event);
+}
+
 /// Disconnects one shared-sizing participant on behalf of `requester` (the
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
-/// sub-view leaves alone and its relay forwards the notice; any other
-/// participant's whole client is kicked with `disconnected-by`.
+/// sub-view leaves alone and its relay forwards the notice; the own view of
+/// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
+/// client stays; any other participant's whole client is kicked with
+/// `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
     participant: &str,
+    surface: Option<SurfaceId>,
 ) -> anyhow::Result<()> {
     let by = detach_actor(mux, requester, None);
-    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+    let target = DetachClientTarget::Participant(participant.to_string());
+    if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+        detach_own_view(mux, owner, placement, by);
+        return Ok(());
+    }
+    let member = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant),
+        None => mux.terminal_participant_member(participant),
+    };
+    let Some((client, placement, view)) = member else {
         anyhow::bail!("unknown participant {participant}");
     };
     if let Some(view) = view {
@@ -9704,7 +9764,10 @@ fn handle_request_with_cancellation(
     }
 
     let detach_self = match &cmd {
-        Command::DetachClient { client: target, by } if target.whole_client() == Some(client) => {
+        Command::DetachClient { client: target, by, surface }
+            if target.whole_client() == Some(client)
+                && own_view_detach_target(mux, target, *surface).is_none() =>
+        {
             Some(detach_actor(mux, client, by.clone()))
         }
         _ => None,
@@ -12075,11 +12138,19 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::DetachClient { client: target, by } => {
+        Command::DetachClient { client: target, by, surface } => {
             let by = detach_actor(mux, client, by);
+            if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+                // The view leaves; the connection, its stream and its relay
+                // sub-views stay (docs/shared-terminal-sizing.md).
+                detach_own_view(mux, owner, placement, by);
+                return Ok(json!({"scope": "view"}));
+            }
             if let DetachClientTarget::Participant(participant) = &target
-                && let Some((relay, placement, Some(view))) =
-                    mux.terminal_participant_member(participant)
+                && let Some((relay, placement, Some(view))) = match surface {
+                    Some(surface) => mux.terminal_participant_member_on(surface, participant),
+                    None => mux.terminal_participant_member(participant),
+                }
             {
                 // A relay sub-view leaves alone; its relay stays attached and
                 // forwards the notice to that leaf only.
@@ -12179,6 +12250,14 @@ fn handle_command_with_cancellation(
                 .note_terminal_activity(surface, client, view.as_deref())
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"participant": participant, "changed": changed}))
+        }
+        Command::ReattachView { surface, counts } => {
+            get_surface(mux, surface)?;
+            let participant = mux.reattach_terminal_own_view(surface, client, counts)?;
+            let state = mux
+                .terminal_size_state(surface)
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+            Ok(json!({"participant": participant, "state": state}))
         }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
@@ -20146,7 +20225,11 @@ mod tests {
         handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap();
@@ -20158,7 +20241,11 @@ mod tests {
         let error = handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap_err();
@@ -20497,7 +20584,10 @@ mod tests {
         let state = mux.terminal_size_state(surface.id).unwrap();
         let row = state.participant(&mac).unwrap();
         assert_eq!(row.participant.counts_override, Some(false));
-        assert_eq!(row.participant.viewport, Some(crate::sizing_policy::TerminalGridSize::new(160, 50)));
+        assert_eq!(
+            row.participant.viewport,
+            Some(crate::sizing_policy::TerminalGridSize::new(160, 50))
+        );
         assert_eq!(surface.size(), (54, 26));
         let again = handle_command(
             &mux,
@@ -20604,7 +20694,11 @@ mod tests {
         let error = handle_command(
             &mux,
             client,
-            Command::DetachClient { client: DetachClientTarget::Client(0), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(0),
+                by: None,
+                surface: None,
+            },
             &writer,
         )
         .unwrap_err();
