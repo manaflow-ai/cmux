@@ -478,9 +478,9 @@ class FocusedLauncherTests(unittest.TestCase):
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
             (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
-            (queue(large_running=5), LARGE),               # account-wide load still favors 12vcpu
-            (queue(large=1, large_running=0), LARGE),      # shared account queue is still below its limit
-            (queue(large=5, small=4, large_running=5), LARGE),  # shared load favors 12vcpu's shorter jobs
+            (queue(large_running=5), SMALL),               # 12vcpu is full: roll over
+            (queue(large=1, large_running=0), SMALL),      # a queued job fills that label
+            (queue(large=5, small=4, large_running=5), SMALL),  # both labels are full; 6vcpu has the shorter queue
             (queue(large=1, small=9, large_running=5), LARGE),
         ]
         for state, expected in cases:
@@ -503,20 +503,20 @@ class FocusedLauncherTests(unittest.TestCase):
         # Both macOS 26 pools backed up and macOS 15 idle: a pull request
         # would spill there; E2E takes the macOS 26 pool with fewer queued.
         state = queue(large=30, small=20, old=0, old_running=0)
-        self.assertEqual(self.routed(state)[0], LARGE)
+        self.assertEqual(self.routed(state)[0], SMALL)
 
     def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
         # 2 running leaves 3 of 12vcpu's 5 machines free; a fourth run rolls over.
         base = dict(large_running=2)
         self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], LARGE)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
         # E2E runs on another pool do not count against 12vcpu.
         self.setUp()
         self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
         # Pull request runs replay through their own rule, 12vcpu first.
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], LARGE)
+        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], SMALL)
         self.setUp()
         self.assertEqual(self.routed(queue(**base, pr_since=2))[0], LARGE)
 
@@ -1374,9 +1374,9 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         cases = [
             (queue(), LARGE),
             (queue(large_running=4), LARGE),            # one of 12vcpu's 5 machines free
-            (queue(large_running=5), LARGE),            # account-wide load still favors the faster pool
+            (queue(large_running=5), SMALL),            # full: roll over
             (queue(large=4, small=9, large_running=5), LARGE),  # both full; a tie in rounds takes the earlier pool
-            (queue(large=6, small=4, large_running=5), LARGE),
+            (queue(large=6, small=4, large_running=5), SMALL),
             (queue(large=1, large_reserved=1), SMALL),
             (None, SMALL),                               # no snapshot
         ]
@@ -1402,7 +1402,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
     def test_settings_are_the_pull_request_variables_and_invalid_values_fail_safe(self):
         self.assertEqual(self.decide(queue(small_running=0), order=f"{SMALL},{LARGE}")[0], SMALL)
         self.assertEqual(self.decide(queue(large=4), max_queued="5")[0], LARGE)
-        self.assertEqual(self.decide(queue(large=1), max_queued="1")[0], LARGE)
+        self.assertEqual(self.decide(queue(large=1), max_queued="1")[0], SMALL)
         for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "-1"), ("", "x"), (OLD, "")):
             with self.subTest(order=order, max_queued=max_queued):
                 label, calls, _ = self.decide(queue(), order=order, max_queued=max_queued)
@@ -1451,7 +1451,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         for commit in self.COMMITS:
             with self.subTest(commit=commit):
                 self.assertEqual(self.decide(queue())[0], LARGE)
-                self.assertEqual(self.decide(queue(large=3))[0], LARGE)
+                self.assertEqual(self.decide(queue(large=3))[0], SMALL)
 
     def test_measurement_costs_at_most_four_api_calls(self):
         self.assertEqual(self.pool.MAX_API_CALLS, 4)
@@ -1470,17 +1470,17 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # Replayed pull request runs are charged to the shared account load;
-        # one more replay crosses the faster pool's headroom comparison.
+        # Replayed pull request runs are charged to the label they take;
+        # enough replays fill 12vcpu and roll over to 6vcpu.
         crowded = queue(large_running=3, pr_since=2)
-        self.assertEqual(self.decide(crowded)[0], LARGE)
+        self.assertEqual(self.decide(crowded)[0], SMALL)
         self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
         snap = snapshot_of(queue(large_running=2))
         load = self.pool.PoolLoad(snap, {}, 5)
-        self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, LARGE)
+        self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, SMALL)
         for settings in ({"lane": SMALL, "overflow": "0"}, {"lane": OLD, "overflow": ""}):
             with self.subTest(settings=settings):
                 load = self.pool.PoolLoad({**snap, "settings": settings}, {}, 5)
