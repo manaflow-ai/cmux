@@ -12379,6 +12379,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         app.launchEnvironment = [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
         ]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -12413,6 +12414,20 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         ].waitForExistence(timeout: 5))
         capture("onboarding-4-enable-completed", in: app)
         record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
+
+        primary.tap()
+        let connect = app.descendants(matching: .any)["MobileOnboardingConnectScene"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 5))
+        let finalPageAligned = NSPredicate { _, _ in
+            abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: finalPageAligned, object: nil
+        )], timeout: 3), .completed)
+        frames.append("Connect: \(primary.frame)")
+        capture("onboarding-5-connect", in: app)
+        record("onboarding-final-page-result", "The final connection page keeps the primary action aligned with the preceding onboarding pages.")
     }
 
     @MainActor
