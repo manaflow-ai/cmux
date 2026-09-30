@@ -11310,7 +11310,7 @@ class TerminalController {
                 )
             }
 
-            let result = BrowserStateLoadTransaction.run(
+            let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
                 installCookies: {
                     guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
