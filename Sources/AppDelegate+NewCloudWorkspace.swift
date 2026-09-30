@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxCloudMachines
 import Foundation
 
