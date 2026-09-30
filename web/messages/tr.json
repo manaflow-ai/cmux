@@ -356,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "genel bakış",
       "team": "ekip",
-      "mobileDevices": "Mobil cihazlar"
+      "mobileDevices": "Mobil cihazlar",
+      "settings": "ayarlar",
+      "teams": "ekipler"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -381,6 +383,20 @@
         "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
         "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
         "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      },
+      "metrics": {
+        "title": "30 günlük kullanım",
+        "scope": "{team} için ekip toplamı",
+        "period": "Son {days} gün",
+        "inputTokens": "Girdi token’ları",
+        "outputTokens": "Çıktı token’ları",
+        "tokens": "Toplam token",
+        "apiEquivalent": "API eşdeğer değeri",
+        "unpriced": "Bu token’ların {share} kadarı liste fiyatı olmayan modellerden geldi ve bu değere dahil edilmedi.",
+        "chartLabel": "Günlük CodeRouter token kullanımı",
+        "privacy": "Hiçbir istem, çıktı, hesap etiketi veya üye kimliği kaydedilmez ya da gösterilmez.",
+        "estimate": "API eşdeğer değeri, bu token’ların herkese açık API liste fiyatlarıyla (fiyat tablosu {version}) tutacağı tutardır. Ödediğiniz tutar değildir.",
+        "unavailable": "Ekip kullanımı geçici olarak kullanılamıyor."
       }
     },
     "accountMenu": {
@@ -397,8 +413,40 @@
       "plan": {
         "heading": "Kişisel planınız",
         "free": "Ücretsiz",
-        "pro": "Pro",
-        "loading": "Yükleniyor…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
+        "unavailable": "Ekip faturalandırması yüklenemedi. Biraz sonra tekrar deneyin.",
+        "welcome": "Team etkin. Ekip arkadaşlarınızı ekibin üyeler sayfasından davet edin.",
+        "freeBody": "{team} Ücretsiz planda. Team, tek bir ortak faturayla her üyeye bulut ajanları sağlar.",
+        "upgradeCta": "Bu ekibi yükselt",
+        "askAdmin": "Faturalandırmayı yalnızca ekip yöneticileri değiştirebilir. Yükseltmek için {team} ekibinin bir yöneticisine başvurun.",
+        "memberReadOnly": "Bu planı yalnızca ekip yöneticileri değiştirebilir.",
+        "grantedBody": "{team} ekibine Team erişimi cmux ekibi tarafından verildi. Yönetilecek bir abonelik yok.",
+        "seatsUsed": "{seats} koltuğun {members} tanesi kullanılıyor",
+        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Katılım yine de çalışır; herkesi kapsamak için koltuk ekleyin.",
+        "addSeats": "Koltuk ekle"
+      },
+      "teamList": {
+        "heading": "Faturalandırma kapsamları",
+        "personal": "Kişisel hesap",
+        "planBadges": {
+          "free": "Ücretsiz",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Bu ekibin faturalandırmasını yalnızca ekip yöneticileri yönetebilir.",
+        "team_not_found": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
+        "authorization_unavailable": "Ekip izinleri kontrol edilemedi. Biraz sonra tekrar deneyin.",
+        "personal_team_not_upgradable_to_team": "Kişisel hesabınız Pro veya Max kullanıyor. Team satın almak için bir ekip oluşturun."
+      },
+      "team": {
+        "createCta": "Ekip oluştur"
       }
     },
     "mobileDevices": {
@@ -409,7 +457,6 @@
       "loading": "Cihazlar yükleniyor…",
       "empty": "Bu ekip için kayıtlı cihaz yok.",
       "unavailable": "Cihazlarınız yüklenemedi. Sayfayı yenileyip tekrar deneyin.",
-      "retry": "Tekrar dene",
       "mutationError": "Cihaz değişikliği tamamlanamadı.",
       "revoke": "Erişimi iptal et",
       "deviceId": "Cihaz",
@@ -429,6 +476,513 @@
       "activeDevices": "Etkin cihazlar",
       "directoryRevision": "Dizin revizyonu",
       "savingRelaySettings": "Kaydediliyor…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Ayarlar",
+        "profile": "Profil",
+        "auth": "E-postalar ve kimlik doğrulama",
+        "notifications": "Bildirimler",
+        "sessions": "Oturumlar",
+        "apiKeys": "API anahtarları",
+        "account": "Hesap",
+        "billing": "Faturalandırma",
+        "teamsGroup": "Ekipler",
+        "createTeam": "Ekip oluştur"
+      },
+      "ui": {
+        "save": "Kaydet",
+        "saving": "Kaydediliyor…",
+        "cancel": "İptal",
+        "editLabel": "Düzenle: {label}",
+        "required": "Bu alan zorunludur.",
+        "saveError": "Kaydedilemedi. Tekrar deneyin.",
+        "actionError": "Bir sorun oluştu. Tekrar deneyin.",
+        "working": "İşleniyor…",
+        "typeToConfirm": "Onaylamak için {text} yazın",
+        "imageSaveError": "Görsel kaydedilemedi. Tekrar deneyin.",
+        "invalidImage": "Geçerli bir görsel dosyası seçin.",
+        "uploadImage": "Görsel yükle",
+        "removeImage": "Görseli kaldır",
+        "zoom": "Yakınlaştır"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Adınız ve avatarınız.",
+        "displayNameTitle": "Görünen ad",
+        "displayNameDescription": "Ekip arkadaşlarınıza gösterilir. Giriş için kullanılmaz.",
+        "displayNameEmpty": "Ayarlanmadı",
+        "imageTitle": "Profil görseli",
+        "imageDescription": "Avatarınız olarak kullanmak için bir görsel yükleyin.",
+        "imageUpload": "Profil görselini değiştir"
+      },
+      "auth": {
+        "title": "E-postalar ve kimlik doğrulama",
+        "description": "E-postalar, giriş yöntemleri ve çok faktörlü kimlik doğrulama.",
+        "emails": {
+          "title": "E-postalar",
+          "description": "Doğrulanmış e-postalar birincil iletişim adresiniz olabilir ve giriş için kullanılabilir.",
+          "add": "E-posta ekle",
+          "addSubmit": "Ekle",
+          "adding": "Ekleniyor…",
+          "cancel": "İptal",
+          "inputLabel": "Yeni e-posta adresi",
+          "placeholder": "E-posta girin",
+          "addError": "E-posta eklenemedi. Tekrar deneyin.",
+          "added": "{email} eklendi. Doğrulama bağlantısı için bu gelen kutusunu kontrol edin.",
+          "addedVerificationFailed": "{email} eklendi ancak doğrulama e-postası gönderilemedi. Tekrar denemek için Doğrulama e-postası gönder seçeneğini kullanın.",
+          "verificationSent": "Doğrulama e-postası gönderildi: {email}",
+          "actionError": "E-posta güncellenemedi. Tekrar deneyin.",
+          "usedBySomeoneElse": "Bu e-posta zaten başka bir kullanıcı tarafından giriş için kullanılıyor.",
+          "removeTitle": "E-postayı kaldır",
+          "removeBody": "{email} hesabınızdan kaldırılsın mı? Daha sonra tekrar ekleyebilirsiniz.",
+          "remove": "Kaldır",
+          "actionsLabel": "İşlemler: {email}",
+          "validation": {
+            "required": "E-posta zorunludur.",
+            "invalid": "Geçerli bir e-posta adresi girin.",
+            "duplicate": "Bu e-posta zaten hesabınızda."
+          },
+          "actions": {
+            "sendVerification": "Doğrulama e-postası gönder",
+            "setPrimary": "Birincil yap",
+            "useForSignIn": "Giriş için kullan",
+            "stopUsingForSignIn": "Giriş için kullanmayı bırak",
+            "remove": "Kaldır"
+          },
+          "disabled": {
+            "verifyFirst": "Önce bu e-postayı doğrulayın.",
+            "lastSignInEmail": "Son giriş e-postanızı kaldıramazsınız."
+          },
+          "badges": {
+            "primary": "Birincil",
+            "unverified": "Doğrulanmadı",
+            "usedForSignIn": "Giriş için kullanılıyor"
+          }
+        },
+        "password": {
+          "title": "Parola",
+          "updateDescription": "Parolanızı güncelleyin.",
+          "setDescription": "Hesabınız için bir parola belirleyin.",
+          "update": "Parolayı güncelle",
+          "set": "Parola belirle",
+          "updateSubmit": "Parolayı güncelle",
+          "setSubmit": "Parola belirle",
+          "saving": "Kaydediliyor…",
+          "cancel": "İptal",
+          "saved": "Parola kaydedildi.",
+          "needsSignInEmail": "Parola belirlemek için önce bir giriş e-postası ekleyin.",
+          "saveError": "Parola kaydedilemedi. Tekrar deneyin.",
+          "oldPassword": "Eski parola",
+          "newPassword": "Yeni parola",
+          "repeatPassword": "Yeni parolayı tekrarlayın",
+          "incorrect": "Parola yanlış.",
+          "requirements": "Bu parola gereksinimleri karşılamıyor.",
+          "errors": {
+            "oldPassword": {
+              "required": "Eski parolanızı girin."
+            },
+            "newPassword": {
+              "required": "Yeni bir parola girin.",
+              "tooShort": "En az {min} karakter kullanın.",
+              "tooLong": "En fazla {max} karakter kullanın."
+            },
+            "newPasswordRepeat": {
+              "required": "Yeni parolayı tekrarlayın.",
+              "mismatch": "Parolalar eşleşmiyor."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Geçiş anahtarı",
+          "registered": "Bir geçiş anahtarı kayıtlı.",
+          "notRegistered": "Parola olmadan giriş yapmak için bir geçiş anahtarı kaydedin.",
+          "add": "Geçiş anahtarı ekle",
+          "registering": "Geçiş anahtarı bekleniyor…",
+          "registerError": "Geçiş anahtarı kaydedilemedi. İstek iptal edildi veya başarısız oldu. Tekrar deneyin.",
+          "delete": "Geçiş anahtarını kaldır",
+          "needsVerifiedEmail": "Geçiş anahtarıyla girişi etkinleştirmek için doğrulanmış bir giriş e-postası ekleyin.",
+          "onlyMethod": "Geçiş anahtarıyla giriş tek giriş yönteminiz olduğu için devre dışı bırakılamaz.",
+          "disableTitle": "Geçiş anahtarıyla girişi devre dışı bırak",
+          "disableBody": "Artık geçiş anahtarınızla giriş yapamayacaksınız.",
+          "disable": "Devre dışı bırak",
+          "disableError": "Geçiş anahtarıyla giriş devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "otp": {
+          "title": "Tek kullanımlık kodla giriş",
+          "enabledDescription": "Sihirli bağlantı veya tek kullanımlık kodla giriş etkin.",
+          "disabledDescription": "Giriş e-postalarınıza gönderilen sihirli bağlantı veya tek kullanımlık kodla giriş yapın.",
+          "enable": "Etkinleştir",
+          "enableError": "Tek kullanımlık kodla giriş etkinleştirilemedi. Tekrar deneyin.",
+          "disable": "Devre dışı bırak",
+          "needsVerifiedEmail": "Tek kullanımlık kodla girişi etkinleştirmek için doğrulanmış bir giriş e-postası ekleyin.",
+          "onlyMethod": "Tek kullanımlık kodla giriş tek giriş yönteminiz olduğu için devre dışı bırakılamaz.",
+          "disableTitle": "Tek kullanımlık kodla girişi devre dışı bırak",
+          "disableBody": "Artık yalnızca e-postayla giriş yapamayacaksınız.",
+          "disableConfirm": "Devre dışı bırak",
+          "disableError": "Tek kullanımlık kodla giriş devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "mfa": {
+          "title": "Çok faktörlü kimlik doğrulama",
+          "enabledDescription": "Çok faktörlü kimlik doğrulama etkin.",
+          "disabledDescription": "Çok faktörlü kimlik doğrulama devre dışı.",
+          "enable": "MFA'yı etkinleştir",
+          "disable": "MFA'yı devre dışı bırak",
+          "startError": "MFA kurulumu başlatılamadı. Tekrar deneyin.",
+          "enableError": "MFA etkinleştirilemedi. Tekrar deneyin.",
+          "scan": "Bu QR kodunu kimlik doğrulayıcı uygulamanızla tarayın.",
+          "qrAlt": "Çok faktörlü kimlik doğrulama için QR kodu",
+          "enterCode": "Ardından altı haneli kodu girin:",
+          "incorrect": "Kod yanlış. Tekrar deneyin.",
+          "cancel": "İptal",
+          "disableTitle": "Çok faktörlü kimlik doğrulamayı devre dışı bırak",
+          "disableBody": "Giriş sırasında artık kimlik doğrulayıcı uygulamanızdan kod istenmeyecek.",
+          "disableConfirm": "MFA'yı devre dışı bırak",
+          "disableError": "MFA devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "connected": {
+          "title": "Bağlı hesaplar",
+          "description": "cmux hesabınıza bağlı diğer sağlayıcılardaki hesaplar.",
+          "usedForSignIn": "Giriş için kullanılıyor",
+          "useForSignIn": "Giriş için kullan",
+          "stopUsingForSignIn": "Giriş için kullanmayı bırak",
+          "remove": "Bağlantıyı kaldır",
+          "lastMethod": "Bu, tek giriş yönteminiz.",
+          "actionsLabel": "İşlemler: {provider}",
+          "actionError": "Bağlı hesap güncellenemedi. Tekrar deneyin.",
+          "usedBySomeoneElse": "Bu hesap zaten başka bir kullanıcı tarafından giriş için kullanılıyor.",
+          "removeTitle": "{provider} bağlantısını kaldır",
+          "removeBody": "Artık bu hesapla giriş yapamayacaksınız. Bu hesapla giriş yaparak onu yeniden bağlayabilirsiniz."
+        }
+      },
+      "notifications": {
+        "title": "Bildirimler",
+        "description": "cmux'tan gelen e-posta bildirimleri.",
+        "heading": "Hangi e-postaları almak istediğinizi seçin",
+        "empty": "Yapılandırılacak e-posta kategorisi yok.",
+        "cannotDisable": "(devre dışı bırakılamaz)",
+        "saveError": "Bu tercih kaydedilemedi. Tekrar deneyin."
+      },
+      "sessions": {
+        "title": "Oturumlar",
+        "description": "Giriş yaptığınız cihazlar.",
+        "heading": "Etkin oturumlar",
+        "explanation": "Bunlar giriş yaptığınız cihazlardır. Bir oturumdan çıkış yapmak için oturumu iptal edin.",
+        "revokeAll": "Diğer tüm oturumları iptal et",
+        "revokeAllTitle": "Diğer oturumları iptal et",
+        "revokeAllBody": "Bu işlem {count, plural, one {# diğer oturumu} other {# diğer oturumu}} kapatır. Bu oturum açık kalır.",
+        "revokeAllConfirm": "Oturumları iptal et",
+        "revokeAllError": "Oturumların tümü iptal edilemedi. Listede kalanlar gösteriliyor.",
+        "revokeError": "Oturum iptal edilemedi. Tekrar deneyin.",
+        "empty": "Etkin oturum bulunamadı.",
+        "columns": {
+          "session": "Oturum",
+          "ip": "IP adresi",
+          "location": "Konum",
+          "lastUsed": "Son kullanım"
+        },
+        "current": "Geçerli oturum",
+        "other": "Diğer oturum",
+        "impersonation": "Kimliğine bürünme",
+        "signedIn": "Giriş: {date}",
+        "actionsLabel": "Oturum işlemleri",
+        "revoke": "İptal et",
+        "cannotRevokeCurrent": "Geçerli oturumunuzu iptal edemezsiniz.",
+        "unknownIp": "-",
+        "unknownLocation": "Bilinmiyor",
+        "never": "Hiçbir zaman"
+      },
+      "apiKeys": {
+        "title": "API anahtarları",
+        "description": "Programlara hesabınıza erişim veren anahtarlar.",
+        "disabled": "Bu proje için kişisel API anahtarları etkin değil.",
+        "create": "API anahtarı oluştur",
+        "createTitle": "API anahtarı oluştur",
+        "createDescription": "API anahtarları hesabınıza programatik erişim sağlar.",
+        "descriptionLabel": "Açıklama",
+        "descriptionPlaceholder": "Örneğin: Geliştirme, Üretim, CI",
+        "descriptionRequired": "Açıklama zorunludur.",
+        "expiresIn": "Geçerlilik süresi",
+        "expiry": {
+          "1d": "1 gün",
+          "7d": "7 gün",
+          "30d": "30 gün",
+          "90d": "90 gün",
+          "1y": "1 yıl",
+          "never": "Süresiz"
+        },
+        "cancel": "İptal",
+        "createSubmit": "Oluştur",
+        "creating": "Oluşturuluyor…",
+        "createError": "API anahtarı oluşturulamadı. Tekrar deneyin.",
+        "showTitle": "API anahtarı",
+        "showBody": "API anahtarınız burada.",
+        "showWarning": "Anahtarı güvenli bir yere kopyalayın. Onu bir daha göremeyeceksiniz.",
+        "secretLabel": "Gizli API anahtarı",
+        "copy": "Kopyala",
+        "copied": "Kopyalandı",
+        "copyError": "Kopyalanamadı. Anahtarı seçip elle kopyalayın.",
+        "acknowledge": "Bu anahtarı bir daha göremeyeceğimi anlıyorum.",
+        "close": "Kapat",
+        "search": "Anahtarlarda ara",
+        "statusFilter": "Duruma göre filtrele",
+        "status": {
+          "valid": "Geçerli",
+          "expired": "Süresi doldu",
+          "revoked": "İptal edildi"
+        },
+        "empty": "Henüz API anahtarı yok.",
+        "noMatches": "Bu filtrelerle eşleşen API anahtarı yok.",
+        "columns": {
+          "description": "Açıklama",
+          "status": "Durum",
+          "key": "Anahtar",
+          "expiresAt": "Bitiş",
+          "createdAt": "Oluşturulma"
+        },
+        "never": "Hiçbir zaman",
+        "actionsLabel": "İşlemler: {description}",
+        "revoke": "İptal et",
+        "revokeTitle": "API anahtarını iptal et",
+        "revokeBody": "*****{lastFour} API anahtarı iptal edilsin mi? Bu anahtarı kullanan uygulamalar erişimini hemen kaybeder.",
+        "revokeAcknowledge": "Bunun, bu API anahtarını kullanan tüm uygulamaların bağlantısını keseceğini anlıyorum.",
+        "revokeConfirm": "Anahtarı iptal et",
+        "revokeError": "API anahtarı iptal edilemedi. Tekrar deneyin."
+      },
+      "account": {
+        "title": "Hesap",
+        "description": "Faturalandırma, çıkış yapma ve hesap silme.",
+        "billingTitle": "Faturalandırma",
+        "billingDescription": "Planlar, faturalar ve ödeme yöntemleri.",
+        "billingLink": "Faturalandırmayı aç",
+        "signOutTitle": "Çıkış yap",
+        "signOutDescription": "Geçerli oturumunuzu sonlandırın.",
+        "signOut": "Çıkış yap",
+        "signingOut": "Çıkış yapılıyor…",
+        "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
+        "deleteTitle": "Hesabı sil",
+        "deleteDescription": "Hesabınızı ve ilişkili tüm verileri kalıcı olarak kaldırın.",
+        "delete": "Hesabı sil",
+        "deleteConfirmTitle": "Hesabınız silinsin mi?",
+        "deleteConfirmBody": "Bu işlem geri alınamaz ve hesabınızla ilişkili tüm verileri siler.",
+        "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
+        "deleteConfirm": "Hesabı sil",
+        "deleteError": "Hesap silinemedi. Tekrar deneyin."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopyala",
+        "copied": "Kopyalandı",
+        "copyFailed": "Kopyalanamadı"
+      },
+      "plan": {
+        "free": "Ücretsiz",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Yönetici",
+        "member": "Üye"
+      },
+      "errors": {
+        "generic": "Bir sorun oluştu. Tekrar deneyin.",
+        "network_error": "cmux'a ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+        "unauthorized": "Oturumunuz sona erdi. Tekrar giriş yapın.",
+        "forbidden": "Bunu yapma izniniz yok.",
+        "team_not_found": "Bu ekip artık mevcut değil.",
+        "invalid_request": "İstek geçerli değil. Alanları kontrol edip tekrar deneyin.",
+        "rate_limited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
+        "last_admin": "Bir ekipte en az bir yönetici bulunmalıdır. Önce başka bir üyeyi yönetici yapın.",
+        "member_not_found": "Bu kişi artık üye değil.",
+        "invitation_not_found": "Bu davet artık mevcut değil.",
+        "invitation_invalid": "Bu davet geçersiz, süresi dolmuş veya zaten kullanılmış.",
+        "email_mismatch": "Bu davet farklı bir e-posta adresine gönderildi.",
+        "link_not_found": "Bu davet bağlantısı artık mevcut değil.",
+        "link_invalid": "Bu davet bağlantısı geçersiz, süresi dolmuş, iptal edilmiş veya dolmuş.",
+        "team_has_active_subscription": "Ekibi silmeden önce ekip aboneliğini iptal edin.",
+        "service_unavailable": "Hizmet geçici olarak kullanılamıyor. Biraz sonra tekrar deneyin."
+      },
+      "list": {
+        "title": "Ekipler",
+        "description": "Ekipler üyeleri, faturalandırmayı ve coderouter hesaplarını paylaşır. Bir ekibi yönetmek için açın.",
+        "create": "Ekip oluştur",
+        "count": "{count, plural, one {# ekip} other {# ekip}}",
+        "selected": "Geçerli",
+        "emptyTitle": "Henüz ekip yok",
+        "emptyBody": "Kişileri davet etmek ve tek bir planı paylaşmak için bir ekip oluşturun."
+      },
+      "new": {
+        "title": "Ekip oluştur",
+        "description": "Ekibe bir ad verin, bir plan seçin, ardından kişileri davet edin.",
+        "stepsLabel": "Adımlar",
+        "steps": {
+          "name": "Ad",
+          "plan": "Plan",
+          "invite": "Davet"
+        },
+        "nameTitle": "Ekibinize bir ad verin",
+        "nameLabel": "Ekip adı",
+        "namePlaceholder": "Acme Mühendislik",
+        "nameError": {
+          "empty": "Bir ekip adı girin.",
+          "tooLong": "En fazla {max} karakter kullanın."
+        },
+        "cancel": "İptal",
+        "createAction": "Ekip oluştur",
+        "creating": "Oluşturuluyor…",
+        "planTitle": "{team} için bir plan seçin",
+        "planDescription": "Planı daha sonra ekibin faturalandırma sayfasından değiştirebilirsiniz.",
+        "freeName": "Ücretsiz",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "Koltuk başına aylık ${price}",
+        "featureMembers": "Üyeler, roller ve davetler",
+        "featureProForEveryone": "Her üye için Pro'daki her şey",
+        "featureCentralBilling": "Tüm ekip için merkezi faturalandırma",
+        "featurePrioritySupport": "Öncelikli destek",
+        "chooseFree": "Ücretsiz ile devam et",
+        "chooseTeam": "Team'e yükselt (${price}/koltuk/ay)",
+        "upgradeLater": "Koltuklar esnektir: Ödediğinizden daha fazla kişiyi davet edebilir ve koltukları daha sonra ekleyebilirsiniz.",
+        "inviteTitle": "{team} ekibine kişileri davet edin",
+        "inviteDescription": "İsteğe bağlı. Kişileri daha sonra ekibin Üyeler sayfasından da davet edebilirsiniz.",
+        "inviteByEmail": "E-postayla davet et",
+        "inviteByLink": "Davet bağlantısı",
+        "backToPlan": "Planlara dön",
+        "finish": "Ekibe git"
+      },
+      "invite": {
+        "emailsLabel": "E-posta adresleri",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Geçerli bir e-posta adresi değil",
+        "removeEmail": "Kaldır: {email}",
+        "roleLabel": "Rol",
+        "roleMember": "Üye",
+        "roleAdmin": "Yönetici",
+        "count": "{count}/{max}",
+        "send": "Davetleri gönder",
+        "sending": "Gönderiliyor…",
+        "invalidCount": "{count, plural, one {Göndermeden önce # geçersiz adresi düzeltin veya kaldırın.} other {Göndermeden önce # geçersiz adresi düzeltin veya kaldırın.}}",
+        "overflow": "{count, plural, one {# adres eklenmedi: İstek başına sınır {max}.} other {# adres eklenmedi: İstek başına sınır {max}.}}",
+        "sent": "{count, plural, one {# davet gönderildi.} other {# davet gönderildi.}}"
+      },
+      "inviteFailure": {
+        "generic": "davet edilemedi",
+        "already_member": "zaten üye",
+        "invite_failed": "davet gönderilemedi"
+      },
+      "links": {
+        "expiryLabel": "Geçerlilik",
+        "expiry": {
+          "1": "1 gün içinde",
+          "7": "7 gün içinde",
+          "30": "30 gün içinde",
+          "never": "Süresiz"
+        },
+        "maxUsesLabel": "Maksimum kullanım",
+        "maxUsesPlaceholder": "Sınırsız",
+        "maxUsesInvalid": "Maksimum kullanım 1 ile {max} arasında bir tam sayı olmalı veya sınırsız için boş bırakılmalıdır.",
+        "create": "Bağlantı oluştur",
+        "creating": "Oluşturuluyor…",
+        "memberOnly": "Bağlantıyla katılan kişiler üye olur. Gerekirse onları daha sonra yönetici yapın.",
+        "showOnce": "Bu bağlantıyı şimdi kopyalayın. Yalnızca bir kez gösterilir.",
+        "empty": "Etkin davet bağlantısı yok.",
+        "createdAt": "Oluşturulma: {at}",
+        "expiresAt": "Bitiş: {at}",
+        "neverExpires": "Süresi dolmaz",
+        "uses": "{count}/{max} kullanım",
+        "usesUnlimited": "{count, plural, one {# kullanım} other {# kullanım}}",
+        "revoke": "İptal et",
+        "revokeTitle": "Bu davet bağlantısı iptal edilsin mi?",
+        "revokeBody": "Bağlantıya sahip olan kişiler artık katılamaz. Daha önce katılanlar üye olarak kalır.",
+        "actionsFor": "Bağlantı için işlemler ({created})"
+      },
+      "shell": {
+        "allTeams": "Tüm ekipler",
+        "tabsLabel": "Ekip ayarları",
+        "tabs": {
+          "general": "Genel",
+          "members": "Üyeler",
+          "apiKeys": "API anahtarları",
+          "billing": "Faturalandırma"
+        },
+        "notFoundTitle": "Ekip bulunamadı",
+        "notFoundBody": "Bu ekip mevcut değil veya bu ekibin üyesi değilsiniz.",
+        "backToTeams": "Ekiplere dön"
+      },
+      "general": {
+        "imageTitle": "Ekip görseli",
+        "imageDescription": "cmux genelinde ekip adının yanında gösterilir.",
+        "imageUpload": "Ekip görseli yükle",
+        "nameTitle": "Ekip adı",
+        "nameDescription": "Tüm üyeler tarafından görülebilir.",
+        "nameReadOnly": "Ekibi yalnızca yöneticiler yeniden adlandırabilir.",
+        "nameError": {
+          "empty": "Bir ekip adı girin.",
+          "tooLong": "En fazla {max} karakter kullanın."
+        },
+        "profileTitle": "Bu ekipteki adınız",
+        "profileDescription": "Bu ekibin diğer üyelerinin sizi nasıl gördüğü. Hesap adınızı kullanmak için boş bırakın.",
+        "profileLabel": "Ekipteki görünen adınız",
+        "leaveTitle": "Ekipten ayrıl",
+        "leaveDescription": "Bu ekibin paylaşılan hesaplarına ve faturalandırmasına erişiminizi kaybedersiniz.",
+        "leaveAction": "Ekipten ayrıl",
+        "leaveBlocked": "Tek yönetici sizsiniz. Ayrılmadan önce başka bir üyeyi yönetici yapın veya ekibi silin.",
+        "leaveConfirmTitle": "{team} ekibinden ayrılınsın mı?",
+        "leaveConfirmBody": "Yeniden katılmak için yeni bir davete ihtiyacınız olur.",
+        "deleteTitle": "Ekibi sil",
+        "deleteDescription": "Ekibi, üyelerinin erişimini ve davet bağlantılarını kalıcı olarak kaldırır.",
+        "deleteAction": "Ekibi sil",
+        "deleteConfirmTitle": "{team} silinsin mi?",
+        "deleteConfirmBody": "Bu işlem geri alınamaz.",
+        "openBilling": "Ekip faturalandırmasını aç"
+      },
+      "members": {
+        "title": "Üyeler",
+        "count": "{count, plural, one {# üye} other {# üye}}",
+        "memberColumn": "Üye",
+        "roleColumn": "Rol",
+        "actionsColumn": "İşlemler",
+        "you": "Siz",
+        "unnamed": "Adsız üye",
+        "remove": "Kaldır",
+        "removeTitle": "{name} kaldırılsın mı?",
+        "removeBody": "Bu kişi ekibe erişimini hemen kaybeder. Daha sonra tekrar davet edebilirsiniz.",
+        "inviteTitle": "Kişileri davet et",
+        "inviteDescription": "E-posta davetleri gönderin. Virgül, boşluk veya yeni satırla ayrılmış bir liste yapıştırın (en fazla 20).",
+        "pendingTitle": "Bekleyen davetler",
+        "pendingDescription": "Henüz kabul edilmemiş davetler.",
+        "pendingEmpty": "Bekleyen davet yok.",
+        "unknownEmail": "Bilinmeyen adres",
+        "expires": "Bitiş: {at}",
+        "resend": "Yeniden gönder",
+        "resent": "Gönderildi",
+        "revoke": "İptal et",
+        "linksTitle": "Davet bağlantıları",
+        "linksDescription": "Herkesin üye olarak katılmak için kullanabileceği yeniden kullanılabilir bir bağlantı.",
+        "seatNudge": "{used} kişi üye veya davetli, ancak planda {seats} koltuk var. Davetler çalışmaya devam eder; herkesi kapsamak için {over, plural, one {# koltuk} other {# koltuk}} ekleyin.",
+        "seatNudgeAction": "Koltukları yönet",
+        "actions": {
+          "makeAdmin": "Yönetici yap",
+          "makeMember": "Üye yap",
+          "remove": "Ekipten çıkar",
+          "leave": "Ekipten ayrıl"
+        },
+        "actionsFor": "{name} için işlemler",
+        "lastAdminReason": "Bir ekipte en az bir yönetici olmalıdır. Önce başka birini yönetici yapın.",
+        "demoteSelfTitle": "Yöneticilikten çıkılsın mı?",
+        "demoteSelfBody": "Bu ekipteki yönetici erişiminizi kaybedersiniz. Başka bir yönetici geri verebilir.",
+        "demoteSelfConfirm": "Beni üye yap"
+      },
+      "apiKeys": {
+        "title": "Ekip API anahtarları",
+        "description": "Bu ekip adına işlem yapan anahtarlar. Anahtara sahip olan herkes ekibin erişimini kullanabilir; bu nedenle anahtarları güvenli şekilde saklayın.",
+        "create": "Ekip API anahtarı oluştur",
+        "disabled": "Bu projede ekip API anahtarları etkin değil.",
+        "forbidden": "Bu ekibin anahtarlarını görmek için ekipte API anahtarlarını yönetme izni gerekir."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Aktar",
@@ -455,10 +1009,6 @@
       "apiKeysTitle": "API anahtarları",
       "apiKeysDescription": "Komut dosyaları ve aracıların kullanması için uzun ömürlü anahtarlar oluşturun. Gizli değer yalnızca bir kez gösterilir.",
       "apiKeysCount": "{count, plural, one {# anahtar} other {# anahtar}}",
-      "apiKeysLoading": "API anahtarları yükleniyor…",
-      "apiKeysLoadError": "API anahtarları yüklenemedi. Biraz sonra tekrar deneyin.",
-      "apiKeysRetry": "Tekrar dene",
-      "apiKeysEmptyBody": "Henüz API anahtarı yok. CodeRouter istemcisini doğrulamak için bir anahtar oluşturun.",
       "apiKeyPrefixColumn": "Anahtar",
       "apiKeyStatusColumn": "Durum",
       "apiKeySecretTitle": "Bu anahtarı şimdi kopyalayın",
@@ -478,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
       "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
-      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
+      "apiKeysEmptyTitle": "Henüz API anahtarı yok",
+      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun."
+    },
+    "notFound": {
+      "title": "Sayfa bulunamadı",
+      "body": "Bu panel sayfası mevcut değil veya taşındı.",
+      "home": "Panele git"
+    },
+    "states": {
+      "errorTitle": "{section} yüklenemedi",
+      "errorTitleGeneric": "Bu bölüm yüklenemedi",
+      "reason": {
+        "network": "Bağlantınızı kontrol edip tekrar deneyin.",
+        "unavailable": "cmux geçici olarak kullanılamıyor. Birazdan tekrar deneyin.",
+        "forbidden": "Buna erişiminiz yok.",
+        "notFound": "Bu artık mevcut değil veya erişiminiz yok.",
+        "rateLimited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
+        "generic": "Bir sorun oluştu. Tekrar deneyin."
+      },
+      "retry": "Tekrar dene",
+      "retrying": "Tekrar deneniyor…"
     }
   },
   "community": {
@@ -1374,8 +1945,8 @@
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalin her fare tekerleği veya trackpad kaydırma olayında ne kadar ilerleyeceğini ölçekler. 1'in üzerindeki değerler kaydırmayı hızlandırır, 1'in altındaki değerler yavaşlatır.",
-          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
-          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
+          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak gösterir.",
+          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
           "soundWhenFocused": "Bildirimi gönderen bölme zaten odaktayken bile bildirim sesini çal. Varsayılan olarak kapalıdır; odaktaki bölme yalnızca halkasını ve parlamasını gösterir.",
@@ -1416,7 +1987,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
+          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         },
         "fileEditor": {
@@ -1470,6 +2041,8 @@
       "customActionsDesc": "<actions>actions</actions> girdisi, cmux’un çalıştırdığı yeniden kullanılabilir davranıştır. Aynı davranışın Command Palette, yüzey sekme çubuğu, kısayollar veya artı düğmesi menüsünden kullanılmasını istediğinizde eylemleri kullanın. Yeniden kullanılabilir shell komutları ve çalışma alanı düzenleri için <commands>commands</commands> kullanmaya devam edin. Bir eylem Command Palette içinde görünmemeliyse <palette>palette</palette> değerini false yapın.",
       "actionTypes": "Eylem türleri",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight veya cmux.splitDown gibi yerleşik bir cmux eylemi için alias oluşturur.",
+      "actionTypeBuiltinCopy": "Yerleşik kopyalama eylemleri: cmux.copyWorkingDirectory terminalin çalışma dizinini, cmux.copyProjectRoot git deposunun kökünü (depo dışında çalışma dizinini) ve cmux.copyScreen görünür ekranı kopyalar.",
+      "actionTypeBuiltinCopyRemote": "SSH, bulut veya uzak tmux çalışma alanında cmux, diğer ana makinedeki git deposunu bulamadığı için cmux.copyProjectRoot uzak çalışma dizinini kopyalar.",
       "actionTypeCommand": "Terminalde shell metni çalıştırır. Geçerli terminali veya geçerli bölmedeki yeni sekmeyi seçmek için target kullanın.",
       "actionTypeAgent": "Desteklenen bir kodlama ajanı başlatır. Bugün codex ve claude desteklenir, isteğe bağlı argümanlarla.",
       "actionTypeWorkspaceCommand": "commands içinden adlandırılmış bir çalışma alanı tanımını çalıştırır. Çok bölmeli düzenler, özel çalışma dizinleri ve başlangıç komutları için kullanın.",
@@ -1868,7 +2441,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS Uygulaması",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Genel Bakış",
@@ -2031,11 +2604,10 @@
       "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux beta TextBox girişini yapılandırın.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux TextBox girişini yapılandırın.",
       "intro": "TextBox, istemleri terminale göndermeden önce yazmak için cmux'un zengin terminal giriş yüzeyidir.",
-      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir.",
       "defaultsTitle": "Varsayılanlar",
       "defaultsDesc": "TextBox ayarları Settings > TextBox içindedir:",
       "showSetting": "Show TextBox on New Terminals yeni çalışma alanlarını, terminal sekmelerini ve terminal bölmelerini TextBox görünür halde açar ve odağı terminalde tutar.",
@@ -4582,5 +5154,27 @@
     "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
     "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
     "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
+  },
+  "teamInvite": {
+    "loading": "Davet yükleniyor…",
+    "title": "{team} ekibine katıl",
+    "titleUnknown": "Bu ekibe katıl",
+    "body": "cmux'ta bu ekibe katılmaya davet edildiniz.",
+    "join": "Ekibe katıl",
+    "joining": "Katılım sağlanıyor…",
+    "signedInAs": "{email} olarak giriş yapıldı",
+    "alreadyMemberTitle": "Zaten {team} ekibinin üyesisiniz",
+    "alreadyMemberTitleUnknown": "Zaten bu ekibin üyesisiniz",
+    "alreadyMemberBody": "Ekibi yönetmek için açın.",
+    "openTeam": "Ekibi aç",
+    "mismatchTitle": "Bu davet farklı bir hesap için",
+    "mismatchBody": "{email} olarak giriş yaptınız, ancak davet başka bir adrese gönderildi. Davet edilen adresle giriş yapın veya bu adresi bu hesaba ekleyip doğrulayın.",
+    "mismatchBodyUnknown": "Davet başka bir adrese gönderildi. Davet edilen adresle giriş yapın veya bu adresi bu hesaba ekleyip doğrulayın.",
+    "switchAccount": "Çıkış yap ve hesap değiştir",
+    "switching": "Çıkış yapılıyor…",
+    "switchFailed": "Çıkış yapılamadı. Tekrar deneyin.",
+    "invalidTitle": "Bu davet artık geçerli değil",
+    "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
+    "goToTeams": "Ekiplerinize git"
   }
 }
