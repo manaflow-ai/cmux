@@ -119,6 +119,18 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "equalizeSplitsOnCreate"
     )
 
+    /// Typeface for cmux's own chrome: the sidebar, surface tabs and pills.
+    ///
+    /// `"terminal"` follows the font configured for the terminal, `"system"`
+    /// keeps the macOS system font, and any other value names a font family.
+    /// The two keywords are therefore reserved: a family literally named
+    /// "terminal" or "system" cannot be requested by name.
+    public let chromeFont = DefaultsKey<String>(
+        id: "app.chromeFont",
+        defaultValue: "terminal",
+        userDefaultsKey: "appChromeFont"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",

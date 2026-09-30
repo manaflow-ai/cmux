@@ -1,5 +1,7 @@
+import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSidebar
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -76,8 +78,28 @@ struct SidebarWorkspaceRowModel: Equatable {
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 
+    /// Typeface every piece of text in this row is drawn with.
+    var chromeTypeface: CmuxChromeTypeface { settings.chromeTypeface }
+
     func scaled(_ base: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(base * fontScale, percent: globalFontMagnificationPercent)
+    }
+
+    /// Row text at `base` points in the chrome typeface.
+    ///
+    /// The size still goes through ``scaled(_:)``, so the sidebar font size and
+    /// the global font magnification keep applying whatever family the chrome
+    /// ends up drawing with; only the typeface is decided by the setting.
+    func chromeFont(
+        _ base: CGFloat,
+        weight: NSFont.Weight = .regular,
+        needs: CmuxChromeTypeface.FixedPitchNeed = .none
+    ) -> NSFont {
+        settings.chromeTypeface.appKitFont(
+            size: scaled(base),
+            weight: weight,
+            needs: needs
+        )
     }
 
     /// Equality over every field that can influence the measured row height.

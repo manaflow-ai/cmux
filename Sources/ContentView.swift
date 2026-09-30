@@ -11065,10 +11065,22 @@ struct ContentView: View {
 #endif
 }
 
+/// The two things the sidebar takes from the Ghostty config: how big its text
+/// is, and which families the terminal is configured to use. They are read
+/// together because they come from the same file read.
+struct SidebarChromeTypographyInputs: Equatable {
+    var sidebarFontSize: CGFloat
+    var terminalFontFamilies: [String]
+}
+
 private enum SidebarFontSizeProvider {
-    static func loadFromGhosttyConfig() async -> CGFloat {
+    static func loadFromGhosttyConfig() async -> SidebarChromeTypographyInputs {
         await Task.detached(priority: .utility) {
-            GhosttyConfig.loadForCmux().sidebarFontSize
+            let configuration = GhosttyConfig.loadForCmux()
+            return SidebarChromeTypographyInputs(
+                sidebarFontSize: configuration.sidebarFontSize,
+                terminalFontFamilies: configuration.effectiveFontFamilies
+            )
         }.value
     }
 }
@@ -11382,29 +11394,37 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     private let defaults: UserDefaults
-    private let sidebarFontSizeProvider: () async -> CGFloat
+    private let typographyProvider: () async -> SidebarChromeTypographyInputs
     private var sidebarFontSize: CGFloat
+    private var terminalFontFamilies: [String]
     private var accentColor: CmuxAccentColor
     private var sidebarFontSizeLoadTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var sidebarFontSizeObserver: NSObjectProtocol?
+    private var chromeFontFamilyObserver: NSObjectProtocol?
     private var accentColorObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
-        initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
+        initialTypography: SidebarChromeTypographyInputs = SidebarChromeTypographyInputs(
+            sidebarFontSize: GhosttyConfig.defaultSidebarFontSize,
+            terminalFontFamilies: []
+        ),
         accentColor: CmuxAccentColor? = nil,
-        sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
+        typographyProvider: @escaping () async -> SidebarChromeTypographyInputs
+            = SidebarFontSizeProvider.loadFromGhosttyConfig
     ) {
         self.defaults = defaults
-        self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
+        self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialTypography.sidebarFontSize)
+        self.terminalFontFamilies = initialTypography.terminalFontFamilies
         // Read the app delegate's resolved accent here, on the main actor;
         // a default argument would evaluate it in a nonisolated context.
         self.accentColor = accentColor ?? AppDelegate.shared?.accentColor ?? CmuxAccentColor()
-        self.sidebarFontSizeProvider = sidebarFontSizeProvider
+        self.typographyProvider = typographyProvider
         self.snapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
             sidebarFontSize: sidebarFontSize,
+            terminalFontFamilies: terminalFontFamilies,
             accentColor: self.accentColor
         )
         defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
@@ -11424,14 +11444,25 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
                 self.refreshSnapshot()
             }
         }
-        refreshSidebarFontSize()
+        refreshGhosttyTypography()
         sidebarFontSizeObserver = NotificationCenter.default.addObserver(
             forName: .ghosttySidebarFontSizeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refreshSidebarFontSize()
+                self?.refreshGhosttyTypography()
+            }
+        }
+        // A Ghostty config reload that changes `font-family` has to repaint the
+        // rows too, because the chrome follows the terminal font by default.
+        chromeFontFamilyObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyChromeFontFamilyDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshGhosttyTypography()
             }
         }
     }
@@ -11444,6 +11475,9 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         if let sidebarFontSizeObserver {
             NotificationCenter.default.removeObserver(sidebarFontSizeObserver)
         }
+        if let chromeFontFamilyObserver {
+            NotificationCenter.default.removeObserver(chromeFontFamilyObserver)
+        }
         if let accentColorObserver {
             NotificationCenter.default.removeObserver(accentColorObserver)
         }
@@ -11453,19 +11487,21 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         let nextSnapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
             sidebarFontSize: sidebarFontSize,
+            terminalFontFamilies: terminalFontFamilies,
             accentColor: accentColor
         )
         guard nextSnapshot != snapshot else { return }
         snapshot = nextSnapshot
     }
 
-    private func refreshSidebarFontSize() {
+    private func refreshGhosttyTypography() {
         sidebarFontSizeLoadTask?.cancel()
         sidebarFontSizeLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let loadedSidebarFontSize = await sidebarFontSizeProvider()
+            let loaded = await typographyProvider()
             guard !Task.isCancelled else { return }
-            sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(loadedSidebarFontSize)
+            sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(loaded.sidebarFontSize)
+            terminalFontFamilies = loaded.terminalFontFamilies
             refreshSnapshot()
         }
     }
@@ -11537,7 +11573,13 @@ struct VerticalTabsSidebar: View, Equatable {
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
-        initialSidebarFontSize: GhosttyConfig.loadForCmux().sidebarFontSize
+        initialTypography: {
+            let configuration = GhosttyConfig.loadForCmux()
+            return SidebarChromeTypographyInputs(
+                sidebarFontSize: configuration.sidebarFontSize,
+                terminalFontFamilies: configuration.effectiveFontFamilies
+            )
+        }()
     )
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
@@ -12123,6 +12165,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .accessibilityIdentifier("Sidebar")
+        // One injection for the whole SwiftUI sidebar subtree: rows, group
+        // headers and the footer all draw their text through `.cmuxFont`, so
+        // they pick the typeface up from here. The AppKit table does not read
+        // SwiftUI environment and carries the same typeface in its row models.
+        .cmuxChromeTypeface(tabItemSettings.chromeTypeface)
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
             WindowChromeBorder(
@@ -16051,7 +16098,6 @@ struct TabItemView: View, Equatable {
     @State private var renameDraft = ""
     @State private var renameBaselineHadUserCustomTitle = false
 
-    private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
     var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot { snapshot.workspace }
@@ -16152,8 +16198,18 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    /// Resting rows draw their title at `regular`; the selected row and rows
+    /// with unread notifications keep `semibold`. Resolved through
+    /// `SidebarRowTextWeight` so the AppKit row cell agrees.
+    private var titleTextWeight: SidebarRowTextWeight {
+        .workspaceTitle(
+            isSelected: isActive || isMultiSelected,
+            hasUnread: unreadCount > 0
+        )
+    }
+
     private var titleFontWeight: Font.Weight {
-        .semibold
+        titleTextWeight.swiftUIWeight
     }
 
     private var fontScale: CGFloat {
@@ -16177,11 +16233,28 @@ struct TabItemView: View, Equatable {
         design: Font.Design = .default,
         monospacedDigit: Bool = false
     ) -> Font {
-        var font = Font.system(
-            size: GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent),
-            weight: weight,
-            design: design
-        )
+        // Size first, exactly as before: the sidebar font scale and the global
+        // magnification decide it, and the chrome font setting decides only
+        // which typeface that size is drawn in.
+        let size = GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent)
+        var font: Font
+        switch settings.chromeTypeface {
+        case .system:
+            font = Font.system(size: size, weight: weight, design: design)
+        case .monospacedSystem:
+            // The terminal's own fallback font. Monospaced wins over a
+            // `.default` request here, which is the point of following it.
+            font = Font.system(size: size, weight: weight, design: .monospaced)
+        case .family:
+            // A monospaced design, or monospaced digits, is a width the call
+            // site depends on rather than a style, so it is carried into
+            // resolution instead of being dropped for the chrome family.
+            font = settings.chromeTypeface.swiftUIFont(
+                size: size,
+                swiftUIWeight: weight,
+                needs: design == .monospaced ? .allGlyphs : (monospacedDigit ? .digits : .none)
+            )
+        }
         if monospacedDigit {
             font = font.monospacedDigit()
         }
@@ -16363,10 +16436,14 @@ struct TabItemView: View, Equatable {
                     : SidebarMarkdownRenderer(markdown: display).plainText
             }
         let detailVisibility = visibleAuxiliaryDetails
-        // Compact status rows are one line, so title wrapping does not undo it.
-        let titleLineLimit = settings.wrapsWorkspaceTitles && workspaceSnapshot.compactStatusGlyph == nil
-            ? Self.maxWrappedTitleLines
-            : 1
+        // Compact status rows are one line, so neither title setting undoes it.
+        let titleMetrics = workspaceSnapshot.compactStatusGlyph == nil
+            ? SidebarRowTitleMetrics(
+                wrapsTitles: settings.wrapsWorkspaceTitles,
+                usesTwoLines: settings.usesTwoLineWorkspaceTitles
+            )
+            : SidebarRowTitleMetrics(lineLimit: 1)
+        let titleLineLimit = titleMetrics.lineLimit
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
@@ -16374,7 +16451,7 @@ struct TabItemView: View, Equatable {
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
         let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
-            scaledFontSize(12.5),
+            scaledFontSize(SidebarRowTitleMetrics.fontSize),
             percent: globalFontMagnificationPercent
         ) * 0.6
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
@@ -16461,7 +16538,10 @@ struct TabItemView: View, Equatable {
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
-                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(SidebarRowTitleMetrics.fontSize), percent: globalFontMagnificationPercent),
+                        fontWeight: titleTextWeight.appKitWeight,
+                        typeface: settings.chromeTypeface,
+                        textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
                         accessibilityLabel: String(
                             localized: "sidebar.workspace.rename.field.accessibilityLabel",
                             defaultValue: "Rename workspace"
@@ -16488,18 +16568,30 @@ struct TabItemView: View, Equatable {
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
-                        .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
+                        .font(magnifiedFont(scaledFontSize(SidebarRowTitleMetrics.fontSize), weight: titleFontWeight))
                         .foregroundColor(activePrimaryTextColor)
                         .opacity(workspaceSnapshot.isMuted ? 0.6 : 1)
                         .lineLimit(titleLineLimit)
-                        .truncationMode(.tail)
+                        .truncationMode(titleMetrics.swiftUITruncationMode)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
 
-                if trailingStatusActive || canCloseWorkspace {
+                // Matches the AppKit rows: the hover-revealed close button no
+                // longer holds a column open on rows that are not hovered, so a
+                // resting title gets that width. The shortcut hint pill is drawn
+                // over the same trailing edge and replaces the close button
+                // while it shows, so the title yields to it as well. A title on
+                // more than one line keeps the reservation at all times, since
+                // changing its width would change its line count and the row's
+                // height.
+                let reservesTrailingSlot = trailingStatusActive
+                    || showCloseButton
+                    || showsWorkspaceShortcutHint
+                    || titleLineLimit != 1
+                if reservesTrailingSlot {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
                 }
             }

@@ -63,6 +63,8 @@ struct SidebarAppKitRowCellTests {
     static func makeModel(
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
+        isMultiSelected: Bool = false,
+        unreadCount: Int = 0,
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
@@ -88,11 +90,11 @@ struct SidebarAppKitRowCellTests {
             ),
             settings: resolvedSettings,
             isActive: isActive,
-            isMultiSelected: false,
+            isMultiSelected: isMultiSelected,
             hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
@@ -471,6 +473,200 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    /// The sidebar reads better when only the rows that need attention are
+    /// heavy, so a resting row draws its title lighter than a selected row or
+    /// a row with unread notifications.
+    @Test
+    func workspaceTitleWeightTracksSelectionAndUnread() throws {
+        func titleFont(_ model: SidebarWorkspaceRowModel) throws -> NSFont {
+            let cell = Self.configuredCell(model: model)
+            let titleView = try #require(
+                Self.descendants(of: cell)
+                    .compactMap { $0 as? SidebarRowTextView }
+                    .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+            )
+            return try #require(titleView.font)
+        }
+
+        // The claim here is about weight, and the family is the interface font
+        // setting's business, so the expected fonts are built from the typeface
+        // the row carries. Naming a family instead would make this test fail
+        // whenever the chrome follows something other than the system font,
+        // while still not checking that the cell drew in the row's own family.
+        let model = Self.makeModel()
+        let size = model.scaled(SidebarRowTitleMetrics.fontSize)
+        let typeface = model.chromeTypeface
+        #expect(try titleFont(model) == typeface.appKitFont(size: size, weight: .regular))
+        #expect(try titleFont(Self.makeModel(isActive: true)) == typeface.appKitFont(size: size, weight: .semibold))
+        #expect(
+            try titleFont(Self.makeModel(isMultiSelected: true)) == typeface.appKitFont(size: size, weight: .semibold)
+        )
+        #expect(try titleFont(Self.makeModel(unreadCount: 3)) == typeface.appKitFont(size: size, weight: .semibold))
+    }
+
+    /// The selection preview paints colors ahead of the authoritative apply,
+    /// but row heights are measured from the stored model. Weight changes text
+    /// metrics, so a preview that also changed the weight could draw a wrapped
+    /// title at one weight inside a frame measured at the other.
+    @Test
+    func optimisticSelectionPaintDoesNotChangeTitleWeight() throws {
+        let model = Self.makeModel(isActive: false)
+        let cell = Self.configuredCell(model: model)
+        func titleFont() throws -> NSFont {
+            let titleView = try #require(
+                Self.descendants(of: cell)
+                    .compactMap { $0 as? SidebarRowTextView }
+                    .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+            )
+            return try #require(titleView.font)
+        }
+
+        let resting = model.chromeTypeface.appKitFont(
+            size: model.scaled(SidebarRowTitleMetrics.fontSize),
+            weight: .regular
+        )
+        #expect(try titleFont() == resting)
+        cell.showOptimisticSelectionHighlight()
+        #expect(cell.hasOptimisticSelectionForTesting)
+        #expect(try titleFont() == resting)
+    }
+
+    private static func titleView(
+        in cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel
+    ) throws -> SidebarRowTextView {
+        try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+        )
+    }
+
+    /// A one-line title keeps its start and its distinctive tail: the middle of
+    /// a title is the least useful part of it to read, and the tail carries the
+    /// host in names like `cmux-remote-status @host`.
+    @Test
+    func singleLineTitleTruncatesInTheMiddle() throws {
+        let model = Self.makeModel()
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == 1)
+        #expect(titleView.lineBreakMode == .byTruncatingMiddle)
+    }
+
+    /// `sidebar.twoLineWorkspaceTitles` is the middle ground between one line
+    /// and showing a title in full. A two-line title has to end in an ellipsis,
+    /// so it truncates rather than wrapping without a mark.
+    @Test
+    func twoLineTitleSettingGivesTheTitleASecondLine() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarTwoLineWorkspaceTitles")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.usesTwoLineWorkspaceTitles)
+        #expect(Self.makeSwiftUIRow(settings: settings).settings.usesTwoLineWorkspaceTitles)
+
+        let model = Self.makeModel(settings: settings)
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == 2)
+        #expect(titleView.lineBreakMode == .byTruncatingTail)
+    }
+
+    /// Wrapping still wins when it is on: the setting that shows a title in
+    /// full is not overridden by the two-line setting.
+    @Test
+    func wrappingTitlesOutranksTheTwoLineSetting() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarTwoLineWorkspaceTitles")
+        defaults.set(true, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let model = Self.makeModel(settings: SidebarTabItemSettingsSnapshot(defaults: defaults))
+        let cell = Self.configuredCell(model: model)
+        let titleView = try Self.titleView(in: cell, model: model)
+
+        #expect(titleView.maximumNumberOfLines == SidebarRowTitleMetrics.maxWrappedLines)
+        #expect(titleView.lineBreakMode == .byWordWrapping)
+    }
+
+    /// The close button is revealed on hover, so a row the pointer is not on
+    /// spends that column on its title instead of leaving it blank. The reveal
+    /// insets the title, which is safe because a single line's height does not
+    /// depend on its width.
+    @Test
+    func closeButtonColumnIsOnlyHeldOpenWhileItShows() throws {
+        let width: CGFloat = 240
+        let model = Self.makeModel(canClose: true)
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let contentTrailing = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+
+        #expect(titleView.frame.maxX == contentTrailing)
+
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == contentTrailing - 24)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+    }
+
+    /// The shortcut hint pill is painted over the row's trailing edge instead of
+    /// being placed in the trailing slot, and it replaces the close button while
+    /// it shows. The title still has to stay out from under it, because a
+    /// one-line title truncates in the middle and its end carries meaning.
+    @Test
+    func shortcutHintPillHoldsTheTrailingColumnOpen() throws {
+        let width: CGFloat = 240
+        let model = Self.makeModel(canClose: true, shortcutHintText: "1")
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let reserved = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+            - 24
+
+        #expect(titleView.frame.maxX == reserved)
+
+        // The pill stands in for the close button, so hovering such a row shows
+        // no button and moves nothing.
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == reserved)
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+    }
+
+    /// A wrapped title's height DOES depend on its width, so hovering such a
+    /// row must not change the width its height was measured at.
+    @Test
+    func wrappedTitleKeepsTheCloseButtonColumnReserved() throws {
+        let width: CGFloat = 240
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let model = Self.makeModel(canClose: true, settings: SidebarTabItemSettingsSnapshot(defaults: defaults))
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model, width: width)
+        defer { window.close() }
+        let titleView = try Self.titleView(in: cell, model: model)
+        let reserved = width
+            - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
+            - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+            - 24
+
+        #expect(titleView.frame.maxX == reserved)
+
+        cell.enforcePointerHovering(true)
+        cell.layoutContent(model: model, width: width, apply: true)
+
+        #expect(titleView.frame.maxX == reserved)
     }
 
     @Test

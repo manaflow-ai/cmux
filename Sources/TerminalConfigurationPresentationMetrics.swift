@@ -6,6 +6,10 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
     let terminalFontSize: CGFloat
     let surfaceTabBarFontSize: CGFloat
     let sidebarFontSize: CGFloat
+    /// Configured terminal families in fallback order. The chrome follows the
+    /// terminal's font by default, so a config reload that changes this list
+    /// has to repaint the sidebar the same way a size change does.
+    let terminalFontFamilies: [String]
     let chromeConfigurationIdentity:
         TerminalChromeConfigurationIdentity
 
@@ -18,6 +22,7 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
             surfaceTabBarFontSize:
                 configuration.surfaceTabBarFontSize,
             sidebarFontSize: configuration.sidebarFontSize,
+            terminalFontFamilies: configuration.effectiveFontFamilies,
             chromeConfigurationIdentity:
                 TerminalChromeConfigurationIdentity(
                     configuration: configuration,
@@ -51,6 +56,12 @@ struct TerminalConfigurationPresentationMetrics: Equatable {
                 object: nil
             )
         }
+        if terminalFontFamilies != previous.terminalFontFamilies {
+            center.post(
+                name: .ghosttyChromeFontFamilyDidChange,
+                object: nil
+            )
+        }
         if chromeConfigurationIdentity
             != previous.chromeConfigurationIdentity {
             center.post(
@@ -70,6 +81,9 @@ extension Notification.Name {
     )
     static let ghosttySidebarFontSizeDidChange = Notification.Name(
         "ghosttySidebarFontSizeDidChange"
+    )
+    static let ghosttyChromeFontFamilyDidChange = Notification.Name(
+        "ghosttyChromeFontFamilyDidChange"
     )
     static let ghosttyChromeConfigurationDidChange = Notification.Name(
         "ghosttyChromeConfigurationDidChange"

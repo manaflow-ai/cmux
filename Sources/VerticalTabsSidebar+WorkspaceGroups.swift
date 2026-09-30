@@ -128,6 +128,7 @@ extension VerticalTabsSidebar {
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
             globalFontMagnificationPercent: renderContext.environment.globalFontMagnificationPercent,
+            chromeTypeface: settings.chromeTypeface,
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == anchorId,

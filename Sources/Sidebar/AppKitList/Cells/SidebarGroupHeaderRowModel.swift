@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import CmuxFoundation
+import CmuxSidebar
 import Foundation
 import SwiftUI
 
@@ -43,6 +44,10 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
     let globalFontMagnificationPercent: Int
+    /// Typeface the header name is drawn with. Part of the model because the
+    /// row's measured height is derived from this font, so a family change has
+    /// to reach `preferredHeight(model:)` and `applyModel` together.
+    var chromeTypeface: CmuxChromeTypeface = .system
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let rowSpacing: CGFloat
     let isFirstRow: Bool

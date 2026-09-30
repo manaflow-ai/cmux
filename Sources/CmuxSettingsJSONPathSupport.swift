@@ -225,6 +225,7 @@ enum AppSettingsFileMapping {
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
+        .init(jsonKey: "chromeFont", defaultsKey: app.chromeFont.userDefaultsKey),
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
         .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
@@ -351,6 +352,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "wrapWorkspaceTitles",
             defaultsKey: SidebarWorkspaceTitleWrapSettings.key
+        ),
+        .init(
+            jsonKey: "twoLineWorkspaceTitles",
+            defaultsKey: sidebar.twoLineWorkspaceTitles.userDefaultsKey
         ),
         .init(
             jsonKey: "showWorkspaceDescription",

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxSettings
+import CmuxSidebar
 import CmuxSurfaceCatalogModel
 import Observation
 import Testing
@@ -265,7 +266,12 @@ struct SidebarCloudWorkspaceBadgeTests {
             #expect(badge.frame.maxX + 8 == title.frame.minX)
         }
         #expect(title.frame.maxX <= width)
-        #expect(title.lineBreakMode == .byTruncatingTail)
+        // What the badge has to leave behind is a truncating single line, not a
+        // wrapping one. Naming a mode here would restate the default and go stale
+        // whenever the truncation settings change; the modes themselves are pinned
+        // by SidebarRowTitleMetricsTests.
+        #expect(title.maximumNumberOfLines == 1)
+        #expect(title.lineBreakMode == SidebarRowTitleMetrics(lineLimit: 1).appKitLineBreakMode)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
         let pins = images.filter { !$0.isHidden && $0.toolTip == String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") }

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxFoundation
+import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
@@ -79,7 +81,7 @@ final class SidebarRowChecklistItemLine: NSView {
             self.actions?.checklistSetItemState(item.id, next)
         }
 
-        let itemFont = NSFont.systemFont(ofSize: model.scaled(10))
+        let itemFont = model.chromeFont(10)
         // Keep the field's `font` in sync with the attributed text: the
         // first-line-center math reads it.
         textLabel.font = itemFont
@@ -161,7 +163,7 @@ final class SidebarRowChecklistItemLine: NSView {
         guard editField == nil || editingItemId != item.id else {
             // Retained editor: keep the draft but follow the row's current
             // presentation (palette flips with selection; fonts with scale).
-            editField?.font = .systemFont(ofSize: 11 * model.fontScale)
+            editField?.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
             editField?.textColor = primary
             editField?.caretColor = primary
             return
@@ -177,7 +179,7 @@ final class SidebarRowChecklistItemLine: NSView {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: 11 * model.fontScale)
+        field.font = model.chromeTypeface.appKitFont(size: 11 * model.fontScale, weight: .regular)
         field.textColor = primary
         field.caretColor = primary
         field.placeholderString = String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text")
@@ -229,7 +231,7 @@ final class SidebarRowChecklistItemLine: NSView {
     /// FIRST line. The offset font intentionally approximates the item font
     /// without global magnification, matching the SwiftUI implementation.
     private func firstLineCenter(model: SidebarWorkspaceRowModel, itemFont: NSFont) -> CGFloat {
-        let approximation = NSFont.systemFont(ofSize: 10 * model.fontScale)
+        let approximation = model.chromeTypeface.appKitFont(size: 10 * model.fontScale, weight: .regular)
         return itemFont.ascender - (approximation.ascender + approximation.descender) / 2
     }
 
@@ -254,7 +256,7 @@ final class SidebarRowChecklistItemLine: NSView {
         model: SidebarWorkspaceRowModel,
         metrics: (checkbox: NSSize, attach: NSSize, removeSlot: CGFloat, textWidth: CGFloat)
     ) -> (textTop: CGFloat, lineCenter: CGFloat) {
-        let itemFont = textLabel.font ?? NSFont.systemFont(ofSize: model.scaled(10))
+        let itemFont = textLabel.font ?? model.chromeFont(10)
         let center = firstLineCenter(model: model, itemFont: itemFont)
         let maxAccessoryHalf = max(
             metrics.checkbox.height / 2,

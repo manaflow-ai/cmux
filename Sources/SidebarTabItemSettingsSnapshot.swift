@@ -8,6 +8,7 @@ import Foundation
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
+    let usesTwoLineWorkspaceTitles: Bool
     /// `sidebar.compactAgentStatus`: agent status entries draw on the title line.
     let compactsAgentStatus: Bool
     /// `sidebar.compactStatusIcons`, keeping only known states and non-empty names.
@@ -18,6 +19,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
     let sidebarFontScale: CGFloat
+    /// Typeface the row text is drawn with. Resolved once here rather than per
+    /// label, so every piece of row text in both renderers agrees, and font
+    /// lookup does not run on every reconfigure.
+    let chromeTypeface: CmuxChromeTypeface
     let showsGitBranch: Bool
     let branchDirectory: SidebarWorkspaceBranchDirectorySettings
     let details: SidebarWorkspaceDetailSettings
@@ -46,6 +51,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     init(
         defaults: UserDefaults = .standard,
         sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
+        terminalFontFamilies: [String] = [],
         accentColor: CmuxAccentColor = CmuxAccentColor()
     ) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
@@ -59,6 +65,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings(defaults: defaults).alwaysShowHints
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        chromeTypeface = CmuxChromeTypeface.resolved(
+            source: CmuxChromeFontSource(settingValue: settings.value(for: AppCatalogSection().chromeFont)),
+            terminalFamilies: terminalFontFamilies
+        )
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)
@@ -70,6 +80,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
+        usesTwoLineWorkspaceTitles = settings.value(for: sidebar.twoLineWorkspaceTitles)
         compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
         compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
         let detailVisibility = SidebarWorkspaceDetailVisibility(

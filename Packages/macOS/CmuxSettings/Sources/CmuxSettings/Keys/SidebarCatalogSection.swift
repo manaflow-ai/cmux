@@ -27,6 +27,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWrapWorkspaceTitles"
     )
 
+    /// Allows a workspace title a second line before it is truncated. A middle
+    /// ground between one line and `wrapWorkspaceTitles`, which shows a title in
+    /// full however many lines that takes. Off by default: one line per row
+    /// keeps the list scannable.
+    public let twoLineWorkspaceTitles = DefaultsKey<Bool>(
+        id: "sidebar.twoLineWorkspaceTitles",
+        defaultValue: false,
+        userDefaultsKey: "sidebarTwoLineWorkspaceTitles"
+    )
+
     public let showWorkspaceDescription = DefaultsKey<Bool>(
         id: "sidebar.showWorkspaceDescription",
         defaultValue: true,

@@ -37,6 +37,7 @@ public struct AppSection: View {
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
+    @State private var chromeFont: DefaultsValueModel<String>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
@@ -108,6 +109,7 @@ public struct AppSection: View {
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
+        _chromeFont = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.chromeFont))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
@@ -170,7 +172,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, chromeFont, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -416,6 +418,22 @@ public struct AppSection: View {
                     percent: globalFontMagnification.current,
                     onChange: setGlobalFontMagnification
                 )
+            }
+            SettingsCardDivider()
+
+            // Interface Font
+            SettingsCardRow(
+                configurationReview: .json("app.chromeFont"),
+                String(localized: "settings.app.chromeFont", defaultValue: "Interface Font"),
+                subtitle: String(localized: "settings.app.chromeFont.subtitle", defaultValue: "Font family for the sidebar, tabs, and panels. Use terminal to follow the terminal font, system for the macOS interface font, or type a font family name. Text sizes do not change.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.chromeFont.placeholder", defaultValue: "terminal"),
+                    text: Binding(get: { chromeFont.current }, set: { chromeFont.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsChromeFontTextField")
             }
             SettingsCardDivider()
 

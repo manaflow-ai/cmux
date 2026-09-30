@@ -223,6 +223,8 @@ struct RightSidebarToolPanelView: View {
             .onChange(of: panel.focusFlashToken) { _, _ in
                 triggerFocusFlashAnimation()
             }
+            // Same panels opened as a pane rather than in the right sidebar.
+            .cmuxChromeTypefaceFromSettings()
     }
 
     @ViewBuilder

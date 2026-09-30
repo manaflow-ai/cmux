@@ -20,6 +20,7 @@ General app preferences from Settings > App.
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `false` | When cmux is inactive, the first click can activate and focus the clicked pane. |
+| `app.chromeFont` | string | `"terminal"` | Typeface for cmux's own interface: sidebar rows, surface tabs and pills. `terminal` follows the font configured for the terminal, falling back to the terminal's own fallback font when that family is not installed. `system` keeps the macOS system font. Any other value names a font family. Text sizes are unaffected. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |
 | `app.defaultWorkspacePath` | string | `""` | Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory. |
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
@@ -126,6 +127,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
+| `sidebar.twoLineWorkspaceTitles` | boolean | `false` | Allow a workspace title in the sidebar a second line before it is truncated, instead of showing it in full like wrapWorkspaceTitles. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
 | `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |

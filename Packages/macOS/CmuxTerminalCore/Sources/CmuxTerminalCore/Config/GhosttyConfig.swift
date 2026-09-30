@@ -45,6 +45,22 @@ public struct GhosttyConfig {
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
+    /// Every configured `font-family`, in the order Ghostty falls back through
+    /// them, so the primary family is first. Empty when the config names none,
+    /// which is Ghostty's built-in font rather than a family this machine has.
+    ///
+    /// Ghostty resets the list when `font-family` is set to an empty value, so
+    /// a later `font-family =` line discards the families named before it.
+    public var fontFamilies: [String] = []
+    /// The families the terminal actually draws with, most preferred first.
+    ///
+    /// A config that names no `font-family` still gets a terminal drawn in
+    /// ``fontFamily``, the built-in default, so anything that wants to match the
+    /// terminal reads this rather than ``fontFamilies``: the empty list means
+    /// "nothing was configured", not "there is no terminal font".
+    public var effectiveFontFamilies: [String] {
+        fontFamilies.isEmpty ? [fontFamily] : fontFamilies
+    }
     /// The terminal font size, in points. Ghostty's native macOS default is 13.
     public var fontSize: CGFloat = 13
     /// The surface tab-bar font size, in points.
@@ -581,6 +597,7 @@ public struct GhosttyConfig {
                 switch key {
                 case "font-family":
                     fontFamily = value
+                    fontFamilies = UserFontConfigSummary.fontFamilies(fontFamilies, recording: value)
                 case "font-size":
                     if let size = Double(value) {
                         fontSize = CGFloat(size)

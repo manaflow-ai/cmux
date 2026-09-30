@@ -1,0 +1,195 @@
+{
+  "note": "The terminal half of the app.chromeFont pair. The launch arguments pin app.chromeFont to terminal, which is also the shipping default, so the frames do not depend on whatever the machine had stored from an earlier run. The sidebar arguments pin the rest of the row layout to its defaults for the same reason, and they match chrome-font-system-tour, so the two sets of frames differ only in the interface font.",
+  "paths": [
+    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ChromeFont/*",
+    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/CmuxFontModifier.swift",
+    "Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/UserFontConfigSummary.swift",
+    "Sources/ChromeFont/*",
+    "Sources/SidebarTabItemSettingsSnapshot.swift"
+  ],
+  "launch": {
+    "args": [
+      "-appChromeFont",
+      "terminal",
+      "-sidebarTwoLineWorkspaceTitles",
+      "<false/>",
+      "-sidebarWrapWorkspaceTitles",
+      "<false/>",
+      "-sidebarCompactAgentStatus",
+      "<false/>",
+      "-workspacePresentationMode",
+      "standard"
+    ]
+  },
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Fix cmux pane focus indicator flicker",
+        "focus": false
+      },
+      "save": "focusFix"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "cmux-remote-status @workstation",
+        "focus": false
+      },
+      "save": "remoteStatus"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Docs pass over the sidebar row copy",
+        "focus": false
+      },
+      "save": "docs"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "feat/workspace-group-collapse",
+        "focus": false
+      },
+      "save": "groupCollapse"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Deploy checks",
+        "focus": false
+      },
+      "save": "deploy"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "API refactor",
+        "focus": false
+      },
+      "save": "api"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "サイドバーのタイトル切り詰め",
+        "focus": false
+      },
+      "save": "cjkTitle"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "🚀 Release 0.42 shipping checklist",
+        "focus": false
+      },
+      "save": "emojiTitle"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "cmux-cloud-machines @builder",
+        "focus": false
+      },
+      "save": "cloudMachines"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Settings search index cleanup",
+        "focus": false
+      },
+      "save": "settingsSearch"
+    },
+    {
+      "socket": "workspace.group.create",
+      "params": {
+        "name": "Release 0.42",
+        "child_workspace_ids": [
+          "${deploy.workspace_id}",
+          "${api.workspace_id}"
+        ]
+      },
+      "save": "grp"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socket": "notification.create_for_caller",
+      "params": {
+        "preferred_workspace_id": "${docs.workspace_id}",
+        "preferred_workspace_is_explicit": true,
+        "title": "Agent finished a turn",
+        "body": "Unread row state for the interface font tour"
+      }
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Sidebar title truncation",
+        "focus": true
+      },
+      "save": "selected"
+    },
+    {
+      "wait": 2
+    },
+    {
+      "key": "escape"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "chrome-font-sidebar"
+    },
+    {
+      "tree": "chrome-font-sidebar"
+    },
+    {
+      "click": "RightSidebarModeButton.machines"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "chrome-font-cloud-panel"
+    },
+    {
+      "click": "RightSidebarModeButton.sessions"
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "shot": "chrome-font-sessions-panel"
+    },
+    {
+      "socket": "workspace.group.collapse",
+      "params": {
+        "group_id": "${grp.group.id}"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "chrome-font-group-collapsed"
+    },
+    {
+      "socket": "workspace.group.expand",
+      "params": {
+        "group_id": "${grp.group.id}"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "chrome-font-window",
+      "screen": true
+    }
+  ]
+}

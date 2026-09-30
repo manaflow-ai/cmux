@@ -215,6 +215,9 @@ struct RightSidebarPanelView: View {
             managedPolicyRevision &+= 1
             refreshModeAvailabilityAndFocusIfNeeded()
         }
+        // The right sidebar is chrome beside a terminal, so its mode bar,
+        // pills and hosted panels follow the interface font setting.
+        .cmuxChromeTypefaceFromSettings()
     }
 
     private var modeBar: some View {

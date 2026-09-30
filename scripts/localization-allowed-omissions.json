@@ -2006,6 +2006,19 @@
     "class": "brand",
     "source": "cmux Pro"
   },
+  "settings.app.chromeFont.placeholder": {
+    "source": "terminal",
+    "identityLocales": {
+      "ja": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "zh-Hans": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "de": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "fr": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "ar": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "es": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "zh-Hant": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales.",
+      "ko": "`terminal` is the literal value typed into the field, one of the setting's two reserved words, so it is invariant across locales."
+    }
+  },
   "settings.app.markdownFontFamily.placeholder": {
     "source": "System",
     "identityLocales": {

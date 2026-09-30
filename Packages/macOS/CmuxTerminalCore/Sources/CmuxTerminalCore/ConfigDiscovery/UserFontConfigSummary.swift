@@ -39,15 +39,25 @@ public struct UserFontConfigSummary: Equatable, Sendable {
     /// on an empty value and otherwise appending the value when not already
     /// present.
     public mutating func recordFontFamily(_ value: String) {
+        effectiveFontFamilies = Self.fontFamilies(effectiveFontFamilies, recording: value)
+    }
+
+    /// Ghostty's `font-family` list semantics as a plain function: an empty value
+    /// resets the list, any other value joins it once, and the order is the order
+    /// Ghostty falls back through.
+    ///
+    /// The config parser accumulates the same list, so both read these semantics
+    /// from here rather than each spelling them out; a config naming one family
+    /// twice used to produce a two-entry fallback chain on one of the two paths.
+    public static func fontFamilies(_ families: [String], recording value: String) -> [String] {
         if value.isEmpty {
-            effectiveFontFamilies.removeAll()
-            return
+            return []
         }
 
-        guard !effectiveFontFamilies.contains(value) else {
-            return
+        guard !families.contains(value) else {
+            return families
         }
 
-        effectiveFontFamilies.append(value)
+        return families + [value]
     }
 }
