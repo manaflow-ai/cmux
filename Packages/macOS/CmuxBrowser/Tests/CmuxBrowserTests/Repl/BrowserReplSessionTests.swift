@@ -60,7 +60,7 @@ const console = { log: (...a) => __cmuxNative.print("log", a.map(String).join(" 
 const AsyncFunction = (async () => {}).constructor;
 globalThis.__cmuxFormatError = (e) => `${e.name}: ${e.message}`;
 globalThis.__cmuxReplEval = (...args) =>
-  new AsyncFunction("console", "call", "sleep", "fs", "evalArity", "native", args[0])(console, call, sleep, fs, args.length, __cmuxNative);
+  new AsyncFunction("console", "call", "sleep", "fs", "evalArity", "native", "evalOptions", args[0])(console, call, sleep, fs, args.length, __cmuxNative, args[1]);
 """#
 
 @Suite("Browser REPL session")
@@ -103,6 +103,19 @@ struct BrowserReplSessionTests {
             BrowserReplOutputLine(level: "error", text: "after t1"),
         ])
         #expect(driver.calls == ["tabs.list", "tab.info"])
+    }
+
+    @Test("An output cap reaches the runtime as its options argument")
+    func maxOutputOption() async {
+        let session = makeSession(driver: RecordingReplDriver())
+        defer { session.close() }
+
+        let capped = await session.evaluate(code: "console.log(evalArity, evalOptions);", maxOutput: 1234)
+        #expect(capped.lines == [BrowserReplOutputLine(level: "log", text: #"2 {"maxOutput":1234}"#)])
+        let unlimited = await session.evaluate(code: "console.log(evalOptions);", maxOutput: 0)
+        #expect(unlimited.lines == [BrowserReplOutputLine(level: "log", text: #"{"maxOutput":0}"#)])
+        let runtimeDefault = await session.evaluate(code: "console.log(evalArity);")
+        #expect(runtimeDefault.lines == [BrowserReplOutputLine(level: "log", text: "1")])
     }
 
     @Test("Uncaught errors and driver errors are reported with the runtime's formatter")
