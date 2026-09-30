@@ -749,14 +749,36 @@ pub(crate) struct AttachLifecycle {
     state: Arc<AttachLifecycleState>,
 }
 
-#[derive(Default)]
 struct AttachLifecycleState {
     canceled: AtomicBool,
     overflowed: AtomicBool,
     overflow_reported: AtomicBool,
+    /// Whether this viewer writes a replay's pending sequence after its own
+    /// sequences (`terminal-pending-sequence-v1`). A viewer that does not
+    /// would write color sequences into it, so it reconnects instead.
+    resumes_pending_sequence: AtomicBool,
+}
+
+impl Default for AttachLifecycleState {
+    fn default() -> Self {
+        Self {
+            canceled: AtomicBool::new(false),
+            overflowed: AtomicBool::new(false),
+            overflow_reported: AtomicBool::new(false),
+            resumes_pending_sequence: AtomicBool::new(true),
+        }
+    }
 }
 
 impl AttachLifecycle {
+    pub(crate) fn set_resumes_pending_sequence(&self, resumes: bool) {
+        self.state.resumes_pending_sequence.store(resumes, Ordering::Release);
+    }
+
+    fn resumes_pending_sequence(&self) -> bool {
+        self.state.resumes_pending_sequence.load(Ordering::Acquire)
+    }
+
     pub(crate) fn cancel(&self) {
         self.state.canceled.store(true, Ordering::Release);
     }
@@ -6695,6 +6717,18 @@ impl PtySurface {
         !taps.is_empty()
     }
 
+    /// Viewers without pending-sequence support reconnect from a fresh
+    /// snapshot rather than receive a replay that ends inside a sequence.
+    fn cancel_taps_without_pending_support(&self) {
+        self.taps.lock().unwrap().retain(|tap| {
+            let keep = tap.lifecycle.resumes_pending_sequence();
+            if !keep {
+                tap.lifecycle.cancel();
+            }
+            keep
+        });
+    }
+
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }
@@ -6727,6 +6761,9 @@ impl PtySurface {
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() =
             Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+        if !replay.pending_sequence.is_empty() {
+            self.cancel_taps_without_pending_support();
+        }
         self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
             cols: term.cols(),
             rows: term.rows(),
@@ -7119,6 +7156,9 @@ impl PtySurface {
                 self.attach_colors_pending.store(false, Ordering::Release);
                 self.attach_colors_force_pending.store(false, Ordering::Release);
                 *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+            }
+            if !replay.pending_sequence.is_empty() {
+                self.cancel_taps_without_pending_support();
             }
             self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                 cols: next.cols,
@@ -8512,6 +8552,26 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "byte mirror diverged:\n{}", failures.join("\n"));
+    }
+
+    /// A released client writes its color sequences right after a resize
+    /// replay, so a replay ending inside a sequence would put them inside it.
+    /// Those viewers keep the old behavior: they reconnect from a fresh
+    /// snapshot. Viewers that advertised pending-sequence support stay.
+    #[test]
+    fn resize_inside_a_sequence_disconnects_only_viewers_without_pending_support() {
+        let mux = Mux::new_for_test("mirror-resize-legacy-viewer", SurfaceOptions::default());
+        let surface = mirror_test_surface(&mux);
+        let mut capable = PinnedByteMirror::attach(&surface);
+        let legacy_lifecycle = AttachLifecycle::default();
+        legacy_lifecycle.set_resumes_pending_sequence(false);
+        let _legacy = surface.attach_stream_with_lifecycle(legacy_lifecycle.clone()).unwrap();
+
+        surface.apply_local_pty_output_for_test(b"\x1b[1;3").unwrap();
+        surface.resize(100, 30).unwrap();
+        assert!(legacy_lifecycle.is_canceled(), "a legacy viewer kept a mid-sequence replay");
+        surface.apply_local_pty_output_for_test(b"1mred").unwrap();
+        assert_eq!(capable.divergence(&surface), None);
     }
 
     /// Several people view one terminal at different sizes. Viewers join at

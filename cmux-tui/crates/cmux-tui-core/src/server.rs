@@ -13955,6 +13955,10 @@ fn handle_command_with_cancellation(
                     outbound_stream.clone(),
                     initial_size,
                 )?;
+            lifecycle.set_resumes_pending_sequence(
+                mux.control_clients
+                    .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
+            );
             let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
                 Ok(attach) => attach,
                 Err(error) => {

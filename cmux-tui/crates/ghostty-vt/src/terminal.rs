@@ -884,6 +884,10 @@ struct KittyReplayPixelCache(HashMap<u64, Arc<[u8]>>);
 struct VtBoundaryTracker {
     state: VtBoundaryState,
     utf8_remaining: u8,
+    /// Valid range of the next continuation byte. Ghostty's decoder is the
+    /// strict Hoehrmann DFA, so the first continuation after E0, ED, F0 and
+    /// F4 is narrower than 80..=BF.
+    utf8_next: (u8, u8),
     pending: Vec<u8>,
     pending_overflowed: bool,
 }
@@ -916,19 +920,34 @@ impl VtBoundaryTracker {
     fn feed(&mut self, data: &[u8]) {
         for &byte in data {
             let was_safe = self.is_safe();
-            // Ghostty prints U+FFFD for a ground-state code point that a
-            // non-continuation byte abandons. Those bytes are now part of the
+            // Ghostty prints U+FFFD for a ground-state code point that an
+            // invalid continuation abandons. Those bytes are now part of the
             // screen, so they must not be replayed a second time.
             let abandons_text = self.state == VtBoundaryState::Ground
                 && self.utf8_remaining != 0
-                && !matches!(byte, 0x80..=0xbf);
+                && !(self.utf8_next.0..=self.utf8_next.1).contains(&byte);
+            // ESC or a C1 introducer ends the sequence in progress: Ghostty
+            // dispatches an OSC, DCS or APC string there and abandons any
+            // other sequence. Only the new sequence is still pending.
+            // A C1 value inside a UTF-8 code point is text, not an introducer.
+            let restarts = self.state != VtBoundaryState::Ground
+                && (byte == 0x1b
+                    || (self.utf8_remaining == 0
+                        && matches!(byte, 0x90 | 0x98 | 0x9b | 0x9d | 0x9e | 0x9f)));
             self.feed_byte(byte);
             if self.is_safe() {
                 self.clear_pending();
                 continue;
             }
-            if was_safe || abandons_text {
+            if was_safe || abandons_text || restarts {
                 self.clear_pending();
+            }
+            // Inside an escape, CSI or control string Ghostty executes or
+            // ignores C0 controls on arrival; only DCS passthrough keeps them.
+            if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f)
+                && self.state != VtBoundaryState::DcsPassthrough
+            {
+                continue;
             }
             self.record_pending(byte);
         }
@@ -992,8 +1011,9 @@ impl VtBoundaryTracker {
 
     fn consume_utf8_byte(&mut self, byte: u8) -> bool {
         if self.utf8_remaining != 0 {
-            if matches!(byte, 0x80..=0xbf) {
+            if (self.utf8_next.0..=self.utf8_next.1).contains(&byte) {
                 self.utf8_remaining -= 1;
+                self.utf8_next = (0x80, 0xbf);
                 return true;
             }
             // Ghostty replaces the incomplete code point and retries this byte
@@ -1001,11 +1021,15 @@ impl VtBoundaryTracker {
             self.utf8_remaining = 0;
         }
 
-        self.utf8_remaining = match byte {
-            0xc2..=0xdf => 1,
-            0xe0..=0xef => 2,
-            0xf0..=0xf4 => 3,
-            _ => 0,
+        (self.utf8_remaining, self.utf8_next) = match byte {
+            0xc2..=0xdf => (1, (0x80, 0xbf)),
+            0xe0 => (2, (0xa0, 0xbf)),
+            0xed => (2, (0x80, 0x9f)),
+            0xe1..=0xef => (2, (0x80, 0xbf)),
+            0xf0 => (3, (0x90, 0xbf)),
+            0xf4 => (3, (0x80, 0x8f)),
+            0xf1..=0xf3 => (3, (0x80, 0xbf)),
+            _ => (0, (0x80, 0xbf)),
         };
         self.utf8_remaining != 0
     }
