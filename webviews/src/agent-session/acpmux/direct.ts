@@ -135,6 +135,15 @@ export class AcpmuxDirectClient {
       this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
       const harnesses = await this.request("_acpmux/harnesses", {});
       this.catalog = normalizeCatalog(harnesses);
+      if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
+        this.selectedSessionId = this.sessions[0]?.sessionId;
+        this.events = [];
+        this.rows.clear();
+        this.firstSeq = undefined;
+        this.lastSeq = 0;
+        this.summary = undefined;
+        this.pendingPermission = undefined;
+      }
       if (!this.selectedSessionId) this.selectedSessionId = this.sessions[0]?.sessionId;
       if (this.selectedSessionId) await this.attach(this.selectedSessionId);
       this.hasConnected = true;
@@ -208,6 +217,7 @@ export class AcpmuxDirectClient {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId) {
         this.selectedSessionId = this.sessions[0]?.sessionId;
+        const generation = ++this.selectionGeneration;
         this.events = [];
         this.rows.clear();
         this.firstSeq = undefined;
@@ -215,6 +225,7 @@ export class AcpmuxDirectClient {
         this.summary = undefined;
         this.pendingPermission = undefined;
         this.emit("session purged");
+        if (this.selectedSessionId) void this.attach(this.selectedSessionId, undefined, generation).catch(() => undefined);
       }
       return;
     }
