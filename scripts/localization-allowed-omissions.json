@@ -1,4 +1,16 @@
 {
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": "Actions is the same French and English noun; cmux.json and the ellipsis are invariant literals."
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": "Actions is the same French and English noun; cmux.json is an invariant literal."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
