@@ -52,7 +52,7 @@ if [ "${1:-}" = "notarytool" ]; then
     prev="$arg"
   done
   [ -f "$key" ] || { echo "fake xcrun: --key file missing" >&2; exit 91; }
-  [ "$(stat -f %Lp "$key")" = 600 ] || { echo "fake xcrun: --key file must be mode 600" >&2; exit 92; }
+  [ "$(stat -c %a "$key" 2>/dev/null || stat -f %Lp "$key")" = 600 ] || { echo "fake xcrun: --key file must be mode 600" >&2; exit 92; }
   [ "$(cat "$key")" = fixture-p8 ] || { echo "fake xcrun: --key file content" >&2; exit 93; }
   [ "$key_id" = FIXTUREKEY ] && [ "$issuer" = fixture-issuer ] || { echo "fake xcrun: key id or issuer" >&2; exit 94; }
   printf 'notary-key %s\n' "$key" >> "$CMUX_TEST_CALL_LOG"
