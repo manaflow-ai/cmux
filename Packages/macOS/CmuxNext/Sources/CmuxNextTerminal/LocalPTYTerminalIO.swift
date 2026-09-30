@@ -78,8 +78,11 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         writeSource = DispatchSource.makeWriteSource(fileDescriptor: master, queue: writeQueue)
         exitSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: readQueue)
 
-        readSource.setEventHandler { [continuation, master] in
-            Self.drain(master, into: continuation)
+        readSource.setEventHandler { [continuation, master, readSource] in
+            // The slave side closed while the shell may live on: stop
+            // reading, or the level-triggered source fires forever on the
+            // hung-up master. The exit source still ends the stream.
+            if Self.drain(master, into: continuation) == .hangup { readSource.cancel() }
         }
         exitSource.setEventHandler { [weak self] in
             self?.finish()
@@ -139,14 +142,22 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         continuation.finish()
     }
 
-    private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) {
+    enum DrainResult { case drained, hangup }
+
+    /// Reads until EAGAIN (drained: wait for readiness) or until the slave
+    /// side closed (0, EIO or another error: terminal). EINTR retries.
+    @discardableResult
+    private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
         var buffer = [UInt8](repeating: 0, count: 65_536)
         while true {
             // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
-            // EAGAIN: drained. EIO or 0: the slave side closed.
-            guard count > 0 else { return }
-            continuation.yield(.output(Data(buffer[0..<count])))
+            if count > 0 {
+                continuation.yield(.output(Data(buffer[0..<count])))
+                continue
+            }
+            if count < 0, errno == EINTR { continue }
+            return count < 0 && errno == EAGAIN ? .drained : .hangup
         }
     }
 
