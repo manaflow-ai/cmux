@@ -75,12 +75,14 @@ enum PaneHandlers {
             return ctx.refuse(reason)
         case .newColumn(_, let anchor):
             let intent = content?.beginFocusIntent()
-            let width = ctx.services.newColumnWidth(nextTo: pane)
+            let spawn = ctx.services.newColumnWidth(nextTo: pane)
+            let width = spawn.width
             ctx.registry.track(Task {
                 do {
                     let created = try await connection.newColumn(rightOf: anchor, width: width,
                                                                  options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                     content?.expectFocus(on: created.surface, generation: intent)
+                    spawn.commit()
                     return nil
                 } catch {
                     logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")

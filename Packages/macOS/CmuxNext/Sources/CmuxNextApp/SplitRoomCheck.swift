@@ -50,15 +50,25 @@ extension AppServices {
     }
 
     /// The width to send with a new column next to `pane`, from every path
-    /// that opens one. On a shown workspace it also shrinks a lone
-    /// full-width column so both fit (`LayoutModel.prepareNewColumn`, an
-    /// optimistic width intent). `source` is the pane a moved tab leaves.
-    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> Double {
+    /// that opens one, and `commit`, which the caller runs once the new
+    /// column exists: on a shown workspace it shrinks a lone full-width
+    /// column so both fit (`LayoutModel.commitNewColumnResize`; cmux-tui
+    /// refuses the width while the lone column has no viewport). `source`
+    /// is the pane a moved tab leaves.
+    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> NewColumnSpawn {
         guard let controller = paneController(for: pane), let content = controller.workspace else {
-            return DesignSettings.shared.defaultColumnWidth
+            return NewColumnSpawn(width: DesignSettings.shared.defaultColumnWidth, commit: {})
         }
         // A pane whose only tab moves out closes, even the anchor itself.
         let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
-        return content.layoutModel.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
+        let model = content.layoutModel
+        let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
+        return NewColumnSpawn(width: request.width, commit: { [weak model] in model?.commitNewColumnResize(request) })
     }
+}
+
+/// A new column's width and the lone column's width change to run after it exists.
+struct NewColumnSpawn {
+    let width: Double
+    let commit: @MainActor () -> Void
 }

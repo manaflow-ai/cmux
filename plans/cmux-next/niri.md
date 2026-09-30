@@ -118,6 +118,15 @@ shows. W4 gives the niri result. It does not apply when the lone column is not f
 width, when there are two or more columns, when the new column is wider than 0.9 of the
 view, or when the lone column closes in the same step (its only tab moves out).
 
+W5b. Order and shape (found live on tag nxset, 2026-09-30). A workspace that never had
+a second column is a split tree in cmux-tui: its root is a leaf, not a viewport, and the
+app mirrors it as `.splits`, not as one column. W4 treats that shape as a lone
+full-width column. cmux-tui refuses `set-viewport-pane-width` while the root is not a
+viewport, so the width change goes out after the new column exists
+(`LayoutModel.prepareNewColumn` returns it, `commitNewColumnResize` sends it once the
+new-column command succeeded). Sent first, it was refused and the first column stayed
+full width, scrolled off screen.
+
 W5. Every path that opens a column uses W1 to W4: the New Column action, a split with no
 room, and a tab or tab group dropped into a new column (`AppServices.newColumnWidth`,
 `LayoutModel.prepareNewColumn`, rules in `NewColumnWidth.plan`). The width change is a

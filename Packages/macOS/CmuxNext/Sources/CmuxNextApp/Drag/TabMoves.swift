@@ -69,7 +69,8 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
-        let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        let width = spawn.width
         services.registry.track(Task {
             let ok = await daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
@@ -81,6 +82,7 @@ enum TabMoves {
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             } != nil
+            if ok { spawn.commit() }
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })

@@ -39,7 +39,8 @@ extension WorkspaceContentController {
             guard let handle = handles.panes[after] else { return }
             let cwd = panes[after]?.selectedTab?.cwd
             let key = workspace.key
-            spawnPane("new-pane-right") {
+            let request = layoutModel.prepareNewColumn(nextTo: after)
+            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
                 try await $0.newColumn(rightOf: handle, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
             }
         case .split(let pane, let axis):
@@ -51,9 +52,9 @@ extension WorkspaceContentController {
             case .split:
                 spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
             case .newColumn(_, let anchor):
-                let width = layoutModel.prepareNewColumn(nextTo: pane)
-                spawnPane("new-pane-right") {
-                    try await $0.newColumn(rightOf: anchor, width: width, options: SpawnOptions(cwd: cwd, workspace: key))
+                let request = layoutModel.prepareNewColumn(nextTo: pane)
+                spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+                    try await $0.newColumn(rightOf: anchor, width: request.width, options: SpawnOptions(cwd: cwd, workspace: key))
                 }
             case .refused(let reason):
                 services.registry.refuse(reason)
@@ -61,13 +62,16 @@ extension WorkspaceContentController {
         }
     }
 
-    /// Runs a pane-creating command and focuses the new pane when it lands.
-    private func spawnPane(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
+    /// Runs a pane-creating command and focuses the new pane when it lands;
+    /// `then` runs after it succeeded (a new column's width change).
+    private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
+                           _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
         Task {
             do {
                 expectFocus(on: try await body(connection).surface, generation: intent)
+                then?()
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
