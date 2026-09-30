@@ -201,9 +201,7 @@ struct CloudMachinesHeaderCountTests {
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
-            isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
         )).fittingSize.height
     }
 
