@@ -47,6 +47,9 @@ Cases:
       be loud, since this rule reads the constructions the id scan avoids.
   (v) A non-string id in a bucket is reported as a violation, not raised as a
       traceback, so a typo in the inventory names its own line.
+  (w) The same for a bucket that should be an object and is not: the guard
+      reports it and keeps checking, so one wrong bucket does not hide the
+      findings in the others.
 """
 
 import json
@@ -403,6 +406,22 @@ def case_v_non_string_entry(tmp):
                    "listedCommandIds entry None must be a string")
 
 
+def case_w_wrong_bucket_shape(tmp):
+    for index, (name, bad, expected) in enumerate((
+        ("dynamicFamilies", ["chat.model."],
+         "dynamicFamilies must be an object keyed by id prefix"),
+        ("notCommandIds", None,
+         "notCommandIds must be an object keyed by the literal"),
+    )):
+        inventory = fixture_inventory()
+        inventory[name] = bad
+        root = make_fixture_root(os.path.join(tmp, "w{0}".format(index)),
+                                 inventory=inventory)
+        # The other buckets are still checked, so the run reports this bucket
+        # and whatever its emptiness makes unclassified, not a traceback.
+        expect_failure(root, "(w) {0} wrong shape".format(name), expected)
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="palette-agent-surface-guard-") as tmp:
         case_a_real_repo()
@@ -427,6 +446,7 @@ def main():
         case_t_missing_bucket(tmp)
         case_u_blind_scan(tmp)
         case_v_non_string_entry(tmp)
+        case_w_wrong_bucket_shape(tmp)
     print("test_ci_command_palette_agent_surface_guard: ok")
     return 0
 

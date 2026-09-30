@@ -409,6 +409,22 @@ def check(
     families = inventory.get("dynamicFamilies", {})
     not_commands = inventory.get("notCommandIds", {})
 
+    # Both are objects: their keys are read as ids or prefixes and their values
+    # as records. A bucket of another shape is reported the way a wrong list
+    # bucket is and then replaced with an empty one, so the guard names the line
+    # to fix rather than exiting on a traceback from its own inventory.
+    if not isinstance(families, dict):
+        violations.append(
+            "dynamicFamilies must be an object keyed by id prefix"
+        )
+        families = {}
+    if not isinstance(not_commands, dict):
+        violations.append(
+            "notCommandIds must be an object keyed by the literal that is not "
+            "a command id"
+        )
+        not_commands = {}
+
     for name, entries in (("listedCommandIds", listed), ("excludedCommandIds", excluded)):
         if not isinstance(entries, list):
             violations.append("{0} must be a list".format(name))
