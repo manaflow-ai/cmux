@@ -62,11 +62,13 @@ async function probe(runtime, name, details, work) {
 async function hookStatus(runtime) {
   const marker = `${runtime.marker}-hooks`;
   const done = `${marker}-done`;
+  const doneHead = marker;
+  const doneTail = "-done";
   const statusCommand = [
     "status=$(cmux --json agent hook status claude codex | tr -d '\\n');",
     `printf '%s\\n' \"$status\" | sed -n 's/.*\"provider\":\"claude\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-claude:\\1/p';`,
     `printf '%s\\n' \"$status\" | sed -n 's/.*\"provider\":\"codex\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-codex:\\1/p'`,
-    `; printf '\\n%s\\n' '${done}'`,
+    `; printf '\\n%s%s\\n' '${doneHead}' '${doneTail}'`,
   ].join(" ");
   return probe(runtime, "agentHooks", { providers: { claude: null, codex: null } }, async (deadline, observation) => {
     await runtime.typeLine(
@@ -81,29 +83,33 @@ async function hookStatus(runtime) {
         done,
         remainingMs(deadline, runtime.now),
       );
+      const screen = await runtime.runTui(
+        ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
+        remainingMs(deadline, runtime.now),
+      );
+      const output = commandOutput(screen, "hook status screen read");
+      observation.lastSeen = output.slice(-2000);
+      for (const provider of ["claude", "codex"]) {
+        const state = output.match(new RegExp(`${marker}-${provider}:([a-z]+)`))?.[1] ?? "unknown";
+        if (state === "unknown") throw new Error(`missing ${provider} hook status`);
+        observation.providers[provider] = { installed: state === "installed", state };
+      }
     } catch (error) {
       const remaining = deadline - runtime.now();
       if (remaining > 0) {
-        const screen = await runtime.runTui(
-          ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
-          Math.min(1_000, Math.ceil(remaining)),
-        );
-        observation.lastSeen = { screen: screen.stdout.slice(-2000), error: error.message.slice(0, 400) };
+        try {
+          const screen = await runtime.runTui(
+            ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
+            Math.min(1_000, Math.ceil(remaining)),
+          );
+          observation.lastSeen = { screen: screen.stdout.slice(-2000), error: error.message.slice(0, 400) };
+        } catch (diagnosticError) {
+          observation.lastSeen = { error: `${error.message.slice(0, 300)}; diagnostic: ${diagnosticError.message.slice(0, 200)}` };
+        }
       } else {
         observation.lastSeen = { error: error.message.slice(0, 400) };
       }
       throw error;
-    }
-    const screen = await runtime.runTui(
-      ["--socket", runtime.localSocket, "terminal", runtime.terminal, "screen", "read"],
-      remainingMs(deadline, runtime.now),
-    );
-    const output = commandOutput(screen, "hook status screen read");
-    observation.lastSeen = output.slice(-2000);
-    for (const provider of ["claude", "codex"]) {
-      const state = output.match(new RegExp(`${marker}-${provider}:([a-z]+)`))?.[1] ?? "unknown";
-      if (state === "unknown") throw new Error(`missing ${provider} hook status`);
-      observation.providers[provider] = { installed: state === "installed", state };
     }
   });
 }
@@ -119,7 +125,7 @@ async function agentStatus(runtime, name, event, expectedState) {
     );
     await pollHost(runtime, deadline, observation,
       async () => (await readHost(runtime, ["agent", "list"], deadline))
-        .filter((record) => record.surface === runtime.terminal),
+        .filter((record) => record.terminal_id === runtime.terminal),
       (records) => records.some((record) => record.state === expectedState && record.source === "hook"),
     );
     observation.emitToHostMs = Math.round(runtime.now() - startedAt);
