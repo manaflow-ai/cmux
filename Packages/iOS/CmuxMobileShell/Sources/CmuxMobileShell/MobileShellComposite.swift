@@ -3477,7 +3477,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // an empty result must wait for the refresh and re-read before we
         // conclude that there is no saved Mac.
         if hydratePairedMacs,
-           loadedMacs.isEmpty,
+           !loadedMacs.contains(where: { !isDemonstrationPairedMac($0) }),
            let deferredBackupRefresh {
             await deferredBackupRefresh.value
             if let result = storedMacReconnectInterruptionResult(generation: generation) {
