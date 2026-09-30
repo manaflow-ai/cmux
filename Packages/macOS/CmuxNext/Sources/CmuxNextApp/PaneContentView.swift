@@ -14,6 +14,8 @@ final class PaneContentView: NSView {
     var onFocus: (() -> Void)?
     /// The view entered a window (first layout, workspace switch).
     var onWindow: (() -> Void)?
+    /// The pane's size changed (divider drag, window resize, animation).
+    var onResize: (() -> Void)?
 
     init(stripModel: TabStripModel) {
         stripView = TabStripView(model: stripModel)
@@ -42,17 +44,23 @@ final class PaneContentView: NSView {
         super.layout()
         let stripHeight = Metrics.tabStripHeight
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
-        contentHost.frame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
+        let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
+        guard contentHost.frame != hostFrame else { return }
+        contentHost.frame = hostFrame
+        onResize?()
     }
 
     /// Swaps the hosted content view. Returns the previous one.
     @discardableResult
     func show(_ view: NSView?) -> NSView? {
         let previous = content
-        guard previous !== view else { return previous }
-        let wasFocused = previous.map { window?.firstResponder.flatMap { $0 as? NSView }?.isDescendant(of: $0) ?? false } ?? false
-        previous?.removeFromSuperview()
-        if let view {
+        guard previous !== view || (view != nil && !hostsContent) else { return previous }
+        // Another pane may have reparented `previous` already (a moved tab):
+        // only a view still installed here is removed or counts as focused.
+        let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
+        let wasFocused = hosted.map { window?.firstResponder.flatMap { $0 as? NSView }?.isDescendant(of: $0) ?? false } ?? false
+        if hosted !== view { hosted?.removeFromSuperview() }
+        if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
@@ -60,6 +68,19 @@ final class PaneContentView: NSView {
         content = view
         if wasFocused { onFocus?() }
         return previous
+    }
+
+    /// Lets the content view go without touching it if another pane took
+    /// it. Unlike `show(nil)`, never reports focus.
+    func detachContent() {
+        if hostsContent { content?.removeFromSuperview() }
+        content = nil
+    }
+
+    /// `content` is installed in this pane (another pane may have taken it).
+    var hostsContent: Bool {
+        guard let content else { return false }
+        return content.superview === contentHost
     }
 
     override func viewDidMoveToWindow() {
