@@ -1388,7 +1388,9 @@ jobs:
       - mobile-core-package
       - ios-simulator-build
       - ios-simulator
-    if: ${{ always() }}
+    # Preserve the aggregate verdict after a failed suite, but do not allocate
+    # a Blacksmith runner after the workflow has been cancelled.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

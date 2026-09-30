@@ -213,6 +213,7 @@ def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
         (".github/workflows/ci-guards.yml", "guard-status"),
         (".github/workflows/ci-macos.yml", "macos-status"),
         (".github/workflows/ci-web.yml", "web-status"),
+        (".github/workflows/test-ios.yml", "ios-tests"),
     ):
         assert "if: ${{ !cancelled() }}" in job_block(path, job_id)
 
