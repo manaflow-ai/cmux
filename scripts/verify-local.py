@@ -108,7 +108,8 @@ def affected_checks(repo, base):
                    for pattern in (argv[1],) + CHECK_INPUTS[name]):
                 reasons[name].append(path)
                 matched = True
-        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md")
+        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md",
+                          "CODE_OF_CONDUCT.md", "SECURITY.md")
                  or (path.endswith(".md") and path.startswith(("docs/", "skills/"))))
         if not matched and not prose:
             unknown.append(path)
@@ -318,10 +319,17 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                          "-D", "DEBUG", "-enable-bare-slash-regex"] +
                         ["./" + str(p.relative_to(repo.resolve())) for p in paths]))
         if compiler:
+            # A compiler that can parse the selected files is still useful
+            # evidence when its version probe is slow or unavailable on a
+            # hosted runner. Keep the receipt honest and distinguish that
+            # from an absent compiler without making the guard flaky.
+            result["environment"]["toolchain"] = "Swift (version probe unavailable)"
             try:
                 version = subprocess.run([compiler, "--version"], capture_output=True, text=True,
                                          timeout=min(timeout, 5), check=True)
-                result["environment"]["toolchain"] = version.stdout.strip()[:2048]
+                description = (version.stdout + version.stderr).strip()
+                if description:
+                    result["environment"]["toolchain"] = description[:2048]
             except KeyboardInterrupt:
                 cancelled = True
                 receipt.check(result, "preparation").update(

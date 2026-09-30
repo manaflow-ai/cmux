@@ -10,6 +10,9 @@ export type CoderouterOutcome = {
   readonly agent?: string;
   readonly attempts?: number;
   readonly refreshRetries?: number;
+  /** Time spent waiting for upstream capacity before the answer. */
+  readonly heldMs?: number;
+  readonly holdCount?: number;
   readonly upstreamKind?: string;
   readonly upstreamAccountId?: string;
   readonly responseStreamed?: boolean;
