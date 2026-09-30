@@ -57,7 +57,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool
     ) -> ControlSurfaceCloseResolution {
         onSurfaceClose?()
         return closeResolution

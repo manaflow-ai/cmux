@@ -33,7 +33,7 @@
           "afterBullets": [
             "Aplikacija macOS proverava da li postoje ažuriranja preko Sparkle, koji može poslati verzije vašeg operativnog sistema i aplikacije na naš server za ažuriranje. Aplikacija iPhone i iPad se ažurira preko App Store, a ne Sparkle.",
             "Stranica koristi PostHog za analizu prikaza stranica i navigacije. PostHog pohranjuje kolačić da razlikuje posjetitelje. Ako se pridružite listi čekanja platforme, vaša poslana e-pošta se snima u PostHog tako da vas možemo obavijestiti. Ako pošaljete obrazac za kontakt za preduzeće, mi bilježimo kompaniju i kontakt podatke koje navedete u PostHog i šaljemo ih u naš privatni Slack radni prostor i e-poštu osnivača kako bismo mogli odgovoriti. Analitiku web stranice možete blokirati ekstenzijom preglednika koja blokira skripte za praćenje.",
-            "iPhone i iPad aplikacija šalje analitičke događaje proizvoda našem PostHog proxy serveru. Ovi događaji pomažu u dijagnosticiranju pouzdanosti, razumijevanju upotrebe funkcija i poboljšanju aplikacije. Oni uključuju događaje pokretanja aplikacije i sesije, status prijave, pokušaje uparivanja i rezultate, oporavak veze, otvaranje radnog prostora, broj bajtova i redova za unos terminala i rezultate za prijavu obavijesti ili dubinske veze obavijesti. Mobilna analitika ne šalje na PostHog tekst naredbe terminala, izlaz terminala, odabrane fotografije ili transkripte govora. Prije prijave, događaji koriste nasumični identifikator klijenta po instalaciji. Nakon prijave, naš server prilaže identifikator vašeg Stack Auth naloga prije prosljeđivanja događaja na PostHog. Analitika i izvještaji o rušenju podrazumijevano su omogućeni; možete ih isključiti u postavkama. Isključivanjem te kontrole zaustavlja se baferovanje ili slanje analitike i zaustavlja se izvještavanje o padu. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) da zatražite brisanje analitike povezane s vašim računom.",
+            "iPhone i iPad aplikacija šalje analitičke događaje proizvoda našem PostHog proxy serveru. Ovi događaji pomažu u dijagnosticiranju pouzdanosti, razumijevanju upotrebe funkcija i poboljšanju aplikacije. Oni uključuju događaje pokretanja aplikacije i sesije, status prijave, pokušaje uparivanja i rezultate, oporavak veze, otvaranje radnog prostora, broj bajtova i redova za unos terminala i rezultate za prijavu obavijesti ili dubinske veze obavijesti. Mobilna analitika ne šalje na PostHog tekst naredbe terminala, izlaz terminala, odabrane fotografije ili transkripte govora. Prije prijave, događaji koriste nasumični identifikator klijenta po instalaciji. Nakon prijave, naš server prilaže identifikator vašeg Stack Auth naloga prije prosljeđivanja događaja na PostHog. Analitika i izvještaji o rušenju podrazumijevano su omogućeni; možete ih isključiti u postavkama. Isključivanjem te kontrole zaustavlja se baferovanje ili slanje analitike i zaustavlja se izvještavanje o padu. Kontaktirajte [founders@cmux.com](mailto:founders@cmux.com) da zatražite brisanje analitike povezane s vašim računom.",
             "iPhone i iPad aplikacija može snimati maskirane reprodukcije sesija putem Sentry kako bi nam pomogla u dijagnosticiranju padova i neispravnih tokova. Reprodukcija je snimak niske rezolucije vlastitih ekrana aplikacije koji prikazuje raspored. Sav tekst, slike i web sadržaj su maskirani, a površine terminala, preglednika, prenošenog ekrana i kamere uvijek su blokirane, na vašem uređaju prije otpremanja, tako da njihov sadržaj nikada ne napušta vaš uređaj. Reprodukcije se snimaju za mali uzorak sesija i za trenutke prije greške, i samo dok je u postavkama omogućeno Dijeli analitiku i izvještaje o rušenju. Isključivanjem te kontrole zaustavlja se snimanje reprodukcija i brišu se baferovani podaci reprodukcija na uređaju."
           ]
         },
@@ -48,7 +48,7 @@
         {
           "heading": "3. Privatnost djece",
           "paragraphs": [
-            "Usluga nije usmjerena na bilo koga mlađeg od 13 godina i ne prikupljamo svjesno informacije od bilo koga mlađeg od 13 godina. Ako vjerujete da smo prikupili takve informacije, kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com)."
+            "Usluga nije usmjerena na bilo koga mlađeg od 13 godina i ne prikupljamo svjesno informacije od bilo koga mlađeg od 13 godina. Ako vjerujete da smo prikupili takve informacije, kontaktirajte [founders@cmux.com](mailto:founders@cmux.com)."
           ]
         }
       ]
@@ -99,7 +99,7 @@
         "Ograničite ili prigovorite na obradu."
       ],
       "afterBullets": [
-        "Za korištenje ovih prava, kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Za korištenje ovih prava, kontaktirajte [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     },
     {
@@ -117,13 +117,13 @@
     {
       "heading": "VIII. Kontaktirajte nas",
       "paragraphs": [
-        "Pitanja o ovoj politici mogu se poslati na [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Pitanja o ovoj politici mogu se poslati na [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     },
     {
       "heading": "IX. Zadržavanje podataka",
       "paragraphs": [
-        "Izvještaji o padu i dijagnostika čuvaju se samo koliko je potrebno. Maskirane reprodukcije sesija brišu se iz Sentry 90 dana nakon snimanja. Identifikatori računa i zapisi autentifikacije čuvaju se dok je račun aktivan, zatim se brišu ili anonimiziraju, osim kada sigurnosne, pravne, porezne, naplatne ili obaveze sprečavanja prevare zahtijevaju čuvanje. Metapodaci uređaja i uparivanja čuvaju se do prekida veze ili brisanja, a Apple tokeni samo dok su obavještenja uključena. Web i mobilna analitika, analitika povezana s računom, događaji ciklusa naplate i Stripe identifikatori u PostHog čuvaju se do 24 mjeseca, osim ako ranije zatražite brisanje. Postavke računa brišu ili anonimiziraju cmux podatke, brišu povezanu PostHog osobu i traže brisanje web i mobilnih analitičkih događaja i snimaka. Neki naplatni zapisi i Stripe identifikatori mogu se čuvati zbog sigurnosnih, pravnih, poreznih, naplatnih ili obaveza sprečavanja prevare. Brisanje kod pružatelja može biti asinhrono. Zatražite brisanje u postavkama ili putem [founders@manaflow.com](mailto:founders@manaflow.com)."
+        "Izvještaji o padu i dijagnostika čuvaju se samo koliko je potrebno. Maskirane reprodukcije sesija brišu se iz Sentry 90 dana nakon snimanja. Identifikatori računa i zapisi autentifikacije čuvaju se dok je račun aktivan, zatim se brišu ili anonimiziraju, osim kada sigurnosne, pravne, porezne, naplatne ili obaveze sprečavanja prevare zahtijevaju čuvanje. Metapodaci uređaja i uparivanja čuvaju se do prekida veze ili brisanja, a Apple tokeni samo dok su obavještenja uključena. Web i mobilna analitika, analitika povezana s računom, događaji ciklusa naplate i Stripe identifikatori u PostHog čuvaju se do 24 mjeseca, osim ako ranije zatražite brisanje. Postavke računa brišu ili anonimiziraju cmux podatke, brišu povezanu PostHog osobu i traže brisanje web i mobilnih analitičkih događaja i snimaka. Neki naplatni zapisi i Stripe identifikatori mogu se čuvati zbog sigurnosnih, pravnih, poreznih, naplatnih ili obaveza sprečavanja prevare. Brisanje kod pružatelja može biti asinhrono. Zatražite brisanje u postavkama ili putem [founders@cmux.com](mailto:founders@cmux.com)."
       ]
     }
   ]

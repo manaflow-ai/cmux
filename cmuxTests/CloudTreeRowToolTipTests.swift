@@ -129,13 +129,14 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row's full link survives a truncated title")
+    @Test("A port row explains its in-app action without suggesting a directly reachable private URL")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
-        #expect(toolTip.contains("http://10.0.0.4:3000"))
+        #expect(toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
     }
 
     @Test("An untitled browser row is still labelled for assistive technology")
@@ -265,15 +266,16 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port row whose link is its whole title has no hover text")
-    func barePortRowHasNoToolTip() {
+    @Test("A port without a process name still explains that no VPN setup is needed")
+    func barePortRowExplainsOpenAction() {
         let cell = Self.cell(presence: [])
         cell.configure(
             node: Self.barePortNode(),
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == nil)
+        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(cell.accessibilityLabel() == "Port 3000, Open in cmux")
     }
 
     // MARK: - Fixtures
@@ -409,8 +411,7 @@ struct CloudTreeRowToolTipTests {
         )
     }
 
-    /// A forwarded port the daemon reported with no process name and no detail,
-    /// so its link is the only fact the row has and the row already draws it.
+    /// A forwarded port the daemon reported with no process name or detail.
     private static func barePortNode() -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(

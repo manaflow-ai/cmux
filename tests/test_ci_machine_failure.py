@@ -28,6 +28,32 @@ class MachineFailureTests(unittest.TestCase):
         log = "##[error]The following directories are not writable by your user:\n  /opt/homebrew\n"
         self.assertEqual(machine_failure.reason(log), "the Mac's Homebrew prefix is not writable by the runner user")
 
+    def test_a_missing_pinned_xcode_is_a_machine_failure(self):
+        for line in (
+            "##[error]Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer "
+            "on runner cmux14-glaeda-1. [cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3",
+            "Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer",
+            "Pinned Xcode developer dir has no usable macOS SDK: /Applications/Xcode_26.3.app/Contents/Developer",
+            "This macOS 26 runner has no Xcode 26.6, the version scripts/ci/xcode-pins.txt pins for its pool. "
+            "Installed: Xcode.app=26.3",
+        ):
+            with self.subTest(line=line[:40]):
+                self.assertEqual(machine_failure.reason(PREFIX + line), "the Mac does not have the Xcode the job pins")
+
+    def test_a_package_brew_could_not_install_is_a_machine_failure(self):
+        for line in (
+            "##[error][cmux-ci machine: brew-provision] tmux is missing on cmux-austin-mini-1-glaeda-1: "
+            "/opt/homebrew is owned by admin and passwordless sudo is unavailable to become them; "
+            "provision tmux on that machine",
+            "::error::[cmux-ci machine: brew-provision] ffmpeg is missing on this runner: "
+            "there is no brew on PATH; provision ffmpeg on that machine",
+        ):
+            with self.subTest(line=line[:60]):
+                self.assertEqual(
+                    machine_failure.reason(PREFIX + line),
+                    "the Mac is missing a package the tests need and Homebrew could not install it",
+                )
+
     def test_a_started_test_makes_it_the_codes_failure(self):
         for started in (
             "Test Case '-[cmuxUITests.SidebarTests testA]' started.",

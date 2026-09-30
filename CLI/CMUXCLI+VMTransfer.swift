@@ -456,7 +456,7 @@ extension CMUXCLI {
         guard !isDirectory else {
             throw CLIError(message: "vm push --secret delivers one file; \(localPath) is a directory. Pack it first (tar czf), or push it without --secret if it holds nothing secret.")
         }
-        guard mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil else {
+        guard mode.range(of: "^[0-7]{3,4}\\z", options: .regularExpression) != nil else {
             throw CLIError(message: "--mode must be three or four octal digits such as 600 or 0644 (got '\(mode)')")
         }
         let data = try Data(contentsOf: localURL)
@@ -832,8 +832,26 @@ extension CMUXCLI {
             guard Date() < deadline else {
                 throw CLIError(message: "Timed out after \(timeoutSeconds)s waiting for \(vmID) (last status: \(status)). Re-run with --timeout <seconds> to wait longer.")
             }
-            Thread.sleep(forTimeInterval: 3)
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            if remainingSeconds > 0 {
+                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
+            }
         }
+    }
+
+    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
+    /// default so tests against a mock socket do not wait out the real cadence.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed >= 0.01,
+              parsed <= 3 else {
+            return 3
+        }
+        return parsed
     }
 
     // MARK: - transfer plumbing
@@ -1426,7 +1444,7 @@ extension CMUXCLI {
         subject: String
     ) throws {
         let firstToken = report.split(separator: " ").first.map(String.init) ?? ""
-        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil {
+        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil {
             guard firstToken == expectedDigest else {
                 throw CLIError(message: "Digest mismatch on \(subject) — expected \(expectedDigest), machine reports \(firstToken)")
             }
