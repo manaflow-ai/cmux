@@ -2813,7 +2813,10 @@ final class CmuxConfigStore: ObservableObject {
                         actionSourcePath: entry.actionSourcePath,
                         iconSourcePath: entry.iconSourcePath
                     ),
-                    terminalCommandSourcePath: nil
+                    terminalCommandSourcePath: nil,
+                    // The button is the referenced action itself, unrelabeled,
+                    // so it keeps that action's identity for discovery.
+                    actionReferenceID: resolvedIdentifier
                 )
             }
             let resolvedButton = CmuxSurfaceTabBarButton(
