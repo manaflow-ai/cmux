@@ -61,17 +61,34 @@ public struct CloudLayoutSyncPlanner: Sendable {
             terminalByTab[id] = terminal
         }
 
-        let wanted = desired.leaves
-        let wantedTabs = wanted.flatMap(\.tabIDs)
-        guard wanted.allSatisfy({ !$0.tabIDs.isEmpty }), Set(wantedTabs).count == wantedTabs.count else {
+        let nativeTabs = desired.leaves.flatMap(\.tabIDs)
+        guard desired.leaves.allSatisfy({ !$0.tabIDs.isEmpty }), Set(nativeTabs).count == nativeTabs.count else {
             return .unsupported("the native tree has an empty pane or a repeated tab")
         }
         let panes = daemon.leaves
         let daemonTabs = panes.flatMap(\.tabIDs)
         let scratch = scratchTabIDs.intersection(daemonTabs)
-        guard Set(daemonTabs).subtracting(scratch) == Set(wantedTabs) else {
-            return .notReady("native and machine tab membership differ")
+        // Membership is owned by creates and closes, not by this writer. A native tab
+        // the machine already closed is dropped, and a machine tab this Mac has not
+        // projected yet (another client, an agent) stays beside its current neighbor,
+        // so the user's arrangement is written without waiting for either to settle.
+        guard var target = desired.keeping(Set(daemonTabs).subtracting(scratch)) else {
+            return .notReady("no native tab is on the machine")
         }
+        var placed = Set(target.leaves.flatMap(\.tabIDs))
+        for pane in panes {
+            for (index, tabID) in pane.tabIDs.enumerated() where !placed.contains(tabID) && !scratch.contains(tabID) {
+                if let anchor = pane.tabIDs[..<index].last(where: placed.contains) {
+                    target = target.inserting(tabID, beside: anchor, after: true)
+                } else if let anchor = pane.tabIDs[(index + 1)...].first(where: placed.contains) {
+                    target = target.inserting(tabID, beside: anchor, after: false)
+                } else {
+                    return .notReady("a machine pane holds only tabs this Mac has not shown yet")
+                }
+                placed.insert(tabID)
+            }
+        }
+        let wanted = target.leaves
         func close(_ tabID: String) -> CloudLayoutSyncStep {
             guard let terminal = terminalByTab[tabID] else { return .unsupported("a scratch tab has no terminal") }
             return .closeScratch(tabID: tabID, terminalID: terminal)
@@ -132,9 +149,9 @@ public struct CloudLayoutSyncPlanner: Sendable {
         }
 
         var leafCursor = 0
-        let target = LayoutNode(desired: desired, panes: paneForLeaf, daemonActive: daemon.activeTabs, cursor: &leafCursor)
+        let layoutTree = LayoutNode(desired: target, panes: paneForLeaf, daemonActive: daemon.activeTabs, cursor: &leafCursor)
             .assigningSplitIDs(from: daemon)
-        if target.matches(daemon) { return .done }
+        if layoutTree.matches(daemon) { return .done }
         let paneIDs = Set(paneForLeaf.values)
         let active = (document["active_pane_id"] as? String).flatMap { paneIDs.contains($0) ? $0 : nil }
             ?? paneForLeaf[0] ?? ""
@@ -144,7 +161,7 @@ public struct CloudLayoutSyncPlanner: Sendable {
             "screen_id": screenID,
             "active_pane_id": active,
             "zoomed_pane_id": zoomed ?? NSNull(),
-            "root": target.json,
+            "root": layoutTree.json,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return .unsupported("the layout document could not be encoded")

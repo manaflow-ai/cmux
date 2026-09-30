@@ -32,4 +32,54 @@ public indirect enum CloudLayoutSyncTree: Hashable, Sendable {
             return first.leaves + second.leaves
         }
     }
+
+    /// Whether two trees show the same arrangement. Ratios within `ratioTolerance`
+    /// are equal: native dividers round to pixels on every resize.
+    ///
+    /// - Parameters:
+    ///   - other: The tree to compare with.
+    ///   - ratioTolerance: The largest ratio difference still treated as equal.
+    /// - Returns: True when shape, directions, tab order and selection match.
+    public func isEquivalent(to other: CloudLayoutSyncTree, ratioTolerance: Double = 0.005) -> Bool {
+        switch (self, other) {
+        case let (.leaf(tabs, active), .leaf(otherTabs, otherActive)):
+            return tabs == otherTabs && active == otherActive
+        case let (.split(horizontal, ratio, first, second), .split(otherHorizontal, otherRatio, otherFirst, otherSecond)):
+            return horizontal == otherHorizontal && abs(ratio - otherRatio) <= ratioTolerance
+                && first.isEquivalent(to: otherFirst, ratioTolerance: ratioTolerance)
+                && second.isEquivalent(to: otherSecond, ratioTolerance: ratioTolerance)
+        default:
+            return false
+        }
+    }
+
+    /// The tree restricted to `tabIDs`; a pane left empty collapses into its sibling.
+    func keeping(_ tabIDs: Set<String>) -> CloudLayoutSyncTree? {
+        switch self {
+        case .leaf(let tabs, let active):
+            let kept = tabs.filter(tabIDs.contains)
+            guard !kept.isEmpty else { return nil }
+            return .leaf(tabIDs: kept, activeTabID: active.flatMap { kept.contains($0) ? $0 : nil })
+        case .split(let horizontal, let ratio, let first, let second):
+            switch (first.keeping(tabIDs), second.keeping(tabIDs)) {
+            case let (first?, second?): return .split(horizontal: horizontal, ratio: ratio, first: first, second: second)
+            case let (only?, nil), let (nil, only?): return only
+            case (nil, nil): return nil
+            }
+        }
+    }
+
+    /// The tree with `tabID` placed next to `anchor`, after it or before it.
+    func inserting(_ tabID: String, beside anchor: String, after: Bool) -> CloudLayoutSyncTree {
+        switch self {
+        case .leaf(var tabs, let active):
+            guard let index = tabs.firstIndex(of: anchor) else { return self }
+            tabs.insert(tabID, at: after ? index + 1 : index)
+            return .leaf(tabIDs: tabs, activeTabID: active)
+        case .split(let horizontal, let ratio, let first, let second):
+            return .split(horizontal: horizontal, ratio: ratio,
+                          first: first.inserting(tabID, beside: anchor, after: after),
+                          second: second.inserting(tabID, beside: anchor, after: after))
+        }
+    }
 }

@@ -10,6 +10,11 @@ import Foundation
 /// by drag, a reorder, a divider drag) is therefore written back here, and native
 /// reconciliation for that machine is suspended from the edit until the machine has
 /// accepted it, so an older graph can never re-apply the arrangement being replaced.
+///
+/// Only user edits are written. Each workspace keeps a baseline: the tree the machine's
+/// layout last produced natively, or the tree last written. Resizes, programmatic
+/// changes and restored-but-unreconciled trees match or lack a baseline and write
+/// nothing, so they cannot overwrite a newer arrangement made by another client.
 @MainActor
 final class CloudWorkspaceLayoutSyncCoordinator {
     private struct Entry {
@@ -22,21 +27,16 @@ final class CloudWorkspaceLayoutSyncCoordinator {
 
     /// Coalesces a divider drag or a burst of tab moves into one write.
     var debounce: Duration = .milliseconds(150)
-    /// A pending terminal creation settles within this window; later it is another client's tab.
-    var retryDelay: Duration = .milliseconds(400)
-    var retryLimit = 12
     private var entries: [UUID: Entry] = [:]
     private var tasks: [UUID: Task<Void, Never>] = [:]
-    /// The last tree each workspace was confirmed against, to ignore geometry-only events.
-    private var confirmed: [UUID: CloudLayoutSyncTree] = [:]
+    private var baselines: [UUID: CloudLayoutSyncTree] = [:]
     /// Most recent result per workspace, for diagnostics and tests.
     private(set) var outcomes: [UUID: CloudLayoutSyncStep] = [:]
 
     /// Records that the native arrangement of `workspaceID` changed. Call synchronously
     /// from the edit so a graph event queued behind it cannot win the race.
     ///
-    /// - Parameter desired: Reads the native tree at write time, or nil while a pane
-    ///   has no daemon tab yet (a creation in flight or a local-only view).
+    /// - Parameter desired: Reads the native tree of daemon-backed tabs at write time.
     func layoutDidChange(
         workspaceID: UUID,
         machine: SurfaceMachineID,
@@ -50,8 +50,7 @@ final class CloudWorkspaceLayoutSyncCoordinator {
             entries[workspaceID] = entry
             return
         }
-        // Size-only events (window resize, sidebar toggle) keep the same tree.
-        if let tree = desired(), confirmed[workspaceID] == tree { return }
+        guard isUserEdit(desired(), workspaceID: workspaceID) else { return }
         if let previous = entries[workspaceID] { finish(workspaceID, token: previous.token, catalog: catalog) }
         let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         entries[workspaceID] = Entry(machine: machine, remoteWorkspaceID: remoteWorkspaceID, token: token, desired: desired)
@@ -62,41 +61,45 @@ final class CloudWorkspaceLayoutSyncCoordinator {
         }
     }
 
-    /// Forgets a closed or unbound workspace and releases its reconciliation hold.
-    func cancel(workspaceID: UUID, catalog: SurfaceCatalog) {
-        confirmed[workspaceID] = nil
-        outcomes[workspaceID] = nil
-        if let entry = entries[workspaceID] { finish(workspaceID, token: entry.token, catalog: catalog) }
+    /// The machine's arrangement now shows natively as `tree`; later native changes are
+    /// compared with it.
+    func machineLayoutApplied(workspaceID: UUID, tree: CloudLayoutSyncTree?) {
+        baselines[workspaceID] = tree
     }
 
-    /// The machine's arrangement was just applied natively. The next native edit must
-    /// be compared with the machine again, even if it restores an earlier tree.
-    func machineLayoutApplied(workspaceID: UUID) {
-        confirmed[workspaceID] = nil
+    /// Forgets a closed or unbound workspace and releases its reconciliation hold.
+    func cancel(workspaceID: UUID, catalog: SurfaceCatalog) {
+        baselines[workspaceID] = nil
+        outcomes[workspaceID] = nil
+        if let entry = entries[workspaceID] { finish(workspaceID, token: entry.token, catalog: catalog) }
     }
 
     func waitForIdle() async {
         for task in Array(tasks.values) { await task.value }
     }
 
+    /// A tree differs from what the machine last produced here. Without a baseline the
+    /// workspace has not reconciled since launch or reconnect, and its tree is not an edit.
+    private func isUserEdit(_ tree: CloudLayoutSyncTree?, workspaceID: UUID) -> Bool {
+        guard let tree, let baseline = baselines[workspaceID] else { return false }
+        return !tree.isEquivalent(to: baseline)
+    }
+
     private func run(_ workspaceID: UUID, catalog: SurfaceCatalog) async {
         var written = -1
-        var retries = 0
         while let entry = entries[workspaceID], entry.generation != written {
             let generation = entry.generation
-            try? await Task.sleep(for: retries == 0 ? debounce : retryDelay)
+            try? await Task.sleep(for: debounce)
             guard !Task.isCancelled, let current = entries[workspaceID] else { return }
+            // Another edit landed while waiting: wait for the burst to finish.
+            guard current.generation == generation else { continue }
             // A closed or unbound workspace has nothing left to record.
             guard let binding = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings()[workspaceID],
                   binding.vmID == current.machine.rawValue,
                   binding.remoteWorkspaceID == current.remoteWorkspaceID else { return }
-            // Another edit landed while waiting: wait for the burst to finish.
-            guard current.generation == generation else { continue }
-            guard let tree = current.desired() else {
-                guard retries < retryLimit else { return }
-                retries += 1
-                continue
-            }
+            written = generation
+            let tree = current.desired()
+            guard let tree, isUserEdit(tree, workspaceID: workspaceID) else { continue }
             let step: CloudLayoutSyncStep
             if let state = catalog.cloudStates[current.machine], let snapshot = state.snapshotObject(),
                CloudLayoutSyncPlanner(snapshot: snapshot, workspaceID: current.remoteWorkspaceID, desired: tree).step == .done {
@@ -116,16 +119,7 @@ final class CloudWorkspaceLayoutSyncCoordinator {
 #if DEBUG
             cmuxDebugLog("cloudWorkspace.layoutSync workspace=\(workspaceID) remote=\(current.remoteWorkspaceID) step=\(step)")
 #endif
-            switch step {
-            case .done:
-                confirmed[workspaceID] = tree
-                written = generation
-                retries = 0
-            case .notReady where retries < retryLimit:
-                retries += 1
-            default:
-                written = generation
-            }
+            if step == .done { baselines[workspaceID] = tree }
         }
     }
 

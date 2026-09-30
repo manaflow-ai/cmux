@@ -48,12 +48,15 @@ extension Workspace {
             // External ratios suppress Bonsplit's geometry callback. Reconcile
             // AppKit and Ghostty even when the terminal membership is unchanged.
             if applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot()) {
-                SurfaceCatalog.shared.cloudWorkspaceLayoutSyncCoordinator.machineLayoutApplied(workspaceID: id)
                 scheduleTerminalGeometryReconcile()
             }
+            recordCloudLayoutBaseline(projections)
             return
         }
+        // Selecting a tab also focuses its pane. Without a focused panel, the focused
+        // pane's visible tab is what the user was looking at and must end focused.
         let focused = focusedPanelId.flatMap { surfaceIdFromPanelId($0) }
+            ?? bonsplitController.focusedPaneId.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
         // The codec regroups tabs by moving them, which changes each pane's selection.
         // Every pane keeps the tab the user was looking at, not only the focused one.
         let selected = Set(bonsplitController.allPaneIds.compactMap { bonsplitController.selectedTab(inPane: $0)?.id })
@@ -77,8 +80,16 @@ extension Workspace {
                 if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
             }
         }
-        SurfaceCatalog.shared.cloudWorkspaceLayoutSyncCoordinator.machineLayoutApplied(workspaceID: id)
+        recordCloudLayoutBaseline(projections)
         scheduleTerminalGeometryReconcile()
+    }
+
+    /// The machine's arrangement now shows natively; later native edits are measured from it.
+    private func recordCloudLayoutBaseline(_ projections: [SurfaceProjection]) {
+        guard let machine = projections.first?.resource.machine else { return }
+        SurfaceCatalog.shared.cloudWorkspaceLayoutSyncCoordinator.machineLayoutApplied(
+            workspaceID: id, tree: cloudLayoutSyncTree(projections: projections, machine: machine)
+        )
     }
 
     private func sessionLayout(

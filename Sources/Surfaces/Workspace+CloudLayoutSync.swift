@@ -22,15 +22,19 @@ extension Workspace {
         }
     }
 
-    /// The native split tree in daemon tab IDs, or nil while any pane holds a view
-    /// without a daemon tab (a creation in flight, or a local preview).
+    /// The native split tree of this workspace's daemon tabs. Local views (a Cloud
+    /// Desktop, a port preview, a pane still being created) are not the machine's to
+    /// arrange, so they are left out and a pane holding only them collapses.
     func cloudLayoutSyncTree(machine: SurfaceMachineID, catalog: SurfaceCatalog) -> CloudLayoutSyncTree? {
+        cloudLayoutSyncTree(projections: panels.keys.compactMap { catalog.projection(forPanel: $0) }, machine: machine)
+    }
+
+    /// The same tree from explicit projections, for callers that already hold them.
+    func cloudLayoutSyncTree(projections: [SurfaceProjection], machine: SurfaceMachineID) -> CloudLayoutSyncTree? {
         var remoteTabs: [String: String] = [:]
-        for panelID in panels.keys {
-            guard let tab = surfaceIdFromPanelId(panelID),
-                  let projection = catalog.projection(forPanel: panelID),
-                  projection.workspaceID == id, projection.resource.machine == machine,
-                  let remoteTabID = projection.remoteTabID else { return nil }
+        for projection in projections where projection.workspaceID == id && projection.resource.machine == machine {
+            guard panels[projection.panelID] != nil, let tab = surfaceIdFromPanelId(projection.panelID),
+                  let remoteTabID = projection.remoteTabID else { continue }
             remoteTabs[tab.uuid.uuidString] = remoteTabID
         }
         return Self.cloudLayoutSyncTree(bonsplitController.treeSnapshot(), remoteTabs: remoteTabs)
@@ -40,12 +44,18 @@ extension Workspace {
         switch node {
         case .pane(let pane):
             let tabIDs = pane.tabs.compactMap { remoteTabs[$0.id] }
-            guard !tabIDs.isEmpty, tabIDs.count == pane.tabs.count else { return nil }
+            guard !tabIDs.isEmpty else { return nil }
             return .leaf(tabIDs: tabIDs, activeTabID: pane.selectedTabId.flatMap { remoteTabs[$0] })
         case .split(let split):
-            guard let first = cloudLayoutSyncTree(split.first, remoteTabs: remoteTabs),
-                  let second = cloudLayoutSyncTree(split.second, remoteTabs: remoteTabs) else { return nil }
-            return .split(horizontal: split.orientation == "horizontal", ratio: split.dividerPosition, first: first, second: second)
+            switch (cloudLayoutSyncTree(split.first, remoteTabs: remoteTabs),
+                    cloudLayoutSyncTree(split.second, remoteTabs: remoteTabs)) {
+            case let (first?, second?):
+                return .split(horizontal: split.orientation == "horizontal", ratio: split.dividerPosition, first: first, second: second)
+            case let (only?, nil), let (nil, only?):
+                return only
+            case (nil, nil):
+                return nil
+            }
         }
     }
 }

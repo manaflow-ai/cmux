@@ -264,21 +264,44 @@ struct CloudLayoutSyncPlannerTests {
         #expect(daemon.closedTerminals.count == 3)
     }
 
-    @Test("A tab present on only one side defers the sync")
-    func membershipMismatchDefers() {
-        let daemon = flatMachine
-        let pendingLocal = CloudLayoutSyncPlanner(
-            snapshot: daemon.snapshot, workspaceID: "ws",
-            desired: .split(horizontal: true, ratio: 0.5, first: leaf("a", "b", "c"), second: leaf("d", "new"))
-        ).step
-        let unprojected = CloudLayoutSyncPlanner(
-            snapshot: daemon.snapshot, workspaceID: "ws",
-            desired: .split(horizontal: true, ratio: 0.5, first: leaf("a", "b"), second: leaf("d"))
-        ).step
-        guard case .notReady = pendingLocal, case .notReady = unprojected else {
-            Issue.record("Expected deferral, got \(pendingLocal) and \(unprojected)")
+    @Test("A native tab the machine already closed is not written back")
+    func nativeOnlyTabIsDropped() throws {
+        var daemon = flatMachine
+        let desired = CloudLayoutSyncTree.split(horizontal: true, ratio: 0.5, first: leaf("a", "b", "c"), second: leaf("d", "closed"))
+        #expect(try daemon.converge(to: desired) == .done)
+        #expect(daemon.tree == .split(horizontal: true, ratio: 0.5, first: leaf("a", "b", "c"), second: leaf("d")))
+    }
+
+    @Test("A machine tab this Mac has not projected stays beside its neighbor")
+    func unprojectedMachineTabIsKept() throws {
+        // Another client created "x" after "b" while the user split "d" off locally.
+        var daemon = FakeDaemonScreen(root: .leaf(pane: "p1", tabs: ["a", "b", "x", "c", "d"], active: "a"))
+        let desired = CloudLayoutSyncTree.split(horizontal: true, ratio: 0.5, first: leaf("a", "b", "c"), second: leaf("d"))
+        #expect(try daemon.converge(to: desired) == .done)
+        #expect(daemon.tree == .split(horizontal: true, ratio: 0.5, first: leaf("a", "b", "x", "c"), second: leaf("d")))
+    }
+
+    @Test("A machine pane holding only unprojected tabs defers the sync")
+    func unprojectedPaneDefers() {
+        let daemon = FakeDaemonScreen(root: .split(
+            id: "s1", horizontal: true, ratio: 0.5,
+            first: .leaf(pane: "p1", tabs: ["a", "b"], active: "a"),
+            second: .leaf(pane: "p2", tabs: ["x"], active: "x")
+        ))
+        let step = CloudLayoutSyncPlanner(snapshot: daemon.snapshot, workspaceID: "ws", desired: leaf("b", "a")).step
+        guard case .notReady = step else {
+            Issue.record("Expected deferral, got \(step)")
             return
         }
+    }
+
+    @Test("Tree equivalence tolerates pixel-rounded ratios only")
+    func equivalence() {
+        let base = CloudLayoutSyncTree.split(horizontal: true, ratio: 0.5, first: leaf("a"), second: leaf("b"))
+        #expect(base.isEquivalent(to: .split(horizontal: true, ratio: 0.503, first: leaf("a"), second: leaf("b"))))
+        #expect(!base.isEquivalent(to: .split(horizontal: true, ratio: 0.52, first: leaf("a"), second: leaf("b"))))
+        #expect(!base.isEquivalent(to: .split(horizontal: false, ratio: 0.5, first: leaf("a"), second: leaf("b"))))
+        #expect(!base.isEquivalent(to: .split(horizontal: true, ratio: 0.5, first: leaf("b"), second: leaf("a"))))
     }
 
     @Test("Multi-screen and stacked workspaces are left untouched")
