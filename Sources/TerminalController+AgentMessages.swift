@@ -456,7 +456,7 @@ extension TerminalController {
         in workspace: Workspace,
         allowedSurfaceIDs: Set<UUID>? = nil
     ) -> AgentMessageRecipient? {
-        let terminalIds = workspace.panels.compactMap { (id, panel) in
+        let terminalIds = workspace.panels.compactMap { (id, panel) -> UUID? in
             guard panel is TerminalPanel,
                   allowedSurfaceIDs == nil || allowedSurfaceIDs?.contains(id) == true else {
                 return nil
