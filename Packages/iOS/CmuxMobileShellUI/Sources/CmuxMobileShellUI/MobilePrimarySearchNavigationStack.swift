@@ -12,32 +12,37 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     var isActive = true
     var hidesRootNavigationBar = false
+    var managesTabBarVisibility = true
     @ViewBuilder let root: () -> Root
     @ViewBuilder let destination: (MobileWorkspacePreview.ID) -> Destination
 
     var body: some View {
         NavigationStack(path: $path) {
-            root()
-                .toolbar(hidesRootNavigationBar ? .hidden : .automatic, for: .navigationBar)
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: searchCoordinator.scope,
-                    update: { scope, isSearching in
-                        // Inactive stacks must stay quiet while they are
-                        // mounted, but the platform's false callback still
-                        // closes a search session when this stack leaves the
-                        // selected tab.
-                        guard isActive || !isSearching else { return }
-                        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
-                    }
-                ))
-                .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
+            Group {
+                if isActive {
+                    root()
+                        .toolbar(hidesRootNavigationBar ? .hidden : .automatic, for: .navigationBar)
+                        .modifier(MobilePrimarySearchLifecycleModifier(
+                            scope: searchCoordinator.scope,
+                            update: { scope, isSearching in
+                                searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
+                            }
+                        ))
+                } else {
+                    Color.clear
+                }
+            }
+            .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
         }
         .searchable(text: searchText, isPresented: searchPresentation, prompt: prompt)
         .onSubmit(of: .search) {
             guard isActive else { return }
             selection = searchCoordinator.commitSubmit()
         }
-        .mobileToolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
+        .modifier(MobilePrimarySearchTabBarVisibilityModifier(
+            isEnabled: managesTabBarVisibility,
+            visibility: path.isEmpty ? .automatic : .hidden
+        ))
     }
 
     private var searchPresentation: Binding<Bool> {
@@ -70,6 +75,20 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
             Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
         case .notifications:
             Text(L10n.string("mobile.notificationFeed.search.placeholder", defaultValue: "Search notifications"))
+        }
+    }
+}
+
+private struct MobilePrimarySearchTabBarVisibilityModifier: ViewModifier {
+    let isEnabled: Bool
+    let visibility: Visibility
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.mobileToolbarVisibility(visibility, for: .tabBar)
+        } else {
+            content
         }
     }
 }

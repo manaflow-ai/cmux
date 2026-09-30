@@ -320,6 +320,10 @@ struct WorkspaceShellView: View {
             return primarySearchNavigationPath.wrappedValue.isEmpty
         }
     }
+
+    private var compactTabBarVisibility: Visibility {
+        compactRootToolbarVisible ? .automatic : .hidden
+    }
     #endif
 
     private var listConnectionStatus: MobileMacConnectionStatus {
@@ -474,6 +478,7 @@ struct WorkspaceShellView: View {
     private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabNavigationHost(
             toolbarVisibility: compactRootToolbarVisible ? .visible : .hidden,
+            tabBarVisibility: compactTabBarVisibility,
             toolbar: {
                 if compactRootToolbarVisible {
                     rootToolbarContent
@@ -500,7 +505,8 @@ struct WorkspaceShellView: View {
                         : taskComposerAction
                 ) {
                     workspaceTabContent(
-                        presentation: presentation
+                        presentation: presentation,
+                        isActive: selectedPrimaryTab == .workspaces
                     )
                 } feed: {
                     NavigationStack(path: $feedNavigationPath) {
@@ -515,7 +521,6 @@ struct WorkspaceShellView: View {
                                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                                 )
                                 .toolbar(.visible, for: .navigationBar)
-                                .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                     }
                     .toolbar(.hidden, for: .navigationBar)
@@ -538,7 +543,6 @@ struct WorkspaceShellView: View {
                                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                                 )
                                 .toolbar(.visible, for: .navigationBar)
-                                .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                     }
                     .toolbar(.hidden, for: .navigationBar)
@@ -564,10 +568,16 @@ struct WorkspaceShellView: View {
 
     #if os(iOS)
     private func workspaceTabContent(
-        presentation: WorkspaceShellRenderPresentation
+        presentation: WorkspaceShellRenderPresentation,
+        isActive: Bool = true
     ) -> some View {
         workspaceActionToastOverlay {
-            layoutContent(presentation: presentation)
+            if isActive {
+                layoutContent(presentation: presentation)
+            } else {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
     #else
@@ -595,7 +605,8 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 isActive: selectedPrimaryTab == .search,
-                hidesRootNavigationBar: true
+                hidesRootNavigationBar: true,
+                managesTabBarVisibility: false
             ) {
                 Group {
                     switch primarySearchCoordinator.scope {
@@ -886,7 +897,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .mobileToolbarVisibility(.hidden, for: .bottomBar)
                     #endif
                     .toolbar(.visible, for: .navigationBar)
                     // Only on the pushed compact stack (where a back button

@@ -24,15 +24,18 @@ struct MobilePrimaryTabNavigationHost<Content: View, Toolbar: ToolbarContent>: V
     let content: Content
     let toolbar: Toolbar
     let toolbarVisibility: Visibility
+    let tabBarVisibility: Visibility
 
     init(
         toolbarVisibility: Visibility,
+        tabBarVisibility: Visibility = .automatic,
         @ToolbarContentBuilder toolbar: () -> Toolbar,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
         self.toolbar = toolbar()
         self.toolbarVisibility = toolbarVisibility
+        self.tabBarVisibility = tabBarVisibility
     }
 
     var body: some View {
@@ -42,6 +45,7 @@ struct MobilePrimaryTabNavigationHost<Content: View, Toolbar: ToolbarContent>: V
                     toolbar
                 }
                 .toolbar(toolbarVisibility, for: .navigationBar)
+                .mobileToolbarVisibility(tabBarVisibility, for: .tabBar)
         }
     }
 }
@@ -136,38 +140,44 @@ struct MobilePrimaryTabScaffold<
                     transaction.disablesAnimations = true
                 }
                 .overlay(alignment: .top) {
-                    // Keep the selected navigation stack outside the system
-                    // tab content transition. iOS 26 crossfades a tab's
-                    // hosted NavigationStack before its toolbar items have
-                    // been laid out, which produces a blank top frame. Mounting
-                    // only the selected stack keeps feed refresh and navigation
-                    // lifecycle work scoped to the visible tab. Its bottom
+                    // Keep every navigation stack mounted outside the system
+                    // tab content transition so paths and destination state
+                    // survive a switch. Each stack gates its expensive content
+                    // and lifecycle work on the active selection. The bottom
                     // inset leaves the native tab bar on top.
                     GeometryReader { geometry in
-                        Group {
-                            switch selection {
-                            case .workspaces:
-                                workspaces
-                            case .feed:
-                                feed
-                            case .notifications:
-                                notifications
-                            case .search:
-                                search
-                                    .environment(\.mobilePrimarySearchDestination, true)
-                            }
+                        ZStack {
+                            workspaces
+                                .opacity(selection == .workspaces ? 1 : 0)
+                                .allowsHitTesting(selection == .workspaces)
+                                .accessibilityHidden(selection != .workspaces)
+                            feed
+                                .opacity(selection == .feed ? 1 : 0)
+                                .allowsHitTesting(selection == .feed)
+                                .accessibilityHidden(selection != .feed)
+                            notifications
+                                .opacity(selection == .notifications ? 1 : 0)
+                                .allowsHitTesting(selection == .notifications)
+                                .accessibilityHidden(selection != .notifications)
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                                .opacity(selection == .search ? 1 : 0)
+                                .allowsHitTesting(selection == .search)
+                                .accessibilityHidden(selection != .search)
                         }
                         .frame(
                             width: geometry.size.width,
-                            height: max(0, geometry.size.height - iOS26TabBarInteractionHeight),
+                            height: max(0, geometry.size.height - geometry.safeAreaInsets.bottom),
                             alignment: .top
+                        )
+                        .contentShape(
+                            TopContentHitRegion(bottomInset: geometry.safeAreaInsets.bottom)
                         )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     // The overlay owns only the content region. Leaving the
                     // bottom hit area open keeps the system tab bar's
                     // size-aware hit testing intact.
-                    .contentShape(TopContentHitRegion(bottomInset: iOS26TabBarInteractionHeight))
                 }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
@@ -232,8 +242,6 @@ struct MobilePrimaryTabScaffold<
             .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
-
-    private var iOS26TabBarInteractionHeight: CGFloat { 90 }
 
     private var tabBarPlaceholder: some View {
         Color.clear

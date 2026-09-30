@@ -53,15 +53,21 @@ struct NotificationFeedView: View {
         .mobileInlineNavigationTitle()
 
         Group {
-            if showsNavigationToolbar {
-                feed.toolbar {
-                    NotificationFeedToolbarContent(
-                        projection: projection,
-                        requestMarkAllRead: { isConfirmingMarkAllRead = true }
-                    )
+            if isActive {
+                Group {
+                    if showsNavigationToolbar {
+                        feed.toolbar {
+                            NotificationFeedToolbarContent(
+                                projection: projection,
+                                requestMarkAllRead: { isConfirmingMarkAllRead = true }
+                            )
+                        }
+                    } else {
+                        feed
+                    }
                 }
             } else {
-                feed
+                Color.clear
             }
         }
         .task(id: isActive) {

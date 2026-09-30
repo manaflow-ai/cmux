@@ -44,6 +44,7 @@ public struct NotificationFeedPreviewView: View {
         GeometryReader { geometry in
             MobilePrimaryTabNavigationHost(
                 toolbarVisibility: previewRootToolbarVisible ? .visible : .hidden,
+                tabBarVisibility: previewTabBarVisibility,
                 toolbar: {
                     if previewRootToolbarVisible {
                         WorkspaceRootToolbarContent(
@@ -95,7 +96,6 @@ public struct NotificationFeedPreviewView: View {
                                         )
                                 )
                                 .toolbar(.visible, for: .navigationBar)
-                                .mobileToolbarVisibility(.hidden, for: .tabBar)
                             }
                         }
                         .toolbar(.hidden, for: .navigationBar)
@@ -111,7 +111,8 @@ public struct NotificationFeedPreviewView: View {
                             selection: $selectedTab,
                             searchCoordinator: primarySearchCoordinator,
                             isActive: selectedTab == .search,
-                            hidesRootNavigationBar: true
+                            hidesRootNavigationBar: true,
+                            managesTabBarVisibility: false
                         ) {
                             Group {
                                 switch primarySearchCoordinator.scope {
@@ -187,6 +188,17 @@ public struct NotificationFeedPreviewView: View {
             notificationRoute == nil
         case .search:
             searchNavigationPath.isEmpty
+        }
+    }
+
+    private var previewTabBarVisibility: Visibility {
+        switch selectedTab {
+        case .workspaces, .feed:
+            .automatic
+        case .notifications:
+            notificationRoute == nil ? .automatic : .hidden
+        case .search:
+            searchNavigationPath.isEmpty ? .automatic : .hidden
         }
     }
 

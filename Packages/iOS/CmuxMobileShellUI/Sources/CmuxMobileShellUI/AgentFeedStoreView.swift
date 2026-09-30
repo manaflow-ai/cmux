@@ -19,17 +19,23 @@ struct AgentFeedStoreView: View {
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
 
     var body: some View {
-        AgentFeedView(
-            items: items,
-            status: status,
-            pendingReplyRequestIDs: pendingReplyRequestIDs,
-            pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
-            failedTerminalReplies: store.agentFeedFailedTerminalReplies,
-            refreshesOnAppear: isActive,
-            isActive: isActive,
-            actions: actions,
-            searchText: searchCoordinator.searchDestinationText(for: .feed)
-        )
+        Group {
+            if isActive {
+                AgentFeedView(
+                    items: items,
+                    status: status,
+                    pendingReplyRequestIDs: pendingReplyRequestIDs,
+                    pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
+                    failedTerminalReplies: store.agentFeedFailedTerminalReplies,
+                    refreshesOnAppear: true,
+                    isActive: true,
+                    actions: actions,
+                    searchText: searchCoordinator.searchDestinationText(for: .feed)
+                )
+            } else {
+                Color.clear
+            }
+        }
         .onAppear {
             updateFeedVisibility(isActive)
         }
