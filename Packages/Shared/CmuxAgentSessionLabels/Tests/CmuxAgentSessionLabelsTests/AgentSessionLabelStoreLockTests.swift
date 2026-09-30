@@ -17,13 +17,16 @@ struct AgentSessionLabelStoreLockTests {
 
     /// A store whose write gives up quickly, and its file and lock paths.
     private func makeStore(
-        timeout: Duration = .milliseconds(80)
+        timeout: Duration = .milliseconds(80),
+        fileManager: FileManager = .default
     ) -> (AgentSessionLabelStore, URL, URL) {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-agent-session-labels-\(UUID().uuidString)")
             .appendingPathComponent("state")
         let file = directory.appendingPathComponent(AgentSessionLabelStore.fileName)
-        let store = AgentSessionLabelStore(fileURL: file, writeTimeout: timeout)
+        let store = AgentSessionLabelStore(
+            fileURL: file, fileManager: fileManager, writeTimeout: timeout
+        )
         return (store, file, URL(
             fileURLWithPath: file.path + AgentSessionLabelStoreLock.fileSuffix
         ))
@@ -75,13 +78,20 @@ struct AgentSessionLabelStoreLockTests {
     @Test func cancellingAWriteThatIsWaitingStopsItInsteadOfWaitingOut() async throws {
         // Long enough that finishing the wait would fail this test on time, so a
         // pass means the cancellation was what ended it.
-        let (store, _, sidecar) = makeStore(timeout: .seconds(60))
+        let manager = DirectoryCreatingSignal()
+        let (store, _, sidecar) = makeStore(timeout: .seconds(60), fileManager: manager)
         try await holdingTheLock(sidecar) {
             let started = ContinuousClock.now
             let write = Task {
                 try await store.setLabel("audit rows", for: key("codex", "s-1"), now: now)
             }
-            try await Task.sleep(for: .milliseconds(30))
+            // Cancel a write that is waiting, which means waiting for the write
+            // to get there first. Sleeping a while and hoping would pass on a
+            // slow machine for the wrong reason, so the writer says when it has
+            // created the state directory, which the lock does immediately
+            // before its first attempt. The lock is held here, so that attempt
+            // cannot succeed and the write can only be in the wait.
+            #expect(await manager.hasCreatedADirectory(within: .seconds(10)))
             write.cancel()
             let result = await write.result
             #expect(throws: CancellationError.self) { try result.get() }
@@ -167,5 +177,56 @@ struct AgentSessionLabelStoreLockTests {
         // The lock's descriptor is closed by hand on every path out of `acquire`
         // and in `release()`, so anything left here is a path that skipped it.
         #expect(heldLockDescriptors() == 0)
+    }
+}
+
+/// A file manager that records having created a directory, so a test can wait
+/// for the store to reach its write lock instead of sleeping.
+///
+/// The store already takes a file manager for exactly this reason, so nothing in
+/// the store or the lock exists to be observed here.
+private final class DirectoryCreatingSignal: FileManager {
+    private let flag = Flag()
+
+    override func createDirectory(
+        at url: URL,
+        withIntermediateDirectories createIntermediates: Bool,
+        attributes: [FileAttributeKey: Any]? = nil
+    ) throws {
+        try super.createDirectory(
+            at: url, withIntermediateDirectories: createIntermediates, attributes: attributes
+        )
+        flag.raise()
+    }
+
+    /// Whether a directory was created, waited for up to `timeout`.
+    ///
+    /// Bounded on purpose: a store that never reaches the lock has to fail the
+    /// caller by its deadline rather than hang the test run.
+    func hasCreatedADirectory(within timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !flag.isRaised, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        return flag.isRaised
+    }
+
+    /// A one-way `Bool` the file manager sets on whichever thread the store's
+    /// call lands on and the test reads from its own task.
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var raised = false
+
+        func raise() {
+            lock.lock()
+            raised = true
+            lock.unlock()
+        }
+
+        var isRaised: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return raised
+        }
     }
 }
