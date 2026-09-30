@@ -83,6 +83,8 @@ enum DebugLayers {
             "planes": .array(planes),
             "browsers": .array(browsers),
             "interactive_rects_in_window": .array(layer.interactiveRects.map(rect)),
+            "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
+            "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
             "reorders": .number(Double(layer.reorderCount)),
             "pages_in_sync": .bool(pagesInSync),
             "consistent": .bool(above && inSync && pagesInSync),

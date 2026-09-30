@@ -20,6 +20,7 @@ public final class LayoutRootView: NSView {
     public private(set) lazy var overlayPlane = OverlayPlane(home: self)
     weak var planeHost: (any OverlayPlaneHosting)?
     var reportedInteractiveRects: [CGRect] = []
+    var reportedDividerMouseAreas: [LayoutMouseArea] = []
     let switcher = ScreenSwitcherView()
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?

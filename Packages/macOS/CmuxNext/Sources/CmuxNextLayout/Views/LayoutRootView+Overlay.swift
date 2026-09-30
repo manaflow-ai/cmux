@@ -37,23 +37,47 @@ extension LayoutRootView {
         reportInteractiveRects()
     }
 
-    /// Rects (this view's coordinates) where overlays in the root take the
-    /// mouse: divider hit areas and the screen switcher. Content drawn above
-    /// the window (Chromium pages) must leave these uncovered.
+    /// Rects (this view's coordinates) where native overlays in the root
+    /// draw: divider lines and the screen switcher (which also takes the
+    /// mouse). Content drawn above the window (Chromium pages) must leave
+    /// these uncovered. A divider's wider hit area is not here: it draws
+    /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
         if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.interactiveRects.map { convert($0, from: screen) }
+            rects += screen.dividerLineRects.map { convert($0, from: screen) }
         }
         if !switcher.isHidden, switcher.frame.width > 0 { rects.append(switcher.frame) }
         return rects
     }
 
+    /// Divider and column edge hit areas of the active screen, in this
+    /// view's coordinates. Over a Chromium page the App covers them with a
+    /// click-catching panel that forwards the mouse to this window, so the
+    /// page keeps drawing edge to edge under them.
+    public var dividerMouseAreas: [LayoutMouseArea] {
+        guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
+        return screen.dividerMouseAreas.map { area in
+            var area = area
+            area.rect = convert(area.rect, from: screen)
+            return area
+        }
+    }
+
+    /// Shows or hides a divider's hover line for a pointer that is over a
+    /// click-catching panel above a page.
+    public func setDividerHovered(_ id: String, _ hovered: Bool) {
+        guard let active = model.activeScreenID else { return }
+        screenViews[active]?.setDividerHovered(id, hovered)
+    }
+
     private func reportInteractiveRects() {
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
-        guard rects != reportedInteractiveRects else { return }
+        let areas = dividerMouseAreas
+        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas else { return }
         reportedInteractiveRects = rects
+        reportedDividerMouseAreas = areas
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 

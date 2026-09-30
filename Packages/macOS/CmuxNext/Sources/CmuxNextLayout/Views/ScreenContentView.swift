@@ -198,14 +198,30 @@ final class ScreenContentView: NSView {
     }
 
     /// Divider hit areas that are on screen, in this view's coordinates.
-    /// They take the mouse, so content drawn above the window (a Chromium
-    /// page) must leave them uncovered.
-    var interactiveRects: [CGRect] {
-        dividerViews.values.compactMap { view in
+    /// They take the mouse but draw only their thin line, so content drawn
+    /// above the window (a Chromium page) keeps drawing under them.
+    var dividerMouseAreas: [LayoutMouseArea] {
+        dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
             let rect = view.frame.intersection(bounds)
+            guard !rect.isNull, !rect.isEmpty else { return nil }
+            return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
+        }.sorted { $0.id < $1.id }
+    }
+
+    /// The dividers' drawn lines, in this view's coordinates: native UI that
+    /// Chromium pages leave uncovered (they sit in the gap between panes).
+    var dividerLineRects: [CGRect] {
+        dividerViews.values.compactMap { view in
+            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+            let rect = view.lineFrameInSuperview.intersection(bounds)
             return rect.isNull || rect.isEmpty ? nil : rect
-        }
+        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+    }
+
+    /// Hover forwarded from a click-catching panel over a page.
+    func setDividerHovered(_ id: String, _ hovered: Bool) {
+        dividerViews.first { $0.key.mouseAreaID == id }?.value.setForwardedHover(hovered)
     }
 
     // MARK: Chrome

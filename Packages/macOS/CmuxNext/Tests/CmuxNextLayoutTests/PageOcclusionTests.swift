@@ -41,6 +41,19 @@ extension LayoutDesignMetricsTests {
                             "occlusion \(hole) cuts pane content \(content)")
                 }
             }
+            // Each divider's drawn line (between the panes) stays uncovered.
+            #expect(view.interactiveOverlayRects.count == 3)
+            #expect(view.interactiveOverlayRects.allSatisfy { min($0.width, $0.height) <= view.context.style.dividerThickness + 0.01 })
+            // The hit areas still take the mouse: they are reported as
+            // mouse areas (click-catching panels above pages), one per
+            // divider, each reaching into both neighboring panes.
+            let areas = view.dividerMouseAreas
+            #expect(Set(areas.map(\.id)) == ["split:root", "split:left", "split:right"])
+            let root = try #require(areas.first { $0.id == "split:root" })
+            #expect(root.resizesColumns)
+            #expect(root.rect.width >= view.context.style.dividerHitThickness)
+            #expect(contents.contains { $0.intersects(root.rect) && $0.maxX > root.rect.minX && $0.minX < root.rect.minX })
+            #expect(areas.first { $0.id == "split:left" }?.resizesColumns == false)
         }
         withExtendedLifetime(provider) {}
     }

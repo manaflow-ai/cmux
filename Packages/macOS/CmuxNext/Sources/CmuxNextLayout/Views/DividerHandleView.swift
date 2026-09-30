@@ -65,11 +65,7 @@ final class DividerHandleView: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
-        switch axis {
-        case .horizontal: line.frame = CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
-        case .vertical: line.frame = CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
-        }
+        line.frame = lineFrame
         CATransaction.commit()
     }
 
@@ -94,6 +90,25 @@ final class DividerHandleView: NSView {
         addTrackingArea(area)
         trackingArea = area
     }
+
+    /// The drawn line in the superview's coordinates. It is native UI that
+    /// must show above Chromium pages (an occlusion hole), unlike the rest
+    /// of the hit area.
+    var lineFrameInSuperview: CGRect {
+        convert(lineFrame, to: superview)
+    }
+
+    private var lineFrame: CGRect {
+        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
+        return switch axis {
+        case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
+        case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
+        }
+    }
+
+    /// Hover reported by a click-catching panel above a Chromium page (the
+    /// pointer is over that panel, so this view's tracking area sees nothing).
+    func setForwardedHover(_ hovered: Bool) { isHovered = hovered }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
@@ -139,6 +154,16 @@ final class DividerHandleView: NSView {
                 line.backgroundColor = color.cgColor
                 line.cornerRadius = isEdge ? 1 : 0
             }
+        }
+    }
+}
+
+extension DividerHandleView.Kind {
+    /// Id of this divider's `LayoutMouseArea`.
+    var mouseAreaID: String {
+        switch self {
+        case .split(let id): "split:\(id.rawValue)"
+        case .columnEdge(let id): "column:\(id.rawValue)"
         }
     }
 }

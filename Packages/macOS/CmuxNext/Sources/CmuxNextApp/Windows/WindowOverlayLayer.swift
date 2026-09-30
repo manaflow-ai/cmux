@@ -17,10 +17,13 @@ import CmuxNextLayout
 ///   (no extra window, no extra memory). Items are positioned in the root's
 ///   coordinates either way, so static rings and animated drop zones take
 ///   the same path.
-/// - Overlays that take the mouse (split dividers, the screen switcher)
-///   stay in the parent and are reported to pages as occlusion rects
+/// - Overlays that draw and take the mouse (the screen switcher) stay in
+///   the parent and are reported to pages as occlusion rects
 ///   (`BrowserWindowOcclusionProviding`): the fork masks the page there and
 ///   routes the mouse to the parent.
+/// - Divider hit areas draw nothing over panes, so they do not mask pages:
+///   `DividerMouseCatchers` covers them with click-catching panels above
+///   the pages that forward the mouse to the parent.
 ///
 /// App panels that are child windows (palette, hover cards, group editor)
 /// stay above the overlay panel. Child window z-order is the order of
@@ -39,6 +42,9 @@ final class WindowOverlayLayer {
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
     private(set) var interactiveRects: [CGRect] = []
+    /// Divider hit areas in window coordinates.
+    private(set) var dividerAreas: [LayoutMouseArea] = []
+    let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
     private var isEvaluating = false
     /// A window geometry change whose layout pass has not run yet.
@@ -48,6 +54,7 @@ final class WindowOverlayLayer {
 
     init(window: NSWindow) {
         self.window = window
+        catchers = DividerMouseCatchers(window: window)
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluate() }
@@ -83,6 +90,7 @@ final class WindowOverlayLayer {
     }
 
     func teardown() {
+        catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
@@ -144,9 +152,19 @@ final class WindowOverlayLayer {
 
     private func updateInteractiveRects() {
         var rects: [CGRect] = []
+        var areas: [LayoutMouseArea] = []
         for plane in planes {
             guard let root = plane.home as? LayoutRootView, root.window === window else { continue }
             rects += root.interactiveOverlayRects.map { root.convert($0, to: nil) }
+            areas += root.dividerMouseAreas.map { area in
+                var area = area
+                area.rect = root.convert(area.rect, to: nil)
+                return area
+            }
+        }
+        if areas != dividerAreas {
+            dividerAreas = areas
+            syncCatchers()
         }
         guard rects != interactiveRects else { return }
         interactiveRects = rects
@@ -177,6 +195,7 @@ final class WindowOverlayLayer {
             case .inWindow: hidePanel()
             }
             planes.forEach(place)
+            syncCatchers()
         }
         if placement == .overlayWindow { enforceOrder() }
     }
@@ -227,6 +246,7 @@ final class WindowOverlayLayer {
         }
         for plane in planes { plane.syncFrame() }
         updateInteractiveRects()
+        syncCatchers()
         requestPageUpdate()
         pageUpdateAfterLayout = true
     }
@@ -240,6 +260,16 @@ final class WindowOverlayLayer {
         let hosts = ChildPageGeometry.sample(controller).hosts
         guard !hosts.contains(where: { ChildPageGeometry.distance($0.screenRect, child.frame) <= ChildPageGeometry.tolerance }) else { return }
         requestPageUpdate()
+    }
+
+    /// Click-catching panels over divider hit areas while pages show.
+    private func syncCatchers() {
+        if catchers.onHover == nil {
+            catchers.onHover = { [weak self] id, hovered in
+                for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
+            }
+        }
+        catchers.update(dividerAreas, active: placement == .overlayWindow)
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and

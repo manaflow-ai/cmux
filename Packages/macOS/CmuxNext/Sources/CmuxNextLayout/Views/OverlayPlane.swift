@@ -81,7 +81,8 @@ public protocol OverlayPlaneHosting: AnyObject {
     func adoptPlane(_ plane: OverlayPlane)
     /// Stops managing `plane`. The caller puts it back in its home.
     func releasePlane(_ plane: OverlayPlane)
-    /// The interactive overlay rects of a plane changed (window coordinates).
+    /// The interactive overlay rects or divider mouse areas of a plane
+    /// changed (`LayoutRootView.interactiveOverlayRects`, `dividerMouseAreas`).
     func interactiveOverlayRectsDidChange(_ plane: OverlayPlane)
     /// The plane's home finished a layout pass (its size or position may
     /// have changed); not called on animation frames.
