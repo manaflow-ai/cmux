@@ -283,6 +283,66 @@ struct CLISendDraftGuardTests {
         #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
     }
 
+    @Test func sendSubmitRefusesSameLengthHumanEditBeforeRetry() throws {
+        let claudeDraft: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "claude", "draft_length": 5, "blocks_typing": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, claudeDraft, claudeDraft, claudeDraft],
+            screenTexts: [
+                "Claude Code\n❯\u{00A0}",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}world",
+            ]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stderr.contains("human input"), Comment(rawValue: run.result.stderr))
+        #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 1)
+    }
+
+    @Test func sendSubmitFinalReadConfirmsSlowRenderer() throws {
+        let claudeDraft: [String: Any] = [
+            "state": "draft", "agent": true, "terminal": true,
+            "agent_kind": "claude", "draft_length": 5, "blocks_typing": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, claudeDraft, claudeDraft, claudeDraft, claudeDraft, Self.empty],
+            screenTexts: [
+                "Claude Code\n❯\u{00A0}",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}hello",
+                "Claude Code\n❯\u{00A0}",
+            ]
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("submitted"), Comment(rawValue: run.result.stdout))
+        #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 3)
+    }
+
+    @Test func sendSubmitUnknownAgentReportsSentAfterAcceptedKey() throws {
+        let unknown: [[String: Any]] = [
+            ["state": "empty", "agent": true, "terminal": true],
+            ["state": "draft", "agent": true, "terminal": true, "blocks_typing": true],
+            ["state": "empty", "agent": true, "terminal": true],
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: unknown
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("sent"), Comment(rawValue: run.result.stdout))
+        #expect(run.result.stdout.contains("submitted: false"), Comment(rawValue: run.result.stdout))
+    }
+
     // MARK: - Harness
 
     private struct Run {
@@ -296,7 +356,8 @@ struct CLISendDraftGuardTests {
         arguments: [String],
         inputState: [String: Any]? = nil,
         inputStates: [[String: Any]]? = nil,
-        screenText: String? = nil
+        screenText: String? = nil,
+        screenTexts: [String]? = nil
     ) throws -> Run {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-send-guard-\(UUID().uuidString)", isDirectory: true)
@@ -311,7 +372,8 @@ struct CLISendDraftGuardTests {
             listenerFD: listenerFD,
             recorder: recorder,
             inputStates: inputStates ?? inputState.map { [$0] },
-            screenText: screenText
+            screenText: screenText,
+            screenTexts: screenTexts
         )
         defer {
             server.stop.set()
@@ -378,7 +440,8 @@ struct CLISendDraftGuardTests {
         listenerFD: Int32,
         recorder: RequestRecorder,
         inputStates: [[String: Any]]?,
-        screenText: String?
+        screenText: String?,
+        screenTexts: [String]?
     ) -> (done: DispatchSemaphore, stop: StopFlag) {
         let done = DispatchSemaphore(value: 0)
         let stop = StopFlag()
@@ -404,7 +467,8 @@ struct CLISendDraftGuardTests {
                     recorder: recorder,
                     inputStateData: inputStateData,
                     stateIndex: stateIndex,
-                    screenText: screenText
+                    screenText: screenText,
+                    screenTexts: screenTexts
                 )
             }
         }
@@ -428,12 +492,21 @@ struct CLISendDraftGuardTests {
         for line: String,
         inputStateData: [Data],
         stateIndex: LockedCounter,
-        screenText: String?
+        screenText: String?,
+        screenTexts: [String]?
     ) -> String {
         let request = codexHookJSONObject(line)
         let id = (request?["id"] as? String) ?? "unknown"
-        if request?["method"] as? String == "surface.read_text", let screenText {
-            return codexHookV2Response(id: id, ok: true, result: ["text": screenText])
+        if request?["method"] as? String == "surface.read_text" {
+            let text: String?
+            if let screenTexts {
+                text = screenTexts[min(stateIndex.next(), screenTexts.count - 1)]
+            } else {
+                text = screenText
+            }
+            if let text {
+                return codexHookV2Response(id: id, ok: true, result: ["text": text])
+            }
         }
         guard request?["method"] as? String == "surface.input_state" else {
             return codexHookV2Response(id: id, ok: true, result: [
@@ -463,7 +536,8 @@ struct CLISendDraftGuardTests {
         recorder: RequestRecorder,
         inputStateData: [Data],
         stateIndex: LockedCounter,
-        screenText: String?
+        screenText: String?,
+        screenTexts: [String]?
     ) {
         defer { Darwin.close(clientFD) }
         guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
@@ -486,7 +560,8 @@ struct CLISendDraftGuardTests {
                     for: line,
                     inputStateData: inputStateData,
                     stateIndex: stateIndex,
-                    screenText: screenText
+                    screenText: screenText,
+                    screenTexts: screenTexts
                 )
                 guard writeAllToFixtureSocket(reply + "\n", fd: clientFD) else { return }
             }
