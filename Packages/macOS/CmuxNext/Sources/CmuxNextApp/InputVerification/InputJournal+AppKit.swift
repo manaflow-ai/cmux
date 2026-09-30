@@ -14,9 +14,10 @@ extension InputJournal {
             let key = InputJournalEntry.Key(
                 phase: phase,
                 keyCode: event.keyCode,
+                characters: phase == .flags ? nil : event.charactersIgnoringModifiers,
                 modifiers: .init(event.modifierFlags),
                 isRepeat: phase == .down && event.isARepeat,
-                characters: phase != .flags && recordsCharacters ? event.charactersIgnoringModifiers : nil
+                recordsCharacters: recordsCharacters
             )
             append(window: Self.windowID(of: event.window), .key(key))
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:

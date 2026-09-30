@@ -162,14 +162,16 @@ nonisolated struct InputJournalPolicy: Hashable, Sendable {
     var recordsCharacters: Bool
 
     /// On in debug builds and tagged (dogfood) builds, off in release
-    /// builds; `CMUX_NEXT_INPUT_JOURNAL=0|1` overrides. Characters only with
-    /// `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1`, in every build.
+    /// builds; `CMUX_NEXT_INPUT_JOURNAL=0|1` overrides. Typed characters and
+    /// the key codes of typing only in a debug build launched with
+    /// `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1` (one session: nothing persists
+    /// the opt-in).
     static func resolve(isDebugBuild: Bool, tag: String?, environment: [String: String]) -> InputJournalPolicy {
         let enabled: Bool = switch environment[enableKey] {
         case "0": false
         case "1": true
         default: isDebugBuild || tag != nil
         }
-        return InputJournalPolicy(enabled: enabled, recordsCharacters: enabled && environment[charactersKey] == "1")
+        return InputJournalPolicy(enabled: enabled, recordsCharacters: enabled && isDebugBuild && environment[charactersKey] == "1")
     }
 }

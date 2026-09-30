@@ -34,6 +34,54 @@ struct InputPrivacyTests {
         #expect(!json.contains("\"characters\""), "\(json)")
     }
 
+    @Test func typingKeepsItsClassAndModifiers() throws {
+        let journal = Self.journal()
+        for event in try Self.typed() { journal.record(event) }
+        let keys = journal.entries().compactMap { entry -> InputJournalEntry.Key? in
+            if case .key(let key) = entry.kind { key } else { nil }
+        }
+        #expect(keys.map(\.keyClass) == [.letter, .letter, .letter, .letter, .letter, .letter, .space, .digit, .punctuation, .other])
+        #expect(keys.first?.modifiers == .shift)
+        #expect(keys.allSatisfy { $0.keyCode == nil && $0.characters == nil })
+    }
+
+    /// Shortcuts and non-text keys keep their key code (replay needs it; it
+    /// is not text).
+    @Test func shortcutsAndNamedKeysKeepTheirKeyCode() throws {
+        let journal = Self.journal()
+        let events = try [Self.key("k", keyCode: 40, .command), Self.key("c", keyCode: 8, .control), Self.key("\r", keyCode: 36),
+                          Self.key(String(UnicodeScalar(NSLeftArrowFunctionKey)!), keyCode: 123, [.function, .numericPad])]
+        for event in events { journal.record(event) }
+        let keys = journal.entries().compactMap { entry -> InputJournalEntry.Key? in
+            if case .key(let key) = entry.kind { key } else { nil }
+        }
+        #expect(keys.map(\.keyCode) == [40, 8, 36, 123])
+        #expect(keys.map(\.keyClass) == [.letter, .letter, .named, .named])
+        #expect(keys.allSatisfy { $0.characters == nil })
+    }
+
+    /// A desync report is what reaches disk: the typed text is not in it.
+    @Test func aDesyncReportCarriesNoTypedText() throws {
+        let journal = Self.journal()
+        for event in try Self.typed() { journal.record(event) }
+        let observation = InputFuzzerSupport.observation()
+        let report = DesyncReport(id: "desync-1", sequence: 1, createdAt: Date(timeIntervalSince1970: 0), uptimeNanos: 0, tag: nil,
+                                  violations: [], observation: observation, journal: journal.entries(), journalStats: journal.stats)
+        let json = try #require(String(data: DesyncReport.encoder.encode(report), encoding: .utf8))
+        for fragment in ["\"keyCode\"", "\"characters\"", "Secret", "\"S\"", "å"] {
+            #expect(!json.contains(fragment), "\(fragment)")
+        }
+    }
+
+    /// With the debug opt-in, one session records what was typed.
+    @Test func theOptInRecordsCharacters() throws {
+        let journal = Self.journal(characters: true)
+        journal.record(try Self.key("e", keyCode: 14))
+        guard case .key(let key)? = journal.entries().first?.kind else { Issue.record("no key"); return }
+        #expect(key.characters == "e")
+        #expect(key.keyCode == 14)
+    }
+
     /// The characters opt-in is for debug builds only, never a tagged
     /// release build.
     @Test func charactersOptInNeedsADebugBuild() {

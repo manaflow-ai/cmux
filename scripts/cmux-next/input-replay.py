@@ -5,8 +5,10 @@ first divergence (plans/cmux-next/input-spec.md section 5).
 Reads the report's journal (or `--journal`, a `debug.journal` answer saved as
 JSON), sends its mouse input through `debug.mouse` and its key chords and named
 keys through `debug.key`, and after each input compares `debug.focus` with the
-focus digest the journal recorded after it. Plain typing is replayed only with
-`--typing` (it types into the live terminal). Best effort: the live layout must
+focus digest the journal recorded after it. Plain typing is journaled as a key
+class only, so it is replayed only with `--typing` from a debug-build journal
+recorded with CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1 (it types into the live
+terminal). Best effort: the live layout must
 match the recorded one for pane ids to agree; by default only the kind of the
 resolved target is compared (`--strict` also compares pane ids).
 
@@ -153,7 +155,10 @@ def main():
         elif kind == "key":
             key = value["_0"]
             chord = key["modifiers"] & (1 | 8)
-            name = key.get("characters") or KEY_NAMES.get(key["keyCode"])
+            # Plain typing is journaled without its key code (privacy); only a
+            # debug-build journal with CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1 has it.
+            code = key.get("keyCode")
+            name = key.get("characters") or (KEY_NAMES.get(code) if code is not None else None)
             if key["phase"] == "down" and name and (chord or args.typing or name in ("return", "tab", "escape")):
                 recorded_window = recorded_window or entry.get("window")
                 call = ("debug.key", {"window": window, "key": name, "modifiers": modifiers(key["modifiers"])})

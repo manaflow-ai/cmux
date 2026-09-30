@@ -111,7 +111,7 @@ frame-sync code owns the geometry; G1 only observes it.
 
 `InputJournal.shared`: a ring of 4,096 `InputJournalEntry` values with a sequence number and
 `CLOCK_UPTIME_RAW` nanoseconds. It records every event `CmuxApplication.sendEvent` receives
-(before the key router can consume it: key down/up/flags with key code and modifier classes;
+(before the key router can consume it: key down/up/flags with key class and modifier classes, see privacy below;
 mouse down/up/drag/scroll in window-local top-left points, drags and scrolls merged per run),
 every focus reduction with the resulting `FocusDigest` plus a full `FocusState` checkpoint every
 64 reductions per window, suppressed responder echoes, page focus the applier gives or takes
@@ -121,8 +121,17 @@ and automation markers.
 
 Recording is on in debug and tagged (dogfood) builds, off in release builds;
 `CMUX_NEXT_INPUT_JOURNAL=0|1` overrides. Disabled, each hook is one relaxed atomic load and
-builds no payload. Key characters are recorded only with `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1`
-(explicit opt-in, any build); attach records carry byte counts, never bytes.
+builds no payload.
+
+Privacy: typed text never reaches the journal, `debug.journal` or a desync report on disk. A key
+record carries its phase, class (`letter`, `digit`, `punctuation`, `space`, `named`, `modifier`,
+`other`) and modifier classes. The key code is kept only for shortcuts (Command or Control held),
+named keys (Return, Tab, Escape, Delete, arrows, function keys) and modifiers, whose code is not
+text; plain typing, with or without Shift or Option, has no key code and no characters. This
+covers terminal and omnibar typing, which reach the journal only as these key records; attach
+records carry byte counts, never bytes, and omnibar text is not journaled. The one opt-in is
+`CMUX_NEXT_INPUT_JOURNAL_CHARACTERS=1` in a debug build: it records characters and key codes for
+that launch only, and nothing persists it. `InputPrivacyTests` checks the redaction.
 
 ## 4. Invariant monitor and desync reports
 

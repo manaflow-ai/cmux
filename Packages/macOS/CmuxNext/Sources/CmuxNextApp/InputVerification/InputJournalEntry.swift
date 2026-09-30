@@ -1,3 +1,5 @@
+import Foundation
+
 /// One record of the input journal (plans/cmux-next/input-spec.md section 3):
 /// an input event, a focus or attach transition, or a diagnostic marker,
 /// with a monotonic timestamp and the cmux window it concerns.
@@ -44,13 +46,65 @@ nonisolated struct InputJournalEntry: Hashable, Sendable, Codable {
         case down, up, flags
     }
 
+    /// What kind of key it was, without saying which one.
+    enum KeyClass: String, Hashable, Sendable, Codable {
+        case letter, digit, punctuation, space
+        /// Return, Tab, Escape, Delete, arrows, function keys.
+        case named
+        /// A modifier key (flags changed).
+        case modifier
+        /// Any other printable input (non-Latin letters, symbols, IME).
+        case other
+
+        /// Keys whose code is text, and so is never journaled for typing.
+        var isText: Bool {
+            switch self {
+            case .letter, .digit, .punctuation, .space, .other: true
+            case .named, .modifier: false
+            }
+        }
+    }
+
+    /// Privacy (input-spec.md section 3): typed text never reaches the
+    /// journal. Typing (a text key without Command or Control) records only
+    /// its class and modifiers; `keyCode` is kept for shortcuts, named keys
+    /// and modifiers, whose code is not text. `characters` only with the
+    /// debug-build opt-in.
     struct Key: Hashable, Sendable, Codable {
         var phase: KeyPhase
-        var keyCode: UInt16
+        var keyClass: KeyClass
+        var keyCode: UInt16?
         var modifiers: ModifierClasses
         var isRepeat: Bool
-        /// Only with the user's opt-in.
         var characters: String?
+
+        /// The record for a key event; `characters` is what it typed, used
+        /// only to classify unless `recordsCharacters`.
+        init(phase: KeyPhase, keyCode: UInt16, characters: String?, modifiers: ModifierClasses, isRepeat: Bool,
+             recordsCharacters: Bool) {
+            let keyClass: KeyClass = phase == .flags ? .modifier : Self.classify(characters)
+            let shortcut = !modifiers.isDisjoint(with: [.command, .control])
+            self.phase = phase
+            self.keyClass = keyClass
+            self.keyCode = recordsCharacters || shortcut || !keyClass.isText ? keyCode : nil
+            self.modifiers = modifiers
+            self.isRepeat = isRepeat
+            self.characters = recordsCharacters && phase != .flags ? characters : nil
+        }
+
+        static func classify(_ characters: String?) -> KeyClass {
+            guard let scalar = characters?.unicodeScalars.first else { return .named }
+            // AppKit's function-key range (arrows, F-keys, Home, End) and
+            // controls (Return, Tab, Escape, Delete).
+            if (0xF700...0xF8FF).contains(scalar.value) || CharacterSet.controlCharacters.contains(scalar) || scalar.value == 0x7F {
+                return .named
+            }
+            if scalar == " " { return .space }
+            guard scalar.isASCII else { return .other }
+            if CharacterSet.decimalDigits.contains(scalar) { return .digit }
+            if CharacterSet.letters.contains(scalar) { return .letter }
+            return .punctuation
+        }
     }
 
     /// Device-independent modifier classes (no characters, no key identity).
