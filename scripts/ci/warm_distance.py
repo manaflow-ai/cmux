@@ -216,6 +216,7 @@ def start_distance(current: Mapping[str, list], start: Mapping[str, list] | None
 _deadline: list[float] = [float("inf")]
 GIT_TIMEOUT_SECONDS = 10
 FETCH_TIMEOUT_SECONDS = 20
+FETCH_RESERVE_SECONDS = 2  # of the picker's budget, kept for the diffs after the base fetch
 RECORD_BUDGET_SECONDS = 60
 PICKER_BUDGET_SECONDS = 8
 
@@ -235,6 +236,11 @@ def git(workspace: Path, *args: str, timeout: float = GIT_TIMEOUT_SECONDS) -> st
 
 def have_commit(workspace: Path, sha: str) -> bool:
     return bool(sha) and git(workspace, "cat-file", "-e", f"{sha}^{{commit}}") is not None
+
+
+def have_tree(workspace: Path, sha: str) -> bool:
+    """SHA's commit and its root tree are in the checkout (a --filter=tree:0 history has the commit only)."""
+    return have_commit(workspace, sha) and git(workspace, "cat-file", "-e", f"{sha}^{{tree}}") is not None
 
 
 def ensure_commit(workspace: Path, sha: str) -> bool:
@@ -444,6 +450,9 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     share_model(fleet_dir(store))
     if own is not None and env.get("KEPT") == "true":
         stamp_pull_request(store, own[0], own[1], hot_files)
+    elif own is not None and env.get("KEPT") == "parked" and (env.get("PR_NUMBER") or "").strip().isdigit():
+        # Kept in its PR slot beside a root that stays at main (owned_build_state.py holds_last_main).
+        stamp_pull_request(store / "pr-builds" / f"pr-{int(env['PR_NUMBER'])}", own[0], own[1], hot_files)
     return record
 
 
@@ -475,6 +484,20 @@ QUEUE_ROUND_SECONDS = 900
 # A pin must beat the unpinned root label by this much; below it, placement noise decides.
 ROUTE_MARGIN_SECONDS = 30
 UNKNOWN_JOB_SECONDS = 600.0
+# A compile runs slower while another root of its mini compiles too, and slower on the two older minis.
+# Owned admissions of 2026-09-26 to 28 (rebuild tier, alone on an M4 Pro mini p50 403 s): overlapped by
+# another admission on the same mini for at least half its compile p50 484 s (158 compiles, x1.19); on
+# the two M4 (not M4 Pro) minis p50 575 s (23 compiles, x1.43). distance_route() multiplies a candidate's compile by
+# them, so compiles spread across minis without CI_OWNED_SPREAD's separate pin.
+CONTENDED_FACTOR = 1.19
+SLOW_MINI_FACTOR = 1.43
+SLOW_MINI = re.compile(r"(?:^|-)austin-")
+
+
+def compile_factor(mini: str, others_busy: int) -> float:
+    """How much slower than alone on an M4 Pro mini a compile on MINI runs while OTHERS_BUSY of its other
+    root runners are busy."""
+    return (CONTENDED_FACTOR if others_busy > 0 else 1.0) * (SLOW_MINI_FACTOR if SLOW_MINI.search(mini) else 1.0)
 
 
 def job_key(name: str) -> str:
@@ -624,7 +647,7 @@ HOOK_DEFAULT_MODEL = {"near_app_swift_files": 5, "hot_files": [],
 HOOK_MAX_FILES = 400
 # Distinct kept merge bases compared per decision (one tree diff each; one fetch brings all that are missing).
 MAX_ROUTE_BASES = 24
-DISTANCE_BUDGET_SECONDS = 15
+DISTANCE_BUDGET_SECONDS = 30  # two fetch attempts of ~14 s: a checkout fetch took 11.5 s on a slow runner
 WARM_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -681,9 +704,10 @@ def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, An
     STAMP the root's kept build (None: none, the cold cost), NUMBER the job's pull request, MODEL hook_model()'s.
     OWN (the job's own `paths` and features()) is what the hook leaves out as the same for every root; with it
     the seconds are the whole job's prediction rather than a lower bound. A kept build of the same pull
-    request has those files already, so there they count only for a package interface or hot file, which a
-    re-push usually touches again (14 of 23 such starts rebuilt on 2026-09-26/27). Without OWN this is the
-    hook's cost."""
+    request has those files already, so there they count only for a hot file, or a package interface, which a
+    re-push often touches again (14 of 23 such starts rebuilt on 2026-09-26/27). That start still beats every
+    other one for a job with its own package interface change (they all rebuild), so it ranks far, not
+    rebuild. Without OWN this is the hook's cost."""
     if stamp is None:
         return max(model["tiers"].values()) + 1.0, "cold", -1
     same = isinstance(stamp.get("pr"), int) and stamp.get("pr") == number
@@ -701,24 +725,63 @@ def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, An
     package = package or (kept_package and interface is not False)
     changed = files | kept_set
     own_paths: set[str] = set()
+    own_package = False
     if own is not None:
         own_paths = {str(path) for path in own.get("paths") or [] if isinstance(path, str) and app_swift(path)}
-        package = package or bool(own.get("package_swift_files") and own.get("package_interface") is not False)
+        own_package = bool(own.get("package_swift_files") and own.get("package_interface") is not False)
         if not same:  # a kept build of this pull request has its files already: they count only as a kind
             changed |= own_paths
+            package = package or own_package
     count = len(changed) + extra
     hot = bool((changed | own_paths) & set(model["hot_files"]))
     name = ("rebuild" if package or hot else "far" if count > model["near_app_swift_files"] else "near")
+    if same and own_package and name == "near":
+        name = "far"  # the kept build has the package change unless this push touched it again
     # Every root starts from its kept build: that tier's kept-start p50 when the model has one.
     return (model.get("kept") or {}).get(name, model["tiers"][name]), name, count
 
 
-def fetch_bases(workspace: Path, shas: Iterable[str]) -> None:
-    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch."""
-    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_commit(workspace, sha)})
-    if missing:
-        git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none",
-            "origin", *missing, timeout=FETCH_TIMEOUT_SECONDS)
+def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
+    """The commits and trees (no blobs) of SHAS the checkout lacks, in one shallow fetch, tried twice.
+
+    On 2026-09-27 the one fetch failed on some picker runs (1 of 14 bases compared), and every root of
+    every mini then cost the unknown start, so distance routing never pinned. A second attempt takes
+    what the first left missing. Returns what happened, for the decision record: the bases missing,
+    the seconds, and the last failure's stderr tail."""
+    # The tree, not only the commit: the changes job's delta_since_green.py fetches main's history with
+    # --filter=tree:0, so most kept bases were present as bare commits, never fetched, and their diffs
+    # failed (09-27 18Z: 13 of 15 bases uncomparable on #15003's run). --refetch makes the server send
+    # the trees of a commit the checkout already has.
+    missing = sorted({sha for sha in shas if WARM_SHA.fullmatch(sha) and not have_tree(workspace, sha)})
+    report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
+    started = time.monotonic()
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    for attempt in range(2):
+        if not missing:
+            break
+        # Leave room for a second attempt and the diffs (tens of milliseconds each) after a slow failure.
+        timeout = min(FETCH_TIMEOUT_SECONDS, (_deadline[0] - time.monotonic() - FETCH_RESERVE_SECONDS) / (2 - attempt))
+        if timeout <= 0:
+            report["error"] = "no time left"
+            break
+        report["attempts"] += 1
+        try:
+            result = subprocess.run(["git", "-C", str(workspace), "fetch", "--quiet", "--no-tags",
+                                     "--no-write-fetch-head", "--refetch", "--depth=1", "--filter=blob:none",
+                                     "origin", *missing],
+                                    capture_output=True, text=True, timeout=timeout, env=env)
+            if result.returncode != 0:
+                report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
+            else:
+                report.pop("error", None)
+        except subprocess.TimeoutExpired:
+            report["error"] = f"timed out after {timeout:.0f} s"
+        except OSError as error:
+            report["error"] = f"{type(error).__name__}: {error}"[:300]
+        missing = [sha for sha in missing if not have_tree(workspace, sha)]
+    report["left"] = len(missing)
+    report["seconds"] = round(time.monotonic() - started, 1)
+    return report
 
 
 def main_changes(workspace: Path, old: str, new: str) -> tuple[set[str], bool] | None:
@@ -746,22 +809,33 @@ def mini_roots(warm: Mapping[str, Any], member: Callable[[str], str]) -> dict[st
     return {mini: roots for mini, (_, roots) in newest.items()}
 
 
+def own_parked(entry: Mapping[str, Any], pr_number: int | None) -> list[Mapping[str, Any]]:
+    """A root's parked builds (owned_build_state.py PR slots) of pull request PR_NUMBER."""
+    parked = entry.get("parked")
+    return [item for item in parked if isinstance(item, Mapping) and pr_number is not None
+            and item.get("pr") == pr_number] if isinstance(parked, list) else []
+
+
 def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
                    minis: Mapping[str, Sequence[Mapping[str, Any]]],
                    changes: Callable[[str], tuple[set[str], bool] | None], pr_number: int | None,
                    own: Mapping[str, Any] | None, legacy: Mapping[str, float], running: Mapping[str, Any],
                    model: Mapping[str, Any], now: dt.datetime, max_wait: float,
-                   runner_label: Callable[[str], str], member: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
+                   runner_label: Callable[[str], str], member: Callable[[str], str],
+                   seen_at: dt.datetime | None = None) -> tuple[str, dict[str, Any]]:
     """The root runner whose mini's free root starts nearest, when it beats the root label by ROUTE_MARGIN_SECONDS.
 
     Every online `root` runner is a candidate. Its mini's roots (MINIS, the
     stamps admission publishes) each cost hook_root_cost() with the job's OWN
-    files. The hook hands the job the cheapest free root and each busy root
+    files, or by its parked build of this pull request, which admission swaps in. The hook hands the job the cheapest free root and each busy root
     runner of the mini holds one, so a runner costs the root ranked after the
     busy ones (the cheapest on an idle mini; for a busy runner, the one its
     job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
-    exact-key start class) or the model's unknown start. A busy runner adds
-    its expected wait and counts only within MAX_WAIT. The root label goes to
+    exact-key start class) or the model's unknown start. The compile is
+    multiplied by compile_factor() while another root runner of the mini is
+    busy, and on a slower mini. A busy runner adds its expected wait (one the
+    snapshot, taken at SEEN_AT, does not list waits as an admission started
+    then) and counts only within MAX_WAIT. The root label goes to
     whichever idle root runner GitHub picks: the mean of their costs, or,
     with every one busy, the first wait plus the mean. Ties go to the lower
     cost, then the less loaded mini, then the name. Returns the runner (""
@@ -792,12 +866,27 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
             stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
             cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
                                   pr_number, hook, own)
+            # This pull request's build parked beside the root: admission's `check` swaps it in, or adopts
+            # from it where the root keeps main (owned_build_state.py holds_last_main), and the hook ranks
+            # the root by it.
+            parked = own_parked(entry, pr_number)
+            if parked:
+                cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
+                                      hook, own)
             costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
         ranked[mini] = sorted(costs, key=lambda item: (item[0], item[2], item[3]))
     rows: list[dict[str, Any]] = []
     for name, busy, labels in online:
         mini = member(name)
-        wait = 0.0 if not busy else remaining_seconds(running.get(name), model, now)
+        if not busy:
+            wait: float | None = 0.0
+        elif name in running:
+            wait = remaining_seconds(running.get(name), model, now)
+        else:
+            # Busy with a job newer than the snapshot (SEEN_AT): most likely an admission, started no earlier
+            # than the snapshot, so its wait ages from there and drops out past the p90 like a listed one.
+            started = (seen_at or now).isoformat()
+            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": started}, model, now)
         taken = busy_roots.get(mini, 0) - (1 if busy else 0)
         roots = ranked.get(mini) or []
         if taken < len(roots):
@@ -806,6 +895,7 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
         else:
             seconds = legacy.get(name, hook["unknown"])
             tier_name, files, where = ("key" if name in legacy else "unknown"), -1, ""
+        seconds *= compile_factor(mini, taken)
         rows.append({"runner": name, "mini": mini, "busy": busy, "wait": None if wait is None else round(wait, 1),
                      "compile": round(seconds, 1), "tier": tier_name, "files": files, "root": where,
                      "cost": None if wait is None else round(wait + seconds, 1),
@@ -857,14 +947,19 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
     base = (merged_onto or "").strip().lower()
     number = int(pr_number) if (pr_number or "").strip().isdigit() else None
     diffs: dict[str, tuple[set[str], bool] | None] = {}
+    fetched: dict[str, Any] = {}
     _deadline[0] = time.monotonic() + DISTANCE_BUDGET_SECONDS
     try:
         own_files = pull_request_files(workspace, base, fetch=False) if base else None
+        parked_bases = {str(item.get("merged_onto") or "") for roots in minis.values() for entry in roots
+                        for item in own_parked(entry, number)}
         bases = sorted({str(entry.get("merged_onto") or "") for roots in minis.values() for entry in roots}
-                       - {"", base})[:MAX_ROUTE_BASES]
+                       - {"", base} - parked_bases)
+        # This pull request's parked bases first, so the cap never drops them.
+        bases = [*sorted(parked_bases - {"", base}), *bases][:MAX_ROUTE_BASES]
         if WARM_SHA.fullmatch(base):
             if bases:
-                fetch_bases(workspace, bases)
+                fetched = fetch_bases(workspace, bases)
             diffs = {onto: main_changes(workspace, onto, base) for onto in bases}
             diffs[base] = (set(), False)
     finally:
@@ -885,18 +980,25 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
         if seconds is not None:
             legacy[str(name)] = seconds
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
+    try:
+        seen_at: dt.datetime | None = dt.datetime.fromisoformat(
+            str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        seen_at = None
     name, decision = distance_route(runners, root, minis=minis, changes=lambda onto: diffs.get(onto),
                                     pr_number=number, own=own, legacy=legacy, running=running, model=model,
                                     now=now, max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
-                                    member=member)
+                                    member=member, seen_at=seen_at)
     decision["job_tier"] = job_tier
-    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs)}
+    decision["bases"] = {"compared": sum(1 for value in diffs.values() if value is not None), "total": len(diffs),
+                         "fetch": fetched}
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
 
 
 def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
     """The picker's decision as admission records it (`route.picker`, for ci-dash's Estimates view), bounded:
-    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, and the candidates."""
+    mode, chosen runner ("" for the root label), predicted and baseline compile seconds, the candidates, and
+    (distance mode) how many kept merge bases it could compare and how their fetch went."""
     candidates = []
     for row in (decision.get("candidates") or [])[:12]:
         if isinstance(row, Mapping):
@@ -912,7 +1014,16 @@ def route_record(decision: Mapping[str, Any]) -> dict[str, Any]:
         predicted = picked[0]["cost"] if picked else decision.get("baseline_seconds")
     return {"mode": decision.get("mode") or "key", "chosen": chosen, "predicted": predicted,
             "baseline": decision.get("baseline", decision.get("baseline_seconds")), "tier": decision.get("tier"),
-            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200]}
+            "job_tier": decision.get("job_tier"), "candidates": candidates, "why": str(decision.get("why") or "")[:200],
+            **({"bases": bases_record(decision["bases"])} if isinstance(decision.get("bases"), Mapping) else {})}
+
+
+def bases_record(bases: Mapping[str, Any]) -> dict[str, Any]:
+    """The decision's base comparison, bounded: compared of total, and the fetch's outcome."""
+    fetch = bases.get("fetch") if isinstance(bases.get("fetch"), Mapping) else {}
+    return {"compared": bases.get("compared"), "total": bases.get("total"),
+            "fetch": {key: (str(fetch[key])[:160] if key == "error" else fetch[key])
+                      for key in ("missing", "left", "attempts", "seconds", "error") if key in fetch}}
 
 
 # Fitting ----------------------------------------------------------------------------------------------------

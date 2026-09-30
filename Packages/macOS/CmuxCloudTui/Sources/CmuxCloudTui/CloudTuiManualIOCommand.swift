@@ -1,3 +1,4 @@
+import CmuxTerminalSizing
 import Foundation
 
 /// Builds private transport commands for a native Cloud Ghostty byte mirror.
@@ -45,12 +46,21 @@ public struct CloudTuiManualIOCommand: Sendable {
     /// Advertises this connection as the native Ghostty mirror.  The server
     /// only adds capabilities it recognizes, so sending these to an older
     /// daemon is safe and leaves the byte attach fallback available.
+    ///
+    /// - Parameters:
+    ///   - name: human-readable client name.
+    ///   - kind: client kind.
+    ///   - identity: the verified participant identity for shared sizing
+    ///     (`user_id`, `display_name`, `device_kind`, `device_name`). Only
+    ///     sent when the daemon advertised ``sharedSizingCapability``.
+    ///   - requestID: correlation id.
     public func setClientInfo(
         name: String,
         kind: String,
+        identity: TerminalSizingParticipant? = nil,
         requestID: UInt64 = 1
     ) -> [String: Any] {
-        [
+        var command: [String: Any] = [
             "id": requestID,
             "cmd": "set-client-info",
             "name": name,
@@ -59,8 +69,138 @@ public struct CloudTuiManualIOCommand: Sendable {
                 viewAttachmentLeaseCapability,
                 viewAttachmentDetachCapability,
                 "terminal-color-overrides-v1",
+                sharedSizingCapability,
             ],
         ]
+        if let identity {
+            for (key, value) in identityObject(identity) { command[key] = value }
+        }
+        return command
+    }
+
+    /// The daemon capability for shared terminal sizing
+    /// (`docs/shared-terminal-sizing.md`).
+    public let sharedSizingCapability = "shared-sizing-v1"
+
+    /// Creates or updates a relay sub-view (a phone viewing this Mac's mirror).
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - view: relay-scoped key, `mobile:<client_id>`.
+    ///   - identity: the phone's identity; its viewport is sent as `cols`/`rows`.
+    ///   - requestID: correlation id.
+    /// - Returns: the command, or `nil` without a valid viewport.
+    public func resizeRelayView(
+        surfaceID: UInt64,
+        view: String,
+        identity: TerminalSizingParticipant,
+        requestID: UInt64 = 1
+    ) -> [String: Any]? {
+        guard !view.isEmpty, let viewport = identity.viewport,
+              (1...maximumGridDimension).contains(viewport.cols),
+              (1...maximumGridDimension).contains(viewport.rows) else { return nil }
+        return [
+            "id": requestID,
+            "cmd": "resize-attached-view",
+            "surface": surfaceID,
+            "view": view,
+            "identity": identityObject(identity),
+            "cols": viewport.cols,
+            "rows": viewport.rows,
+        ]
+    }
+
+    /// Retires a relay sub-view (the phone left or disconnected).
+    public func detachRelayView(surfaceID: UInt64, view: String, requestID: UInt64 = 0) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "detach-attached-view",
+            "surface": surfaceID,
+            "view": view,
+        ]
+    }
+
+    /// Replaces a terminal's sizing policy on the host.
+    public func setSizePolicy(surfaceID: UInt64, policy: TerminalSizingPolicy, requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "set-size-policy",
+            "surface": surfaceID,
+            "policy": jsonObject(policy) ?? ["mode": policy.mode.rawValue],
+        ]
+    }
+
+    /// Sets or clears one participant's counts override.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - target: `lease`, `view` or `participant` and its value.
+    ///   - counts: `true`, `false` or `nil` to clear.
+    ///   - requestID: correlation id.
+    public func setSizeCounts(
+        surfaceID: UInt64,
+        target: (key: String, value: String),
+        counts: Bool?,
+        requestID: UInt64 = 1
+    ) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "set-size-counts",
+            "surface": surfaceID,
+            target.key: target.value,
+            "counts": counts.map { $0 as Any } ?? NSNull(),
+        ]
+    }
+
+    /// Records explicit activity (focus-click, keyboard, paste or mouse input)
+    /// for the latest-input policy.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - view: a relay sub-view (`mobile:<client_id>`), or `nil` for this
+    ///     connection's own participant.
+    ///   - requestID: correlation id.
+    public func noteSizeActivity(surfaceID: UInt64, view: String? = nil, requestID: UInt64 = 1) -> [String: Any] {
+        var command: [String: Any] = [
+            "id": requestID,
+            "cmd": "note-size-activity",
+            "surface": surfaceID,
+        ]
+        if let view { command["view"] = view }
+        return command
+    }
+
+    /// Asks for the current size state.
+    public func getSizeState(surfaceID: UInt64, requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "get-size-state",
+            "surface": surfaceID,
+        ]
+    }
+
+    /// Disconnects one participant (by host participant id) on behalf of `by`.
+    public func detachClient(participantID: String, by actor: TerminalDetachActor, requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "detach-client",
+            "client": participantID,
+            "by": jsonObject(actor) ?? [:],
+        ]
+    }
+
+    private func identityObject(_ identity: TerminalSizingParticipant) -> [String: Any] {
+        [
+            "user_id": identity.userID as Any? ?? NSNull(),
+            "display_name": identity.displayName as Any? ?? NSNull(),
+            "device_kind": identity.deviceKind.rawValue,
+            "device_name": identity.deviceName as Any? ?? NSNull(),
+        ]
+    }
+
+    private func jsonObject<T: Encodable>(_ value: T) -> [String: Any]? {
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     /// Claims this connection as the terminal's geometry owner.
@@ -106,13 +246,15 @@ public struct CloudTuiManualIOCommand: Sendable {
         return command
     }
 
-    /// Writes raw input bytes to the remote PTY.
+    /// Writes raw input bytes to the remote PTY. Input asks for no reply, so a
+    /// relay can carry it as compact one-way input.
     public func input(surfaceID: UInt64, bytes: Data, requestID: UInt64 = 1) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "send",
             "surface": surfaceID,
             "bytes": bytes.base64EncodedString(),
+            "no_reply": true,
         ]
     }
 

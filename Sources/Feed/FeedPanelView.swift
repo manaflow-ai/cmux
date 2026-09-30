@@ -1604,6 +1604,7 @@ private struct PermissionInputPreview {
 /// Replaces the old PermissionCTAButton / PlanCTAButton /
 /// FeedPillButton trio so styling is defined in exactly one place.
 struct FeedButton: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     enum Kind: String {
         /// Transparent pill that lights up on hover/selection. Used
         /// for filter bar pills and single-select option pills.
@@ -1847,7 +1848,7 @@ struct FeedButton: View {
             ? CGFloat(FeedButtonDebugSettings.compactCornerRadius)
             : CGFloat(FeedButtonDebugSettings.mediumCornerRadius)
 #else
-        return size == .compact ? 5 : 6
+        return RightSidebarChromeMetrics.buttonCornerRadius
 #endif
     }
     private var horizontalPadding: CGFloat {
@@ -1918,9 +1919,9 @@ struct FeedButton: View {
         case .light:
             return isHovered ? Color.white.opacity(0.96) : Color.white.opacity(0.88)
         case .primary:
-            return isHovered
-                ? Color(red: 0.28, green: 0.55, blue: 0.95)
-                : Color(red: 0.24, green: 0.48, blue: 0.88)
+            guard isHovered else { return cmuxAccent.color }
+            let accent = cmuxAccent.nsColor(isDark: colorScheme == .dark)
+            return Color(nsColor: accent.blended(withFraction: 0.15, of: .white) ?? accent)
         case .success:
             return isHovered
                 ? Color(red: 0.22, green: 0.72, blue: 0.42)
@@ -1952,7 +1953,7 @@ struct FeedButton: View {
         case .soft: return Color.gray
         case .dark: return Color.black
         case .light: return Color.white
-        case .primary: return Color(red: 0.24, green: 0.48, blue: 0.88)
+        case .primary: return cmuxAccent.color
         case .success: return Color(red: 0.18, green: 0.62, blue: 0.35)
         case .warning: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .destructive: return Color(red: 0.75, green: 0.22, blue: 0.22)
@@ -2477,6 +2478,7 @@ private struct FeedMarkdownInlineText: View {
 /// Claude markdown inside each line gets parsed tastefully. Heading text
 /// intentionally stays at body scale.
 private struct PlanBodyView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let plan: String
     let rendersMarkdown: Bool
 
@@ -2509,7 +2511,7 @@ private struct PlanBodyView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.85))
+                                    .fill(cmuxAccent.color.opacity(0.85))
                                     .frame(width: 3.5, height: 3.5)
                                     .padding(.top, 5.5)
                                     .frame(width: 10, alignment: .center)

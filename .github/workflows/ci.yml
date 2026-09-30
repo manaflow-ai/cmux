@@ -39,7 +39,9 @@ env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Adding dev-build gets its own group, so a later label event cannot replace
+  # the pending run that asks for the dogfood build.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -77,12 +79,12 @@ jobs:
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
       # Only ever true for a changed-suites run the diff selected, which never
       # takes the canary drop above.
-      # A compile admission on an owned Mac never runs app-host suites: glaeda
-      # gives it the compile token, not the gui token, so the suites would
-      # collide with a GUI shard on the same mini. The changed suites run on
-      # the one shard (shard 8) instead, owned or Blacksmith (pr_runner_pool.py).
-      unit_in_admission: ${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}
+      # On an owned Mac, compile admission takes the mini's gui token for the
+      # suites itself (take-gui); when it cannot, it leaves them to the one
+      # shard (shard 8), which pr_runner_pool.py still plans for.
+      unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
+      ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
@@ -102,10 +104,6 @@ jobs:
       # Set only when the pool is persistent: the jobs of attempt 1 that take
       # it (" admission shard-1 ... "); every other job takes the retry runner.
       macos_pr_owned_jobs: ${{ steps.macos-pool.outputs.owned_jobs }}
-      # Set only when the pool is persistent: the owned label, which attempt 2
-      # of an owned job takes after a refusal (ci-owned-pool-rescue.yml
-      # re-runs failed jobs once on the fleet before Blacksmith).
-      macos_pr_refused_retry_runner: ${{ steps.macos-pool.outputs.refused_retry_runner }}
       # Set only when the pool is persistent and CI_OWNED_POOL_SLOTS gives it
       # a root count: glaeda-root-<class>-xcode-<version>, the one runner per
       # mini that takes a canonical-root job. The root jobs in
@@ -118,6 +116,12 @@ jobs:
       # remote-daemon) take it in place of the pool label, so they never hold
       # a root runner.
       macos_pr_side_runner: ${{ steps.macos-pool.outputs.side_runner }}
+      # Set only when some side lanes take the light minis' idle side runners
+      # (pr_runner_pool.light_side_lanes()): glaeda-side-light-xcode-<version>,
+      # which the side lanes in macos_pr_light_side_jobs (" claude-wrapper ")
+      # take in place of macos_pr_side_runner, one lane per idle runner.
+      macos_pr_light_side_runner: ${{ steps.macos-pool.outputs.light_side_runner }}
+      macos_pr_light_side_jobs: ${{ steps.macos-pool.outputs.light_side_jobs }}
       # Set only beside a root runner, when CI_OWNED_POOL_SLOTS gives the gui
       # label a count: glaeda-gui-<class>-xcode-<version>, the one runner per
       # mini that takes a GUI job (the mini has one gui token). The GUI jobs
@@ -710,7 +714,6 @@ jobs:
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
         # onto the owned pools only, placed like a pull request unless
-        # CI_OWNED_MAIN_RESERVE holds machines back for pull requests
         # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
         # these outputs for a workflow_dispatch on main.
         continue-on-error: true
@@ -738,7 +741,6 @@ jobs:
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           # Machines and root runners main's dispatch leaves free (default 0).
-          OWNED_MAIN_RESERVE: ${{ vars.CI_OWNED_MAIN_RESERVE }}
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -1062,6 +1064,7 @@ jobs:
             scripts/ci/choose_ci_suite.py \
             scripts/ci/cmux_unit_test_shard.py \
             scripts/ci/test_impact.py \
+            scripts/ci/ui_tests_dispatch.py \
             scripts/ci/cmux-unit-test-timings.json \
             | tar -x -C "$out/trusted" 2>/dev/null; then
             echo "The base revision has no reverse test impact selector; nothing to report."
@@ -1170,8 +1173,7 @@ jobs:
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
-      pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
-      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
+      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   web:
@@ -1188,7 +1190,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1330,13 +1332,12 @@ jobs:
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
-      pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
       pr_admission_route: ${{ needs.changes.outputs.macos_pr_admission_route }}
       pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
-      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
+      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
@@ -1538,9 +1539,10 @@ jobs:
     # that no longer gates main, so refuse the run here instead of reporting
     # green on a diff nothing observed. A cmuxTests/ diff selects
     # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
-    # here. What does is cmuxUITests/, which no pull request job executes, and
-    # a diff that could not be read: "full-ci" runs everything, and
-    # "no-full-ci" records that skipping it is deliberate.
+    # here. A cmuxUITests/ diff runs the classes it changed in `ui-tests`. What
+    # lands here is a cmuxUITests/ change that maps to no test class (a helper),
+    # or a diff that could not be read: "no-full-ci" records that skipping it
+    # is deliberate, and for an unread diff "full-ci" runs everything.
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
@@ -1548,20 +1550,174 @@ jobs:
     steps:
       - name: Require the suite that judges this diff
         run: |
-          echo "This pull request changes cmuxUITests/, or its diff could not be" >&2
-          echo "read, and this run skipped the macOS suite, so nothing observed it." >&2
-          echo "(A cmuxTests/ change runs 'app-host unit tests' automatically.)" >&2
+          echo "This pull request changes cmuxUITests/ outside any test class (a" >&2
+          echo "helper every class may use), more classes than one focused run takes," >&2
+          echo "or its diff could not be read, so nothing observed it. (A changed UI" >&2
+          echo "test class runs in 'ui-tests', and a cmuxTests/ change runs 'app-host" >&2
+          echo "unit tests', automatically.)" >&2
           echo >&2
-          echo "No pull request job executes cmuxUITests/. Add the 'full-ci' label" >&2
-          echo "to run the suite on a fresh run, or 'no-full-ci' to record that" >&2
-          echo "skipping it is deliberate." >&2
+          echo "Run the affected UI tests with scripts/run-e2e.sh and add the" >&2
+          echo "'no-full-ci' label to record it, or add 'full-ci' when the diff" >&2
+          echo "could not be read." >&2
           exit 1
+
+  # The UI test classes a pull request changes, run once on its head through
+  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. A diff
+  # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
+  # splits and panes, the main window's size, the fuzzer) also asks for
+  # cmuxUITests/FuzzRegressions, which replays them against the same app
+  # (choose_ci_suite.fuzz_regression_selectors).
+  #
+  # The test run
+  # adopts the app-host product this run compiles for the merge, waiting for
+  # it, so this costs a test run, not a second compile, and routes to an owned
+  # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
+  # the compile it adopts, so the gate must not wait for it, and a fast Linux
+  # failure spends no test run. A run that reuses an earlier compile skips the
+  # gate, and still runs the classes, once static preflight passes: the
+  # dispatch adopts that compile by its product key.
+  #
+  # Dispatching takes actions: write, which no job in this file holds: a
+  # pull_request run takes this file from the pull request. This job validates
+  # the selectors and uploads them as a request; ci-ui-tests.yml, which always
+  # runs from the default branch and which the build controller dispatches when
+  # this job starts (it matches the job name `ui-tests`: keep this id and add
+  # no `name:`), picks the request up, runs main's dispatcher on it, and
+  # cancels the dispatched run if this run ends first. This job then
+  # reports that run's verdict, so the result stays on the pull request and
+  # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
+  # only same-repository pull requests, so a maintainer runs its classes with
+  # scripts/run-e2e.sh and adds 'no-full-ci'. scripts/ci/ui_tests_dispatch.py
+  # has both halves.
+  ui-tests:
+    needs:
+      - changes
+      - static-preflight
+      - macos-admission-gate
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A compile wait of up to 50 minutes, then the tests.
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Refuse a fork
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+        run: |
+          echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
+          exit 1
+
+      - name: Checkout the request script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ui_tests_dispatch.py
+          sparse-checkout-cone-mode: false
+
+      # Each selector must be cmuxUITests/<Class>[/<method>];
+      # ci-ui-tests.yml validates the request again before it dispatches.
+      - name: Validate the UI test selectors
+        env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/ui_tests_dispatch.py request --out "$RUNNER_TEMP/request.json"
+
+      - name: Request the UI test run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # ci-ui-tests.yml waits for this name (ui_tests_dispatch.request_artifact()).
+          name: ui-tests-request-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/request.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Wait for the UI test run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # Only to find the test run and print what it is doing each minute.
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
+
+  dogfood-build:
+    # One sticky comment per app pull request with a link to a tagged dev build
+    # of this exact head, so anyone can try the change in one click. The build
+    # controller treats this job's success as the build request and verifies the
+    # pull request itself before building, so the job name is part of that
+    # contract. Not required and not in ci-status: a comment failure never
+    # blocks a merge.
+    # Opt-in: only pull requests labelled dev-build get it, on each push and
+    # when the label is added; app-free changes (docs, web) never do. The
+    # controller builds the newest head each time a worker frees up.
+    name: "Dogfood build #${{ github.event.pull_request.number }}"
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    timeout-minutes: 5
+    # A failed comment must not turn the run red; the controller acts only on success.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post the dogfood link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          tag="pr-$PR-${HEAD_SHA:0:8}"
+          marker='<!-- cmux:dogfood-build -->'
+          # One comment per pull request: edit ours in place on every push.
+          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
+          existing=${existing%%$'\n'*}
+          # The head the previous link named, so a regression can be bisected
+          # across the pushes the controller skipped (it builds the newest head).
+          previous=""
+          if [ -n "$existing" ]; then
+            previous=$(gh api "repos/$GH_REPO/issues/comments/$existing" --jq '.body' | grep -oE '^\*\*Dogfood build\*\* of `[0-9a-f]{40}`' | grep -oE '[0-9a-f]{40}' || true)
+          fi
+          range=""
+          if [ -n "$previous" ] && [ "$previous" != "$HEAD_SHA" ]; then
+            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null) || true
+            [[ "$commits" =~ ^[0-9]+$ ]] || commits="?"
+            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([commits: $commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
+          fi
+          cat > body.md <<EOF
+          $marker
+          **Dogfood build** of \`$HEAD_SHA\`
+
+          [cmux DEV $tag.app](http://127.0.0.1:17320/$tag)
+
+          The link opens this exact commit in the cmux dev menu bar app; the page waits until the build is ready. Builds run only while this PR has the \`dev-build\` label. Under load the fleet builds the newest push each time a worker frees up, so some pushes are skipped. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
+
+          $range
+          EOF
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@body.md >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@body.md >/dev/null
+          fi
+          echo "Dogfood link for $tag posted on #$PR."
 
   ci-status:
     needs:
       - changes
       - claude-wrapper
       - suite-coverage
+      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1623,6 +1779,7 @@ jobs:
       - changes
       - claude-wrapper
       - suite-coverage
+      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check

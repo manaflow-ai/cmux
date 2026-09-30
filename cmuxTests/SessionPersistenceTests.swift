@@ -590,6 +590,29 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEndsOnFreshLine() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        func replayed(_ scrollback: String) -> String? {
+            let environment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback, tempDirectory: tempDir)
+            guard let path = environment[SessionScrollbackReplayStore.environmentKey] else { return nil }
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        let red = "\u{001B}[31m"
+        let reset = "\u{001B}[0m"
+
+        // A capture that stops at the old prompt gets a line break so the new
+        // shell's first prompt does not start mid-line.
+        XCTAssertEqual(replayed("Last login: Mon\nleo@mac ~ % "), "Last login: Mon\nleo@mac ~ % \r\n")
+        XCTAssertEqual(replayed("\(red)% \(reset)"), "\(reset)\(red)% \(reset)\r\n\(reset)")
+        // Already on a fresh line, including behind trailing SGR sequences: unchanged.
+        XCTAssertEqual(replayed("done\r\n"), "done\r\n")
+        XCTAssertEqual(replayed("\(red)done\n\(reset)"), "\(reset)\(red)done\n\(reset)")
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/5165.
     //
     // Ghostty's `write_screen_file:copy,vt` export (used to capture session
@@ -3371,15 +3394,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let workingDirectory = "/remote/cmux/project-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "opencode-session-remote",
-            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
                 executablePath: "/remote/bin/opencode",
                 arguments: ["/remote/bin/opencode"],
-                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                workingDirectory: workingDirectory,
                 environment: ["PATH": "/remote/bin:/usr/bin"],
                 capturedAt: 123,
                 source: "process"
@@ -4556,6 +4580,23 @@ extension SessionPersistenceTests {
             binding.command,
             TerminalStartupWorkingDirectoryPrefix.prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
+    func testAgentHookSurfaceResumeBindingDropsDuplicateKimiWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && kimi --resume session --work-dir '/tmp/project' --model kimi-k2",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "kimi --resume session --model kimi-k2",
                 workingDirectory: "/tmp/project"
             )
         )

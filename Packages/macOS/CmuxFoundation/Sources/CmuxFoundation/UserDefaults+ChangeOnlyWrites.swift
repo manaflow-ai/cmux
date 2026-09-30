@@ -13,6 +13,15 @@ public import Foundation
 /// The comparison reads through the normal search list, so a matching value in
 /// the argument or registration domain also counts as unchanged.
 extension UserDefaults {
+    /// Stores an ordered string array only when its elements have changed.
+    /// - Returns: `true` when a write happened.
+    @discardableResult
+    public func setIfChanged(_ value: [String], forKey key: String) -> Bool {
+        if stringArray(forKey: key) == value { return false }
+        set(value, forKey: key)
+        return true
+    }
+
     /// Stores `value` for `key` unless the current value is byte-for-byte equal.
     /// - Returns: `true` when a write happened.
     @discardableResult

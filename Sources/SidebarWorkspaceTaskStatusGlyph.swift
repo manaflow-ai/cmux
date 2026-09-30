@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 import SwiftUI
@@ -204,6 +205,7 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
 /// `PullRequestMergedIcon` (custom `Path` drawing, caller passes resolved
 /// colors; no store access).
 struct SidebarWorkspaceTaskStatusGlyph: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let status: WorkspaceTaskStatus
     let hasOverride: Bool
     /// Active (inverted-foreground) rows render monochrome, matching how
@@ -235,7 +237,7 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
         case .neutral:
             return neutralColor
         case .working:
-            return cmuxAccentColor()
+            return cmuxAccent.color
         case .attention:
             // Loudest lane: full-strength attention accent between orange and red.
             return Color(red: 1.0, green: 0.42, blue: 0.2)

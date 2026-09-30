@@ -92,6 +92,7 @@ LIVE_MIN_AGE_SECONDS = 120
 # Roots per mini and files per root kept (owned_build_state.py MAX_PATHS caps the stamp's list).
 MAX_ROOTS = 4
 MAX_ROOT_FILES = 400
+MAX_PARKED = 2  # parked pull request builds per root (owned_build_state.py PR_SLOTS)
 MAX_AGE_HOURS = 24
 MAX_JOB_PAGES = 3
 # Previous snapshots read, newest first, for the last one that has `warm`.
@@ -120,8 +121,31 @@ def keys(document: Any) -> list[str]:
     return found[:MAX_KEYS]
 
 
+def stamp_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A root's or parked build's stamp fields (owned_build_state.py ROOT_FIELDS), each checked."""
+    clean: dict[str, Any] = {}
+    onto = str(entry.get("merged_onto") or "").lower()
+    if len(onto) == 40 and warm_key(onto):
+        clean["merged_onto"] = onto
+    pr = entry.get("pr")
+    if isinstance(pr, int) and not isinstance(pr, bool) and 0 < pr < 10**9:
+        clean["pr"] = pr
+    files = entry.get("pr_app_swift_files")
+    if isinstance(files, list):
+        clean["pr_app_swift_files"] = [path for path in files[:MAX_ROOT_FILES]
+                                       if isinstance(path, str) and 0 < len(path) <= 512 and "\0" not in path]
+    total = entry.get("pr_app_swift_total")
+    if isinstance(total, int) and not isinstance(total, bool) and 0 <= total < 10**6:
+        clean["pr_app_swift_total"] = total
+    if entry.get("pr_package_interface") in (True, False, None) and "pr_package_interface" in entry:
+        clean["pr_package_interface"] = entry.get("pr_package_interface")
+    return clean
+
+
 def roots(document: Any) -> list[dict[str, Any]]:
-    """The artifact's valid roots (owned_build_state.py `warm-keys`), at most MAX_ROOTS, fields checked."""
+    """The artifact's valid roots (owned_build_state.py `warm-keys`), at most MAX_ROOTS, fields checked.
+
+    A root's `parked` pull request builds (at most MAX_PARKED, each with a pull request) are kept too."""
     raw = document.get("roots") if isinstance(document, Mapping) else None
     found: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -130,22 +154,13 @@ def roots(document: Any) -> list[dict[str, Any]]:
         if not isinstance(number, int) or isinstance(number, bool) or not 0 < number < 100 or number in seen:
             continue
         seen.add(number)
-        clean: dict[str, Any] = {"root": number}
-        onto = str(entry.get("merged_onto") or "").lower()
-        if len(onto) == 40 and warm_key(onto):
-            clean["merged_onto"] = onto
-        pr = entry.get("pr")
-        if isinstance(pr, int) and not isinstance(pr, bool) and 0 < pr < 10**9:
-            clean["pr"] = pr
-        files = entry.get("pr_app_swift_files")
-        if isinstance(files, list):
-            clean["pr_app_swift_files"] = [path for path in files[:MAX_ROOT_FILES]
-                                           if isinstance(path, str) and 0 < len(path) <= 512 and "\0" not in path]
-        total = entry.get("pr_app_swift_total")
-        if isinstance(total, int) and not isinstance(total, bool) and 0 <= total < 10**6:
-            clean["pr_app_swift_total"] = total
-        if entry.get("pr_package_interface") in (True, False, None) and "pr_package_interface" in entry:
-            clean["pr_package_interface"] = entry.get("pr_package_interface")
+        clean: dict[str, Any] = {"root": number, **stamp_fields(entry)}
+        parked = entry.get("parked")
+        parked = [stamp_fields(item) for item in parked[:MAX_PARKED] if isinstance(item, Mapping)] \
+            if isinstance(parked, list) else []
+        parked = [item for item in parked if "pr" in item]
+        if parked:
+            clean["parked"] = parked
         found.append(clean)
     return sorted(found, key=lambda item: item["root"])[:MAX_ROOTS]
 

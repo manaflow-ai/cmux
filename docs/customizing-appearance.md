@@ -186,8 +186,8 @@ In `cmux.json`:
 
 - `sidebarAppearance.tintColor`, `lightModeTintColor`, `darkModeTintColor`, and
   `tintOpacity` (0 to 1, default 0.18) tint the sidebar.
-- `sidebarAppearance.matchTerminalBackground: true` uses the terminal
-  background instead of a tint.
+- `sidebarAppearance.matchTerminalBackground` (default `true`) uses the
+  terminal background instead of a tint. Set it to `false` to use the tint.
 - `sidebar.*` keys pick which rows appear (branch, PRs, ports, logs, progress,
   notification text, and so on), and `sidebar.workspaceDescriptionColor`
   recolors workspace descriptions. See the
@@ -208,6 +208,9 @@ has ready-to-copy ones.
   selected workspace.
 - `workspaceColors.selectionColor` and `workspaceColors.notificationBadgeColor`
   override those colors.
+- `workspaceColors.subtleSelection`: `true` swaps the solid left-rail selection
+  for a light accent tint with a hairline edge. Off by default; ignored with
+  `solidFill` or a custom `selectionColor`.
 - `workspaceColors.colors` is the named palette shown in the workspace color
   picker. It replaces the built-in palette, so copy the default entries from the
   schema that you want to keep.

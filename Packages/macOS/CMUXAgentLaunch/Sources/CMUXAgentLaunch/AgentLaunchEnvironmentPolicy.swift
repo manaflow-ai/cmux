@@ -124,6 +124,17 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
 
+    /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
+    ///
+    /// Out-of-process hook producers capture exactly these values so the
+    /// consumer's selection matches what it would read from its own process.
+    public var inputEnvironmentKeys: [String] {
+        Self.sortedSafeEnvironmentKeys + [
+            "CMUX_ORIGINAL_NODE_OPTIONS",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
+        ]
+    }
+
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
     /// The optional `kind` applies agent-specific exclusions for values that are safe for one
@@ -182,8 +193,14 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             // exact command text, never a URL or credential. They cross into
             // the durable restore record only as an agreeing pair, so a marker
             // inherited from an ancestor `sr claude` session proves nothing.
-            selected.merge(SubrouterClaudeResumeRouting().capturedEnvironment(in: env)) { _, marker in
+            let router = SubrouterClaudeResumeRouting()
+            selected.merge(router.capturedEnvironment(in: env)) { _, marker in
                 marker
+            }
+            // The account a routed launch was pinned to, recorded by the
+            // wrapper. It only picks the launcher's `--account` on restore.
+            selected.merge(router.capturedAccountEnvironment(in: env)) { _, account in
+                account
             }
         }
         return selected
@@ -240,6 +257,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         )
         selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
         selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
+        selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
         return selected
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxTerminal
 import GhosttyKit
 import XCTest
@@ -10,6 +11,24 @@ import XCTest
 #endif
 
 extension AppDelegateShortcutRoutingTests {
+    /// Gives split-admission fixtures enough geometry even when an earlier host test left a narrow window.
+    func newTerminalSplitForSplitAdmissionTesting(
+        window: NSWindow,
+        workspace: Workspace,
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
+        return workspace.newTerminalSplit(
+            from: panelId, orientation: orientation, focus: focus
+        )
+    }
+
     func coldCloudTerminalPanel(workspace: Workspace) -> TerminalPanel {
         let base = GhosttyApp.terminalSurfaceRuntimeDependencies
         let dependencies = TerminalSurfaceRuntimeDependencies(

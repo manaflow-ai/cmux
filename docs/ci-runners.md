@@ -1,5 +1,18 @@
 # CI runners
 
+> **Fleet route:** start at the hq [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md), then return here for CI runner selection, Xcode pins, repository variables, and the Blacksmith overflow switch. This file is the owner for those CI procedures.
+
+## Rules that must never be broken
+
+- CI is minis first. Blacksmith is overflow; do not disable an owned lane to
+  make room for a dev build.
+- Every mini must have every pinned Xcode from
+  `scripts/ci/xcode-pins.txt` and the matching `CMUX_CI_XCODE_APP_*` variable
+  before it receives that pool's job.
+- A dead Blacksmith pool uses the one probe-and-switch path below. Queued runs
+  move only by force-cancel plus rerun; GitHub cannot rerun one job until its
+  whole run finishes.
+
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
@@ -84,6 +97,8 @@ The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
 table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
 `relay-tls.yml`'s Xcode 16.2 job.
 
+**CI routing is minis first, always. Never send a lane straight to Blacksmith.** Every CI lane tries the owned Mac minis first; Blacksmith only takes overflow. Do not set lane switches (`CI_E2E_OWNED_UI`, `CI_IOS_OWNED`, `CI_PR_POOL_OWNED`, `CI_OWNED_*`) to `0` or point `MACOS_RUNNER_*` at Blacksmith to "free up" minis. When dev builds are starved, the controller's lend drain gives them priority: after a foreground dev build waits 3 minutes, a lent mini stops taking new PR jobs for it (hq#956, hq#966; tune with `CMUX_CI_LEND_DRAIN_AFTER` / `CMUX_CI_LEND_DRAIN_PER_BUILDS`). On 2026-09-29 an agent flipped `CI_E2E_OWNED_UI` and `CI_IOS_OWNED` to 0 as a stopgap, which bypassed the minis and put UI tests onto Blacksmith macOS runners whose consoles come up locked. Fix capacity problems in the drain, disk eviction or worker supply, never by rerouting a lane.
+
 ## Lanes
 
 Not every macOS job follows the same variable, because not every macOS job has
@@ -142,11 +157,12 @@ minutes; without them, everything the runs holding the pool will need at
 their peak. With live runners, a missing or stale snapshot no longer skips
 the fleet: the owned pools are decided live, and a run none takes keeps its
 default route. A pool's
-capacity is what it ran at most while jobs queued behind it
-(`POOL_CAPACITIES`): 5 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
-2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
-of 10. When every pool is full, the run takes the shortest queue in rounds
-(queued jobs over capacity). The macOS 15 pool counts one round more
+capacity is the measured Blacksmith account limit: queue-to-start stayed low
+until about 24 concurrent macOS jobs account-wide (the 2026-09-25 through
+2026-09-27 fleet observations had a weekly p90 of 15).
+The pools share that account-wide queue, so a run takes the shortest expected
+wait after all Blacksmith queued and running jobs are counted together. The
+macOS 15 pool counts one round more
 (`COLD_ROUNDS`): the DerivedData seed exists only for the lane's Xcode, so a
 run there compiles cold, 10 to 20 minutes longer, about one job's length.
 
@@ -222,8 +238,7 @@ names no owned pool.
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
-| `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
-| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age. Any failure falls back to them |
+| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age: capacity, and which labels route (a pool's root, gui and side labels route while an online runner carries them, `routing_slots()`). Any failure falls back to them |
 | `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
 
 Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
@@ -236,9 +251,7 @@ allowance included, on the owned pools only: jobs that do not fit keep
 `MACOS_RUNNER_PR` as before. Its run holds 9 root runners
 at peak (admission's, then 7 shards, tests-build-and-lag and cli-product-tests);
 the Claude wrapper and remote daemon lanes route only for pull requests, so they
-are not counted. `CI_OWNED_MAIN_RESERVE` above 0 holds that many machines and
-root runners back for pull requests, and then main takes the pool only whole
-and only while its peak is free now, with no queue allowance. Main's CI concurrency group
+are not counted. Main's CI concurrency group
 runs one dispatch at a time, so main never holds more than one run's machines.
 Its marker, the janitor's `committed` count, the route replay in newer picks,
 the owned Mac's kept build state and the rescue all treat it like a
@@ -257,8 +270,9 @@ A class has `canonicalRoots` roots per mini (two on a std mini, root-1 and
 root-2), and a compile takes any free one. The first `canonicalRoots`
 runners of each mini are its root runners and carry
 `glaeda-root-<class>-xcode-<version>`; the others are its side runners and
-carry `glaeda-side-<class>-xcode-<version>`. A root count in
-`CI_OWNED_POOL_SLOTS` (`"root-std": 10`, or the full root label) sends those
+carry `glaeda-side-<class>-xcode-<version>`. An online runner carrying the
+root label (or, when the runners cannot be read, a root count in
+`CI_OWNED_POOL_SLOTS`: `"root-std": 10`, or the full root label) sends those
 jobs to the root label, where they wait for a free root instead of being
 refused, and the picker places no more of them than the root runners free.
 The janitor counts a root job toward the root label and its pool. Without a
@@ -313,7 +327,26 @@ costs the mean over the idle root runners, which is where GitHub puts it.
 The cheapest runner by 30 s is pinned; ties go to cost, then the less
 loaded mini, then the name. The picker's candidates, pick and predicted
 seconds go to admission's record (`route.picker`) through the
-`admission_route` output.
+`admission_route` output. A candidate's compile is multiplied by 1.19 while
+another root runner of its mini is busy (an overlapped compile runs that much
+slower) and by 1.43 on the two M4 minis, so compiles spread across minis
+without `CI_OWNED_SPREAD`. A busy runner the snapshot does not list yet waits
+as an admission that has just begun instead of dropping out.
+
+When `keep` replaces another pull request's build, it parks that build in
+`pr-builds/pr-<n>` beside the root's store (a rename; at most 2 per root, for
+6 h; out of space, `keep` evicts parked builds oldest first, and
+`owned_build_state.py evict-parked` does the same for disk tooling). Admission's
+`check` for that pull request (`CMUX_OWNED_PR`) swaps it back in,
+glaeda's hook ranks the root by it, and `roots` publishes it as `parked`, so
+distance routing sends a re-push to the mini holding its own build.
+On a mini with more than one root, the root that keeps the mini's only main
+build stays at main (`holds_last_main`). A pull request compiled there is kept
+in its PR slot instead, its next push adopts from the slot (`check`'s
+`adopt_from`), and every other pull request starts near main's head.
+glaeda-idle-warm refreshes that root first when main moves. That
+start ranks far even when the pull request changes a package interface,
+where every other start rebuilds the app.
 
 The cost model is `scripts/ci/warm-distance-model.json`, fitted by
 `scripts/ci/warm_distance.py fit` from the line every owned admission appends
@@ -398,15 +431,22 @@ Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
 reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
 
-A refused job goes back to the fleet once before Blacksmith. Attempt 2 may
-take the owned pool again where a job's `runs-on` reads
-`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
-sends no `requested` event for a re-run, so the watch that re-ran the failed
-jobs follows attempt 2 itself, until its owned jobs have run past the
-360-second refusal window. A job refused, or queued past the budget, on
-attempt 2 gets its failed jobs re-run once more, keeping what passed, and
-attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
-costs at most one extra refusal and never loops.
+Re-runs are routed by cause. `github-actions[bot]` re-runs a pull request
+run only after a host fault on a mini: this rescue after a refusal or a stuck
+queue, and the failure attribution (`classify_failures.py`) when every failed
+job is a machine failure. Every owned-eligible `runs-on` sends such a re-run
+(`github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]'`)
+to `retry_runner` on Blacksmith, so it cannot land on the mini that refused
+or failed it. Anyone else's re-run follows a code or test failure and goes
+back to the owned label attempt 1 placed the job on (a full re-run picks
+again like attempt 1, without queueing). When a mini fails that re-run, the
+failure attribution re-runs it once more as the bot, onto Blacksmith, so a
+refusal never loops; the rescue sweeper also watches a person's re-run
+(`person_reruns()`), so a job stuck queued there is re-run onto Blacksmith.
+Main's full-suite dispatch has neither, so any retry of it takes Blacksmith. In 7 days to 2026-09-27, 135 of 138 bot re-runs followed
+a host fault, and 139 of 217 other re-runs a code failure only (23 a host
+fault, 55 a Linux or guard failure). Side lanes off ci.yml keep attempt 1 on
+a side label and every retry on their Blacksmith default.
 
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher
@@ -414,8 +454,8 @@ the failed jobs read attempt 1's outputs, owned pool included, with no watcher
 `retry_runner`, the Blacksmith pool the same rule picks on the lane's own
 Xcode, which is also the Xcode the owned label names. Every pull request macOS
 `runs-on`, and the app-host shards that otherwise inherit compile admission's
-pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
-empty for a run on Blacksmith, so those re-run where they ran.
+pool, reads `retry_runner` first on the bot's re-run. It is empty for a run
+on Blacksmith, so those re-run where they ran.
 
 Compile admission on an owned Mac keeps its build state between jobs
 (`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:
@@ -456,7 +496,30 @@ takes the lane's Xcode (`CMUX_CI_XCODE_APP` restates the runs-on condition);
 every other attempt keeps the macOS 15 pool and pin. Like the other side
 lanes it takes the pool's side label (`pr_side_runner`) when the picker names
 one, so it never holds a mini's root runner. With it a full suite without the
-helper holds 12 machines at peak (`MAX_RUN_JOBS`).
+helper holds 12 machines at peak (`MAX_RUN_JOBS`). On an owned Mac,
+checkout's clean would delete every package's `.build`, so
+`owned_spm_scratch.py link` points each one at a directory under
+`/Users/Shared/cmux-build-fleet/ci/spm-scratch/` outside the workspace, keyed
+by a hash of `xcodebuild -version`, `swift -version` and the workspace path,
+and SwiftPM rebuilds only what the change touched. The job holds its directory
+with a shared flock until it ends, or 65 minutes at most (past the job's
+60-minute timeout) if the runner dies mid-job. The mini's scratch stays under
+24 GiB, least recently used first out, whichever runner or Xcode left it,
+skipping the ones a job holds. Each directory's size is cached in a `.size`
+file beside it and measured again only after a later job used it; a dropped directory is renamed to `.trash-*` before it is
+deleted. `keep` out of space and `owned_spm_scratch.py evict` drop every
+directory no job holds.
+
+The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
+prefer the light minis. On attempt 1 of a same-repository pull request whose
+pick is an owned pool, one side lane per light side runner
+(`glaeda-side-light-xcode-<version>`) idle now takes the light side label
+(`macos_pr_light_side_runner`, for the lanes in `macos_pr_light_side_jobs`),
+and the picked pool counts the rest beside admission and what follows it
+(`pr_runner_pool.light_side_lanes()`). The other lanes take the picked
+pool's side label as before. It reads the runners live, so a light pool
+with no side runner idle takes none; `CI_OWNED_POOL_SLOTS` no longer turns it
+off.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -668,11 +731,11 @@ app-host job is waiting for.
   auth-refresh-tests, and a direct push or dispatch of remote-daemon.yml's
   macOS tests. Attempt 1 takes `CI_LIGHT_LANE_RUNNER` (the light minis, plain
   M4s that still beat a 6 vCPU Blacksmith machine), or `CI_SIDE_LANE_RUNNER`
-  when it is unset; attempt 2 takes `CI_SIDE_LANE_RUNNER` (the std minis).
+  when it is unset; a retry takes the job's Blacksmith default.
 - Std lanes: `cmux-tui.yml`'s macOS `lint`, `test` and `cdp-browser-smoke`,
   `reload-build.yml` (when its runner input is `auto` or the old Blacksmith
   default), and `app-host-test-rerun.yml` for products this repository's CI
-  built on macOS 26. Attempts 1 and 2 take `CI_SIDE_LANE_RUNNER`.
+  built on macOS 26. Attempt 1 takes `CI_SIDE_LANE_RUNNER`; a retry takes Blacksmith.
 
 Both need `CI_PR_POOL_OWNED` to be 1 and a trusted run: a same-repository
 pull request, a push, a schedule or a workflow_dispatch (code from this
@@ -691,6 +754,17 @@ take the Blacksmith default. ci-owned-pool-rescue.yml watches these runs while
 relay-tls `system-keychain` (it changes the System keychain trust store and
 selects Xcode 16.2) and plain-paste-worker (macOS 15 only) stay on Blacksmith.
 Clear both variables to send every side lane back.
+
+### Main compile probes
+
+`main-compile-probe.yml` compiles one main commit that the per-push seeds
+skipped, only when `ci-compile-attribution.yml` needs it to narrow a compile
+break down to one merge (rare: a burst of merges with a break inside). It asks
+for the PR pool's root label (`vars.CI_COMPILE_PROBE_POOL`, default
+`glaeda-root-std-xcode-26.6`) and adopts the nearest main seed. A probe still
+queued after three minutes is cancelled and dispatched on
+`blacksmith-12vcpu-macos-26`. The per-push compile itself is
+`seed-derived-data.yml`, which costs the canary no extra Mac time.
 
 ### Which macOS jobs may take an owned Mac
 
@@ -722,16 +796,18 @@ and the retired self-hosted fleet failed `codesign` with
 | Jobs | Route | Why |
 | --- | --- | --- |
 | `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
-| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker (the side label) | light |
+| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker (the side label), pull requests and main's full-suite dispatch | light |
 | `ci-macos.yml` `swift-package-tests` | owned side lane via the picker (the side label) when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
 | the light side lanes above | `CI_LIGHT_LANE_RUNNER` on attempt 1, `CI_SIDE_LANE_RUNNER` on attempt 2, of a pull request, push, schedule or dispatch | light |
 | `test-e2e.yml` (and `dispatch-focused-test.py`) | owned via `e2e_runner_pool.py`; UI runs with `CI_E2E_OWNED_UI=1` | root jobs; Blacksmith when no root runner is free |
+| `iroh-release-gate.yml` `tailscale-version-skew` | owned via `e2e_runner_pool.py` (its `runner` job) on attempt 1 of a trusted ref, only while a machine is free now; else Blacksmith macOS 15 | app-host tests into `$RUNNER_TEMP` DerivedData, no secrets; takes the gui token for its tests |
+| `iroh-release-gate.yml` `simulator-e2e` | Blacksmith macOS 15 | staging or production secrets in `$HOME`, shared user DerivedData, keychain and console-session changes |
 | `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
-| `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempts 1 and 2; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
-| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempts 1 and 2 | isolated (glaeda classes them by workflow and id) |
+| `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempt 1 only; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
+| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempt 1 only | isolated (glaeda classes them by workflow and id) |
 | `cmux-tui.yml` release-path dogfood `build` (`cmux-tui-build-package.yml`) | Blacksmith macOS 15 | the release packaging build, shared with the release and nightly callers; its matrix is planned once, so a re-run could not leave the minis |
-| `ci-macos.yml` `release-build` | `MACOS_RUNNER_26` | could move; needs a picker key and a glaeda class |
-| `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` for a macOS build when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempts 1 and 2 (iOS builds take Blacksmith); any other label as given | isolated: a Debug build into the workspace |
+| `ci-macos.yml` `release-build` | owned side lane via the picker (`release-build`, the picked std pool's side label, never the light pool), pull requests (attempt 1 or a manual re-run) and main's full-suite dispatch (attempt 1); else `MACOS_RUNNER_26` | isolated: an unsigned universal Release into its own DerivedData, Xcode 26.6 |
+| `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` for a macOS build when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempt 1 only (iOS builds take Blacksmith); any other label as given | isolated: a Debug build into the workspace |
 | low-volume GUI dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks | Blacksmith or the caller's runner input | 0 to 1 runs a week; they drive the app in the runner's own session, which a mini's runner lacks (E2E and the rerun use its console session) |
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
@@ -790,11 +866,71 @@ caller.
 Hosted/isolated fallback remains available when the shared host refuses local
 admission or is draining, pressured, or unavailable.
 
+## Blacksmith outage: the overflow switch
+
+This is the only Blacksmith-outage lever. The 2026-09-29 manual variable
+changes are recorded in the hq
+[lever log](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/observations/2026-09-29-ci-lever-log.txt),
+but the probe-and-switch workflow below owns current recovery. Do not lower
+`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED`, or another lane switch.
+GitHub cannot rerun one job while its parent run is still active; a run stuck
+on a dead pool needs force-cancel and then rerun.
+
+Blacksmith is overflow, so when it stops starting jobs the fix is to stop
+sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
+does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
+minutes its `probe` job asks for one Blacksmith label and prints a line, and
+its `watch` job, on GitHub-hosted Linux, waits for the probe:
+
+- **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
+  runner.** Overflow goes off. The switch first writes the
+  `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
+  failover, when and which run), then points the variables at their
+  failovers: `LINUX_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
+  Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
+  `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
+  `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
+  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  is unset or names a `blacksmith-*` label changes; one someone pointed
+  elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
+  or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
+  nothing on 2026-09-29) and re-run, so they pick their runners again; merge
+  queue, release and publish runs, and runs already on attempt 3, are only
+  listed. If a variable write fails after the record is saved, the next
+  stalled probe retries entries still at their recorded before-value and
+  leaves hand edits alone. The run force-cancels itself whenever the watcher
+  did not observe a started probe, including a switch failure before it could
+  publish its outcome, since a queued probe would otherwise hold the
+  concurrency group.
+- **The probe starts.** If the record exists, each variable it changed is put
+  back (a variable changed by hand since is left alone and named) and the
+  record is deleted. While the record exists the probe asks for the label it
+  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+
+The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
+the other `CI_OWNED_*`) are never touched: minis first does not change, only
+where overflow lands. `CI_CLOUD_FAILOVER` (JSON, variable name to value, `""`
+to leave one alone) overrides a failover, for example
+`{"MACOS_RUNNER_15": "macos-15"}`; it may name only the variables above and
+`MACOS_RUNNER_TESTS`, never a `blacksmith-*` label. While the record exists,
+`check_repo_variables.py` accepts exactly the failover values it lists.
+
+Writing variables needs a token no workflow permission grants. The workflow
+uses the existing `manaflow-glaeda-route` App, with its ID in the repository
+variable `GLAEDA_ROUTE_APP_ID` and its key in the repository secret
+`GLAEDA_ROUTE_APP_KEY`. Without it the watch still probes, names each value to
+set by hand, and fails. A manual dispatch is a dry run by default.
+
+One Linux probe decides for macOS too: on 2026-09-29 both went at once. A
+probe can start on a pool that is only partly back; the next probe, 10
+minutes later, turns overflow off again if that pool still starts nothing.
+
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow for the runner variables. If a pool is
-unavailable or its queue is too long, set the affected variable to a paid
-provider.
+Outside a Blacksmith outage (above) there is no automatic overflow for the
+runner variables. If a pool is unavailable or its queue is too long, set the
+affected variable to a paid provider.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
 read through a second switch that lives in this repository rather than in

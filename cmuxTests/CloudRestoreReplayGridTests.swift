@@ -80,6 +80,57 @@ struct CloudRestoreReplayGridTests {
     }
 
     @Test
+    func replayParsedAtAHiddenGridIsRefetchedOnceTheGridsMatch() async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        // A restored pane is laid out in a small bootstrap grid while hidden,
+        // so the full-screen replay of the remote TUI lands on the wrong grid.
+        try await fixture.setGrid(columns: 60, rows: 6)
+        let authored = Self.fullScreenRows(status: "STATUS_READY")
+        try await fixture.attach(replay: Self.cursorAddressedReplay(authored), columns: 99, rows: 35)
+        try await fixture.setGrid(columns: 99, rows: 35)
+        #expect(Array(fixture.screenRows().prefix(authored.count)) != authored)
+        fixture.setVisible(true)
+
+        // The remote PTY already has this grid, so the daemon acknowledges the
+        // report without a `resized` replay. Nothing else repaints the pane.
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        #expect(report.columns == 99)
+        #expect(report.rows == 35)
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["accepted": true, "outcome": "applied"]])
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing")
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+
+        let reattach = try await fixture.answerHandshake()
+        #expect(reattach.columns == 99)
+        #expect(reattach.rows == 35)
+        fixture.socket.send(["id": reattach.id, "ok": true, "data": [:]])
+        let repaired = Self.fullScreenRows(status: "STATUS_REPAIRED")
+        try await fixture.deliver(
+            Self.cursorAddressedReplay(repaired), event: "vt-state", marker: "STATUS_REPAIRED",
+            columns: 99, rows: 35
+        )
+        #expect(Array(fixture.screenRows().prefix(repaired.count)) == repaired)
+        #expect(fixture.socket.connectionCount() == 2)
+    }
+
+    /// Thirty-five rows the way a full-screen TUI paints them: each one placed
+    /// by absolute cursor address, so a shorter grid clamps and overwrites.
+    private static func fullScreenRows(status: String) -> [String] {
+        (1...34).map { String(format: "ROW%02d ", $0) + String(repeating: "abcdefghij", count: 4) }
+            + [status.padding(toLength: 46, withPad: ".", startingAt: 0)]
+    }
+
+    private static func cursorAddressedReplay(_ rows: [String]) -> Data {
+        Data(rows.enumerated().map { "\u{1B}[\($0.offset + 1);1H\($0.element)" }.joined().utf8)
+    }
+
+    @Test
     func intentionallyPassiveMirrorStillWaitsForExplicitFocus() async throws {
         let fixture = try CloudRestoreReplayFixture(initiallyClaimsGeometry: false)
         defer { fixture.close() }
@@ -106,5 +157,72 @@ struct CloudRestoreReplayGridTests {
         ])
         fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
         try await fixture.expectInputAfterPendingResponses(marker: "CLAIM_APPLIED")
+    }
+
+    @Test
+    func typingIntoTheGeometryOwnerSendsOnlyOneWayInput() async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
+
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["accepted": true, "outcome": "applied"]])
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing")
+        fixture.socket.send([
+            "event": "resized", "surface": 17, "cols": 99, "rows": 35,
+            "replay": Data("OWNER_GRID".utf8).base64EncodedString()
+        ])
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+        try await fixture.expectInputAfterPendingResponses(marker: "OWNER_CONFIRMED")
+
+        // Each keystroke used to re-claim geometry first, which put a
+        // set-client-sizing round trip ahead of every key. The owner's keys
+        // go out alone and ask for no reply, so a relay can send them as
+        // compact one-way input.
+        for key in ["l", "s", "\r"] {
+            fixture.type(key)
+            let input = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+            #expect(input.cmd == "send", "The confirmed owner re-claimed geometry for a keystroke")
+            #expect(input.inputBytes == Data(key.utf8))
+            #expect(input.noReply)
+        }
+    }
+
+    @Test
+    func typingIntoAPaneAnotherClientSizesReclaimsTheGridFirst() async throws {
+        let fixture = try CloudRestoreReplayFixture(initiallyClaimsGeometry: false)
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
+
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive", "accepted": false]])
+        try await fixture.expectInputAfterPendingResponses(marker: "PEER_OWNS_GRID")
+
+        // Another client sizes the terminal. The pane the user types into
+        // takes the grid back before its first key goes out.
+        fixture.type("l")
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing", "A key went out before the pane reclaimed the grid")
+        #expect(claim.surface == 17)
+        fixture.socket.send([
+            "event": "resized", "surface": 17, "cols": 99, "rows": 35,
+            "replay": Data("RECLAIMED_GRID".utf8).base64EncodedString()
+        ])
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+        let input = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(input.cmd == "send")
+        #expect(input.inputBytes == Data("l".utf8))
+        #expect(input.noReply)
     }
 }

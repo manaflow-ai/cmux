@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 import Testing
+import CMUXAgentLaunch
+import CmuxRemoteWorkspace
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +12,27 @@ import Testing
 
 @Suite(.serialized)
 struct AgentHookDeliveryQueueTests {
+    /// Relay-admitted queue parameters build a relay-backed event.
+    @Test("Relay-admitted queue parameters build a relay-backed event")
+    func relayAdmittedParametersBuildRelayEvent() throws {
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
+            "agent": "claude",
+            "subcommand": "stop",
+            "payload": #"{"session_id":"sess-1","transcript_path":"/Users/leo/.ssh/id_ed25519"}"#,
+            "relay_backed": true,
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ]))
+
+        let event = try #require(AgentHookDeliveryEvent(params: admitted, deliverySocketPath: "/tmp/cmux-test.sock"))
+        #expect(event.relayBacked)
+        #expect(event.sessionID == "sess-1")
+        #expect(event.environment == ["CMUX_WORKSPACE_ID": workspaceID, "CMUX_SURFACE_ID": surfaceID])
+        #expect(!event.payload.contains("transcript_path"))
+    }
+
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
@@ -612,6 +635,26 @@ struct AgentHookDeliveryQueueTests {
         ])
         #expect(unsupportedDecision == nil)
         #expect(unsupportedEnvironment == nil)
+    }
+
+    /// The routed launch's account pin rides the queued session-start hook to
+    /// the capture that records it; the ingress used to reject the event.
+    @Test("Queued Claude hooks carry the routed launch metadata")
+    func queuedClaudeHookCarriesRoutedLaunchMetadata() throws {
+        let environment = [
+            "CMUX_SURFACE_ID": "surface-a",
+            SubrouterClaudeResumeRouting.accountEnvironmentKey: "me@example.com",
+            SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+        ]
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "agent": "claude",
+            "subcommand": "session-start",
+            "payload": "{}",
+            "socket_path": "/tmp/cmux-test.sock",
+            "environment": environment,
+        ]))
+        #expect(event.environment == environment)
     }
 
     @Test("Every agent shares generic lifecycle queue admission")

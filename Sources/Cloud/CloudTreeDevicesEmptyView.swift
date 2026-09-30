@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxFoundation
+import CmuxSettingsUI
 import SwiftUI
 
 /// Persistent device controls receive a snapshot and the same setters as the menu.
@@ -11,9 +12,9 @@ struct CloudTreeDevicesEmptyView: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @State private var hoveredAction: String?
 
+    /// One row height per inline row, plus the 2 pt inset above and below.
     static func rowHeight(for section: CloudTreeDevicesSection, style: CloudTreeStyle) -> CGFloat {
-        let rows = (section.count == 0 ? 1 : 0) + (section.discoveryEnabled ? 0 : 1) + (section.incomingAccessEnabled ? 0 : 1)
-        return CGFloat(rows) * style.rowHeight + hintHeight(style: style) + 8
+        CGFloat(section.inlineRowCount) * style.rowHeight + 4
     }
 
     var body: some View {
@@ -26,35 +27,20 @@ struct CloudTreeDevicesEmptyView: View {
                     .padding(.trailing, scaled(style.rowGrid.trailingPadding))
                     .frame(height: scaled(style.rowHeight))
             }
-            if !section.discoveryEnabled {
-                actionRow(
-                    String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs"),
-                    symbol: "magnifyingglass",
-                    managed: section.discoveryManaged,
-                    identifier: "DevicesEnableDiscovery"
-                ) {
-                    actions.setDeviceDiscovery(true)
-                }
+            actionRow(
+                section.discoveryControl,
+                symbol: "magnifyingglass",
+                identifier: "DevicesEnableDiscovery"
+            ) {
+                actions.setDeviceDiscovery(!section.discoveryControl.isOn)
             }
-            if !section.incomingAccessEnabled {
-                actionRow(
-                    String(localized: "devices.incoming.toggle", defaultValue: "Make this Mac discoverable"),
-                    symbol: "dot.radiowaves.left.and.right",
-                    managed: section.incomingAccessManaged,
-                    identifier: "DevicesEnableIncomingAccess"
-                ) {
-                    actions.setDeviceIncomingAccess(true)
-                }
+            actionRow(
+                section.incomingControl,
+                symbol: "dot.radiowaves.left.and.right",
+                identifier: "DevicesEnableIncomingAccess"
+            ) {
+                actions.setDeviceIncomingAccess(!section.incomingControl.isOn)
             }
-            Text(menuHint)
-                .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .padding(.leading, scaled(textInset))
-                .padding(.trailing, scaled(style.rowGrid.trailingPadding))
-                .frame(height: scaled(Self.hintHeight(style: style)))
-                .padding(.top, scaled(4))
-                .help(menuHint)
         }
         .lineLimit(1)
         .padding(.vertical, scaled(2))
@@ -62,18 +48,23 @@ struct CloudTreeDevicesEmptyView: View {
     }
 
     private func actionRow(
-        _ title: String,
+        _ control: DeviceAccessControl,
         symbol: String,
-        managed: Bool,
         identifier: String,
         action: @escaping () -> Void
     ) -> some View {
-        let hovered = hoveredAction == identifier && !managed
+        let hovered = hoveredAction == identifier && control.isEnabled
         return Button(action: action) {
             CloudTreeLeafRow(
                 style: style, icon: symbol, tint: .secondary,
-                title: title, titleDimmed: !hovered
-            )
+                title: control.title, titleDimmed: !hovered
+            ) {
+                if control.isOn {
+                    Image(systemName: "checkmark")
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                        .accessibilityHidden(true)
+                }
+            }
             .padding(.leading, scaled(contentInset))
             .frame(height: scaled(style.rowHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,24 +76,16 @@ struct CloudTreeDevicesEmptyView: View {
                 .fill(hovered ? Color.primary.opacity(0.06) : Color.clear)
                 .padding(.horizontal, scaled(6))
         )
-        .disabled(managed)
+        .disabled(!control.isEnabled)
         .onHover { hoveredAction = $0 ? identifier : nil }
-        .help(managed
-            ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
-            : title)
+        .help(control.help)
+        .accessibilityLabel(control.title)
+        .accessibilityAddTraits(control.isOn ? [.isSelected] : [])
         .accessibilityIdentifier(identifier)
     }
 
     private var textInset: CGFloat {
         contentInset + (style.iconSlot > 0 ? style.iconSlot + style.iconGap : 0)
-    }
-
-    private var menuHint: String {
-        String(localized: "devices.options.hint", defaultValue: "Change these options in the ⋯ menu next to My Devices.")
-    }
-
-    private static func hintHeight(style: CloudTreeStyle) -> CGFloat {
-        2 * (style.detailSize + 3)
     }
 
     private func scaled(_ value: CGFloat) -> CGFloat {

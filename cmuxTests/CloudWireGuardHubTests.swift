@@ -13,6 +13,10 @@ import Testing
 /// socket, and the clock.
 @Suite(.serialized)
 struct CloudWireGuardHubTests {
+    private enum WaitError: Error {
+        case timedOut
+    }
+
     @Test
     func cancelledCallbackWaiterFinishesWithoutAValue() async {
         let first = CloudLinkFirstValue<String>()
@@ -187,26 +191,32 @@ struct CloudWireGuardHubTests {
     }
 
     /// Yields until the gate holds `count` parked sleeps (the hub schedules them on its
-    /// own tasks), bounded by a generous number of turns.
-    private func waitForPendingSleeps(_ gate: SleepGate, count: Int) async {
-        for _ in 0..<2_000 {
+    /// own tasks), bounded by a generous real deadline.
+    private func waitForPendingSleeps(_ gate: SleepGate, count: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await gate.pendingCount >= count { return }
             await Task.yield()
         }
+        throw WaitError.timedOut
     }
 
-    private func waitUntilRunning(_ hub: CloudWireGuardHub) async {
-        for _ in 0..<2_000 {
+    private func waitUntilRunning(_ hub: CloudWireGuardHub) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await hub.status().running { return }
             await Task.yield()
         }
+        throw WaitError.timedOut
     }
 
-    private func waitForSpawnCount(_ spawner: FakeSpawner, count: Int) async {
-        for _ in 0..<2_000 {
+    private func waitForSpawnCount(_ spawner: FakeSpawner, count: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if spawner.count >= count { return }
             await Task.yield()
         }
+        throw WaitError.timedOut
     }
 
     @Test
@@ -236,7 +246,7 @@ struct CloudWireGuardHubTests {
         _ = try await h.hub.prewarm()
         #expect(h.spawner.count == 1)
         await h.hub.releasePrewarm()
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         #expect(await h.hub.status().leases == 0)
     }
 
@@ -249,10 +259,10 @@ struct CloudWireGuardHubTests {
             }
         })
         let task = Task { try await h.hub.prewarm() }
-        await waitForSpawnCount(h.spawner, count: 1)
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForSpawnCount(h.spawner, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         await h.gate.elapse()
-        await waitForSpawnCount(h.spawner, count: 2)
+        try await waitForSpawnCount(h.spawner, count: 2)
         let ready = try await task.value
         #expect(ready.socketPath == h.socketPath)
         #expect(await attempts.value == 2)
@@ -272,7 +282,7 @@ struct CloudWireGuardHubTests {
         // machine. Its waiter must survive the same startup failure that the
         // background prewarm knows how to recover from.
         let open = Task { try await h.hub.pinForExternalClient() }
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         let prewarm = Task { try await h.hub.prewarm() }
         let link = Task { try await h.hub.acquire() }
         await h.gate.elapse()
@@ -295,7 +305,7 @@ struct CloudWireGuardHubTests {
             throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","retryable":true}"#)
         })
         let open = Task { try await h.hub.pinForExternalClient() }
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         await h.hub.stop()
         await #expect(throws: CancellationError.self) { _ = try await open.value }
         #expect(await attempts.value == 1)
@@ -312,7 +322,7 @@ struct CloudWireGuardHubTests {
         })
         let open = Task { try await h.hub.pinForExternalClient() }
         for _ in 0..<2 {
-            await waitForPendingSleeps(h.gate, count: 1)
+            try await waitForPendingSleeps(h.gate, count: 1)
             await h.gate.elapse()
         }
         do {
@@ -336,12 +346,12 @@ struct CloudWireGuardHubTests {
         // One lease still held: no idle stop scheduled.
         #expect(await h.gate.pendingCount == 0)
         await h.hub.release(b.lease)
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         #expect(await h.gate.requested == [.seconds(10)])
         #expect(h.spawner.last?.isRunning == true)
         await h.gate.elapse()
-        for _ in 0..<2_000 {
-            if h.spawner.last?.isRunning != true { break }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while h.spawner.last?.isRunning == true, ContinuousClock.now < deadline {
             await Task.yield()
         }
         #expect(h.spawner.last?.isRunning == false)
@@ -356,7 +366,7 @@ struct CloudWireGuardHubTests {
         let h = makeHarness()
         let a = try await h.hub.acquire()
         await h.hub.release(a.lease)
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         _ = try await h.hub.acquire()
         // The idle stop was cancelled; elapsing its timer changes nothing.
         await h.gate.elapse()
@@ -372,12 +382,12 @@ struct CloudWireGuardHubTests {
         _ = try await h.hub.acquire()
         let first = try #require(h.spawner.last)
         first.exit(status: 1)
-        await waitForPendingSleeps(h.gate, count: 1)
+        try await waitForPendingSleeps(h.gate, count: 1)
         #expect(await h.gate.requested == [.seconds(1)])
         #expect(await h.hub.status().running == false)
         await h.gate.elapse()
-        await waitForSpawnCount(h.spawner, count: 2)
-        await waitUntilRunning(h.hub)
+        try await waitForSpawnCount(h.spawner, count: 2)
+        try await waitUntilRunning(h.hub)
         let status = await h.hub.status()
         #expect(status.running)
         #expect(status.leases == 1)
@@ -390,10 +400,10 @@ struct CloudWireGuardHubTests {
         _ = try await h.hub.acquire()
         for attempt in 0..<2 {
             try #require(h.spawner.last).exit(status: 1)
-            await waitForPendingSleeps(h.gate, count: 1)
+            try await waitForPendingSleeps(h.gate, count: 1)
             await h.gate.elapse()
-            await waitForSpawnCount(h.spawner, count: attempt + 2)
-            await waitUntilRunning(h.hub)
+            try await waitForSpawnCount(h.spawner, count: attempt + 2)
+            try await waitUntilRunning(h.hub)
         }
         // Third crash: the two-entry table is exhausted, no further spawn.
         try #require(h.spawner.last).exit(status: 1)
@@ -431,7 +441,7 @@ struct CloudWireGuardHubTests {
             try await Task.sleep(for: .seconds(30))
         })
         let task = Task { try await h.hub.acquire() }
-        await waitForSpawnCount(h.spawner, count: 1)
+        try await waitForSpawnCount(h.spawner, count: 1)
         try #require(h.spawner.last).exit(status: 3)
         await #expect(throws: CloudWireGuardHub.HubError.self) { try await task.value }
         let status = await h.hub.status()

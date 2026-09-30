@@ -80,7 +80,11 @@ final class SSHTuiWorkspaceCoordinator {
             }
         }
         if let saved = configuration.restoredSSHSession, saved.sshSessionOwner != "cmux-tui" {
-            throw CloudDiagnosticFailure.unsupported
+            // Use the same eligibility check as snapshot conversion, including
+            // the legacy default when terminalTransport was not persisted.
+            guard saved.legacyTmuxSSHConfiguration(agentSocketPath: configuration.agentSocketPath) != nil else {
+                throw CloudDiagnosticFailure.unsupported
+            }
         }
         guard await provider.refreshCurrentGraph(force: false) else {
             throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? CloudDiagnosticFailure.network.label)

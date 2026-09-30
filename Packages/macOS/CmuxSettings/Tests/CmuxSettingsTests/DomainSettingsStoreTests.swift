@@ -27,6 +27,26 @@ struct DefaultsKeyDirectAccessTests {
         #expect(key.value(in: defaults) == true)
     }
 
+    @Test func warnBeforeClosingWorkspaceDefaultsToEnabled() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().warnBeforeClosingWorkspace
+        #expect(key.id == "app.warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == true)
+
+        defaults.set(false, forKey: "warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == false)
+    }
+
+    @Test func warnBeforeClosingWindowDefaultsToEnabled() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().warnBeforeClosingWindow
+        #expect(key.id == "app.warnBeforeClosingWindow")
+        #expect(key.value(in: defaults) == true)
+
+        defaults.set(false, forKey: "warnBeforeClosingWindow")
+        #expect(key.value(in: defaults) == false)
+    }
+
     @Test func undecodableStoredValueReadsAsDefault() {
         let defaults = makeScratchDefaults()
         let key = AppCatalogSection().confirmQuitMode
@@ -66,6 +86,22 @@ struct CloseTabWarningStoreTests {
         #expect(store.warnsBeforeClosingTab == false)
         #expect(store.warnsBeforeClosingTabXButton == true)
         #expect(store.hidesTabCloseButton == true)
+    }
+
+    @Test func windowCloseConfirmsOnlyWhenSomethingWouldBeLost() {
+        let store = CloseTabWarningStore(defaults: makeScratchDefaults())
+        #expect(store.warnsBeforeClosingWindow == true)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: true) == true)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: false) == false)
+    }
+
+    @Test func windowCloseNeverConfirmsWhenWindowWarningIsOff() {
+        let defaults = makeScratchDefaults()
+        defaults.set(false, forKey: "warnBeforeClosingWindow")
+        let store = CloseTabWarningStore(defaults: defaults)
+        #expect(store.warnsBeforeClosingWindow == false)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: true) == false)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: false) == false)
     }
 
     @Test func setWarnsBeforeClosingTabWritesLegacyKey() {
@@ -415,6 +451,36 @@ struct CloseTabConfirmationPolicyTests {
         let bothOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)
         #expect(!bothOff.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton))
         #expect(!bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+    }
+
+    @Test func warningKindsNameEveryToggleBehindAPrompt() {
+        let both = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: true)
+        #expect(both.warningKinds(requiresConfirmation: true, source: .shortcut) == [.tab])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .shortcut) == [])
+        #expect(both.warningKinds(requiresConfirmation: true, source: .tabCloseButton) == [.tab, .tabCloseButton])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .tabCloseButton) == [.tabCloseButton])
+    }
+
+    @Test func disableWarningsTurnsOffOnlyTheGivenToggles() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+
+        store.disableWarnings([.tabCloseButton, .workspace])
+
+        #expect(store.warnsBeforeClosingTab)
+        #expect(!store.warnsBeforeClosingTabXButton)
+        #expect(!store.warnsBeforeClosingWorkspace)
+        #expect(defaults.object(forKey: "warnBeforeClosingWorkspace") as? Bool == false)
+        #expect(store.warnsBeforeClosingWindow)
+
+        store.disableWarnings([.tab])
+        #expect(!store.warnsBeforeClosingTab)
+        #expect(defaults.object(forKey: "warnBeforeClosingTabShortcut") as? Bool == false)
+
+        store.disableWarnings([.window])
+        #expect(!store.warnsBeforeClosingWindow)
+        #expect(defaults.object(forKey: "warnBeforeClosingWindow") as? Bool == false)
     }
 
     @Test func liveStoreReadsTogglesFromDefaults() {

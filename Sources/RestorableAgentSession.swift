@@ -292,7 +292,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         in words: [ShellWordRange],
         workingDirectory: String
     ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let valueOptions = AgentLaunchSanitizer.workingDirectoryValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0
@@ -394,13 +394,36 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool = true,
         observedPermissionMode: String? = nil
     ) -> String? {
+        resumeShellCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            resolvedWorkingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            discardRecordedCwdOptions: false,
+            registrationOverride: registrationOverride,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
+    /// Builds a resume command after the caller has applied its cwd fallback policy.
+    static func resumeShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        resolvedWorkingDirectory: String?,
+        discardRecordedCwdOptions: Bool,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true,
+        observedPermissionMode: String? = nil
+    ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = resumeArguments(
                   kind: kind,
                   sessionId: sessionId,
                   launchCommand: launchCommand,
-                  workingDirectory: workingDirectory,
+                  workingDirectory: resolvedWorkingDirectory,
                   customRegistration: customRegistration,
                   observedPermissionMode: observedPermissionMode
               ),
@@ -412,7 +435,7 @@ enum AgentResumeCommandBuilder {
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: resolvedWorkingDirectory
         )
         return shellCommand(
             // Unwrapped: `shellCommand` sanitizes the agent's captured working-directory options and
@@ -420,9 +443,10 @@ enum AgentResumeCommandBuilder {
             argv: argv,
             kind: kind,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: discardRecordedCwdOptions,
             externalLauncher: externalLauncher,
             // A wrapper that re-execs the agent by name never receives the shim token below, so
             // keep the shim reachable on PATH or the wrapped agent resumes without cmux hooks.
@@ -437,6 +461,39 @@ enum AgentResumeCommandBuilder {
         )
     }
 
+    /// Resume command for crash recovery through a recorded outer launcher
+    /// (`launcherArguments` is the launcher argv followed by the agent's own
+    /// resume arguments). Applies the same launch environment replay and
+    /// wrapper-shim routing as ``resumeShellCommand(kind:sessionId:launchCommand:workingDirectory:registrationOverride:includeWorkingDirectoryPrefix:observedPermissionMode:)``,
+    /// so the launcher re-execs the agent with the recorded config and cmux hooks.
+    static func launcherResumeShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        launcherArguments: [String]
+    ) -> String? {
+        guard !launcherArguments.isEmpty else { return nil }
+        var parts: [String] = []
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            launchCommand: launchCommand,
+            customRegistration: nil
+        )
+        if !environmentParts.isEmpty {
+            parts.append("env")
+            parts.append(contentsOf: environmentParts)
+        }
+        parts.append(contentsOf: launcherArguments)
+        let command = parts.map(TerminalStartupShellQuoting.singleQuoted).joined(separator: " ")
+        guard let shimKey = AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?.wrapperShimEnvironmentKey else {
+            return command
+        }
+        return AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+            posixCommand: command,
+            shimEnvironmentKey: shimKey
+        )
+    }
+
     static func forkShellCommand(
         kind: RestorableAgentKind,
         sessionId: String,
@@ -447,12 +504,13 @@ enum AgentResumeCommandBuilder {
         observedPermissionMode: String? = nil
     ) -> String? {
         let customRegistration = registrationOverride
+        let resolvedWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
                   launchCommand: launchCommand,
-                  workingDirectory: workingDirectory,
+                  workingDirectory: resolvedWorkingDirectory,
                   customRegistration: customRegistration,
                   observedPermissionMode: observedPermissionMode
               ),
@@ -464,9 +522,10 @@ enum AgentResumeCommandBuilder {
             argv: argv,
             kind: kind,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: false
         )
     }
 
@@ -477,28 +536,48 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
         includeWorkingDirectoryPrefix: Bool,
+        discardRecordedCwdOptions: Bool,
         externalLauncher: AgentExternalLauncher? = nil,
         wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
         let cwd = customRegistration?.cwd == .ignore
             ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+            : normalized(workingDirectory)
         let workingDirectoriesToRemove = [
             cwd,
             normalized(launchCommand?.workingDirectory),
         ].compactMap { $0 }
+        // Exact built-in registrations delegate to AgentResumeArgv just like
+        // non-Vault kinds; only user-authored templates own their cwd flags.
+        let usesStructuredResumeArguments = customRegistration == nil ||
+            customRegistration?.registeredResumeKind != nil
         // Sanitizing runs on the agent's own argv, before the launcher prefix is added: the
         // sanitizer strips `--cwd`/`-C`/`--workspace` options whose value matches the restore
         // directory, and a launcher's prefix may legitimately carry the same option for itself.
         // The environment prefix stays out of it — those words are `NAME=value`, never options.
-        let sanitizedAgentParts = customRegistration == nil
-            ? workingDirectoriesToRemove.reduce(argv) { parts, directory in
+        let sanitizedAgentParts: [String]
+        if !usesStructuredResumeArguments {
+            sanitizedAgentParts = argv
+        } else if discardRecordedCwdOptions {
+            // Exact remote selections trust no captured cwd value, including one
+            // that differs from the process working directory saved at launch.
+            // Only built-in kinds (including exact built-in registrations such as Kimi) get
+            // provider-specific cwd flags (codex `-C`, kimi/qoder `-w`, cursor `--workspace`)
+            // removed outright; user-authored templates never reach this branch.
+            sanitizedAgentParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: argv,
+                workingDirectory: nil,
+                agentKind: managedProviderKind(kind: kind, customRegistration: customRegistration),
+                removeAllWorkingDirectoryOptions: true
+            )
+        } else {
+            sanitizedAgentParts = workingDirectoriesToRemove.reduce(argv) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
                     workingDirectory: directory
                 )
             }
-            : argv
+        }
         let wrappedAgentParts = externalLauncher?.applyingResumePrefix(to: sanitizedAgentParts)
             ?? sanitizedAgentParts
 
@@ -809,7 +888,7 @@ enum AgentResumeCommandBuilder {
             template: template,
             executable: original.executable,
             sessionID: sessionId,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            workingDirectory: workingDirectory,
             sessionDirectory: sessionDirectory
         ) ?? []
     }
@@ -870,7 +949,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
             customRegistration: registration,
             observedPermissionMode: observedPermissionMode
         )
@@ -880,6 +959,16 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
+        resumeStartupInput(
+            useLocalRestoreVerb: useLocalRestoreVerb,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+        )
+    }
+
+    func resumeStartupInput(
+        useLocalRestoreVerb: Bool,
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection
+    ) -> String? {
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
             guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
@@ -888,12 +977,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        let effectiveWorkingDirectory = resumeWorkingDirectory(
-            preferred: restoringWorkingDirectory
-        )
+        let effectiveWorkingDirectorySelection = registration?.cwd == .ignore
+            ? RestorableAgentWorkingDirectorySelection.exact(nil)
+            : workingDirectorySelection
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            restoringWorkingDirectory: effectiveWorkingDirectory
+            workingDirectorySelection: effectiveWorkingDirectorySelection
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(
@@ -954,18 +1043,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
         return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
-    }
-
-    private func resumeWorkingDirectory(preferred: String?) -> String? {
-        guard registration?.cwd != .ignore else { return nil }
-        for candidate in [preferred, workingDirectory, launchCommand?.workingDirectory] {
-            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else {
-                continue
-            }
-            return trimmed
-        }
-        return nil
     }
 }
 

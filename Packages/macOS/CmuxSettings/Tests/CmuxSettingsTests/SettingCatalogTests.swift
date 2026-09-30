@@ -23,6 +23,10 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
             "codexHooksEnabled": [
                 "automation.codexIntegration",
                 "integrations.codex.hooksEnabled",
@@ -98,6 +102,7 @@ struct SettingCatalogTests {
         #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
         #expect(ids.contains("mobile.artifactFolderAccess"))
+        #expect(ids.contains("mobile.browserTunnel.allowOtherHosts"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }
@@ -109,6 +114,13 @@ struct SettingCatalogTests {
 
     @Test func equalizeSplitsOnCreateDefaultsOff() {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
+    }
+
+    @Test func installUpdatesAutomaticallySharesTheUpdaterStorageKey() {
+        // The updater registers the per-channel default under this key (UpdateSettings).
+        let key = SettingCatalog().app.installUpdatesAutomatically
+        #expect(!key.defaultValue)
+        #expect(key.userDefaultsKey == "updateInstallAutomatically")
     }
 
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
@@ -125,6 +137,10 @@ struct SettingCatalogTests {
 
     @Test func hardWrapReflowOnCopyDefaultsOff() {
         #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
+    @Test func unsafePasteConfirmationDefaultsOff() {
+        #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

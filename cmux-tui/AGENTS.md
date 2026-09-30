@@ -23,3 +23,7 @@ path: `./scripts/blacksmith-testbox-demo.sh`.
 Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
 inside `cmux-tui/` locally (needs Zig 0.16.0 and `git submodule update --init`; see
 `cmux-tui/README.md`) and say so in the PR; a maintainer runs the hosted verification on it.
+
+## Running Cloud machines
+
+Every cmux Cloud machine runs this daemon, and it is upgraded in place under the machine's original supervisor and next to terminal hosts from older builds. Before changing the daemon's command line or environment, the terminal-host protocol, SIGTERM handling, or on-disk journal/registry schema, read [docs/cloud-guest-upgrades.md](../docs/cloud-guest-upgrades.md): the daemon must start with the existing argv, adopt hosts of every build still running, keep hosts alive on SIGTERM, and open every older schema.

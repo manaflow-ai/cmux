@@ -2,24 +2,35 @@
 
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
+For the local backend used by outside contributors:
+
 ```bash
-./scripts/reload.sh --tag <tag>            # build and replace same-tag runtime
-./scripts/reload.sh --tag <tag> --launch   # build, then open
-./scripts/reload.sh --tag <tag> --build-only # validate without replacing the running app
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --launch
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --build-only
 ```
 
-After a successful build `reload.sh` terminates any running app with the same tag, so opening the printed app path launches the fresh binary.
-Use `--build-only` only for an explicit compile/validation pass. It leaves the running tagged app, `cmuxd`, and tag state untouched, and stages the new bundle separately; the active app remains on its previous revision.
+Without `CMUX_DEV_BACKEND_MODE=local`, tagged builds require the shared dev backend
+from a cmuxterm-hq checkout. See [contributor setup](../../../CONTRIBUTING.md#getting-started).
 
-Other local variants: `reloadp.sh` (Release), `reloads.sh` (isolated Release staging) and `reload2.sh --tag <tag>` (both).
+A normal reload builds, then terminates the running app with the same tag; `--launch`
+also opens the replacement. `--build-only` validates a separately staged bundle
+without replacing the app or changing its daemon or tag state, then removes that
+validation artifact. It cannot be combined with `--launch`.
 
-`reloadp.sh` builds with the stable bundle id `com.cmuxterm.app`, the same id as the user's installed cmux. It refuses to run while another stable-id cmux is running, and `reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` ids in that namespace. Don't work around either: quitting, killing, relaunching or profiling the user's running cmux drops their live agent sessions. Use a tag, and profile by attaching to the tagged pid.
+For Release variants, `reloads.sh --tag <tag>` uses an isolated staging identity.
+`reloadp.sh` uses the stable identity, and `reload2.sh --tag <tag>` also invokes
+`reloadp.sh`; both are subject to the running-app restrictions below.
 
 ## The user's running cmux
 
 The installed cmux (`/Applications/cmux.app`, bundle id `com.cmuxterm.app`, process `cmux`) holds the user's live agent sessions. Never quit, kill (`pkill -x cmux`, `killall cmux`), relaunch or profile it with `xctrace --launch` or Instruments, and never launch a locally built Release app or any other bundle that uses `com.cmuxterm.app` while it runs. To reproduce the user's state, copy their session into the tagged build instead of touching the running app. Profile only by attaching to a tagged build's pid.
 
-A different bundle with the stable id exits instead of replacing the running app (`SingleInstanceConflictPolicy`). `CMUX_ALLOW_REPLACING_RUNNING_CMUX=1` overrides that, and only the user sets it.
+`reloadp.sh` refuses to run while another stable-id cmux is running;
+`reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` IDs. A different
+bundle with the stable ID also exits instead of replacing the running app
+(`SingleInstanceConflictPolicy`). Never bypass these protections;
+`CMUX_ALLOW_REPLACING_RUNNING_CMUX=1` is an override only the user may set.
 
 ## Prebuilt GhosttyKit
 
@@ -27,21 +38,18 @@ For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh` (it ver
 
 ## Compile-only checks
 
-Reuse the tag's DerivedData; a different path starts a cold build:
+Use the tagged `reload.sh --build-only` command above. Reuse the same tag to retain
+its DerivedData cache; a new tag starts a cold build. Tags are lowercased and runs
+of other characters become `-` (`Fix/ABC-1` becomes `fix-abc-1`).
 
-```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
-```
-
-`<tag>` is the slug `reload.sh` makes: lowercase, with runs of other characters replaced by `-` (`Fix/ABC-1` becomes `fix-abc-1`). When GhosttyKit itself needs rebuilding:
-
-```bash
-cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
-```
+An app build does not compile or execute the test targets; use the
+[test verification guide](../../cmux-testing/references/local-vs-ci-validation.md#native-app-versus-test-compilation)
+for those checks. For GhosttyKit source builds, follow the
+[Ghostty workflow](../../cmux-ghostty/SKILL.md).
 
 ## App path links
 
-`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
+A normal `reload.sh` build prints an `App path:` line with the absolute path to the built `.app`. Use it to confirm the tag built. Never put a `file://` URL, a raw `.app` or DerivedData path, or a `/tmp/cmux-<tag>/...` link in chat output.
 
 ## Tagged CLI and socket
 

@@ -24,11 +24,11 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
+    @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var promptSelection: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
-    @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -56,16 +56,11 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
+        _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _promptSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.promptSelection))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
-        _adaptiveDefaultTheme = State(
-            initialValue: DefaultsValueModel(
-                store: defaultsStore,
-                key: catalog.terminal.adaptiveDefaultTheme
-            )
-        )
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -81,6 +76,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            TerminalGhosttyOptionsCard(hostActions: hostActions)
             LocalTmuxSettingsCard(hostActions: hostActions)
             resumeCommandsCard
         }
@@ -96,11 +92,11 @@ public struct TerminalSection: View {
             scrollBar,
             copyOnSelect,
             reflowHardWrapOnCopy,
+            confirmUnsafePaste,
             textEditingGestures,
             promptSelection,
             passwordInputIndicator,
             passwordInputDots,
-            adaptiveDefaultTheme,
             autoResume,
             hibernation,
             idleSeconds,
@@ -269,20 +265,6 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
-                String(localized: "settings.app.theme", defaultValue: "Theme")
-            ) {
-                Button(
-                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
-                ) {
-                    hostActions.openTerminalThemePicker()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalThemePickerButton")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
                 String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
                 subtitle: String(
                     localized: "settings.terminal.importFromTerminal.subtitle",
@@ -297,33 +279,6 @@ public struct TerminalSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsTerminalImportButton")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.adaptiveDefaultTheme"),
-                String(
-                    localized: "settings.terminal.adaptiveDefaultTheme",
-                    defaultValue: "Adapt Default Theme to Appearance"
-                ),
-                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set.")
-            ) {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { adaptiveDefaultTheme.current },
-                        set: { enabled in
-                            adaptiveDefaultTheme.set(enabled) {
-                                @MainActor [hostActions] in
-                                hostActions.terminalAdaptiveDefaultThemeDidChange()
-                            }
-                        }
-                    )
-                )
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier(
-                    "SettingsTerminalAdaptiveDefaultThemeToggle"
-                )
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -452,6 +407,19 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .json("terminal.confirmUnsafePaste"),
+                String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"),
+                subtitle: confirmUnsafePaste.current
+                    ? String(localized: "settings.terminal.confirmUnsafePaste.subtitleOn", defaultValue: "A paste Ghostty flags as unsafe, such as several lines into a program without bracketed paste, waits for you to confirm it in a sheet on the window.")
+                    : String(localized: "settings.terminal.confirmUnsafePaste.subtitleOff", defaultValue: "Pastes Ghostty flags as unsafe go through without asking.")
+            ) {
+                Toggle("", isOn: Binding(get: { confirmUnsafePaste.current }, set: { confirmUnsafePaste.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalConfirmUnsafePasteToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
                 subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys.")
@@ -478,7 +446,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
                     .labelsHidden()
@@ -489,7 +457,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputDots"),
                 String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
                     .labelsHidden()
@@ -512,7 +480,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

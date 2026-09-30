@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -369,6 +370,9 @@ class HookParity(unittest.TestCase):
         self.assertEqual(wd.hook_root_cost((swift(1, 2), False), stamp, 7, model, own), (266.5, "far", 6))
         package = {"paths": [PACKAGE], "package_swift_files": 1, "package_interface": None}
         self.assertEqual(wd.hook_root_cost((set(), False), stamp, 7, model, package)[1], "rebuild")
+        # This pull request's own build has its package change already, unless this push touched it again.
+        self.assertEqual(wd.hook_root_cost((set(), False), {**stamp, "pr": 7}, 7, model, package)[1], "far")
+        self.assertEqual(wd.hook_root_cost((set(), True), {**stamp, "pr": 7}, 7, model, package)[1], "rebuild")
 
     def test_model_and_changes(self):
         self.assertEqual(wd.hook_model(HOOK_MODEL), {"near_app_swift_files": 5, "hot_files": ["Sources/Hot.swift"],
@@ -393,7 +397,7 @@ class HookParity(unittest.TestCase):
             for (changes, stamp, number), _ in HOOK_CASES:
                 # A second, comparable root, so the hook never falls back to the exact keys.
                 stamps = [stamp, {"merged_onto": "c" * 40}]
-                with unittest.mock.patch.object(hook, "root_stamp", lambda k, _dir="": stamps[k - 1]), \
+                with unittest.mock.patch.object(hook, "root_stamp", lambda k, *_: stamps[k - 1]), \
                         unittest.mock.patch.object(hook, "main_changes", lambda _mirror, old, _new: changes
                                                    if old == HOOK_BASE else (set(), False)):
                     _, predicted = hook.warm_root_costs([0, 1], "d" * 40, number, tmp)
@@ -413,11 +417,12 @@ def distance_runner(name: str, busy: bool = False) -> dict:
 class DistanceRouting(unittest.TestCase):
     MODEL = {**MODEL, "hot_files": [], "start_classes": {"none": {"expected": 309.7}}}
 
-    def route(self, runners, minis, changes, *, own=None, legacy=None, running=None, max_wait=600.0):
+    def route(self, runners, minis, changes, *, own=None, legacy=None, running=None, max_wait=600.0, seen_at=None):
         member = lambda name: name.split("-glaeda")[0]  # noqa: E731
         return wd.distance_route(runners, ROOT_LABEL, minis=minis, changes=lambda onto: changes.get(onto),
                                  pr_number=7, own=own, legacy=legacy or {}, running=running or {},
-                                 model=self.MODEL, now=NOW, max_wait=max_wait, runner_label=label, member=member)
+                                 model=self.MODEL, now=NOW, max_wait=max_wait, runner_label=label, member=member,
+                                 seen_at=seen_at)
 
     def stamp(self, onto, root=1):
         return {"root": root, "merged_onto": onto, "pr": 3, "pr_app_swift_files": [], "pr_app_swift_total": 0,
@@ -438,10 +443,43 @@ class DistanceRouting(unittest.TestCase):
         runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m2-glaeda-1", busy=True)]
         name, decision = self.route(runners, minis, changes)
         costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
-        self.assertEqual(costs["m2-glaeda"], ("cold", 401.0))
+        # m2's other root compiles now, so its cold start runs slower (x CONTENDED_FACTOR).
+        self.assertEqual(costs["m2-glaeda"], ("cold", round(401.0 * wd.CONTENDED_FACTOR, 1)))
         self.assertEqual(costs["m1-glaeda"], ("far", 270.0))
-        # The far build beats GitHub's pick between the two (335.5 s) by more than the margin.
-        self.assertEqual((name, decision["baseline"]), ("m1-glaeda", 335.5))
+        # The far build beats GitHub's pick between the two by more than the margin.
+        self.assertEqual((name, decision["baseline"]), ("m1-glaeda", round((270.0 + 401.0 * wd.CONTENDED_FACTOR) / 2, 1)))
+
+    def test_contention_spreads_equal_starts_across_minis(self):
+        # Both minis would rebuild from the same base; m2's other root is compiling, so m1 wins.
+        minis = {"m1": [self.stamp("1" * 40), {"root": 2}], "m2": [self.stamp("1" * 40), self.stamp("1" * 40, 2)]}
+        changes = {"1" * 40: (swift(1), True)}
+        runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m2-glaeda-1", busy=True)]
+        running = {"m2-glaeda-1": {"job": "macOS / macOS compile admission", "started_at": NOW.isoformat()}}
+        name, decision = self.route(runners, minis, changes, running=running)
+        costs = {row["runner"]: (row["tier"], row["compile"]) for row in decision["candidates"]}
+        self.assertEqual(costs["m1-glaeda"][0], "rebuild")
+        self.assertEqual(costs["m2-glaeda"][1], round(costs["m1-glaeda"][1] * wd.CONTENDED_FACTOR, 1))
+        self.assertEqual(name, "m1-glaeda")
+
+    def test_a_slower_mini_costs_more(self):
+        self.assertEqual(wd.compile_factor("cmux-austin-mini-0", 0), wd.SLOW_MINI_FACTOR)
+        self.assertEqual(wd.compile_factor("cmux8s-mac-mini", 0), 1.0)
+        self.assertEqual(wd.compile_factor("cmux8s-mac-mini", 1), wd.CONTENDED_FACTOR)
+
+    def test_a_busy_runner_the_snapshot_does_not_list_waits_as_a_fresh_admission(self):
+        minis = {"m1": [self.stamp("1" * 40)]}
+        changes = {"1" * 40: (swift(1), False)}
+        name, decision = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0)
+        row = decision["candidates"][0]
+        self.assertEqual(row["wait"], 420.0)  # the admission p50, begun at the snapshot (now)
+        self.assertEqual(row["cost"], 420.0 + row["compile"])
+        # It ages from the snapshot: 5 minutes later, 5 minutes less; past the p90 it may hang and drops out.
+        _, later = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0,
+                              seen_at=NOW - dt.timedelta(minutes=5))
+        self.assertEqual(later["candidates"][0]["wait"], 120.0)
+        _, hung = self.route([runner("m1-glaeda", busy=True)], minis, changes, max_wait=900.0,
+                             seen_at=NOW - dt.timedelta(minutes=14))
+        self.assertIsNone(hung["candidates"][0]["cost"])
 
     def test_equal_costs_do_not_pin_and_ties_are_deterministic(self):
         minis = {"m1": [self.stamp("1" * 40)], "m2": [self.stamp("1" * 40)]}
@@ -459,6 +497,65 @@ class DistanceRouting(unittest.TestCase):
         self.assertEqual(costs, {"m1-glaeda": ("key", 120.0), "m2-glaeda": ("far", 270.0),
                                  "m3-glaeda": ("unknown", 309.7)})
         self.assertEqual(name, "m1-glaeda")
+
+    def test_this_pull_requests_parked_build_draws_its_package_change_to_its_mini(self):
+        # Pull request 7 changes a package interface, so every other build rebuilds the app.
+        own = {"paths": [PACKAGE], "package_swift_files": 1, "package_interface": None}
+        parked = {"merged_onto": "1" * 40, "pr": 7, "pr_app_swift_files": [], "pr_app_swift_total": 0,
+                  "pr_package_interface": True}
+        minis = {"m1": [self.stamp("1" * 40)], "m2": [{**self.stamp("1" * 40), "parked": [parked]}],
+                 "m3": [{**self.stamp("1" * 40), "parked": [{**parked, "pr": 8}]}]}
+        changes = {"1" * 40: (set(), False)}
+        runners = [runner("m1-glaeda"), runner("m2-glaeda"), runner("m3-glaeda")]
+        name, decision = self.route(runners, minis, changes, own=own)
+        costs = {row["runner"]: row["tier"] for row in decision["candidates"]}
+        self.assertEqual(costs, {"m1-glaeda": "rebuild", "m2-glaeda": "far", "m3-glaeda": "rebuild"})
+        self.assertEqual(name, "m2-glaeda")
+        self.assertEqual(wd.own_parked(minis["m2"][0], 7), [parked])
+        # A root that keeps main hands the job its parked build too (check's adopt_from).
+        minis["m2"] = [{"root": 1, "merged_onto": "1" * 40, "parked": [parked]}]
+        self.assertEqual(self.route(runners, minis, changes, own=own)[0], "m2-glaeda")
+        self.assertEqual(wd.own_parked(minis["m2"][0], None), [])
+
+    def test_the_base_fetch_is_tried_twice_and_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            calls = []
+
+            def fake_run(args, **_kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 128, stdout="", stderr="fatal: the remote hung up")
+            with unittest.mock.patch.object(wd.subprocess, "run", side_effect=fake_run), \
+                    unittest.mock.patch.object(wd, "have_tree", return_value=False):
+                wd._deadline[0] = time.monotonic() + 30
+                try:
+                    report = wd.fetch_bases(workspace, ["1" * 40, "2" * 40, "not-a-sha"])
+                finally:
+                    wd._deadline[0] = float("inf")
+            self.assertEqual(len(calls), 2)
+            self.assertIn("--refetch", calls[0])
+            self.assertEqual({key: report[key] for key in ("missing", "attempts", "left")},
+                             {"missing": 2, "attempts": 2, "left": 2})
+            self.assertIn("remote hung up", report["error"])
+            record = wd.bases_record({"compared": 1, "total": 3, "fetch": {**report, "error": "x" * 999}})
+            self.assertEqual((record["compared"], len(record["fetch"]["error"])), (1, 160))
+
+    def test_a_commit_without_its_tree_counts_as_missing(self):
+        # delta_since_green.py fetches main's history with --filter=tree:0: commits, no trees.
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            (Path(tmp) / "A.swift").write_text("a")
+            subprocess.run([*git, "add", "."], check=True)
+            subprocess.run([*git, "commit", "-qm", "0"], check=True)
+            sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+            tree = subprocess.run([*git, "rev-parse", "HEAD^{tree}"], check=True, capture_output=True,
+                                  text=True).stdout.strip()
+            self.assertTrue(wd.have_tree(Path(tmp), sha))
+            (Path(tmp) / ".git/objects" / tree[:2] / tree[2:]).unlink()
+            self.assertTrue(wd.have_commit(Path(tmp), sha))
+            self.assertFalse(wd.have_tree(Path(tmp), sha))
 
     def test_record_is_bounded_and_reads_either_mode(self):
         minis = {"m1": [self.stamp("1" * 40)]}

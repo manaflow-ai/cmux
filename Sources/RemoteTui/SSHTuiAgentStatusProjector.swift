@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSidebar
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -105,10 +106,10 @@ final class SSHTuiAgentStatusProjector {
         switch activity {
         case .running:
             SidebarStatusEntry(key: key, value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                               icon: "bolt.fill", color: "#4C8DFF", timestamp: Date())
+                               icon: "bolt.fill", color: CmuxAccentColor.builtInAgentStatusHex, timestamp: Date())
         case .needsInput:
             SidebarStatusEntry(key: key, value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
-                               icon: "bell.fill", color: "#4C8DFF", priority: 100, timestamp: Date())
+                               icon: "bell.fill", color: CmuxAccentColor.builtInAgentStatusHex, priority: 100, timestamp: Date())
         case .idle:
             SidebarStatusEntry(key: key, value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                                icon: "pause.circle.fill", color: "#8E8E93", timestamp: Date())

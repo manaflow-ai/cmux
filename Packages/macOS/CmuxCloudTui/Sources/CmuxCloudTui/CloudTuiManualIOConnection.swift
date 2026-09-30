@@ -265,6 +265,9 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingLineSearchOffset = 0
                 guard !line.isEmpty,
                       let frame = deliversJSONMessages ? CloudTuiManualIOFrame.message(line) : CloudTuiManualIOFrameDecoder().decode(line) else { continue }
+                // Id zero is untracked input. A daemon that still answers it
+                // must not cost the consumer a turn ahead of the echo.
+                if case let .response(requestID, _, _, _, _, _, _, _) = frame, requestID == 0 { continue }
                 let continuation = nextFrameContinuation
                 nextFrameContinuation = nil
                 suspendReadSourceLocked()

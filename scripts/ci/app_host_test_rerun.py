@@ -65,12 +65,21 @@ def gh_api(path: str) -> dict:
     return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
 
+# A run's artifacts pile up across re-run attempts; an older attempt's product may sit past page 1.
+MAX_ARTIFACT_PAGES = 5
+
+
 def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) -> dict | None:
     """The unexpired app-host product artifact a run uploaded, if any."""
-    listing = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
-    for artifact in listing.get("artifacts", []):
-        if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
-            return artifact
+    for page in range(1, MAX_ARTIFACT_PAGES + 1):
+        more = f"&page={page}" if page > 1 else ""
+        artifacts = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100{more}").get(
+            "artifacts", [])
+        for artifact in artifacts:
+            if artifact.get("name", "").startswith(PRODUCTS_PREFIX) and not artifact.get("expired"):
+                return artifact
+        if len(artifacts) < 100:
+            break
     return None
 
 
@@ -236,7 +245,10 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
             )
         artifact = products_artifact(args.repository, args.source_run_id, api)
         if not artifact:
-            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact")
+            adopted = (" A test-e2e.yml build that adopted another run's product uploads none of its own:"
+                       " pass the run named in its 'Compiled test product' summary instead."
+                       if run.get("path") == E2E_WORKFLOW else "")
+            raise SystemExit(f"run {args.source_run_id} has no unexpired {PRODUCTS_PREFIX}* artifact.{adopted}")
         found = {"revision": revision, "run_id": args.source_run_id, "artifact": artifact}
     else:
         revisions, blocker = eligible_revisions(head, args.max_commits)
@@ -443,11 +455,25 @@ def locate_c_targets(names: list[str], roots: list[Path], dump: Callable[[Path],
     return found
 
 
-def binary_framework_search_paths(roots: list[Path], arch: str | None) -> list[str]:
+def binary_framework_search_paths(
+    roots: list[Path], arch: str | None, debug_products: Path, target: str
+) -> list[str]:
     """Use resolved macOS XCFramework slices when archived runtime copies lack modules."""
     if roots and not arch:
         raise ValueError("binary framework selection requires the product architecture")
-    paths = set()
+    required = set()
+    for bundle in debug_products.glob(f"*.app/Contents/PlugIns/{target}.xctest"):
+        for directory in (bundle.parents[1] / "Frameworks", bundle / "Contents" / "Frameworks"):
+            required.update(framework.name for framework in directory.glob("*.framework"))
+    # The product tells us which variants it used. Do not expose unused binary
+    # targets just because SwiftPM downloaded them while resolving a package.
+    for name in list(required):
+        for directory in (debug_products, debug_products / "PackageFrameworks"):
+            modules = directory / name / "Modules"
+            if (modules / "module.modulemap").is_file() or any(modules.glob("*.swiftmodule")):
+                required.discard(name)
+                break
+    candidates: dict[str, set[Path]] = {}
     for root in roots:
         if not root.is_dir():
             raise ValueError(f"resolved binary artifact directory is missing: {root}")
@@ -460,12 +486,17 @@ def binary_framework_search_paths(roots: list[Path], arch: str | None) -> list[s
                         or arch not in library.get("SupportedArchitectures", [])):
                     continue
                 relative = Path(library["LibraryIdentifier"]) / library["LibraryPath"]
-                if relative.suffix != ".framework":
+                if relative.suffix != ".framework" or relative.name not in required:
                     continue
                 framework = (manifest.parent / relative).resolve()
                 if not framework.is_relative_to(manifest.parent.resolve()) or not framework.is_dir():
                     raise ValueError(f"invalid binary framework slice: {framework}")
-                paths.add(str(framework.parent))
+                candidates.setdefault(relative.name, set()).add(framework)
+    paths = set()
+    for name, frameworks in sorted(candidates.items()):
+        if len(frameworks) != 1:
+            raise ValueError(f"ambiguous binary framework slices for {name}: {sorted(map(str, frameworks))}")
+        paths.add(str(next(iter(frameworks)).parent))
     return sorted(paths)
 
 
@@ -497,7 +528,8 @@ def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package
         "FRAMEWORK_SEARCH_PATHS": [
             "$(inherited)", "$(BUILT_PRODUCTS_DIR)/PackageFrameworks",
             *binary_framework_search_paths(
-                [Path(root) for root in getattr(args, "xcframework_root", [])], getattr(args, "arch", None)
+                [Path(root) for root in getattr(args, "xcframework_root", [])], getattr(args, "arch", None),
+                debug_products, args.target
             ),
         ],
         "OTHER_LDFLAGS": ["$(inherited)", *ldflags],
