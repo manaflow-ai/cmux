@@ -6006,9 +6006,11 @@ mod unix {
                             break;
                         }
                         // Integration failure-injection seam: a host whose
-                        // termination receipt reaches the daemon late. Bounded
-                        // so an accidental setting cannot wedge a real host.
-                        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
+                        // termination receipt reaches the daemon late. Only a
+                        // receipted request waits; bounded so an accidental
+                        // setting cannot wedge a real host.
+                        if frame.request_id != 0
+                            && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
                             && let Ok(delay) = delay.parse::<u64>()
                             && delay > 0
                         {
