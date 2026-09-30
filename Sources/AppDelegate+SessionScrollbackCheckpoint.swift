@@ -103,10 +103,12 @@ extension AppDelegate {
                 ?? (restorableAgent == nil
                     ? restorePolicy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
                     : nil)
+            let shouldAutoResumeAgentSessions = autoResumeAgentSessions
+                && shellActivityState != .some(.promptIdle)
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? restorePolicy.surfaceResumeStartupInput(
                     resumeBinding,
-                    autoResumeAgentSessions: autoResumeAgentSessions,
+                    autoResumeAgentSessions: shouldAutoResumeAgentSessions,
                     promptForApproval: false,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
