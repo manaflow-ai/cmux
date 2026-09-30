@@ -91,7 +91,23 @@ extension ActionRegistry {
     /// Whether `shortcut` can become `id`'s shortcut, and what it collides
     /// with. Pure over the registry's current shortcuts, tiers and contexts.
     public func assessShortcut(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
-        .available(notes: [])
+        let id = canonicalID(for: id)
+        if descriptor(for: id)?.shortcutFamily != nil { return .refused(.editsNumberedFamily) }
+        guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
+        if let name = SystemReservedShortcuts.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
+        let index = currentShortcutIndex()
+        let scope = descriptor(for: id)?.requires ?? []
+        let sameScope = { (owner: ActionID) in (self.descriptor(for: owner)?.requires ?? []) == scope }
+        var families: [ActionID] = []
+        if shortcut.key.count == 1, let digit = shortcut.key.first, ("1"..."9").contains(digit) {
+            families = (index.digitFamilies[Shortcut("1", modifiers: shortcut.modifiers)] ?? []).filter { $0 != id }
+            if let family = families.first(where: sameScope) { return .refused(.numberedFamily(family)) }
+        }
+        let owners = (index.byShortcut[shortcut] ?? []).filter { $0 != id } + families
+        if let system = owners.first(where: { keyTier(for: $0) == .system }) { return .refused(.systemAction(system)) }
+        let notes = shortcutNotes(shortcut, for: id, environment: environment)
+        guard !owners.isEmpty else { return .available(notes: notes) }
+        return .conflict(owners: owners, canKeepBoth: !owners.contains(where: sameScope), canReplace: families.isEmpty, notes: notes)
     }
 
     /// Where the key router puts `id`'s chord relative to a page and a
