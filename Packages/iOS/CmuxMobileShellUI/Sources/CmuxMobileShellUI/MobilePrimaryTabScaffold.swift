@@ -2,21 +2,6 @@
 import CmuxMobileSupport
 import SwiftUI
 
-private struct TopContentHitRegion: Shape {
-    let bottomInset: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        Path(
-            CGRect(
-                x: rect.minX,
-                y: rect.minY,
-                width: rect.width,
-                height: max(0, rect.height - bottomInset)
-            )
-        )
-    }
-}
-
 /// Keeps the compact tab bar and its root navigation chrome in one hierarchy.
 /// The tab contents still keep their own navigation paths, but they no longer
 /// compete to install the root toolbar as selection changes.
@@ -145,12 +130,12 @@ struct MobilePrimaryTabScaffold<
                 .transaction { transaction in
                     transaction.disablesAnimations = true
                 }
-                .overlay(alignment: .top) {
-                    // Keep every navigation stack mounted outside the system
-                    // tab content transition so paths and destination state
-                    // survive a switch. Each stack gates its expensive content
-                    // and lifecycle work on the active selection. The bottom
-                    // inset leaves the native tab bar on top.
+                .background(alignment: .top) {
+                    // Keep every non-search navigation stack mounted behind
+                    // the native tab content transition so paths and
+                    // destination state survive a switch. The TabView and its
+                    // native tab bar stay above this layer, so the system
+                    // controls remain the top hit-test target.
                     GeometryReader { geometry in
                         ZStack {
                             workspaces
@@ -171,15 +156,9 @@ struct MobilePrimaryTabScaffold<
                             height: geometry.size.height,
                             alignment: .top
                         )
-                        .contentShape(
-                            TopContentHitRegion(bottomInset: geometry.safeAreaInsets.bottom)
-                        )
+                        .allowsHitTesting(selection != .search)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(selection != .search)
-                    // The overlay owns only the content region. Leaving the
-                    // bottom hit area open keeps the system tab bar's
-                    // size-aware hit testing intact.
                 }
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
