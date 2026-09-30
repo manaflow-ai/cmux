@@ -15,6 +15,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Objects captured when the palette opened; argument-taking actions
+    /// target them (`PaletteArgumentFlow`).
+    public var capturedTargets: [ActionTargetRef] = []
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
 
@@ -97,8 +100,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         guard descriptor.arguments.contains(where: \.isRequired) else {
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
-        return .deferred { [targets] in
-            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets)
+        return .deferred { [targets, capturedTargets] in
+            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets)
                 .effect(collected: ActionInvocation())
         }
     }

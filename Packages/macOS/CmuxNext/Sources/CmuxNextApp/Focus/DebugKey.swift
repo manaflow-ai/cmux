@@ -44,6 +44,9 @@ enum DebugKey {
                 return .object(["error": .string("no Chromium page window for pane")])
             }
             window = page
+        } else if params["target"]?.stringValue == "palette" {
+            guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+            window = panel
         } else if params["target"]?.stringValue == "devtools" {
             let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
             guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
@@ -89,6 +92,18 @@ enum DebugKey {
         } else {
             window.sendEvent(event)
             if window !== shell { handledBy = "page" }
+        }
+        if params["target"]?.stringValue == "palette" {
+            // The palette's own report: open or closed, its page, a refusal
+            // notice, and key-downs that reached the system beep.
+            let palette = services.palette!
+            return .object([
+                "handled_by": .string(handledBy == "page" ? "palette" : handledBy), "action": action, "window_kind": .string("palette"),
+                "palette_open": .bool(palette.isVisible), "palette_page": .string(palette.model.pageTitle),
+                "palette_text_input": .bool(palette.model.isTextInput),
+                "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
+                "palette_unhandled_key_downs": .number(Double(palette.unhandledKeyDowns)),
+            ])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])

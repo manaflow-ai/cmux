@@ -42,17 +42,28 @@ extension ActionRegistry {
     /// `refusalObserver` (logging, a beep for keyboard and menu runs).
     public func refuse(_ reason: String) {
         if isCapturingRefusal { capturedRefusal = capturedRefusal ?? reason }
+        if isReportingRefusal { reportedRefusal = reportedRefusal ?? reason }
         refusalObserver?(reason)
     }
 
-    /// A caller receives this refusal: the App does not beep.
-    public var refusalHasCaller: Bool { isCapturingRefusal }
+    /// A caller receives this refusal (capturing or reporting): the App
+    /// neither beeps nor needs to, the caller shows or returns the reason.
+    public var refusalHasCaller: Bool { isCapturingRefusal || isReportingRefusal }
 
-    /// Runs a user-driven `perform` whose caller shows refusals itself.
-    /// Not implemented yet: returns nil.
+    /// Runs `body` (a user-driven `perform`, such as a palette command) and
+    /// returns the first refusal a handler reported during it, for the
+    /// caller to show instead of a beep. Destructive actions still ask for
+    /// confirmation (a capturing run refuses them instead).
     public func reportingRefusal(_ body: () -> Void) -> String? {
+        let wasReporting = isReportingRefusal
+        let previous = reportedRefusal
+        isReportingRefusal = true
+        reportedRefusal = nil
         body()
-        return nil
+        let reason = reportedRefusal
+        isReportingRefusal = wasReporting
+        reportedRefusal = previous
+        return reason
     }
 
     /// Runs `body` (a synchronous `perform`) and returns the first refusal a

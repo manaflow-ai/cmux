@@ -48,6 +48,10 @@ public final class PaletteController {
         self.sources = sources
         self.model = PaletteModel(persistence: frecencyPersistence)
         model.onDismiss = { [weak self] in self?.hide() }
+        // A command that refuses shows why on its row instead of beeping,
+        // and the palette comes back on the same page.
+        model.performer = { [registry] handler in registry.reportingRefusal(handler) }
+        model.onRefusal = { [weak self] _ in self?.presentAgain() }
     }
 
     // MARK: Registry wiring
@@ -121,6 +125,7 @@ public final class PaletteController {
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
         openStarted = .now
+        captureContext()
         model.reset(to: page(for: mode))
         modelReady = .now
         present(relativeTo: window)
@@ -131,7 +136,9 @@ public final class PaletteController {
     /// shortcut for an argument-taking action asks inline.
     public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
-        let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets)
+        captureContext()
+        let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
+                                       captured: capturedTargets)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -144,7 +151,8 @@ public final class PaletteController {
         present(relativeTo: window)
     }
 
-    /// Captures the focused objects on open. Not used by the flows yet.
+    /// Captures the focused objects on open. An open palette keeps what it
+    /// captured (its focus overlay hides the content below it).
     func captureContext() {
         guard !isVisible else { return }
         capturedTargets = sources.context?() ?? []
@@ -193,12 +201,28 @@ public final class PaletteController {
         }
     }
 
+    /// Shows the palette again over the window it was closed from, on the
+    /// page it closed on (a refused command's notice).
+    private func presentAgain() {
+        guard !isVisible else { return }
+        // Without a parent (opened while no window was key or main, as in a
+        // no-activate run) `present` picks the key or main window again.
+        present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })
+    }
+
     /// Closes the palette. The parent window becomes key immediately so a
     /// command that runs right after sees the right focus; the panel fades
     /// out, then orders out.
     public func hide() {
         hide(restoringKey: true)
     }
+
+    /// The panel while the palette is open (`debug.key` target `palette`).
+    public var visiblePanel: NSWindow? { isVisible ? panel : nil }
+
+    /// Key-downs in the panel that reached `noResponder(for:)` (the system
+    /// beep) since launch.
+    public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }
 
     /// Whether `window` is the palette's panel.
     public func owns(_ window: NSWindow) -> Bool { window === panel }

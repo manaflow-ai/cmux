@@ -43,6 +43,15 @@ final class PalettePanel: ActiveAppKeyPanel {
         onResignKey?()
     }
 
+    /// Key-downs no responder handled (AppKit beeps for each). The palette
+    /// handles every key it maps, so this stays 0 (`debug.key` reports it).
+    private(set) var unhandledKeyDowns = 0
+
+    override func noResponder(for eventSelector: Selector) {
+        if eventSelector == #selector(NSResponder.keyDown(with:)) { unhandledKeyDowns += 1 }
+        super.noResponder(for: eventSelector)
+    }
+
     override func cancelOperation(_ sender: Any?) {
         // Esc is handled by keyHandler; swallow the responder-chain fallback.
     }

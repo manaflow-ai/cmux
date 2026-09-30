@@ -166,12 +166,17 @@ import Testing
             registry.bind("tabGroup.rename", invoke: { _ in registry.refuse("the tab is not in a group") })
         }
         let model = controller.model
+        // The controller shows the panel again here; the test process has
+        // no app to show it in, so record the request instead.
+        var reopened: [String] = []
+        model.onRefusal = { reopened.append($0) }
         model.query = "rename tab group"
         await model.settle()
         #expect(controller.handleKeyDown(Self.key(36, "\r")))
         model.query = "api"
         #expect(controller.handleKeyDown(Self.key(36, "\r")))
         #expect(recorder.refusalsWithCaller == [true])
+        #expect(reopened == ["the tab is not in a group"])
         #expect(model.notice?.text == "the tab is not in a group")
         #expect(model.isTextInput)
         #expect(model.rows.first?.item.subtitle == "the tab is not in a group")
