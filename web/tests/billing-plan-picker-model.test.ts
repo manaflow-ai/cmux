@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { personalPlanCards, teamPlanCards } from "../dashboard-app/screens/billing/plan-model";
+import { personalPlanCards, sharedUnavailableReason, teamPlanCards } from "../dashboard-app/screens/billing/plan-model";
 
 const summary = (cards: ReturnType<typeof personalPlanCards>) =>
   cards.map((card) => `${card.id}${card.current ? "*" : ""}:${card.action.kind}${"plan" in card.action ? `/${card.action.plan}` : ""}${"reason" in card.action ? `/${card.action.reason}` : ""}`);
@@ -79,5 +79,19 @@ describe("team plan picker", () => {
 
   test("a granted Team plan has nothing to change", () => {
     expect(summary(teamPlanCards({ ...base, granted: true }))).toEqual(["free:unavailable/granted", "team*:current"]);
+  });
+});
+
+describe("a reason every other card shares", () => {
+  test("shows once when all other cards are unavailable for the same reason", () => {
+    const cancelling = personalPlanCards({ planId: "pro", isPro: true, subscription: { plan: "pro", cancelAtPeriodEnd: true }, goPlanEnabled: false });
+    expect(sharedUnavailableReason(cancelling)).toBe("cancelScheduled");
+    const granted = personalPlanCards({ planId: "pro", isPro: true, subscription: null, goPlanEnabled: false });
+    expect(sharedUnavailableReason(granted)).toBe("granted");
+  });
+
+  test("is null when the other cards have actions", () => {
+    expect(sharedUnavailableReason(personalPlanCards({ planId: "free", isPro: false, subscription: null, goPlanEnabled: false }))).toBeNull();
+    expect(sharedUnavailableReason(teamPlanCards({ canManageBilling: true, granted: false, subscription: null }))).toBeNull();
   });
 });
