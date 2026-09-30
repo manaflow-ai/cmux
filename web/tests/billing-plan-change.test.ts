@@ -119,7 +119,7 @@ describe("personal plan change", () => {
     });
   });
 
-  test("a downgrade charges nothing today and credits the unused time", async () => {
+  test("a downgrade charges nothing today and credits the unused time net of the new plan's remaining time", async () => {
     subscription = subscriptionOn("cmux-max-monthly-200");
     status = { ...status, activePlanId: "max" };
     preview = {
@@ -134,7 +134,8 @@ describe("personal plan change", () => {
       },
     };
     const result = await previewPersonalPlanChange({ userId: "u1", target: "pro" }, deps);
-    expect(result).toMatchObject({ direction: "downgrade", amountDueToday: 0, credit: 13_000, nextInvoiceAmount: 1_500 });
+    // -13,000 unused Max, +4,000 for Pro's remaining time; the plain renewal line is not proration.
+    expect(result).toMatchObject({ direction: "downgrade", amountDueToday: 0, credit: 9_000, nextInvoiceAmount: 1_500 });
     const previewCall = calls.find((call) => call.method === "createPreview")!;
     expect((previewCall.args[0] as { subscription_details: { proration_behavior: string } }).subscription_details.proration_behavior)
       .toBe("create_prorations");
