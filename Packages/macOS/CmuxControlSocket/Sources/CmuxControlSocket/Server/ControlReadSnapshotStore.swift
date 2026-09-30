@@ -233,15 +233,21 @@ public final class ControlReadSnapshotStore: @unchecked Sendable {
         return entry.result
     }
 
-    /// Publishes/replaces one response and advances the generation.
+    /// Publishes a response only if the snapshot has not changed since its
+    /// capture began. A read that overlaps invalidation may answer its own
+    /// caller, but must not repopulate the cache with pre-mutation state.
+    /// Returns whether the response was published.
+    @discardableResult
     public func publishResponse(
         method: String,
         params: [String: JSONValue],
-        result: ControlCallResult
-    ) {
+        result: ControlCallResult,
+        expectedGeneration: UInt64
+    ) -> Bool {
         let key = ControlReadSnapshot.key(method: method, params: params)
-        retiredState.withLock { retired in
+        return retiredState.withLock { retired in
             var snapshot = readUnlocked()
+            guard snapshot.generation == expectedGeneration else { return false }
             var entries = snapshot.entries
             entries[key] = ControlReadSnapshot.Entry(
                 result: result,
@@ -252,6 +258,7 @@ public final class ControlReadSnapshotStore: @unchecked Sendable {
                 entries: entries
             )
             publishLocked(snapshot, retired: &retired)
+            return true
         }
     }
 

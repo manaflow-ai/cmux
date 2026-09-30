@@ -297,7 +297,8 @@ struct ControlPlaneConcurrencyTests {
         store.publishResponse(
             method: "workspace.list",
             params: [:],
-            result: replacement
+            result: replacement,
+            expectedGeneration: store.read().generation
         )
         #expect(store.response(method: "workspace.list", params: [:]) == replacement)
         #expect(store.read().generation == 2)
