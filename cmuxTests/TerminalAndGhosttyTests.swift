@@ -974,6 +974,16 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+#if DEBUG
+private final class UnavailableInputProbeView: GhosttyNSView {
+    var commandSelectors: [Selector] = []
+
+    override func doCommand(by selector: Selector) {
+        commandSelectors.append(selector)
+    }
+}
+#endif
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
     private var trackedPanels: [TerminalPanel] = []
@@ -3129,6 +3139,44 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    /// Pane-flash routing reads `UserDefaults.standard`, which app-host runs
+    /// share with the runner's persisted debug domain. A leftover tmux overlay
+    /// experiment (target `bonsplitPane`) sends flashes to the workspace pane
+    /// overlay instead of the surface, so pin the surface route per test.
+    private static let pinnedFlashDefaultKeys = [
+        TmuxOverlayExperimentSettings.enabledKey,
+        TmuxOverlayExperimentSettings.targetKey,
+        NotificationPaneFlashSettings.enabledKey,
+    ]
+    private var originalFlashDefaults: [String: Any] = [:]
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        originalFlashDefaults = [:]
+        for key in Self.pinnedFlashDefaultKeys {
+            if let value = defaults.object(forKey: key) {
+                originalFlashDefaults[key] = value
+            }
+        }
+        defaults.set(false, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+    }
+
+    override func tearDown() {
+        let defaults = UserDefaults.standard
+        for key in Self.pinnedFlashDefaultKeys {
+            if let value = originalFlashDefaults[key] {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        originalFlashDefaults = [:]
+        super.tearDown()
+    }
+
     func makeWindow() -> NSWindow {
         let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -3569,6 +3617,48 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNil(
             surface.surface,
             "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testUnavailableTerminalConsumesEscapeInsteadOfFallingThroughToAppKit() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        defer { surface.releaseHostedSurfaceForTesting() }
+
+        let surfaceView = UnavailableInputProbeView(frame: contentView.bounds)
+        contentView.addSubview(surfaceView)
+        surfaceView.autoresizingMask = [.width, .height]
+        surfaceView.attachSurface(surface)
+        surface.beginPortalCloseLifecycle(reason: "test.unavailableInput")
+        surface.teardownSurface()
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        let event = makeKeyEvent(characters: "\u{1B}", keyCode: 53, window: window)
+        surfaceView.keyDown(with: event)
+
+        XCTAssertTrue(
+            surfaceView.commandSelectors.isEmpty,
+            "An unavailable terminal must consume Escape instead of sending an unhandled command to AppKit"
         )
 #else
         throw XCTSkip("Debug-only regression test")

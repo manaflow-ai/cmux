@@ -152,23 +152,6 @@ struct RemoteDaemonManifestRepositoryTests {
         #expect(rootExists && isDirectory.boolValue, "cache root is created eagerly")
     }
 
-    @Test("fetchManifest decodes a live manifest and returns nil on a non-2xx status")
-    func fetchManifestStatuses() throws {
-        let server = FakeHTTPServer()
-        defer { server.close() }
-        let home = try temporaryHome()
-        let repository = makeRepository(home: home)
-        let manifestJSON = makeManifestJSON(port: server.port, assetPath: "/bin", sha256: "abc123")
-
-        server.setResponse(path: "/cmuxd-remote-manifest.json", body: Data(manifestJSON.utf8))
-        let manifest = repository.fetchManifest(releaseURL: "http://127.0.0.1:\(server.port)", version: "0.99.0")
-        #expect(manifest?.releaseTag == "v0.99.0")
-        #expect(manifest?.entry(goOS: "linux", goArch: "amd64")?.assetName == "cmuxd-remote-linux-amd64")
-
-        server.setResponse(path: "/cmuxd-remote-manifest.json", status: 500, body: Data())
-        #expect(repository.fetchManifest(releaseURL: "http://127.0.0.1:\(server.port)", version: "0.99.0") == nil)
-    }
-
     @Test("downloadBinary verifies the checksum and installs the binary executable at the cache path")
     func downloadHappyPath() throws {
         let server = FakeHTTPServer()
@@ -180,7 +163,6 @@ struct RemoteDaemonManifestRepositoryTests {
         let entry = makeEntry(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: sha256Hex(binary))
 
         let download = try repository.downloadBinary(entry: entry, version: "0.99.0")
-        #expect(!download.usedLiveManifestChecksumFallback)
         #expect(download.binaryURL == (try repository.cachedBinaryURL(version: "0.99.0", goOS: "linux", goArch: "amd64")))
         #expect(try Data(contentsOf: download.binaryURL) == binary)
         #expect(FileManager.default.isExecutableFile(atPath: download.binaryURL.path))
@@ -188,7 +170,7 @@ struct RemoteDaemonManifestRepositoryTests {
         #expect(permissions == 0o755)
     }
 
-    @Test("a checksum mismatch with no live-manifest rescue throws the pinned code-28 error")
+    @Test("a checksum mismatch throws the pinned code-28 error")
     func checksumMismatchThrows() throws {
         let server = FakeHTTPServer()
         defer { server.close() }
@@ -210,27 +192,35 @@ struct RemoteDaemonManifestRepositoryTests {
         #expect(!FileManager.default.fileExists(atPath: cacheURL.path))
     }
 
-    @Test("a stale embedded checksum is rescued by the live release manifest and reported in the result")
-    func checksumLiveManifestFallback() throws {
+    @Test("a live release manifest that matches a mismatched download never overrides the embedded checksum")
+    func liveManifestCannotOverrideEmbeddedChecksum() throws {
         let server = FakeHTTPServer()
         defer { server.close() }
         let home = try temporaryHome()
         let repository = makeRepository(home: home)
-        let binary = Data("nightly-overwritten bytes".utf8)
-        server.setResponse(path: "/cmuxd-remote-linux-amd64", body: binary)
+        // Someone with write access to the release swapped both the binary and
+        // the live manifest; only the checksum embedded in the signed app is
+        // trustworthy.
+        let swappedBinary = Data("attacker-swapped bytes".utf8)
+        server.setResponse(path: "/cmuxd-remote-linux-amd64", body: swappedBinary)
         server.setResponse(
             path: "/cmuxd-remote-manifest.json",
-            body: Data(makeManifestJSON(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: sha256Hex(binary)).utf8)
+            body: Data(makeManifestJSON(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: sha256Hex(swappedBinary)).utf8)
         )
-        let staleEntry = makeEntry(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: String(repeating: "f", count: 64))
+        let embeddedEntry = makeEntry(port: server.port, assetPath: "/cmuxd-remote-linux-amd64", sha256: String(repeating: "f", count: 64))
 
-        let download = try repository.downloadBinary(
-            entry: staleEntry,
-            version: "0.99.0",
-            releaseURL: "http://127.0.0.1:\(server.port)"
-        )
-        #expect(download.usedLiveManifestChecksumFallback)
-        #expect(try Data(contentsOf: download.binaryURL) == binary)
+        var thrown: NSError?
+        do {
+            // The live manifest above is still served at the release URL; the
+            // repository must never consult it.
+            _ = try repository.downloadBinary(entry: embeddedEntry, version: "0.99.0")
+        } catch {
+            thrown = error as NSError
+        }
+        #expect(thrown?.domain == "cmux.remote.daemon")
+        #expect(thrown?.code == 28, "a download that misses the embedded checksum must be rejected")
+        let cacheURL = try repository.cachedBinaryURL(version: "0.99.0", goOS: "linux", goArch: "amd64")
+        #expect(!FileManager.default.fileExists(atPath: cacheURL.path), "the swapped binary must not reach the upload cache")
     }
 
     @Test("an HTTP error status surfaces as the pinned code-26 error")

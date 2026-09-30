@@ -8,8 +8,12 @@ later. If the owned pool was full at the start, they are committed to
 Blacksmith (admission's pool, or pr_retry_runner) and wait in its queue even
 when root runners have drained in the meantime.
 
-ci-macos.yml's late-placement job runs this after admission succeeds, on
-attempt 1 of a same-repository pull request.
+ci-macos.yml's late-placement job runs this after admission succeeds, for a
+same-repository pull request: on attempt 1, and on a re-run that runs compile
+admission again (a full re-run, or a re-run of a failed admission). A re-run
+of failed jobs after admission keeps the outputs of the attempt before, so
+ci-macos.yml takes `runners` only in the attempt that made it (output
+`attempt`), and those jobs take their owned labels.
 It reads the idle root runners live through the org route App and gives
 each job that is not already owned the root label, in owned priority order,
 up to that many idle runners. The shards and friends then run
@@ -297,7 +301,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"runners={json.dumps(placed, sort_keys=True)}\n")
+            handle.write(f"runners={json.dumps(placed, sort_keys=True)}\nattempt={env.get('GITHUB_RUN_ATTEMPT', '')}\n")
             # The rescue watch's markers are for jobs moved onto owned runners; a move to Blacksmith needs none.
             onto_owned = any(pool.persistent(label) for label in placed.values())
             handle.write(f"onto_owned={str(onto_owned).lower()}\n")
