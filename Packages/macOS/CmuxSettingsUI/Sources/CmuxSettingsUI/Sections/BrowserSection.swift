@@ -712,8 +712,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
                     .disabled(true)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SettingsBrowserImportActions")
+            .accessibilityElement(children: .contain).accessibilityIdentifier("SettingsBrowserImportActions")
             Toggle(
                 String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
                 isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
@@ -728,8 +727,7 @@ public struct BrowserSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("SettingsBrowserImportSection")
+        .accessibilityElement(children: .contain).accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {
