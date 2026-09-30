@@ -442,14 +442,17 @@ struct CloudTreeNodeActions {
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
-            let target = Result { try destination(.split) }
+            let target = try? destination(.split)
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
                 do {
-                    try await catalog.createDisplay(on: machine, into: target.get())
+                    try await catalog.createDisplay(on: machine, into: target)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    throw SurfaceCatalogError.unsupported(String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."))
+                    throw SurfaceCatalogError.unsupported(String(
+                        localized: "cloud.display.creationFailed",
+                        defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."
+                    ))
                 }
             }
         }
