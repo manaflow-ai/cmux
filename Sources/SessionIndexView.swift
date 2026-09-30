@@ -106,15 +106,18 @@ enum SessionEntryResumeCoordinator {
         for workspace in tabManager.tabs {
             workspacePanelIDsByWorkspaceID[workspace.id] = Set(workspace.panels.keys)
         }
-        var dockPanelIDs: Set<UUID> = []
+        var dockPanelOwnerBySourceID: [UUID: UUID] = [:]
         for dock in DockSplitStore.liveStores {
-            dockPanelIDs.formUnion(dock.panels.keys)
-            dockPanelIDs.formUnion(dock.surfaceIdToPanelId.keys.map(\.uuid))
             for (panelID, panel) in dock.panels {
+                dockPanelOwnerBySourceID[panelID] = panelID
                 if let terminal = panel as? TerminalPanel {
-                    dockPanelIDs.insert(terminal.surface.id)
+                    dockPanelOwnerBySourceID[terminal.surface.id] = panelID
                 }
-                dockPanelIDs.insert(panelID)
+            }
+            for (surfaceID, panelID) in dock.surfaceIdToPanelId {
+                if dock.panels[panelID] != nil {
+                    dockPanelOwnerBySourceID[surfaceID.uuid] = panelID
+                }
             }
         }
         for (panelKey, observation) in index.forkValidationEntries() {
@@ -124,8 +127,8 @@ enum SessionEntryResumeCoordinator {
                 sessionID: observation.snapshot.sessionId
             )
             guard requestedKeys.contains(key), targets[key] == nil else { continue }
-            if dockPanelIDs.contains(panelKey.panelId) {
-                targets[key] = .dock(panelID: panelKey.panelId)
+            if let panelID = dockPanelOwnerBySourceID[panelKey.panelId] {
+                targets[key] = .dock(panelID: panelID)
             } else if workspacePanelIDsByWorkspaceID[panelKey.workspaceId]?.contains(panelKey.panelId) == true {
                 targets[key] = .workspace(workspaceID: panelKey.workspaceId, surfaceID: panelKey.panelId)
             }
