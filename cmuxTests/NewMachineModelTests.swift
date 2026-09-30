@@ -85,7 +85,7 @@ struct NewMachineModelTests {
         #expect(NewMachineModel.machineKind == .desktop)
         model.create()
         #expect(recorder.value.first?.kind == .desktop)
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--agent-updates", "latest", "--focus", "false"])
         let workspaceID = UUID()
         let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
         base.create()
@@ -166,7 +166,7 @@ struct NewMachineModelTests {
         #expect(model.memoryMb == 16384)
         model.memoryMb = 65536
         model.create()
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "24576", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "24576", "--agent-updates", "latest", "--focus", "false"])
 
         let (smallest, _) = makeModel(plan: Self.proPlan, memoryOptionsMb: [8192, 16384], lockedMemoryOptionsMb: [4096, 32768])
         smallest.memoryMb = 4096
@@ -223,7 +223,7 @@ struct NewMachineModelTests {
         #expect(model.memoryOptions == [])
         #expect(model.memoryMb == 20480)
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--agent-updates", "latest", "--focus", "false"])
     }
 
     /// #12239: the sheet's defaults create a machine with a VNC screen; only
@@ -235,7 +235,7 @@ struct NewMachineModelTests {
         let request = recorder.value.first
         #expect(request?.kind == .desktop)
         #expect(request?.name == nil)
-        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "65536", "--focus", "false"])
+        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "65536", "--agent-updates", "latest", "--focus", "false"])
     }
 
     @Test func baseSetupHasNoSizeFlagAndDefaultsToADesktop() {
