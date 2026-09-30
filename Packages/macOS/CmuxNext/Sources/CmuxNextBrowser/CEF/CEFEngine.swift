@@ -88,6 +88,9 @@ public final class CEFEngine: BrowserEngine {
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 
+    /// External message pump counters (for `debug.cef`); nil before CEF runs.
+    public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
+
     /// Synchronous tab creation for the debug window: the first call maps
     /// the framework on the main thread. App code uses `makeTab`.
     public func makeCEFTab(_ configuration: BrowserTabConfiguration) throws -> CEFTab {

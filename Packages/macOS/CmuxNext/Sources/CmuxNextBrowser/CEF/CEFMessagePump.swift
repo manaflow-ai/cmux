@@ -14,6 +14,7 @@ final class CEFMessagePump {
     private var timer: CFRunLoopTimer?
     private var isWorking = false
     private var rescheduledDuringWork = false
+    private(set) var stats = CEFPumpStats()
 
     init(work: @escaping () -> Void, liveBrowsers: @escaping () -> Int) {
         self.work = work
@@ -45,6 +46,12 @@ final class CEFMessagePump {
         CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + delay)
     }
 
+    /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
+    func request(milliseconds: Int64) {
+        if milliseconds <= 0 { stats.immediateRequests += 1 } else { stats.delayedRequests += 1 }
+        schedule(after: CEFPumpPolicy.delay(forRequestedMilliseconds: milliseconds))
+    }
+
     /// Runs one pump iteration now (quit path drains without the timer).
     func pumpNow() {
         fire()
@@ -54,15 +61,23 @@ final class CEFMessagePump {
         // CefDoMessageLoopWork can re-enter through nested run loops (menus,
         // modal panels). A nested fire only reschedules.
         guard !isWorking else {
+            stats.reentrantFires += 1
             schedule(after: CEFPumpPolicy.maxDelay)
             return
         }
         isWorking = true
         rescheduledDuringWork = false
+        let started = DispatchTime.now().uptimeNanoseconds
         work()
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
+        stats.workRuns += 1
+        stats.workSeconds += elapsed
+        if elapsed >= 0.01 { stats.longWorkRuns += 1 }
         isWorking = false
         if !rescheduledDuringWork {
-            schedule(after: CEFPumpPolicy.fallback(liveBrowsers: liveBrowsers()))
+            let fallback = CEFPumpPolicy.fallback(liveBrowsers: liveBrowsers())
+            stats.fallbackInterval = fallback
+            schedule(after: fallback)
         }
     }
 }
@@ -71,11 +86,10 @@ final class CEFMessagePump {
 /// `CEFRuntime`, which lives for the rest of the process once started.
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
     guard let context else { return }
-    let delay = CEFPumpPolicy.delay(forRequestedMilliseconds: delayMilliseconds)
     let address = UInt(bitPattern: context)
     let deliver: @Sendable () -> Void = {
         MainActor.assumeIsolated {
-            CEFRuntime.from(address)?.pump?.schedule(after: delay)
+            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)
         }
     }
     if Thread.isMainThread {
