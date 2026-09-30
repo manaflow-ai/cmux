@@ -338,7 +338,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
-            CmuxFeatureFlags.conversationSidebarFlag,
+            CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
 

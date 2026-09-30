@@ -185,8 +185,8 @@ Environment:
 | `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
 | `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
 | `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
-| `send-panel` | Send text to a panel/surface. Same draft guard and `--force` as `send`. |
-| `send-key-panel` | Send one key to a panel/surface. Same dialog guard and `--force` as `send-key`. |
+| `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
+| `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |

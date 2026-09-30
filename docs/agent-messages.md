@@ -45,7 +45,9 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 - Bodies are text only: control characters other than newline and tab are rejected, so no escape sequence can ride along. The limit is 32 KiB.
 - Sender names are one line of at most 64 characters. The name is chosen by the sender. The sender surface is recorded separately from the sending CLI's environment.
 - Messages are kept per cmux install, the newest 2,000.
-- Remote workspaces (`cmux ssh`) and Cloud VMs can't send or receive yet.
+- Remote workspaces (`cmux ssh`) can send and receive within their own session.
+  A remote agent cannot message a local agent yet. Cloud VMs can't send or
+  receive yet.
 
 ## Socket API
 
@@ -58,3 +60,7 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 | `agent.message.poll` | `surface_id`, `poller_key`, optional `register` and `mark_delivered_read` | `status`: `current` (with `queued` and `held`) or `superseded`. Claims nothing. |
 
 `cmux events --category agent` publishes `agent.message.queued`, `agent.message.delivered` and `agent.message.read` with the message id, thread, sender and recipient. Bodies are not included; read them with `agent.message.list`.
+
+Remote workspaces (`cmux ssh`) can send and receive messages through the SSH
+relay, but only for workspaces and surfaces owned by that remote session. A
+remote agent cannot message a local agent yet.

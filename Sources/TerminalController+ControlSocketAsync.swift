@@ -247,6 +247,15 @@ extension TerminalController {
         if request.method.hasPrefix("agent.message.") {
             // Local surfaces only for now; relay-backed requests are denied
             // by RemoteRelayCommandPolicy before they reach this worker.
+            if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,
+               let dispatchError = try await v2MainAsync({
+                   self.controlRemoteRelayDispatchError(method: request.method, params: request.params)
+               }) {
+                return Self.v2Encoder.response(id: request.id, dispatchError)
+            }
+            // Relay requests are revalidated at worker dispatch and the
+            // handler rechecks resolved message targets against the live
+            // remote surface snapshot.
             return await agentMessageResponse(request)
         }
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,

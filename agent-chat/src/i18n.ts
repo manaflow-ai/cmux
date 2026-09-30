@@ -32,6 +32,7 @@ export type AgentChatTextKey =
   | "answerInTerminal"
   | "agentMessageFrom"
   | "agentMessageQueued";
+  | "agentMessageQueued"
   | "loadingDiff"
   | "diffUnavailable"
   | "retryDiff";
