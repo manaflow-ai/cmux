@@ -358,6 +358,11 @@ public abstract class GeneratedCmuxClient {
         return ReadScrollbackResult.fromWire(result);
     }
 
+    public final ReattachViewResult reattachView(ReattachViewRequest request) throws CmuxException {
+        Object result = execute(Commands.REATTACH_VIEW, request.toWire());
+        return ReattachViewResult.fromWire(result);
+    }
+
     public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
         Object result = execute(Commands.REGISTER_BROWSER_PROVIDER, request.toWire());
         return BrowserProviderSnapshot.fromWire(result);

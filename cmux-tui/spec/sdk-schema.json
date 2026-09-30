@@ -5486,6 +5486,18 @@
      "presence": "optional",
      "nullable": true,
      "default": null
+    },
+    "device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Stable per-install device id; tells two devices of one user apart."
+     ]
     }
    },
    "additional_properties": false
@@ -5563,6 +5575,14 @@
      "nullable": false
     },
     "device_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "device_id": {
      "type": {
       "kind": "scalar",
       "name": "string"
@@ -5771,6 +5791,28 @@
     }
    },
    "additional_properties": false
+  },
+  "ReattachViewResult": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeState"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -5944,6 +5986,20 @@
       "constraints": [
        "Shared sizing identity."
       ]
+     },
+     "device_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Stable per-install device id; tells two devices of one user apart."
+      ]
      }
     },
     "additional_properties": false
@@ -6104,6 +6160,20 @@
       "constraints": [
        "Defaults to the requester's identity."
       ]
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Resolves a participant id on this terminal only; participant ids are per terminal."
+      ]
      }
     },
     "additional_properties": false
@@ -6113,7 +6183,9 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+   ]
   },
   "reload-config": {
    "authority": "control",
@@ -11547,6 +11619,45 @@
     "Requires client capability shared-sizing-v1.",
     "Only explicit input or focus is activity, never hover or visibility."
    ]
+  },
+  "reattach-view": {
+   "authority": "control",
+   "since": 12,
+   "capability": "sizing-view-detach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "counts": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "false reattaches as a viewer; omitted keeps the counts choice."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReattachViewResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Only a view detached by detach-client can be reattached."
+   ]
   }
  },
  "events": {
@@ -12112,6 +12223,18 @@
       "presence": "optional",
       "nullable": false,
       "since": 12
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "\"view\" when only the client's own view was detached; the connection stays."
+      ]
      }
     },
     "additional_properties": false
