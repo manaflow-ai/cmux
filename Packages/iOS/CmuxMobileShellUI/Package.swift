@@ -37,6 +37,7 @@ let package = Package(
         .package(path: "../CmuxMobileToast"),
         .package(path: "../CmuxMobileTerminalKit"),
         .package(path: "../CmuxMobileWorkspace"),
+        .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -65,6 +66,7 @@ let package = Package(
                 "CmuxMobileTerminalKit",
                 "CmuxMobileToast",
                 "CmuxMobileWorkspace",
+                "CmuxTerminalSizing",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             resources: [.process("Resources")],
