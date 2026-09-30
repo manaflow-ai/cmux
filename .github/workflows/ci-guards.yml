@@ -168,6 +168,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_build_metrics.py
 
+      - name: Validate fleet compiler-cache wiring
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: bash tests/test_ci_fleet_compilation_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_lint_feature_flags_scope.py
@@ -312,6 +316,10 @@ jobs:
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Validate CI process-tree cancellation cleanup
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_process_tree_reaping.py
 
       - name: Test Computer Use drag regression harness
         if: ${{ matrix.group == 'preflight' }}
@@ -1292,7 +1300,9 @@ jobs:
       - workflow-guard-history
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
-    if: ${{ always() }}
+    # Preserve the guard verdict after a failure, but do not start a rollup
+    # after GitHub has cancelled the run.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

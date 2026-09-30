@@ -679,6 +679,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 
 .files-diff { padding: 0 0 6px 18px; }
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
+.diff-error { display: flex; align-items: center; gap: 8px; padding: 8px; font: calc(var(--font-size-base) - 2px) var(--font-sans); }
+.diff-error span { min-width: 0; overflow-wrap: anywhere; }
+.diff-retry { flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.28); border-radius: 6px; background: rgba(128, 128, 128, 0.08); color: inherit; cursor: default; font: inherit; padding: 2px 7px; }
 
 #chat-input-row { position: relative; flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 .routing-notice {
@@ -721,6 +724,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   color: var(--text); font-family: var(--font-sans); font-size: var(--font-size-base); line-height: 1.5; padding: 9px 8px; min-height: 24px; max-height: 200px;
 }
 #chat-input::placeholder { color: var(--text-faint); }
+#chat-input:disabled { color: var(--text-faint); cursor: default; }
 .chat-text-wrap { width: 100%; }
 .chat-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
 #stop-btn {

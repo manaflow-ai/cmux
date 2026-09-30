@@ -30,6 +30,9 @@ export type AgentChatTextKey =
   | "transcriptViewRunning"
   | "transcriptViewIdle"
   | "answerInTerminal"
+  | "loadingDiff"
+  | "diffUnavailable"
+  | "retryDiff"
   | "terminalRequestTimeout";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
@@ -42,6 +45,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Sends to the agent in this terminal",
     answerInTerminal: "Answer in terminal",
     terminalRequestTimeout: "The terminal request timed out. Try again.",
+    loadingDiff: "Loading diff…",
+    diffUnavailable: "Couldn't load the diff. Try again.",
+    retryDiff: "Retry",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -52,6 +58,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "このターミナルのエージェントに送信します",
     answerInTerminal: "ターミナルで回答",
     terminalRequestTimeout: "ターミナルへのリクエストがタイムアウトしました。もう一度お試しください。",
+    loadingDiff: "差分を読み込み中…",
+    diffUnavailable: "差分を読み込めませんでした。もう一度お試しください。",
+    retryDiff: "再試行",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -62,6 +71,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "发送给此终端中的代理",
     answerInTerminal: "在终端中回答",
     terminalRequestTimeout: "终端请求超时。请重试。",
+    loadingDiff: "正在加载差异…",
+    diffUnavailable: "无法加载差异。请重试。",
+    retryDiff: "重试",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -72,6 +84,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "傳送給此終端機中的代理程式",
     answerInTerminal: "在終端機中回答",
     terminalRequestTimeout: "終端機請求逾時。請重試。",
+    loadingDiff: "正在載入差異…",
+    diffUnavailable: "無法載入差異。請再試一次。",
+    retryDiff: "重試",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -82,6 +97,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "이 터미널의 에이전트에게 보냅니다",
     answerInTerminal: "터미널에서 답변",
     terminalRequestTimeout: "터미널 요청 시간이 초과되었습니다. 다시 시도하세요.",
+    loadingDiff: "변경 사항을 불러오는 중…",
+    diffUnavailable: "변경 사항을 불러오지 못했습니다. 다시 시도하세요.",
+    retryDiff: "다시 시도",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -92,6 +110,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Wird an den Agenten in diesem Terminal gesendet",
     answerInTerminal: "Im Terminal antworten",
     terminalRequestTimeout: "Die Terminalanfrage hat das Zeitlimit überschritten. Versuche es erneut.",
+    loadingDiff: "Diff wird geladen…",
+    diffUnavailable: "Der Diff konnte nicht geladen werden. Bitte erneut versuchen.",
+    retryDiff: "Erneut versuchen",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -102,6 +123,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Se envía al agente de esta terminal",
     answerInTerminal: "Responder en la terminal",
     terminalRequestTimeout: "La solicitud al terminal agotó el tiempo de espera. Inténtalo de nuevo.",
+    loadingDiff: "Cargando diferencias…",
+    diffUnavailable: "No se pudieron cargar las diferencias. Inténtalo de nuevo.",
+    retryDiff: "Reintentar",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -112,6 +136,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Envoyé à l’agent de ce terminal",
     answerInTerminal: "Répondre dans le terminal",
     terminalRequestTimeout: "La requête au terminal a expiré. Réessayez.",
+    loadingDiff: "Chargement des différences…",
+    diffUnavailable: "Impossible de charger les différences. Réessayez.",
+    retryDiff: "Réessayer",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -122,6 +149,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Inviato all’agente di questo terminale",
     answerInTerminal: "Rispondi nel terminale",
     terminalRequestTimeout: "La richiesta al terminale è scaduta. Riprova.",
+    loadingDiff: "Caricamento delle differenze…",
+    diffUnavailable: "Impossibile caricare le differenze. Riprova.",
+    retryDiff: "Riprova",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -132,6 +162,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Sendes til agenten i denne terminal",
     answerInTerminal: "Svar i terminalen",
     terminalRequestTimeout: "Anmodningen til terminalen fik timeout. Prøv igen.",
+    loadingDiff: "Indlæser ændringer…",
+    diffUnavailable: "Kunne ikke indlæse ændringerne. Prøv igen.",
+    retryDiff: "Prøv igen",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -142,6 +175,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Wysyłane do agenta w tym terminalu",
     answerInTerminal: "Odpowiedz w terminalu",
     terminalRequestTimeout: "Przekroczono limit czasu żądania do terminala. Spróbuj ponownie.",
+    loadingDiff: "Wczytywanie różnic…",
+    diffUnavailable: "Nie udało się wczytać różnic. Spróbuj ponownie.",
+    retryDiff: "Spróbuj ponownie",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -152,6 +188,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Отправляется агенту в этом терминале",
     answerInTerminal: "Ответить в терминале",
     terminalRequestTimeout: "Время ожидания запроса к терминалу истекло. Повторите попытку.",
+    loadingDiff: "Загрузка изменений…",
+    diffUnavailable: "Не удалось загрузить изменения. Попробуйте ещё раз.",
+    retryDiff: "Повторить",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -162,6 +201,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Šalje se agentu u ovom terminalu",
     answerInTerminal: "Odgovori u terminalu",
     terminalRequestTimeout: "Zahtjev prema terminalu je istekao. Pokušajte ponovo.",
+    loadingDiff: "Učitavanje razlika…",
+    diffUnavailable: "Nije moguće učitati razlike. Pokušajte ponovo.",
+    retryDiff: "Pokušaj ponovo",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -172,6 +214,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "يُرسل إلى الوكيل في هذه الطرفية",
     answerInTerminal: "أجب في الطرفية",
     terminalRequestTimeout: "انتهت مهلة الطلب إلى الطرفية. حاول مرة أخرى.",
+    loadingDiff: "جارٍ تحميل الفروقات…",
+    diffUnavailable: "تعذّر تحميل الفروقات. حاول مرة أخرى.",
+    retryDiff: "إعادة المحاولة",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -182,6 +227,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Sendes til agenten i denne terminalen",
     answerInTerminal: "Svar i terminalen",
     terminalRequestTimeout: "Forespørselen til terminalen fikk tidsavbrudd. Prøv igjen.",
+    loadingDiff: "Laster endringer…",
+    diffUnavailable: "Kunne ikke laste endringene. Prøv igjen.",
+    retryDiff: "Prøv igjen",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -192,6 +240,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Enviado ao agente deste terminal",
     answerInTerminal: "Responder no terminal",
     terminalRequestTimeout: "A solicitação ao terminal excedeu o tempo limite. Tente novamente.",
+    loadingDiff: "Carregando diferenças…",
+    diffUnavailable: "Não foi possível carregar as diferenças. Tente novamente.",
+    retryDiff: "Tentar novamente",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -202,6 +253,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "ส่งถึงเอเจนต์ในเทอร์มินัลนี้",
     answerInTerminal: "ตอบในเทอร์มินัล",
     terminalRequestTimeout: "คำขอไปยังเทอร์มินัลหมดเวลา โปรดลองอีกครั้ง",
+    loadingDiff: "กำลังโหลดความแตกต่าง…",
+    diffUnavailable: "ไม่สามารถโหลดความแตกต่างได้ โปรดลองอีกครั้ง",
+    retryDiff: "ลองอีกครั้ง",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -212,6 +266,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Bu terminaldeki ajana gönderilir",
     answerInTerminal: "Terminalde yanıtla",
     terminalRequestTimeout: "Terminal isteği zaman aşımına uğradı. Tekrar deneyin.",
+    loadingDiff: "Farklar yükleniyor…",
+    diffUnavailable: "Farklar yüklenemedi. Yeniden deneyin.",
+    retryDiff: "Yeniden dene",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -222,6 +279,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "ផ្ញើទៅភ្នាក់ងារនៅក្នុងទែមីណាល់នេះ",
     answerInTerminal: "ឆ្លើយនៅក្នុងទែមីណាល់",
     terminalRequestTimeout: "សំណើទៅស្ថានីយបានផុតពេលកំណត់។ សូមព្យាយាមម្តងទៀត។",
+    loadingDiff: "កំពុងផ្ទុកភាពខុសគ្នា…",
+    diffUnavailable: "មិនអាចផ្ទុកភាពខុសគ្នាបានទេ។ សូមព្យាយាមម្តងទៀត។",
+    retryDiff: "ព្យាយាមម្តងទៀត",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -232,6 +292,9 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     transcriptViewIdle: "Надсилається агентові в цьому терміналі",
     answerInTerminal: "Відповісти в терміналі",
     terminalRequestTimeout: "Час очікування запиту до термінала вичерпано. Спробуйте ще раз.",
+    loadingDiff: "Завантаження змін…",
+    diffUnavailable: "Не вдалося завантажити зміни. Спробуйте ще раз.",
+    retryDiff: "Повторити",
   },
 };
 
