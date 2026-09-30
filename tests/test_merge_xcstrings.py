@@ -88,6 +88,29 @@ def conflict_regions(text):
     return ["\n".join(lines[start : end + 1]) for start, end in zip(starts, ends)]
 
 
+def resolve_conflict(text, side):
+    resolved = []
+    active_side = None
+    for line in text.splitlines(keepends=True):
+        marker = line.rstrip("\r\n")
+        if marker.startswith("<<<<<<<"):
+            assert active_side is None
+            active_side = "ours"
+        elif marker.startswith("|||||||"):
+            assert active_side == "ours"
+            active_side = "base"
+        elif marker == "=======":
+            assert active_side == "base"
+            active_side = "theirs"
+        elif marker.startswith(">>>>>>>"):
+            assert active_side == "theirs"
+            active_side = None
+        elif active_side is None or active_side == side:
+            resolved.append(line)
+    assert active_side is None
+    return "".join(resolved)
+
+
 def run_with_patched_merge(result):
     driver = load_driver()
     with tempfile.TemporaryDirectory() as directory:
@@ -184,7 +207,7 @@ def test_multiple_conflict_hunks_keep_untouched_keys_outside_conflicts():
     assert merged.count('"value": "untouched"') == 1
 
 
-def test_each_reported_key_is_inside_a_conflict_region():
+def test_each_conflict_region_stays_within_its_reported_key_span():
     base = catalog(
         {
             "shared": localized_unit(
@@ -245,9 +268,23 @@ def test_each_reported_key_is_inside_a_conflict_region():
     assert code == 1, stderr
     report = stderr.split("materializing a conflict: ", 1)[1].strip()
     regions = conflict_regions(merged)
-    for name in report.split(", "):
-        key = name.split(".", 1)[1]
-        assert any(f'"{key}"' in region for region in regions), (name, merged)
+    catalog_keys = set(base["strings"]) | set(ours["strings"]) | set(theirs["strings"])
+    assert len(regions) == len(report.split(", "))
+    for region in regions:
+        for key in catalog_keys:
+            if key != "shared":
+                assert f'"{key}"' not in region, (key, region)
+
+
+def test_conflicting_key_skeleton_uses_ours_text():
+    driver = load_driver()
+    base = render(catalog({"a": {"v": "base"}}))
+    ours = json.dumps(catalog({"a": {"v": "ours"}}), separators=(",", ":"))
+    theirs = render(catalog({"a": {"v": "theirs"}}))
+    merged, conflicts, _ = driver.merge_catalog_text(base, ours, theirs)
+    assert conflicts == ["strings.a"]
+    assert '"a":{"v":"ours"}' in merged
+    assert '"a": {\n' not in merged
 
 
 def test_key_conflicts_preserve_clean_key_merges_and_formatting():
@@ -308,6 +345,28 @@ def test_delete_versus_modify_conflicts():
     assert code == 1, stderr
     assert_conflict_preserves(merged, '"value": "changed"')
     assert '"a"' in merged
+
+
+def test_delete_versus_modify_resolves_to_each_side_as_valid_json():
+    base = catalog({"a": unit("A"), "b": unit("B")})
+    ours = catalog({"a": unit("changed"), "b": unit("B")})
+    theirs = catalog({"b": unit("B")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    for side in ("ours", "theirs"):
+        resolved = json.loads(resolve_conflict(merged, side))
+        assert set(resolved["strings"]) == ({"a", "b"} if side == "ours" else {"b"})
+
+
+def test_delete_versus_modify_last_key_resolves_to_each_side_as_valid_json():
+    base = catalog({"a": unit("A"), "b": unit("B")})
+    ours = catalog({"a": unit("A"), "b": unit("changed")})
+    theirs = catalog({"a": unit("A")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    for side in ("ours", "theirs"):
+        resolved = json.loads(resolve_conflict(merged, side))
+        assert set(resolved["strings"]) == ({"a", "b"} if side == "ours" else {"a"})
 
 
 def test_non_canonical_input_merges_without_reformatting():
@@ -581,7 +640,7 @@ def test_a_conflict_key_sharing_a_line_keeps_every_side_intact():
 
 
 def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
-    """Overlapping per-key ranges must not clobber one another's text."""
+    """Two conflicts sharing one line fall back without losing either key."""
     base = (
         '{\n  "sourceLanguage" : "en",\n  "strings" : {\n'
         '    "a": { "v": "B1" }, "b": { "v": "B2" }\n'
@@ -592,10 +651,10 @@ def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
     code, merged, _ = run(base, ours, theirs)
 
     assert code == 1
-    # conflict_regions() asserts the markers balance; an overlapping
-    # replacement produced a stray '||||||| base' with no opening marker.
+    # The shares-a-line refusal keeps this compacted input in one lossless
+    # whole-file conflict instead of attempting per-key replacements.
     assert len(conflict_regions(merged)) == 1, merged
-    # Ours' value for the second key was truncated to ',: "O2" }'.
+    # A per-key replacement would have truncated the second key to ',: "O2" }'.
     assert '"b": { "v": "O2" }' in merged, merged
     assert_conflict_preserves(merged, "O1", "O2", "T1", "T2", "B1", "B2")
 
