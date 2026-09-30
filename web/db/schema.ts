@@ -2353,6 +2353,34 @@ export const teamInviteLinks = pgTable("team_invite_links", {
   check("team_invite_links_use_count_check", sql`${table.useCount} >= 0 and (${table.maxUses} is null or ${table.useCount} <= ${table.maxUses})`),
 ]);
 
+/**
+ * Email invitations cmux sends itself (through Resend). One pending row per
+ * team and email: a re-invite revokes the older row after the new one exists.
+ * Only a SHA-256 of the emailed token is stored. Accepting needs either the
+ * token or a signed-in user whose verified email matches `email`.
+ */
+export const teamEmailInvitations = pgTable("team_email_invitations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stackTeamId: text("stack_team_id").notNull(),
+  email: text("email").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedByUserId: text("accepted_by_user_id"),
+  declinedAt: timestamp("declined_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("team_email_invitations_token_hash_unique").on(table.tokenHash),
+  index("team_email_invitations_team_created_idx").on(table.stackTeamId, table.createdAt),
+  index("team_email_invitations_email_idx").on(table.email),
+  check("team_email_invitations_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+  check("team_email_invitations_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+]);
+
 /** One row per user who joined through a link, which makes redemption idempotent. */
 export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions", {
   linkId: uuid("link_id").notNull().references(() => teamInviteLinks.id, { onDelete: "cascade" }),
@@ -2360,4 +2388,25 @@ export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions",
   redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ name: "team_invite_link_redemptions_pkey", columns: [table.linkId, table.userId] }),
+]);
+
+/**
+ * Seat reconcile queue for Team subscriptions. A membership change upserts the
+ * team's row with `dirty_at`; the reconciler compares the live member count
+ * with the Stripe quantity and clears `dirty_at` only when it is unchanged
+ * since it was read, so a change during a run keeps the team queued.
+ * `dirty_at` is millisecond precision so that comparison survives the JS Date
+ * round trip.
+ */
+export const teamSeatReconciles = pgTable("team_seat_reconciles", {
+  stackTeamId: text("stack_team_id").primaryKey(),
+  dirtyAt: timestamp("dirty_at", { withTimezone: true, precision: 3 }),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+  lastMemberCount: integer("last_member_count"),
+  lastStripeQuantity: integer("last_stripe_quantity"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("team_seat_reconciles_dirty_idx").on(table.dirtyAt).where(sql`${table.dirtyAt} is not null`),
 ]);
