@@ -19,6 +19,7 @@
     "palette.auth.signIn",
     "palette.auth.signOut",
     "palette.auth.teamPicker",
+    "palette.auth.teamMembers",
     "palette.browserBack",
     "palette.browserClearHistory",
     "palette.browserConsole",
