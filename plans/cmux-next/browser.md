@@ -457,3 +457,22 @@ Design (no fork change):
 - Focus: `FocusState.Target.devTools` / `Resolved.devTools(pane, tab)`. Opening docked DevTools focuses it; a click in it (its child window becomes key) is `Responder.devTools`; closing it returns to the page; another pane and back returns to the page. Context is `browserFocused`, tier 2 content actions do not run in it, tiers 0 and 1 do (Ctrl-Tab switches tabs from DevTools too).
 
 Not done (decision for Lawrence): the dock-side items in DevTools' own three-dot menu. The frontend shows them only when Chrome can dock (`can_dock`), which CEF's patch turns off. Real Chrome docking (DevTools inside the page's Chromium window, Chrome's own split and menu) needs a fork patch that allows docking for cmux tabbed Browsers, plus a CEF build and release. The cmux divider menu covers the same moves today.
+
+## Chrome extensions UI (2026-09-30)
+
+Owner: `CmuxNextBrowser/UI/ExtensionActionToolbar.swift`, `ExtensionsMenu.swift`, `BrowserToolbarLayout.swift`; App wiring `CmuxNextApp/Handlers/ExtensionHandlers.swift`, `ExtensionMenuRouter.swift`.
+
+- Toolbar: pinned action buttons (Chromium's icon at the button size, which already carries the badge) and an Extensions (puzzle) button that is always there on a Chromium tab. WebKit tabs show no Extensions button.
+- Collapse as the pane narrows (`BrowserToolbarLayout`): pinned buttons move into the Extensions menu (last pinned first) while the omnibar would drop below its preferred width (tab max width); then the omnibar shrinks to its minimum (half of that); then Forward hides. Back, Reload, the omnibar and the Extensions button always stay. All chrome minimums are below the window's stay-put priority, so the chrome never widens a pane (`NarrowPaneChromeTests`).
+- Popups anchor to the action's button, or to the Extensions button when the action has no button. Shortcuts, palette and CLI use the same anchor. A pane resize, tab switch or leaving the window closes the open popup.
+- Extensions menu rows as in Chrome (click runs, pin toggle, "more" menu); footer Manage Extensions, Chrome Web Store, Load Unpacked. Menus opened for the CLI or debug socket run from a run-loop block (`presentExtensionsMenu`), never inside a main-queue job, so control calls keep working while a menu is open.
+- Actions: `browser.extensions.menu|manage|webStore|loadUnpacked`, `browser.extension.run|options|pin|unpin|enable|disable|remove|command` (CLI `cmux extension ...`); no default shortcuts (Chrome has none). Debug verbs: `debug.extensions.toolbar|click|menu|popup`. Accessibility ids: `browser.extensions.button`, `browser.extension.action.<id>`, `browser.extensions.menu.row|pin|more.<id>`.
+
+Fork line: `manaflow-ai/cef` `cmux/8037-ext` is the only integration branch (band + extension API + round + DevTools). One agent publishes releases and bumps `cef-manifest.json`; others send commits based on it. cmux.4-ext (API 3), cmux.5 (API 4), then API 5 (DevTools dock-side menu, `CMUX_DEVTOOLS_DOCK_SIDE`).
+
+Verified on tagged build `extui` (dist cmux.5): widths 200/320/480/800/1400 pt (`debug.extensions.toolbar` fits, screenshots), popup anchored to its button and to the Extensions button, menu and per-extension menu, options page as a tab, `chrome.commands` via CLI, `chrome.contextMenus` item in the page menu, service worker, content script, badge, crash repro (popup then Chromium window close; quit with a popup open).
+
+Open:
+- Chrome Web Store install: the store answers "Switch to Chrome to install extensions and themes" (client-hint brands are Chromium only). Needs a decision: claim the Google Chrome brand, or fetch CRX files from the update server and hand them to Chromium's `CrxInstaller` from a cmux install action.
+- Permission prompts (`chrome.permissions.request`), side panels (`chrome.sidePanel`): no host yet.
+- Popup latency: 16-45 ms from click to popup navigation in cmux; the rest is the extension renderer starting (1.0-1.2 s at load 200-400, up to 26 s at load 667 while Chromium builds ran). Not measured on an idle machine.
