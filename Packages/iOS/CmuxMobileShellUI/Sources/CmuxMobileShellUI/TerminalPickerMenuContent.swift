@@ -72,7 +72,7 @@ struct TerminalPickerMenuContent {
                     }
                 ))
             }
-        } else {
+        } else if value.showsBrowserStreamUpdateHint {
             sections.append(UIMenu(
                 title: L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers"),
                 options: .displayInline,

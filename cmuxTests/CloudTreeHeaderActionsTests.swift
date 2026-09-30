@@ -197,10 +197,8 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other Macs yet", then one row per opt-in that is still off.
-        let inlineRows = (listedMacs == 0 ? 1 : 0)
-            + (section.discoveryEnabled ? 0 : 1)
-            + (section.incomingAccessEnabled ? 0 : 1)
+        // "No other Macs yet", then both independent actions in every state.
+        let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
         let style = tree.outline.treeStyle
         // Each inline row plus the 2 pt top and bottom inset, nothing more.
         let expected = GlobalFontMagnification.scaledSize(CGFloat(inlineRows) * style.rowHeight + 4)

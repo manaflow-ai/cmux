@@ -195,14 +195,13 @@ struct CloudMachinesHeaderCountTests {
         activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
         MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
-                            treeError: treeError, onDismissStale: { _ in }, performListStatusAction: { _ in })
+                            treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
+                            performListStatusAction: { _ in })
     }
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
-            isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
         )).fittingSize.height
     }
 

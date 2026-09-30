@@ -1,3 +1,4 @@
+import CmuxTerminalSizing
 import CoreFoundation
 import Foundation
 
@@ -29,7 +30,8 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             capabilities: (responseData?["capabilities"] as? [String]) ?? [],
             outcome: responseData?["outcome"] as? String,
             accepted: responseData?["accepted"] as? Bool,
-            error: object["error"] as? String
+            error: object["error"] as? String,
+            sizing: Self.sizingResponse(from: responseData)
         )
     }
 
@@ -40,13 +42,16 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
         }
         switch event {
         case "vt-state":
-            guard let size = Self.size(from: object), let bytes = Self.bytes(from: object["data"]) else { return nil }
+            guard let size = Self.size(from: object),
+                  let bytes = Self.bytes(from: object["data"]),
+                  let pending = Self.pending(from: object) else { return nil }
             return .snapshot(
                 surfaceID: surfaceID,
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: pending
             )
         case "output":
             guard let bytes = Self.bytes(from: object["data"]) else { return nil }
@@ -55,25 +60,50 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             guard let size = Self.size(from: object),
                   let bytes = Self.bytes(
                       from: (object["replay"] as? String) ?? (object["data"] as? String)
-                  ) else { return nil }
+                  ),
+                  let pending = Self.pending(from: object) else { return nil }
             return .resized(
                 surfaceID: surfaceID,
                 columns: size.columns,
                 rows: size.rows,
                 bytes: bytes,
-                colors: CloudTuiRemoteColors(json: object["colors"])
+                colors: CloudTuiRemoteColors(json: object["colors"]),
+                pending: pending
             )
         case "colors-changed":
             // The daemon flattens the colors object into the event itself.
             guard let colors = CloudTuiRemoteColors(json: object) else { return nil }
             return .colorsChanged(surfaceID: surfaceID, colors: colors)
         case "detached":
-            return .detached(surfaceID: surfaceID)
+            let actor = Self.decode(TerminalDetachActor.self, from: object["by"])
+            return .detached(
+                surfaceID: surfaceID,
+                reason: TerminalDetachReason(wireValue: object["reason"] as? String, by: actor),
+                view: object["view"] as? String,
+                viewOnly: object["scope"] as? String == "view"
+            )
+        case "size-state":
+            guard let state = Self.decode(TerminalSizingState.self, from: object["state"]) else { return nil }
+            return .sizeState(surfaceID: surfaceID, state: state)
         case "overflow":
             return .overflow(surfaceID: surfaceID)
         default:
             return nil
         }
+    }
+
+    private static func sizingResponse(from data: [String: Any]?) -> CloudTuiSizingResponse? {
+        guard let data else { return nil }
+        let participant = data["participant"] as? String
+        let state = decode(TerminalSizingState.self, from: data["state"])
+        guard participant != nil || state != nil else { return nil }
+        return CloudTuiSizingResponse(participant: participant, state: state)
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, from value: Any?) -> T? {
+        guard let value, JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     private static func size(from object: [String: Any]) -> (columns: Int, rows: Int)? {
@@ -86,6 +116,14 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             return nil
         }
         return (Int(columns), Int(rows))
+    }
+
+    /// The optional `pending` field. Older daemons and replays taken at a
+    /// parser boundary omit it; a present but malformed value rejects the
+    /// frame like any other malformed payload.
+    private static func pending(from object: [String: Any]) -> Data? {
+        guard let value = object["pending"] else { return Data() }
+        return bytes(from: value)
     }
 
     private static func bytes(from value: Any?) -> Data? {

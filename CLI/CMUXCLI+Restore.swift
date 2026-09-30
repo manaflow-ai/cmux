@@ -145,9 +145,10 @@ extension CMUXCLI {
                 preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
                     record.preparedArgumentsWorkingDirectory
                 ),
-                observedPermissionMode: record.permissionMode
+                observedPermissionMode: record.permissionMode,
+                continuationPrompt: record.continuationPrompt
             )
-            invocation = AgentRestorePlanner(
+            let planner = AgentRestorePlanner(
                 executableFileResolver: AgentRestoreExecutableFileResolver(),
                 // Resolved from the session's own directory, never from wherever `cmux restore` was
                 // invoked: when the saved directory is gone the restore falls back to the invocation
@@ -156,7 +157,23 @@ extension CMUXCLI {
                 externalLaunchers: externalAgentLaunchers(
                     workingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory
                 )
-            ).invocation(for: request, ambientEnvironment: processEnvironment)
+            )
+            if let launcher = planner.missingRoutedLauncher(for: request, ambientEnvironment: processEnvironment) {
+                // Never fall through to the legacy plain-claude command: without
+                // Subrouter's proxy settings it starts "Not logged in".
+                throw loggedRestoreError(
+                    stage: "launcher.missing",
+                    detail: launcher,
+                    message: String(
+                        format: String(
+                            localized: "cli.restore.error.routedLauncherNotFound",
+                            defaultValue: "restore: this session was started with '%1$@ claude proxy', but '%1$@' is not on PATH in this shell. Add it to PATH, then retry."
+                        ),
+                        launcher
+                    )
+                )
+            }
+            invocation = planner.invocation(for: request, ambientEnvironment: processEnvironment)
         }
         let execution: RestoreExecution
         if let invocation {
@@ -408,7 +425,8 @@ extension CMUXCLI {
                 ?? (object["prepared_fork_arguments_working_directory"] as? String),
             permissionMode: object["permission_mode"] as? String,
             legacyCommand: legacyCommand,
-            legacyForkCommand: legacyForkCommand
+            legacyForkCommand: legacyForkCommand,
+            continuationPrompt: object["continuation_prompt"] as? String
         )
     }
 

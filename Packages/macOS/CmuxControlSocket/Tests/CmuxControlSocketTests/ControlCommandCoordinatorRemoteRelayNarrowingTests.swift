@@ -6,6 +6,8 @@ import Testing
 private final class RemoteRelayNarrowingContext: ControlCommandContext {
     let workspaceID = UUID()
     let surfaceID = UUID()
+    /// The local window hosting the workspace; relay callers never see it.
+    let windowID = UUID()
     let status: JSONValue = .object([
         "enabled": .bool(true),
         "state": .string("connected"),
@@ -20,7 +22,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
     func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? { nil }
 
     func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
-        .resolved(windowID: nil, workspaceID: workspaceID, remoteStatus: status)
+        .resolved(windowID: windowID, workspaceID: workspaceID, remoteStatus: status)
     }
 
     func controlWorkspaceRemoteTerminalSessionLaunching(
@@ -29,7 +31,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         terminalLifecycleID: UUID,
         attemptID: UUID
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        .resolved(windowID: nil, workspaceID: workspaceID, remoteStatus: status)
+        .resolved(windowID: windowID, workspaceID: workspaceID, remoteStatus: status)
     }
 
     func controlWorkspaceRemoteTerminalSessionConnected(
@@ -39,7 +41,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         attemptID: UUID,
         commitLease: (any ControlRemotePTYLifecycleCommitLease)?
     ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
-        .resolved(windowID: nil, workspaceID: workspaceID, remoteStatus: status)
+        .resolved(windowID: windowID, workspaceID: workspaceID, remoteStatus: status)
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(
@@ -51,7 +53,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         lifecycleID: String?,
         lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        .resolved(windowID: nil, workspaceID: workspaceID, remoteStatus: status)
+        .resolved(windowID: windowID, workspaceID: workspaceID, remoteStatus: status)
     }
 
     func controlNotificationCreateForTarget(
@@ -133,6 +135,35 @@ struct ControlCommandCoordinatorRemoteRelayNarrowingTests {
         for (method, params) in lifecycleRequests(context) {
             let keys = remoteKeys(dispatch(coordinator, context, method, params))
             #expect(keys == full, "\(method) returned \(String(describing: keys))")
+        }
+    }
+
+    @Test func relayedRemoteStatusOmitsTheLocalWindow() throws {
+        let context = RemoteRelayNarrowingContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        for (method, params) in lifecycleRequests(context) {
+            let result = dispatch(coordinator, context, method, relayed(params, context))
+            guard case .ok(.object(let payload))? = result else {
+                Issue.record("\(method) failed: \(String(describing: result))")
+                continue
+            }
+            #expect(payload["window_id"] == nil, "\(method) returned window_id \(String(describing: payload["window_id"]))")
+            #expect(payload["window_ref"] == nil, "\(method) returned window_ref \(String(describing: payload["window_ref"]))")
+            #expect(payload["workspace_id"] == .string(context.workspaceID.uuidString), "\(method)")
+        }
+    }
+
+    @Test func localRemoteStatusKeepsTheLocalWindow() throws {
+        let context = RemoteRelayNarrowingContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        for (method, params) in lifecycleRequests(context) {
+            let result = dispatch(coordinator, context, method, params)
+            guard case .ok(.object(let payload))? = result else {
+                Issue.record("\(method) failed: \(String(describing: result))")
+                continue
+            }
+            #expect(payload["window_id"] == .string(context.windowID.uuidString), "\(method)")
+            #expect(payload["window_ref"] != nil, "\(method)")
         }
     }
 

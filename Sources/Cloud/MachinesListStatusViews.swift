@@ -65,7 +65,7 @@ struct MachineListStatusPresentation {
             subtitle = String(localized: "machines.offline.subtitle", defaultValue: "Cloud machines load when this Mac is back online.")
             action = nil
             isFailure = false
-            staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline \u{2014} showing last known")
+            staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline — showing last known")
         case .reconnecting:
             symbolName = nil
             title = String(localized: "machines.reconnecting.title", defaultValue: "Reconnecting to Cloud…")
@@ -83,7 +83,7 @@ struct MachineListStatusPresentation {
             )
             action = .retry
             isFailure = true
-            staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable \u{2014} showing last known")
+            staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known")
         case .failed(.sessionRejected):
             // HTTP 401: retrying can never fix it, so route to a fresh sign-in.
             symbolName = "person.crop.circle.badge.exclamationmark"
@@ -94,7 +94,7 @@ struct MachineListStatusPresentation {
             )
             action = .signInAgain
             isFailure = true
-            staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh, showing last known")
+            staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known")
         case .failed(.requiresPro):
             // HTTP 402: the fix is an upgrade, not a retry and not a sign-in.
             symbolName = "sparkles"
@@ -105,7 +105,7 @@ struct MachineListStatusPresentation {
             )
             action = .upgrade
             isFailure = true
-            staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro, showing last known")
+            staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known")
         }
     }
 }
@@ -136,8 +136,8 @@ struct MachinesListStatusNotice: View {
             }
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         .background(presentation.isFailure ? Color.orange.opacity(0.08) : Color.secondary.opacity(0.06))
         .accessibilityIdentifier("CloudMachinesUnavailableNotice")
     }
