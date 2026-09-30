@@ -203,6 +203,7 @@ describe("revokeTeamMemberAccess", () => {
       revokeNetworkAccess: async ({ teamId, userId }) => { calls.push(`network:${teamId}:${userId ?? "*"}`); return { detached: 2 }; },
       deleteIdentitySnapshot: async (userId) => { calls.push(`snapshot:${userId}`); },
       invalidateAuthCache: (userId) => { calls.push(`cache:${userId}`); },
+      revokeCoderouterSessions: async ({ teamId, userId }) => { calls.push(`coderouter:${teamId}:${userId ?? "*"}`); },
       ...overrides,
     };
     return { calls, deps };
@@ -211,7 +212,14 @@ describe("revokeTeamMemberAccess", () => {
   test("detaches the team network and deletes the identity snapshot", async () => {
     const { calls, deps } = dependencies();
     expect(await revokeTeamMemberAccess({ teamId: "team-1", userId: "user-1" }, deps)).toEqual({ detached: 2 });
-    expect(calls.sort()).toEqual(["cache:user-1", "network:team-1:user-1", "snapshot:user-1"]);
+    expect(calls.sort()).toEqual(["cache:user-1", "coderouter:team-1:user-1", "network:team-1:user-1", "snapshot:user-1"]);
+  });
+
+  test("a failed CodeRouter revocation still detaches and deletes the snapshot, then throws for retry", async () => {
+    const { calls, deps } = dependencies({ revokeCoderouterSessions: async () => { throw new Error("db down"); } });
+    await expect(revokeTeamMemberAccess({ teamId: "team-1", userId: "user-1" }, deps)).rejects.toThrow("db down");
+    expect(calls).toContain("network:team-1:user-1");
+    expect(calls).toContain("snapshot:user-1");
   });
 
   test("a failed snapshot delete still detaches, then throws for retry", async () => {
@@ -229,6 +237,6 @@ describe("revokeTeamMemberAccess", () => {
   test("team deletion revokes the whole network", async () => {
     const { calls, deps } = dependencies();
     await revokeTeamAccess({ teamId: "team-1" }, deps);
-    expect(calls).toEqual(["network:team-1:*"]);
+    expect(calls.sort()).toEqual(["coderouter:team-1:*", "network:team-1:*"]);
   });
 });

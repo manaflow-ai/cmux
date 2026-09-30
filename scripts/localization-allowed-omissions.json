@@ -2,13 +2,23 @@
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
-      "fr": "Actions is the same French and English noun; cmux.json and the ellipsis are invariant literals. \"Actions\" is spelled the same in French; cmux.json is a file name."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required. \"Actions\" is spelled the same in French; cmux.json is a file name.",
+        "values": [
+          "Actions · cmux.json…"
+        ]
+      }
     }
   },
   "actions.discovery.dialogTitle": {
     "source": "Actions · cmux.json",
     "identityLocales": {
-      "fr": "Actions is the same French and English noun; cmux.json is an invariant literal. \"Actions\" is spelled the same in French; cmux.json is a file name."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required. \"Actions\" is spelled the same in French; cmux.json is a file name.",
+        "values": [
+          "Actions · cmux.json"
+        ]
+      }
     }
   },
   "mobile.ios106PairingUpdate.releaseLabel": {
@@ -233,28 +243,6 @@
   "agentSession.renderer.solid": {
     "class": "brand",
     "source": "Solid"
-  },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json…"
-        ]
-      }
-    }
-  },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json"
-        ]
-      }
-    }
   },
   "agentSession.web.mentionMenuTitle": {
     "source": "Mention",
