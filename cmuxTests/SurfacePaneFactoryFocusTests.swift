@@ -668,7 +668,8 @@ import SwiftUI
 
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
-        #expect(workspace.paneId(forPanelId: cloudPanel.id) != sourcePane)
+        let cloudPane = try #require(workspace.paneId(forPanelId: cloudPanel.id))
+        #expect(cloudPane != sourcePane)
     }
 
     /// A projected browser (VM desktop or port preview) goes through the same create

@@ -423,9 +423,14 @@ import Testing
         let remoteWorkspaceID = "remote-cloud-workspace"
         var cloudProjection = cloud
         cloudProjection.remoteWorkspaceID = remoteWorkspaceID
+        // The other duplicate claims a different remote workspace rather than
+        // no workspace at all, so this pins "the matching identity wins" and
+        // not the weaker "a present identity beats an absent one".
+        var localProjection = local
+        localProjection.remoteWorkspaceID = "remote-other-workspace"
         let resolver = CloudNotificationPlacementResolver(
             machine: Self.machine,
-            projections: { _ in [local, cloudProjection] },
+            projections: { _ in [localProjection, cloudProjection] },
             remoteWorkspaceID: { _ in remoteWorkspaceID },
             boundWorkspaces: { [] }
         )
@@ -433,6 +438,29 @@ import Testing
         let target = resolver.target(for: Self.notificationRow(terminalID: Self.terminalID))
         #expect(target?.workspaceID == cloudWorkspace)
         #expect(target?.panelID == cloudPane)
+    }
+
+    @MainActor @Test func duplicateMatchingProjectionsTakeTheFirstSortedPane() {
+        // Two projections in the same remote workspace is the ambiguous case.
+        // The pick has to be the first one the catalog hands back, so that the
+        // ring does not move between snapshots for the same input.
+        let firstWorkspace = UUID(), secondWorkspace = UUID()
+        let firstPane = UUID(), secondPane = UUID()
+        let remoteWorkspaceID = "remote-cloud-workspace"
+        var first = Self.projection(Self.terminalID, workspace: firstWorkspace, panel: firstPane)
+        first.remoteWorkspaceID = remoteWorkspaceID
+        var second = Self.projection(Self.terminalID, workspace: secondWorkspace, panel: secondPane)
+        second.remoteWorkspaceID = remoteWorkspaceID
+        let resolver = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { _ in [first, second] },
+            remoteWorkspaceID: { _ in remoteWorkspaceID },
+            boundWorkspaces: { [] }
+        )
+
+        let target = resolver.target(for: Self.notificationRow(terminalID: Self.terminalID))
+        #expect(target?.workspaceID == firstWorkspace)
+        #expect(target?.panelID == firstPane)
     }
 
     // MARK: Link pipe

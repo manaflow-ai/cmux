@@ -89,10 +89,10 @@ public struct CloudNotificationPlacementResolver: Sendable {
         let resourceProjections = projections(resource)
         // A terminal can briefly have more than one local projection while a
         // Cloud mirror is being moved between panes. Prefer the projection in
-        // the daemon's remote workspace when that identity is available; the
-        // catalog order is otherwise only an incidental insertion order and
-        // can put the ring on the local pane that happened to be registered
-        // first.
+        // the daemon's remote workspace when that identity is available. The
+        // catalog stores projections in a set and hands them back sorted by
+        // `panelID.uuidString`, so without that identity the ring lands on
+        // whichever duplicate happens to sort first.
         let preferredRemoteWorkspaceID = remoteWorkspaceID(terminalID)
         if let projection = resourceProjections.first(where: {
             guard let preferredRemoteWorkspaceID else { return false }
