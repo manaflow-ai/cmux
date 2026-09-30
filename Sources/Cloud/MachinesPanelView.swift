@@ -58,7 +58,7 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
@@ -72,11 +72,11 @@ struct MachinesPanelView: View {
         )
     }
 
-    private var includesDevices: Bool {
+    var includesDevices: Bool {
         return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard))
     }
 
-    private var includesCloud: Bool {
+    var includesCloud: Bool {
         _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
     }
@@ -97,9 +97,9 @@ struct MachinesPanelView: View {
         return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
     }
 
-    private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
+    var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
-    private var treeSnapshot: SurfaceCatalogSnapshot {
+    var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
             includesCloud: includesCloud,
             includesDevices: includesDevices,
@@ -269,30 +269,6 @@ struct MachinesPanelView: View {
         )
     }
 
-    @ViewBuilder
-    private var content: some View {
-        // Show the empty state exactly when the outline would render zero
-        // rows. The builder owns that decision (the tree is cloud-only while
-        // `includesLocalMachine` is off); deciding it here from the raw
-        // catalog previously left a blank panel for a signed-in account with
-        // no machines, because the catalog's This Mac entry counted as a row
-        // the tree never drew.
-        if includesCloud && includesDevices && viewModel.visibleMachines.isEmpty, let status = viewModel.listStatus {
-            VStack(spacing: 0) {
-                MachinesListStatusNotice(status: status, perform: performListStatusAction)
-                machinesList
-            }
-        } else if CloudTreeNodeBuilder.isEmpty(
-            machines: includesCloud ? viewModel.visibleMachines : [],
-            pendingCreates: includesCloud ? viewModel.pendingCreates : [],
-            snapshot: treeSnapshot,
-            source: treeSource
-        ) {
-            emptyState
-        } else {
-            machinesList
-        }
-    }
 
     private var authCheckingState: some View {
         VStack(spacing: 10) {
@@ -443,7 +419,7 @@ struct MachinesPanelView: View {
         )
     }
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
-    private var machinesList: some View {
+    var machinesList: some View {
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
@@ -524,7 +500,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var emptyState: some View {
+    var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
             if !includesCloud {

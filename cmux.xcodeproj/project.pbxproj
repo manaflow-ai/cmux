@@ -1518,6 +1518,12 @@
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
+		A374C3480A20A6AFFEBA8633 /* CoderouterAccountRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */; };
+		8B7F966DC2DEFDD1B0729982 /* CoderouterAccountsPanel+Rows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47A4BB974EFBF8F3B44FBBD /* CoderouterAccountsPanel+Rows.swift */; };
+		86D97E3DBC15388C7A9ED5E3 /* CoderouterAccountsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819D884F694F404ABBC0194A /* CoderouterAccountsPanel.swift */; };
+		AF8E96B083FB46CD0C0F70AB /* CoderouterAccountsPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F8F62B0BDB6ACD56721D65 /* CoderouterAccountsPanelModel.swift */; };
+		E79FC2B7041CD1FDACFD4606 /* CoderouterAccountsPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE8ED2C782757746A2BA8B1 /* CoderouterAccountsPanelModelTests.swift */; };
+		DDAC15B99E6F06748D437946 /* CoderouterAddAccountSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C042A112FA5CD6FA226BBFF4 /* CoderouterAddAccountSheet.swift */; };
 		C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
@@ -2267,6 +2273,7 @@
 		4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */; };
 		7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */; };
 		98E6802001D61AC24F2ABB09 /* MachinesPanelUncappedPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */; };
+		6577060F6782322E34A2C041 /* MachinesPanelView+Coderouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E372545836462C5D1C899B56 /* MachinesPanelView+Coderouter.swift */; };
 		E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08610D114C8CF23877176D7E /* MachinesPanelView.swift */; };
 		1FB07351D13BDC6E953792A3 /* MachinesPanelViewModel+ListStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37A99C8431FC45A80855541 /* MachinesPanelViewModel+ListStatus.swift */; };
 		08F746099657B74737EFC1C3 /* MachinesPanelViewModel+MachineDeletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */; };
@@ -5717,6 +5724,12 @@
 		A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXWorkspaceLoadingCLIRegressionTests.swift; sourceTree = "<group>"; };
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
+		B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountRow.swift; sourceTree = "<group>"; };
+		D47A4BB974EFBF8F3B44FBBD /* CoderouterAccountsPanel+Rows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoderouterAccountsPanel+Rows.swift"; sourceTree = "<group>"; };
+		819D884F694F404ABBC0194A /* CoderouterAccountsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountsPanel.swift; sourceTree = "<group>"; };
+		C8F8F62B0BDB6ACD56721D65 /* CoderouterAccountsPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountsPanelModel.swift; sourceTree = "<group>"; };
+		3FE8ED2C782757746A2BA8B1 /* CoderouterAccountsPanelModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoderouterAccountsPanelModelTests.swift"; sourceTree = "<group>"; };
+		C042A112FA5CD6FA226BBFF4 /* CoderouterAddAccountSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAddAccountSheet.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterSocketCommands.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
@@ -6450,6 +6463,7 @@
 		031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelBanners.swift"; sourceTree = "<group>"; };
 		78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelModelTests.swift; sourceTree = "<group>"; };
 		9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelUncappedPlanTests.swift; sourceTree = "<group>"; };
+		E372545836462C5D1C899B56 /* MachinesPanelView+Coderouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelView+Coderouter.swift"; sourceTree = "<group>"; };
 		08610D114C8CF23877176D7E /* MachinesPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelView.swift; sourceTree = "<group>"; };
 		E37A99C8431FC45A80855541 /* MachinesPanelViewModel+ListStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+ListStatus.swift"; sourceTree = "<group>"; };
 		ED2C0C087F0298473CB156E7 /* MachinesPanelViewModel+MachineDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+MachineDeletion.swift"; sourceTree = "<group>"; };
@@ -9187,8 +9201,14 @@
 				8AB2CCE4C103CF610EDCF765 /* CloudTreeCreateAction.swift */,
 				97320634F8C38643D48FBA01 /* CloudTreeCreateActionBuilder.swift */,
 				DBF12EF9962B6C396CFCFC9D /* CloudTreeDevicesSection+Controls.swift */,
+				819D884F694F404ABBC0194A /* CoderouterAccountsPanel.swift */,
+				C8F8F62B0BDB6ACD56721D65 /* CoderouterAccountsPanelModel.swift */,
+				C042A112FA5CD6FA226BBFF4 /* CoderouterAddAccountSheet.swift */,
+				D47A4BB974EFBF8F3B44FBBD /* CoderouterAccountsPanel+Rows.swift */,
+				E372545836462C5D1C899B56 /* MachinesPanelView+Coderouter.swift */,
 				347D1CC32D12CFA9B39A67CB /* CloudTreeCreateActionLabel.swift */,
 				E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */,
+				B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -12752,6 +12772,7 @@
 				FDD2286462BDC54589245BFF /* CloudManualMirrorStartupRenderingTests.swift */,
 				368256F9809FB229ABB03830 /* CloudTreeCategoryCreateActionTests.swift */,
 				4AD84F07ADB08D5E8EBAA10D /* DeviceDiscoverabilityGatingTests.swift */,
+				3FE8ED2C782757746A2BA8B1 /* CoderouterAccountsPanelModelTests.swift */,
 				7BDC314879AD09AEABBBBCBC /* CloudWorkspaceRowOpenFixture.swift */,
 				14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */,
 				C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */,
@@ -14213,6 +14234,11 @@
 				C51A73000000000000000013 /* CmuxWorkerEntrypoint.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
+				A374C3480A20A6AFFEBA8633 /* CoderouterAccountRow.swift in Sources */,
+				8B7F966DC2DEFDD1B0729982 /* CoderouterAccountsPanel+Rows.swift in Sources */,
+				86D97E3DBC15388C7A9ED5E3 /* CoderouterAccountsPanel.swift in Sources */,
+				AF8E96B083FB46CD0C0F70AB /* CoderouterAccountsPanelModel.swift in Sources */,
+				DDAC15B99E6F06748D437946 /* CoderouterAddAccountSheet.swift in Sources */,
 				C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
@@ -14678,6 +14704,7 @@
 				D80010000000000000000102 /* MachinesControlBarComponents.swift in Sources */,
 				58CF0FC31BE78E5EB1413C9E /* MachinesListStatusViews.swift in Sources */,
 				4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */,
+				6577060F6782322E34A2C041 /* MachinesPanelView+Coderouter.swift in Sources */,
 				E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */,
 				1FB07351D13BDC6E953792A3 /* MachinesPanelViewModel+ListStatus.swift in Sources */,
 				08F746099657B74737EFC1C3 /* MachinesPanelViewModel+MachineDeletion.swift in Sources */,
@@ -16852,6 +16879,7 @@
 				C0DE58990000000000000014 /* CmuxWebViewWebContentUndoTests.swift in Sources */,
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
+				E79FC2B7041CD1FDACFD4606 /* CoderouterAccountsPanelModelTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
 				B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
