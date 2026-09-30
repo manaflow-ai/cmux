@@ -10,7 +10,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
-CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 REUSABLE_GUARD_COMMANDS = [
     "python3 tests/test_ci_guard_workflow_structure.py",
@@ -69,35 +68,6 @@ def test_cli_guard_matrix_runs_independent_slow_contracts_in_parallel() -> None:
         "- name: Validate cmux profiling support scripts\n"
         "        if: ${{ matrix.group == 'profiling' }}"
     ) in block
-
-
-def test_guard_failures_cancel_the_run_with_an_actions_write_token() -> None:
-    guard_workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
-    for job_name, job in guard_workflow["jobs"].items():
-        if "guard" not in job_name:
-            continue
-        assert job["permissions"]["actions"] == "write", job_name
-        cancel_steps = [
-            step for step in job.get("steps", []) if step.get("name") == "Cancel expensive jobs after guard failure"
-        ]
-        assert len(cancel_steps) == 1, job_name
-        step = cancel_steps[0]
-        assert step["if"] == "${{ failure() }}", job_name
-        assert "actions/runs/$GITHUB_RUN_ID/cancel" in step["run"], job_name
-
-    ci_workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    for job_name, step_name in {
-        "static-preflight": "Cancel expensive jobs after static preflight failure",
-        "linux-preflight": "Cancel expensive jobs after Linux preflight failure",
-    }.items():
-        job = ci_workflow["jobs"][job_name]
-        assert job["permissions"]["actions"] == "write", job_name
-        cancel_steps = [step for step in job["steps"] if step.get("name") == step_name]
-        assert len(cancel_steps) == 1, job_name
-        assert cancel_steps[0]["if"] == "${{ failure() }}", job_name
-        assert "actions/runs/$GITHUB_RUN_ID/cancel" in cancel_steps[0]["run"], job_name
-
-    assert ci_workflow["jobs"]["guards"]["permissions"]["actions"] == "write"
 
 
 def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:

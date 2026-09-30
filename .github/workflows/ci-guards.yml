@@ -28,7 +28,6 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Checkout with submodules
@@ -57,13 +56,6 @@ jobs:
       - name: Test submodule forward-only guard
         run: python3 tests/test_submodule_forward_only.py
 
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
-
   workflow-guard-tests:
     if: ${{ inputs.linux_guard_tests == 'true' }}
     name: workflow-guard-tests / ${{ matrix.group }}
@@ -75,9 +67,8 @@ jobs:
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
-    # access for checkout, plus run cancellation when a guard fails.
+    # access for checkout, never workflow, issue, or repository write access.
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -1132,13 +1123,6 @@ jobs:
           python3 scripts/check-test-determinism.py --self-test
           python3 scripts/check-test-determinism.py --strict
 
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
-
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}
     # The lockfile policy compares the candidate with the exact base parent of
@@ -1147,7 +1131,6 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -1185,13 +1168,6 @@ jobs:
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
-
   workflow-guard-cli-scripts:
     if: ${{ inputs.linux_guard_cli == 'true' }}
     name: workflow-guard-cli-scripts / ${{ matrix.group }}
@@ -1204,7 +1180,6 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -1228,13 +1203,6 @@ jobs:
         if: ${{ matrix.group == 'profiling' }}
         run: ./tests/test_start_cmux_profiling.sh
 
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
-
   workflow-guard-source-lints:
     if: ${{ inputs.linux_guard_source == 'true' }}
     name: workflow-guard-source-lints / ${{ matrix.group }}
@@ -1247,7 +1215,6 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
-      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -1281,13 +1248,6 @@ jobs:
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
 
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
-
   guard-status:
     name: Guard status
     needs:
@@ -1299,9 +1259,6 @@ jobs:
     if: ${{ always() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
     steps:
       - name: Check routed guard jobs
         env:
@@ -1346,10 +1303,3 @@ jobs:
           for route, job in sorted(route_jobs.items()):
               print(f"{route}={inputs.get(route)} {job}={needs[job]['result']}")
           PY
-
-      - name: Cancel expensive jobs after guard failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
