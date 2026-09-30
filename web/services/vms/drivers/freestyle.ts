@@ -189,9 +189,12 @@ export type FreestylePreconnectOptions = {
   readonly timeoutMs?: number;
 };
 
-type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean };
+type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean; succeededAtMs?: number };
 
 const freestyleWarmupStates = new WeakMap<object, Map<string, FreestyleWarmupState>>();
+// Keep a successful probe only for the provider's normal idle-pool window;
+// after a longer suspension the next Cloud request probes again.
+const FREESTYLE_WARMUP_REUSE_MS = 30_000;
 
 const globalForFreestyle = globalThis as typeof globalThis & {
   __cmuxFreestyleClients?: Map<string, Freestyle>;
@@ -235,11 +238,14 @@ export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): P
   const fetchImpl = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 3_000;
   const state = warmupStateFor(fetchImpl, baseUrl);
-  if (state.succeeded) return Promise.resolve();
+  if (state.succeeded && state.succeededAtMs !== undefined && Date.now() - state.succeededAtMs < FREESTYLE_WARMUP_REUSE_MS) {
+    return Promise.resolve();
+  }
+  state.succeeded = undefined;
   if (state.promise) return state.promise;
   const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs })
-    .then(() => { state.succeeded = true; })
-    .catch(() => { state.succeeded = false; });
+    .then(() => { state.succeeded = true; state.succeededAtMs = Date.now(); })
+    .catch(() => { state.succeeded = false; state.succeededAtMs = undefined; });
   const settled = promise.finally(() => {
     if (state.promise === settled) state.promise = undefined;
   });
