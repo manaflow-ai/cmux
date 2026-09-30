@@ -13,7 +13,9 @@ import PackageDescription
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry (pure), CmuxGhosttyKit (binary)
-//   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
+//   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
+//     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
+//   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
@@ -116,6 +118,7 @@ let package = Package(
         .target(
             name: "CmuxNextCloud",
             dependencies: [
+                "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
             ],
@@ -142,7 +145,17 @@ let package = Package(
             swiftSettings: uiSwiftSettings
         ),
         .target(
+            name: "CmuxNextWakeups",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWakeupsTests",
+            dependencies: ["CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
             name: "CmuxNextDesign",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
@@ -157,6 +170,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDaemon",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -256,7 +270,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSettings",
-            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
