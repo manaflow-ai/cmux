@@ -114,6 +114,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         # Full history must stay blobless: fetching every blob of every branch
         # overran the job's five-minute timeout and cancelled routing.
         self.assertIn("filter: blob:none", detect)
+        # A blobless clone must never need the promisor remote mid-step:
+        # rename scoring would lazily fetch blobs and exit 128 if that fails.
+        self.assertIn("git diff --name-only --no-renames", detect)
         self.assertIn("id: target", detect)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", detect)
         self.assertIn("REQUESTED_REF: ${{ inputs.ref }}", detect)
