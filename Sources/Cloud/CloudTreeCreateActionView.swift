@@ -1,3 +1,4 @@
+import CmuxCloud
 import SwiftUI
 
 /// A hit-testable create row whose action remains visible without hover.
