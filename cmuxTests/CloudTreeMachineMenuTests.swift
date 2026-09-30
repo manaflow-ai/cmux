@@ -223,6 +223,54 @@ struct CloudTreeMachineMenuTests {
         _ = container
     }
 
+    @Test("A workspace terminal closes its tab without offering to kill the process")
+    func workspaceTerminalMenuClosesRemoteTab() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let workspace = SurfaceRemoteWorkspace(id: "workspace-close", name: "Build", index: 0, focused: true)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-close")
+        let view = SurfaceRemoteView(tabID: "tab-close", workspace: workspace)
+        let terminal = SurfaceResource(
+            id: resource,
+            title: "shell",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [view],
+            port: nil,
+            url: nil
+        )
+        let node = CloudTreeNode(
+            id: "terminal-close",
+            kind: .terminal(CloudTreeTerminalRow(resource: terminal, isOpen: false, viewBadge: nil, remoteView: view))
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-close-tab-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [node])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        let closeTitle = Self.title("cloudTree.menu.closeTab", "Close Tab\u{2026}")
+        #expect(menu.items.contains { $0.title == closeTitle })
+        #expect(!menu.items.contains { $0.title == Self.title("cloudTree.menu.killTerminal", "Kill Terminal\u{2026}") })
+        try Self.choose(closeTitle, in: menu)
+        #expect(recorder.closedRemoteTabs.count == 1)
+        #expect(recorder.closedRemoteTabs.first?.resource == resource)
+        #expect(recorder.closedRemoteTabs.first?.view.tabID == view.tabID)
+        #expect(recorder.closedRemoteTabs.first?.view.workspace.id == workspace.id)
+        #expect(recorder.killedTerminals.isEmpty)
+    }
+
     @Test("Double-clicking machines and remote workspaces routes to their rename actions")
     func doubleClickRenamesCloudRows() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -554,7 +602,8 @@ struct CloudTreeMachineMenuTests {
             openGroup: { _, _, _, _ in },
             openGroupAsWorkspace: { _, _, _ in },
             newWorkspace: { _ in },
-            closeTerminal: { _ in },
+            closeTerminal: { resource in recorder.killedTerminals.append(resource) },
+            closeRemoteTab: { resource, view in recorder.closedRemoteTabs.append((resource, view)) },
             closeWorkspace: { _, _ in },
             renameWorkspace: { machine, workspace in
                 recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
@@ -586,4 +635,6 @@ private final class CloudTreeMenuVerbRecorder {
     var pinChanges: [(String, Bool)] = []
     var renamedMachines: [(String, String)] = []
     var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
+    var killedTerminals: [SurfaceResourceID] = []
+    var closedRemoteTabs: [(resource: SurfaceResourceID, view: SurfaceRemoteView)] = []
 }
