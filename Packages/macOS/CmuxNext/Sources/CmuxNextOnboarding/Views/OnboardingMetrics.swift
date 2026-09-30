@@ -29,6 +29,11 @@ enum OnboardingLabel {
         label.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if lines != 1 {
+            // Below NSWindow's stay-put priority (500): a long translation
+            // wraps or clips inside the fixed window instead of growing it.
+            label.setContentCompressionResistancePriority(.init(490), for: .vertical)
+        }
         return label
     }
 }
