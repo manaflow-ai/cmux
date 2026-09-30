@@ -28,6 +28,8 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
     /// Tab group state written in the same transaction as the patch.
     pub(crate) tab_groups: Option<crate::workspace_registry::TabGroupState>,
+    /// Screen presentation and screen groups written in the same transaction.
+    pub(crate) screen_state: Option<crate::workspace_registry::ScreenPresentationState>,
     apply: StateApply,
 }
 
@@ -45,6 +47,7 @@ impl ResourceMutationPlan {
             metrics: ResourceMutationMetrics::default(),
             workspace_ledger: None,
             tab_groups: None,
+            screen_state: None,
             apply: Box::new(apply),
         }
     }
@@ -55,6 +58,15 @@ impl ResourceMutationPlan {
         tab_groups: crate::workspace_registry::TabGroupState,
     ) -> Self {
         self.tab_groups = Some(tab_groups);
+        self
+    }
+
+    /// Commit this screen presentation state with the patch.
+    pub(crate) fn with_screen_state(
+        mut self,
+        screen_state: crate::workspace_registry::ScreenPresentationState,
+    ) -> Self {
+        self.screen_state = Some(screen_state);
         self
     }
 

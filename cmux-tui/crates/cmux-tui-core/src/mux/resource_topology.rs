@@ -4240,12 +4240,13 @@ impl Mux {
             ResourceOperation::ScreenCreate => {
                 let slots = self.effect_slots(&path)?;
                 let name = optional_owned_string(fields, "name")?;
+                let cwd = optional_owned_string(fields, "cwd")?;
                 match slots.workspace {
                     Some(workspace) => self.effect_add_screen(
                         intent,
                         workspace,
                         name,
-                        None,
+                        cwd,
                         effect_cell_size(fields)?,
                     ),
                     None => self.effect_create_workspace_terminal(

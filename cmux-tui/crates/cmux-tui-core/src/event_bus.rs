@@ -219,6 +219,7 @@ impl SurfaceSessionScope {
             | TreeDeltaKind::WorkspaceChanged
             | TreeDeltaKind::ScreenAdded
             | TreeDeltaKind::ScreenRenamed
+            | TreeDeltaKind::ScreenChanged
             | TreeDeltaKind::PaneAdded => false,
         };
         if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {

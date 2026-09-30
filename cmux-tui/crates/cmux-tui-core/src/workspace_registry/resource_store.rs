@@ -1434,6 +1434,7 @@ impl WorkspaceRegistry {
             deltas,
             None,
             None,
+            None,
         )
         .map(|(commit, _)| commit)
     }
@@ -1451,6 +1452,7 @@ impl WorkspaceRegistry {
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
         tab_groups: Option<&TabGroupState>,
+        screen_state: Option<&ScreenPresentationState>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -1509,6 +1511,9 @@ impl WorkspaceRegistry {
         }
         if let Some(tab_groups) = tab_groups {
             presentation_store::write_tab_group_state(&tx, tab_groups)?;
+        }
+        if let Some(screen_state) = screen_state {
+            screen_store::write_screen_state(&tx, screen_state)?;
         }
 
         let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
