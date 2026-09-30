@@ -360,9 +360,10 @@ export const TRANSCRIPT_INITIAL_WINDOW_BYTES = 8 * 1024 * 1024;
 const TRANSCRIPT_POLL_MS = 500;
 const TRANSCRIPT_READ_CHUNK = 1024 * 1024;
 
-/** Follows an append-only JSONL file by offset, delivering complete lines. */
+/** Follows JSONL appends by offset, resetting when the file is replaced. */
 export class TranscriptTail {
   private offset = -1;
+  private identity: { dev: number; ino: number } | null = null;
   private pending = "";
   private timer: ReturnType<typeof setInterval> | null = null;
   private inflight: Promise<void> | null = null;
@@ -400,22 +401,32 @@ export class TranscriptTail {
   }
 
   private async read(): Promise<void> {
-    const info = await stat(this.path).catch(() => null);
-    if (!info) return;
-    let skipPartialFirstLine = false;
-    if (this.offset < 0) {
-      const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
-      this.offset = Math.max(0, info.size - window);
-      skipPartialFirstLine = this.offset > 0;
-    } else if (info.size < this.offset) {
-      // Truncated or replaced: follow the new file from its start.
-      this.offset = 0;
-      this.pending = "";
-      this.decoder = new TextDecoder();
-    }
-    if (info.size === this.offset) return;
+    const probe = await stat(this.path).catch(() => null);
+    if (!probe) return;
+    if (this.identity?.dev === probe.dev && this.identity.ino === probe.ino && probe.size === this.offset) return;
     const handle = await open(this.path, "r");
     try {
+      // Use the opened file's identity and size: an atomic rename can replace
+      // the path between the probe and open, even with unchanged size/mtime.
+      const info = await handle.stat();
+      if (this.identity?.dev !== info.dev || this.identity.ino !== info.ino) {
+        this.offset = -1;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      this.identity = { dev: info.dev, ino: info.ino };
+      let skipPartialFirstLine = false;
+      if (this.offset < 0) {
+        const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
+        this.offset = Math.max(0, info.size - window);
+        skipPartialFirstLine = this.offset > 0;
+      } else if (info.size < this.offset) {
+        // An in-place truncation keeps its inode but still resets decoding.
+        this.offset = 0;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      if (info.size === this.offset) return;
       const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
       while (this.offset < info.size) {
         const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, info.size - this.offset), this.offset);

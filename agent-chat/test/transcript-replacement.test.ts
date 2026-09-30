@@ -27,12 +27,14 @@ describe("transcript file replacement", () => {
   test("follows a replacement with the same size and timestamp", async () => {
     const path = fixture();
     writeFileSync(path, '{"old":1}\n');
+    utimesSync(path, 1_700_000_000, 1_700_000_000);
     const seen: string[] = [];
     const tail = new TranscriptTail(path, (lines) => seen.push(...lines));
     await tail.poll();
-    const size = statSync(path).size;
+    const before = statSync(path);
     replace(path, '{"new":2}\n', true);
-    expect(statSync(path).size).toBe(size);
+    expect(statSync(path).size).toBe(before.size);
+    expect(statSync(path).mtimeMs).toBe(before.mtimeMs);
     await tail.poll();
     expect(seen).toEqual(['{"old":1}', '{"new":2}']);
     await tail.poll();
