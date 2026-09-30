@@ -17,7 +17,6 @@ export type DiffViewerPayload = {
 };
 
 export type DiffViewerConfig = {
-  assets?: Record<string, string | undefined>;
   payload?: DiffViewerPayload;
   [key: string]: any;
 };

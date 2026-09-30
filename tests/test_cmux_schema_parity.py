@@ -59,7 +59,11 @@ NOT_IN_CMUX_JSON = frozenset({
     "account.selectedTeamID",
     "account.welcomeShown",
     # App preferences stored only in UserDefaults today.
+    # The custom accent color's storage; cmux.json sets it through a
+    # "#RRGGBB" app.accentColor value.
+    "app.accentColorCustomHex",
     "app.fileDropDefaultBehavior",
+    "app.installUpdatesAutomatically",
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",

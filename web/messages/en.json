@@ -166,6 +166,11 @@
       "message": "Cloud VM setup is temporarily unavailable.",
       "action": "Try again later. If the problem continues, contact support."
     },
+    "recreateRequired": {
+      "title": "Recreate this machine",
+      "message": "This machine was created before a Cloud update and can't be attached.",
+      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
@@ -336,7 +341,9 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms"
+    "otherPlatforms": "Other platforms",
+    "copyCode": "Copy code",
+    "copied": "Copied"
   },
   "dashboard": {
     "nav": {
@@ -2792,7 +2799,6 @@
       "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z).",
       "title": "Keyboard Shortcuts",
       "description": "Default cmux keyboard shortcuts. Every cmux-owned shortcut can be changed in Settings or ~/.config/cmux/cmux.json, including two-step chords.",
       "metaTitle": "Keyboard Shortcuts",
@@ -3848,6 +3854,28 @@
       "fixTransferDisabled": "A managed policy turns off file transfer. Ask your administrator.",
       "supportTitle": "Get help",
       "supportDesc": "If a create fails, use Copy Error in the notification and include it, with the trace ID if there is one, when you contact support."
+    },
+    "ui": {
+      "onThisPage": "On this page",
+      "copyPage": "Copy page",
+      "copyPageDesc": "Copy page as Markdown for LLMs",
+      "copied": "Copied",
+      "pageActions": "More page actions",
+      "openInChatGPT": "Open in ChatGPT",
+      "openInClaude": "Open in Claude",
+      "openInDesc": "Ask questions about this page",
+      "askPrompt": "Read {url} so I can ask questions about it.",
+      "previous": "Previous",
+      "next": "Next",
+      "helpful": "Was this page helpful?",
+      "yes": "Yes",
+      "no": "No",
+      "thanks": "Thanks for your feedback.",
+      "raiseIssue": "Raise issue",
+      "openNavigation": "Open navigation",
+      "closeNavigation": "Close navigation",
+      "searchShortcut": "Search docs (⌘K)",
+      "navigation": "Documentation"
     }
   },
   "deeplink": {

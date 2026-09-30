@@ -834,6 +834,9 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    /// Mirrors ``BrowserPanel/refusesProxyAuthenticationChallenges`` for
+    /// popups sharing the opener's proxied store.
+    let refusesProxyAuthenticationChallenges: Bool
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -2900,7 +2903,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            refusesProxyAuthenticationChallenges: refusesProxyAuthenticationChallenges
         )
     }
 
@@ -4212,6 +4216,13 @@ final class BrowserPanel: Panel, ObservableObject {
         resumePendingRemoteNavigationIfNeeded()
     }
 
+    /// Remote and cloud panes route only through cmux proxies that carry
+    /// their credential, so a proxy challenge there is refused rather than
+    /// shown to the user.
+    var refusesProxyAuthenticationChallenges: Bool {
+        usesRemoteWorkspaceProxy || cloudBrowserMachineID != nil
+    }
+
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
         guard remoteWorkspaceStatus != status else { return }
         remoteWorkspaceStatus = status
@@ -4236,18 +4247,33 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        guard let configurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            store.proxyConfigurations = []
+            return
+        }
+        store.proxyConfigurations = [configurations.socks, configurations.connect]
+    }
+
+    /// SOCKS5 and HTTP CONNECT configurations for the remote workspace proxy,
+    /// each carrying the tunnel credential the listener requires; nil when
+    /// the endpoint is unusable.
+    private static func remoteWorkspaceProxyConfigurations(
+        for endpoint: BrowserProxyEndpoint
+    ) -> (socks: ProxyConfiguration, connect: ProxyConfiguration)? {
         let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty,
               endpoint.port > 0 && endpoint.port <= 65535,
               let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
+            return nil
         }
 
         let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
         let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        let credential = endpoint.credential
+        socks.applyCredential(username: credential.username, password: credential.password)
+        connect.applyCredential(username: credential.username, password: credential.password)
+        return (socks, connect)
     }
 
     private func beginDownloadActivity() {
@@ -5515,10 +5541,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
-        } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
-                  ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+        } else if ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  let provider = privateAddressRouteProvider(for: url) {
             provider.configureBrowser(self, url: url)
             return nil
         } else {
@@ -5732,20 +5756,23 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func remoteProxyURLSession() -> URLSession? {
-        guard let endpoint = remoteProxyEndpoint else { return nil }
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+        guard let endpoint = remoteProxyEndpoint,
+              let proxyConfigurations = Self.remoteWorkspaceProxyConfigurations(for: endpoint) else {
+            return nil
+        }
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.timeoutIntervalForRequest = 2.0
         configuration.timeoutIntervalForResource = 4.0
-        configuration.connectionProxyDictionary = [
-            kCFNetworkProxiesSOCKSEnable as String: 1,
-            kCFNetworkProxiesSOCKSProxy as String: host,
-            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
-        ]
-        return URLSession(configuration: configuration)
+        // SOCKS only, as before; the legacy proxy dictionary cannot carry
+        // the listener's credential.
+        configuration.proxyConfigurations = [proxyConfigurations.socks]
+        return URLSession(
+            configuration: configuration,
+            delegate: ManagedProxySessionDelegate(),
+            delegateQueue: nil
+        )
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {

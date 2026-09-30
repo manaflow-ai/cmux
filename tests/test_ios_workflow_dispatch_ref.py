@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression coverage for manual iOS workflow revision resolution."""
+"""Regression coverage for iOS workflow triggers and revision resolution."""
 
 from __future__ import annotations
 
@@ -32,6 +32,18 @@ def job_block(name: str) -> str:
 
 
 class IOSWorkflowDispatchRefTests(unittest.TestCase):
+    def test_workflow_reports_the_ios_aggregate_for_pull_requests_and_merge_groups(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        triggers = workflow.get("on", workflow.get(True))
+
+        self.assertIn("pull_request", triggers)
+        self.assertIn("merge_group", triggers)
+        self.assertIn("paths", triggers["pull_request"])
+
+        ios_tests = workflow["jobs"]["ios-tests"]
+        self.assertEqual(ios_tests["name"], "ios-tests")
+        self.assertNotIn("merge_group", ios_tests.get("if", ""))
+
     def test_requested_family_matrix_is_selected_on_linux(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         detect = jobs["detect-ios-changes"]

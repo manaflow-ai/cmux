@@ -705,7 +705,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
         let viewerConfig = try diffViewerConfig(from: html)
         let viewerPayload = try diffViewerPayload(from: viewerConfig)
-        let viewerAssets = try diffViewerAssets(from: viewerConfig)
         let transport = try XCTUnwrap(viewerPayload["transport"] as? [String: Any])
         XCTAssertEqual([transport["kind"] as? String, transport["endpoint"] as? String], ["webKit", "cmuxDiff"])
         XCTAssertEqual(transport["protocolVersion"] as? Int, 1)
@@ -730,18 +729,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let appModuleRequestPath = try diffViewerAppModuleRequestPath(from: html)
         XCTAssertTrue(appModuleRequestPath.hasPrefix("/assets/cmux-webviews-app-"), appModuleRequestPath)
         XCTAssertTrue(appModuleRequestPath.hasSuffix("/main.mjs"), appModuleRequestPath)
-        let assetDirectory = viewerFileURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent(String(appModuleRequestPath.dropFirst()))
             .deletingLastPathComponent()
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
-        XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
-        XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
-        XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
-        XCTAssertEqual(viewerAssets["workerModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js")
+        // The highlight worker is a chunk of the webviews bundle; the page no
+        // longer receives a separate worker asset URL.
+        XCTAssertNil(viewerConfig["assets"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("chunks/diff-worker.mjs.deflate").path))
         let appearance = try XCTUnwrap(viewerPayload["appearance"] as? [String: Any])
         XCTAssertEqual(appearance["backgroundOpacity"] as? Double, 0.42)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
@@ -763,9 +759,13 @@ final class CMUXOpenCommandTests: XCTestCase {
             file["request_path"] as? String == appModuleRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
         })
+        let workerRequestPath = appModuleRequestPath.replacingOccurrences(of: "/main.mjs", with: "/chunks/diff-worker.mjs")
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
+            file["request_path"] as? String == workerRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
+        })
+        XCTAssertFalse(files.contains { file in
+            (file["request_path"] as? String)?.contains("worker-pool/") == true
         })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
@@ -2859,15 +2859,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         try XCTUnwrap(config["payload"] as? [String: Any])
     }
 
-    private func diffViewerAssets(from config: [String: Any]) throws -> [String: String] {
-        let assets = try XCTUnwrap(config["assets"] as? [String: Any])
-        var result: [String: String] = [:]
-        for (key, value) in assets {
-            result[key] = try XCTUnwrap(value as? String)
-        }
-        return result
-    }
-
     private func diffViewerOptionPayload(
         value: String,
         in options: [[String: Any]],
@@ -3069,29 +3060,13 @@ final class CMUXOpenCommandTests: XCTestCase {
     }
 
     private func writeTestDiffViewerAssets(resourcesURL: URL, appMain: String) throws {
-        let diffViewerURL = resourcesURL
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("diff-viewer", isDirectory: true)
         let appURL = resourcesURL
             .appendingPathComponent("markdown-viewer", isDirectory: true)
             .appendingPathComponent("webviews-app", isDirectory: true)
-        let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
-        try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
-        try DeflatedAssetTestSupport.writeText("export const diffsFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("diffs.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const treesFixture = true;\n",
-            to: diffViewerURL.appendingPathComponent("trees.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
-        try DeflatedAssetTestSupport.writeText("export const workerPoolFixture = true;\n",
-            to: workerPoolURL.appendingPathComponent("worker-pool.mjs", isDirectory: false),
-            addingDeflateExtension: true
-        )
+        let chunksURL = appURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
         try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
-            to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
+            to: chunksURL.appendingPathComponent("diff-worker.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
         try DeflatedAssetTestSupport.writeText(appMain,
