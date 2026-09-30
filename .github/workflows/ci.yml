@@ -1100,6 +1100,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
+      actions: write
       contents: read
     steps:
       - name: Checkout
@@ -1110,6 +1111,13 @@ jobs:
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 
+      - name: Cancel expensive jobs after static preflight failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
+
   guards:
     # Not after static-preflight: the guards are the last job
     # macos-admission-gate waits for (median ~110 s after changes), and the
@@ -1117,6 +1125,9 @@ jobs:
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
+    permissions:
+      actions: write
+      contents: read
     uses: ./.github/workflows/ci-guards.yml
     with:
       linux_guard_tests: ${{ needs.changes.outputs.linux_guard_tests }}
@@ -1438,6 +1449,9 @@ jobs:
     if: ${{ always() && needs.changes.outputs.macos != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Check routed Linux results
         env:
@@ -1529,6 +1543,13 @@ jobs:
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")
           PY
+
+      - name: Cancel expensive jobs after Linux preflight failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" || true
 
   suite-coverage:
     timeout-minutes: 5
