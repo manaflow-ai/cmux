@@ -265,20 +265,36 @@ class SeedDerivedData(unittest.TestCase):
         del os.environ["CMUX_SEED_LOCAL_CACHE"]
         self.assertIsNone(seed.cached("p-j6-base"))
 
-    def test_the_local_cache_keeps_only_the_newest_seeds(self):
+    def test_the_local_cache_keeps_only_the_newest_seeds_on_a_short_disk(self):
         cache = self.root / "seeds"
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
-        for index, key in enumerate(("k-1", "k-2", "k-3")):
-            seed.stash(self.derived, key)
-            os.utime(cache / key, (1000 + index, 1000 + index))
-        seed.stash(self.derived, "k-4")
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            for index, key in enumerate(("k-1", "k-2", "k-3")):
+                seed.stash(self.derived, key)
+                os.utime(cache / key, (1000 + index, 1000 + index))
+            seed.stash(self.derived, "k-4")
         self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-3", "k-4"])
         # Never a path outside the cache, whatever the key.
         seed.stash(self.derived, "../escape")
         self.assertFalse((self.root / "escape").exists())
         self.assertIsNone(seed.cached("../k-3"))
+
+    def test_the_local_cache_keeps_more_than_two_seeds_on_a_roomy_disk(self):
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        roomy_free_bytes = 400 * 1024**3
+        self.assertGreater(seed.LOCAL_KEEP_MIN_FREE_BYTES, 0)
+        self.assertGreater(roomy_free_bytes, seed.LOCAL_KEEP_MIN_FREE_BYTES)
+        # Keep this absolute so a zeroed production floor cannot make the test stay green.
+        with mock.patch.object(seed, "free_bytes", return_value=roomy_free_bytes):
+            for index, key in enumerate(("k-1", "k-2", "k-3", "k-4")):
+                seed.stash(self.derived, key)
+                os.utime(cache / key, (1000 + index, 1000 + index))
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3", "k-4"])
 
     def test_the_prune_spares_a_seed_a_job_may_be_cloning(self):
         cache = self.root / "seeds"
@@ -286,13 +302,14 @@ class SeedDerivedData(unittest.TestCase):
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
         import time
-        seed.stash(self.derived, "k-old")
-        os.utime(cache / "k-old", (1000, 1000))
-        seed.stash(self.derived, "k-1")
-        # Touched a minute ago, as adopt does just before cloning it.
-        os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
-        seed.stash(self.derived, "k-2")
-        seed.stash(self.derived, "k-3")
+        with mock.patch.object(seed, "free_bytes", return_value=0):
+            seed.stash(self.derived, "k-old")
+            os.utime(cache / "k-old", (1000, 1000))
+            seed.stash(self.derived, "k-1")
+            # Touched a minute ago, as adopt does just before cloning it.
+            os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
+            seed.stash(self.derived, "k-2")
+            seed.stash(self.derived, "k-3")
         # Past the newest two, but only the stale one goes.
         self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3"])
 
