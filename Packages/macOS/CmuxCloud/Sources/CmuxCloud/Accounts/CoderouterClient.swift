@@ -71,6 +71,12 @@ public enum ClaudeUpstreamInput: Sendable {
     }
 }
 
+/// API-key providers stored in the native CodeRouter account pool.
+public enum CoderouterAPIKeyProvider: String, Sendable {
+    case openAI = "openai-apikey"
+    case openRouter = "openrouter-apikey"
+}
+
 /// Team-level coderouter settings the app manages for the CLI (`cmux
 /// coderouter ...`): the Claude upstream accounts and per-machine usage.
 /// Same origin, session auth, and team header as `AIAccountsClient`; the
@@ -96,6 +102,43 @@ public actor CoderouterClient {
     /// upstream }`. Identifiers are already masked by the server.
     public func claudeAccounts(teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request("GET", path: "/api/coderouter/claude-upstream", teamID: teamID)
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Lists native CodeRouter accounts such as Codex sign-ins and API keys.
+    public func nativeAccounts(teamID: String?) async throws -> JSONValue {
+        let (data, http) = try await request("GET", path: "/api/coderouter/accounts", teamID: teamID)
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Adds an OpenAI or OpenRouter API key to the native account pool.
+    public func addNativeAPIKey(
+        provider: CoderouterAPIKeyProvider,
+        apiKey: String,
+        label: String?,
+        teamID: String?
+    ) async throws -> JSONValue {
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw CoderouterClientError.malformedResponse("API key is empty") }
+        var body: [String: Any] = ["provider": provider.rawValue, "apiKey": trimmedKey]
+        if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+            body["label"] = label
+        }
+        let (data, http) = try await request("POST", path: "/api/coderouter/accounts", jsonBody: body, teamID: teamID)
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Removes a native CodeRouter account. Repeated removal is idempotent.
+    public func removeNativeAccount(id accountID: String, teamID: String?) async throws -> JSONValue {
+        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let (data, http) = try await request("DELETE", path: "/api/coderouter/accounts/\(escaped)", teamID: teamID)
+        if http.statusCode == 404 {
+            return .object(["removed": .bool(false)])
+        }
         try ensureOK(http, data: data)
         return try bridgedJSONObject(data)
     }
