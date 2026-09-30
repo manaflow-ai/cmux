@@ -31460,6 +31460,8 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            // Taken before the reads, so a write after them wakes the wait below.
+            let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
@@ -31563,7 +31565,8 @@ struct CMUXCLI {
             waitForCodexTranscriptChange(
                 path: transcriptPath,
                 leasePath: leasePath,
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining)
+                timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
+                observedState: observedTranscriptState
             )
         }
         return nil
