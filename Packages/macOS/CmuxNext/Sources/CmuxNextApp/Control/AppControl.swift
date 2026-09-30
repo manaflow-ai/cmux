@@ -73,7 +73,7 @@ final class AppControl {
             .async("resources") { [weak services] call in
                 let services = await MainActor.run { services }
                 return try await ResourceControl.run(call.params, services: services)
-            },
+            }.withDeadline(.fixed(ResourceControl.deadline)),
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.

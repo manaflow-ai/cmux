@@ -12,6 +12,10 @@ import Foundation
 /// Params: `tab` (tab id) or `workspace` (workspace id or key); neither
 /// means the workspace the active window shows.
 enum ResourceControl {
+    /// The longest interval (1.5 s) plus two samples, each bounded by the
+    /// 1 s daemon request deadline, plus margin.
+    static let deadline: Duration = .seconds(5)
+
     static func run(_ params: [String: JSONValue], services: AppServices?) async throws -> JSONValue {
         guard let services else { throw ControlError(code: "unavailable", message: RefusalStrings.noWindowShowsWorkspace) }
         let target = try await MainActor.run { try target(params, services: services) }
