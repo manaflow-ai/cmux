@@ -813,7 +813,6 @@
         "description": "تتشارك الفرق الأعضاء والفوترة وحسابات coderouter. افتح فريقًا لإدارته.",
         "create": "إنشاء فريق",
         "count": "{count, plural, zero {لا فرق} one {فريق واحد} two {فريقان} few {# فرق} many {# فريقًا} other {# فريق}}",
-        "members": "{count, plural, zero {لا أعضاء} one {عضو واحد} two {عضوان} few {# أعضاء} many {# عضوًا} other {# عضو}}",
         "selected": "الحالي",
         "emptyTitle": "لا توجد فرق بعد",
         "emptyBody": "أنشئ فريقًا لدعوة الأشخاص ومشاركة خطة واحدة.",

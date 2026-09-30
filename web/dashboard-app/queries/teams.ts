@@ -3,20 +3,15 @@
 import {
   type QueryClient,
   type UseMutationOptions,
-  queryOptions,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import type { TeamDetail, TeamRole } from "@/services/teams/types";
+import { dashboardRefusal } from "../lib/refusal";
+import { dashboardClient, rpc } from "../lib/rpc";
 
-// Wire types of the Team API contract (docs/team-settings-and-invites.md).
-// Imported as types only, so no server code reaches the client bundle.
-import type {
-  TeamDetail,
-  TeamInvitation,
-  TeamInviteLink,
-  TeamRole,
-} from "@/services/teams/types";
-
+// Wire types of the Team API contract (docs/team-settings-and-invites.md),
+// the same types the procedures' output schemas satisfy.
 export type {
   TeamBillingSummary,
   TeamDetail,
@@ -26,175 +21,73 @@ export type {
   TeamRole,
   TeamViewerPermissions,
 } from "@/services/teams/types";
+export type { TeamCatalog, TeamCatalogEntry } from "@/orpc/server/dashboard/schemas/teams";
 
-/** One entry of `GET /api/subrouter/teams`. Billing fields are optional until every server has them. */
-export type TeamCatalogEntry = {
-  readonly id: string;
-  readonly name: string;
-  readonly personal: boolean;
-  readonly permissions?: { readonly use: boolean; readonly manageAccounts: boolean };
-  readonly planId?: string | null;
-  readonly seats?: number | null;
-  readonly role?: TeamRole | null;
-  readonly canManageBilling?: boolean;
-  readonly memberCount?: number | null;
-};
-
-export type TeamCatalog = {
-  readonly selectedTeamId: string | null;
-  readonly teams: readonly TeamCatalogEntry[];
-};
-
-export type InviteResult = {
-  readonly invitations: readonly TeamInvitation[];
-  readonly failed: readonly { readonly email: string; readonly code: string }[];
-};
-
-export type CreatedInviteLink = { readonly link: TeamInviteLink; readonly url: string };
-
-export type JoinLinkInfo = { readonly teamDisplayName: string; readonly alreadyMember: boolean };
-
-export class TeamApiError extends Error {
-  override readonly name = "TeamApiError";
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+type TeamsClient = typeof dashboardClient.teams;
+export type InviteResult = Awaited<ReturnType<TeamsClient["invite"]>>;
+export type CreatedInviteLink = Awaited<ReturnType<TeamsClient["createLink"]>>;
+export type JoinLinkInfo = Awaited<ReturnType<TeamsClient["joinInfo"]>>;
 
 const REQUEST_TIMEOUT_MS = 15_000;
+const timeout = { context: { timeoutMs: REQUEST_TIMEOUT_MS } } as const;
 
-function errorFromBody(status: number, body: unknown): TeamApiError {
-  const error = (body as { error?: unknown } | null)?.error;
-  if (error && typeof error === "object") {
-    const { code, message } = error as { code?: unknown; message?: unknown };
-    return new TeamApiError(
-      status,
-      typeof code === "string" ? code : `http_${status}`,
-      typeof message === "string" ? message : "",
-    );
-  }
-  // Older routes answer `{ error: "code" }`.
-  if (typeof error === "string") return new TeamApiError(status, error, "");
-  return new TeamApiError(status, `http_${status}`, "");
-}
-
-export async function teamRequest<T>(
-  path: string,
-  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: init.method ?? "GET",
-      credentials: "same-origin",
-      headers: {
-        accept: "application/json",
-        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    throw new TeamApiError(0, "network_error", "");
-  }
-  const text = await response.text();
-  let body: unknown = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = null;
-    }
-  }
-  if (!response.ok) throw errorFromBody(response.status, body);
-  return body as T;
-}
-
+/** The team error code of a declared refusal (`last_admin`, ...), else `"unknown"`. */
 export function teamErrorCode(error: unknown): string {
-  return error instanceof TeamApiError ? error.code : "unknown";
+  return dashboardRefusal(error)?.reason ?? "unknown";
 }
 
-const teamPath = (teamId: string) => `/api/teams/${encodeURIComponent(teamId)}`;
+/** The server's message for a declared refusal, when it sent one. */
+export function teamErrorMessage(error: unknown): string | undefined {
+  return dashboardRefusal(error)?.message;
+}
 
+/** Positional wrappers over the typed team procedures, as the team screens call them. */
 export const teamApi = {
-  catalog: (signal?: AbortSignal) => teamRequest<TeamCatalog>("/api/subrouter/teams", { signal }),
-  detail: (teamId: string, signal?: AbortSignal) => teamRequest<TeamDetail>(teamPath(teamId), { signal }),
-  create: (displayName: string) =>
-    teamRequest<{ team: { id: string; displayName: string } }>("/api/teams", {
-      method: "POST",
-      body: { displayName },
-    }),
+  create: (displayName: string) => dashboardClient.teams.create({ displayName }, timeout),
   update: (teamId: string, patch: { displayName?: string; profileImageUrl?: string | null }) =>
-    teamRequest<unknown>(teamPath(teamId), { method: "PATCH", body: patch }),
-  remove: (teamId: string) => teamRequest<unknown>(teamPath(teamId), { method: "DELETE" }),
+    dashboardClient.teams.update({ teamId, ...patch }, timeout),
+  remove: (teamId: string) => dashboardClient.teams.remove({ teamId }, timeout),
   invite: (teamId: string, emails: readonly string[], role: TeamRole) =>
-    teamRequest<InviteResult>(`${teamPath(teamId)}/invitations`, {
-      method: "POST",
-      body: { emails, role },
-    }),
+    dashboardClient.teams.invite({ teamId, emails: [...emails], role }, timeout),
   resendInvitation: (teamId: string, invitationId: string) =>
-    teamRequest<{ invitation: TeamInvitation }>(
-      `${teamPath(teamId)}/invitations/${encodeURIComponent(invitationId)}/resend`,
-      { method: "POST" },
-    ),
+    dashboardClient.teams.resendInvitation({ teamId, invitationId }, timeout),
   revokeInvitation: (teamId: string, invitationId: string) =>
-    teamRequest<unknown>(`${teamPath(teamId)}/invitations/${encodeURIComponent(invitationId)}`, {
-      method: "DELETE",
-    }),
+    dashboardClient.teams.revokeInvitation({ teamId, invitationId }, timeout),
   createLink: (teamId: string, input: { expiresInDays: 1 | 7 | 30 | null; maxUses: number | null }) =>
-    teamRequest<CreatedInviteLink>(`${teamPath(teamId)}/links`, { method: "POST", body: input }),
-  revokeLink: (teamId: string, linkId: string) =>
-    teamRequest<unknown>(`${teamPath(teamId)}/links/${encodeURIComponent(linkId)}`, {
-      method: "DELETE",
-    }),
+    dashboardClient.teams.createLink({ teamId, ...input }, timeout),
+  revokeLink: (teamId: string, linkId: string) => dashboardClient.teams.revokeLink({ teamId, linkId }, timeout),
   changeRole: (teamId: string, userId: string, role: TeamRole) =>
-    teamRequest<unknown>(`${teamPath(teamId)}/members/${encodeURIComponent(userId)}`, {
-      method: "PATCH",
-      body: { role },
-    }),
-  removeMember: (teamId: string, userId: string) =>
-    teamRequest<unknown>(`${teamPath(teamId)}/members/${encodeURIComponent(userId)}`, {
-      method: "DELETE",
-    }),
-  joinInfo: (token: string, signal?: AbortSignal) =>
-    teamRequest<JoinLinkInfo>(`/api/teams/join/${encodeURIComponent(token)}`, { signal }),
-  join: (token: string) =>
-    teamRequest<{ teamId: string }>(`/api/teams/join/${encodeURIComponent(token)}`, {
-      method: "POST",
-    }),
-  accept: (code: string) =>
-    teamRequest<{ teamId: string }>("/api/teams/accept", { method: "POST", body: { code } }),
+    dashboardClient.teams.changeRole({ teamId, userId, role }, timeout),
+  removeMember: (teamId: string, userId: string) => dashboardClient.teams.removeMember({ teamId, userId }, timeout),
+  joinInfo: (token: string, signal?: AbortSignal) => dashboardClient.teams.joinInfo({ token }, { signal, ...timeout }),
+  join: (token: string) => dashboardClient.teams.join({ token }, timeout),
+  accept: (code: string) => dashboardClient.teams.accept({ code }, timeout),
 };
 
 export const teamQueryKeys = {
-  catalog: ["teams", "catalog"] as const,
-  detail: (teamId: string) => ["teams", "detail", teamId] as const,
+  catalog: rpc.teams.catalog.queryKey(),
+  detail: (teamId: string) => rpc.teams.detail.queryKey({ input: { teamId } }),
 };
 
-/** `GET /api/subrouter/teams`: the viewer's teams and the server-selected one. */
-export const teamCatalogQuery = queryOptions({
-  queryKey: teamQueryKeys.catalog,
-  queryFn: ({ signal }) => teamApi.catalog(signal),
-});
+/** The viewer's teams and the server-selected one. */
+export const teamCatalogQuery = rpc.teams.catalog.queryOptions({ context: timeout.context });
 
-/** A 403 or 404 from the detail route means the viewer is not a member. */
+/** `team_not_found` (403) and 404 mean "not a member". */
 export function isNotMemberError(error: unknown): boolean {
-  return error instanceof TeamApiError && (error.status === 403 || error.status === 404);
+  const status = dashboardRefusal(error)?.status;
+  return status === 403 || status === 404;
 }
 
-/** `GET /api/teams/:teamId`: members, invitations, links, billing summary, viewer permissions. */
+/** Members, invitations, links, billing summary, and viewer permissions. */
 export function teamDetailQuery(teamId: string) {
-  return queryOptions({
-    queryKey: teamQueryKeys.detail(teamId),
-    queryFn: ({ signal }) => teamApi.detail(teamId, signal),
-    // 403/404 mean "not a member"; retrying cannot change that.
-    retry: (failureCount, error) =>
-      !(error instanceof TeamApiError && error.status >= 400 && error.status < 500) &&
-      failureCount < 2,
+  return rpc.teams.detail.queryOptions({
+    input: { teamId },
+    context: timeout.context,
+    // 4xx refusals mean "not a member"; retrying cannot change that.
+    retry: (failureCount, error) => {
+      const status = dashboardRefusal(error)?.status;
+      return !(status !== undefined && status >= 400 && status < 500) && failureCount < 2;
+    },
   });
 }
 

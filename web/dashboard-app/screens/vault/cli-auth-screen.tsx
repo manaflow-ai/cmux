@@ -3,9 +3,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { dashboardFetch } from "../../lib/api";
+import { dashboardClient } from "../../lib/rpc";
 import {
-  approveCliAuthResponseSchema,
   normalizeCliUserCode,
   vaultCliAuthClientQuery,
 } from "../../queries/vault";
@@ -51,11 +50,7 @@ function ApproveForm({ initialCode }: { readonly initialCode: string }) {
   const t = useTranslations("vault.cliAuth");
   const [code, setCode] = useState(initialCode);
   const approve = useMutation({
-    mutationFn: (userCode: string) =>
-      dashboardFetch("/api/vault/cli/auth/approve", approveCliAuthResponseSchema, {
-        method: "POST",
-        json: { userCode },
-      }),
+    mutationFn: (userCode: string) => dashboardClient.vault.approveCliAuth({ userCode }),
   });
 
   return (

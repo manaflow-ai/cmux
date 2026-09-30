@@ -1,76 +1,8 @@
 import { ORPCError } from "@orpc/server";
-import { z } from "zod";
-import { TeamApiError, TeamGoneError, TeamServiceUnavailableError, type TeamErrorCode } from "@/services/teams/errors";
+import { TeamApiError, TeamGoneError, TeamServiceUnavailableError } from "@/services/teams/errors";
+import type { DashboardErrorCode, DashboardRefusal } from "./error-map";
 
-/**
- * The typed refusals every dashboard procedure can return. The oRPC `code`
- * carries the HTTP status class; `data.reason` is the route's own error code
- * (`not_found`, `no_teams`, `authorization_unavailable`, ...), so a screen
- * can branch on a status class or on one specific reason.
- */
-const refusal = z.object({
-  reason: z.string(),
-  message: z.string().optional(),
-});
-
-export type DashboardRefusal = z.output<typeof refusal>;
-
-export const DASHBOARD_ERRORS = {
-  BAD_REQUEST: { status: 400, data: refusal },
-  UNAUTHORIZED: { status: 401, data: refusal },
-  FORBIDDEN: { status: 403, data: refusal },
-  NOT_FOUND: { status: 404, data: refusal },
-  CONFLICT: { status: 409, data: refusal },
-  PAYLOAD_TOO_LARGE: { status: 413, data: refusal },
-  RATE_LIMITED: { status: 429, data: refusal },
-  BAD_GATEWAY: { status: 502, data: refusal },
-  UNAVAILABLE: { status: 503, data: refusal },
-} as const;
-
-export type DashboardErrorCode = keyof typeof DASHBOARD_ERRORS;
-
-export const TEAM_ERROR_CODES = [
-  "unauthorized",
-  "authentication_unavailable",
-  "forbidden",
-  "team_not_found",
-  "permission_unavailable",
-  "invalid_request",
-  "payload_too_large",
-  "rate_limited",
-  "rate_limit_unavailable",
-  "last_admin",
-  "member_not_found",
-  "invitation_not_found",
-  "invitation_invalid",
-  "email_mismatch",
-  "link_not_found",
-  "link_invalid",
-  "team_has_active_subscription",
-  "service_unavailable",
-] as const satisfies readonly TeamErrorCode[];
-
-// Every TeamErrorCode is listed: adding a code without listing it fails here.
-type MissingTeamCodes = Exclude<TeamErrorCode, (typeof TEAM_ERROR_CODES)[number]>;
-const teamCodesComplete: MissingTeamCodes extends never ? true : never = true;
-void teamCodesComplete;
-
-const teamRefusal = z.object({
-  reason: z.enum(TEAM_ERROR_CODES),
-  message: z.string().optional(),
-});
-
-/** Team procedures narrow `reason` to the closed team error vocabulary. */
-export const TEAM_ERRORS = {
-  BAD_REQUEST: { status: 400, data: teamRefusal },
-  UNAUTHORIZED: { status: 401, data: teamRefusal },
-  FORBIDDEN: { status: 403, data: teamRefusal },
-  NOT_FOUND: { status: 404, data: teamRefusal },
-  CONFLICT: { status: 409, data: teamRefusal },
-  PAYLOAD_TOO_LARGE: { status: 413, data: teamRefusal },
-  RATE_LIMITED: { status: 429, data: teamRefusal },
-  UNAVAILABLE: { status: 503, data: teamRefusal },
-} as const;
+export { DASHBOARD_ERRORS, TEAM_ERRORS, type DashboardErrorCode, type DashboardRefusal } from "./error-map";
 
 const CODE_BY_STATUS: Readonly<Record<number, DashboardErrorCode>> = {
   400: "BAD_REQUEST",

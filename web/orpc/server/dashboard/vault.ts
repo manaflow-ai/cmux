@@ -7,6 +7,7 @@ import * as cliAuthClientRoute from "@/app/api/vault/cli/auth/client/route";
 import * as cliAuthApproveRoute from "@/app/api/vault/cli/auth/approve/route";
 import { dashboardOS, requireDashboardOrigin } from "./base";
 import { callRoute } from "./route-call";
+import { VAULT_SESSIONS_PAGE_SIZE } from "./vault-limits";
 import {
   cliAuthClientSchema,
   sessionDetailSchema,
@@ -21,9 +22,6 @@ import {
  * process behind the browser origin check.
  */
 const vaultOS = dashboardOS.use(requireDashboardOrigin);
-
-/** Matches `VAULT_SESSION_LIST_PAGE_SIZE`; the service module imports Drizzle. */
-export const VAULT_SESSIONS_PAGE_SIZE = 100;
 
 const sessionId = z.uuid();
 

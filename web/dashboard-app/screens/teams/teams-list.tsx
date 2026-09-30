@@ -95,9 +95,6 @@ export function TeamsList() {
                 <TeamAvatar name={team.name} imageUrl={null} size={28} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{team.name}</span>
-                  {typeof team.memberCount === "number" ? (
-                    <span className="block text-xs text-muted">{t("members", { count: team.memberCount })}</span>
-                  ) : null}
                 </span>
                 {team.role ? <RoleBadge role={team.role} /> : null}
                 <PlanBadge planId={team.planId} />

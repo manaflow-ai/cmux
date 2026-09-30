@@ -144,3 +144,5 @@ export const issuedApiKeySchema = z.object({
   label: z.string(),
   createdAt: z.string(),
 });
+
+export type IssuedCoderouterApiKey = z.output<typeof issuedApiKeySchema>;

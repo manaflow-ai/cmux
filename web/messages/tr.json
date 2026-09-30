@@ -813,7 +813,6 @@
         "description": "Ekipler üyeleri, faturalandırmayı ve coderouter hesaplarını paylaşır. Bir ekibi yönetmek için açın.",
         "create": "Ekip oluştur",
         "count": "{count, plural, one {# ekip} other {# ekip}}",
-        "members": "{count, plural, one {# üye} other {# üye}}",
         "selected": "Geçerli",
         "emptyTitle": "Henüz ekip yok",
         "emptyBody": "Kişileri davet etmek ve tek bir planı paylaşmak için bir ekip oluşturun.",

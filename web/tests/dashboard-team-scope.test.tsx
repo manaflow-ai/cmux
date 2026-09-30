@@ -132,6 +132,12 @@ const twoTeams: Catalog = {
   ],
 };
 
+/** The RPC link encodes each call asynchronously; wait (microtasks only) until `ready`. */
+async function waitFor(ready: () => boolean): Promise<void> {
+  for (let tick = 0; tick < 200 && !ready(); tick += 1) await new Promise<void>((resolve) => queueMicrotask(resolve));
+  if (!ready()) throw new Error("condition not reached");
+}
+
 describe("dashboard team scope", () => {
   beforeEach(() => {
     catalog = twoTeams;
@@ -215,6 +221,7 @@ describe("dashboard team scope", () => {
     try {
       const scope = renderReadyScope();
       const switching = scope.switchTeam(twoTeams.teams[0]!);
+      await waitFor(() => signal !== undefined);
       expect(signal).toBeInstanceOf(AbortSignal);
       expect(expire).toBeDefined();
       expire!();
@@ -245,7 +252,8 @@ describe("dashboard team scope", () => {
       expect(routerReplace).toHaveBeenCalledWith("/dashboard/coderouter?team=user-1");
       expect(routerRefresh).not.toHaveBeenCalled();
 
-      resolveFetch!(new Response(null, { status: 204 }));
+      await waitFor(() => resolveFetch !== undefined);
+      resolveFetch!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await switching;
 
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
@@ -283,9 +291,11 @@ describe("dashboard team scope", () => {
       expect(legacyCookieScope).toBe("team-4");
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
 
+      await waitFor(() => resolvers.length > 0);
+
       resolvers[0]!(new Response(null, { status: 500 }));
       await expect(first).rejects.toThrow("Could not switch dashboard team");
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
         selectedTeamId: "team-4",
@@ -293,7 +303,9 @@ describe("dashboard team scope", () => {
       expect(legacyCookieScope).toBe("team-4");
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
 
-      resolvers[1]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 1);
+
+      resolvers[1]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await second;
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
       expect(routerRefresh).toHaveBeenCalledTimes(1);
@@ -331,15 +343,20 @@ describe("dashboard team scope", () => {
         selectedTeamId: "team-4",
       });
       expect(legacyCookieScope).toBe("team-4");
+      await waitFor(() => resolvers.length === 1);
       expect(resolvers).toHaveLength(1);
+
+      await waitFor(() => resolvers.length > 0);
 
       resolvers[0]!(new Response(null, { status: 500 }));
       await expect(first).rejects.toThrow("Could not switch dashboard team");
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
         selectedTeamId: "team-4",
       });
+
+      await waitFor(() => resolvers.length > 1);
 
       resolvers[1]!(new Response(null, { status: 500 }));
       await expect(second).rejects.toThrow("Could not switch dashboard team");
@@ -371,12 +388,16 @@ describe("dashboard team scope", () => {
       });
       expect(legacyCookieScope).toBe("team-2");
 
-      resolvers[0]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 0);
+
+      resolvers[0]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await away;
-      await Promise.resolve();
+      await waitFor(() => resolvers.length === 2);
       expect(resolvers).toHaveLength(2);
 
-      resolvers[1]!(new Response(null, { status: 204 }));
+      await waitFor(() => resolvers.length > 1);
+
+      resolvers[1]!(Response.json({ json: { selectedTeamId: "confirmed" } }));
       await back;
 
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({

@@ -813,7 +813,6 @@
         "description": "Les équipes partagent des membres, la facturation et des comptes coderouter. Ouvrez une équipe pour la gérer.",
         "create": "Créer une équipe",
         "count": "{count, plural, one {# équipe} other {# équipes}}",
-        "members": "{count, plural, one {# membre} other {# membres}}",
         "selected": "Actuelle",
         "emptyTitle": "Aucune équipe pour l’instant",
         "emptyBody": "Créez une équipe pour inviter des personnes et partager un même forfait.",

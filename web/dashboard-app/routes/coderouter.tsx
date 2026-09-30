@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { DashboardAuthRecovery, SignInRedirect } from "../components/auth-recovery";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
-import { isDashboardApiError } from "../lib/api";
+import { isRefusal, refusalReason } from "../lib/refusal";
 import { cloudDevicesQuery } from "../queries/cloud";
 import { coderouterOverviewQuery } from "../queries/coderouter";
 import { CloudPageFrame } from "../screens/cloud/cloud-frame";
@@ -26,7 +26,7 @@ const coderouterRoute = createRoute({
       await context.queryClient.ensureQueryData(coderouterOverviewQuery(deps.team));
     } catch (error) {
       // No team grants coderouter access: the dashboard home explains why.
-      if (isDashboardApiError(error, 409) && error.code === "no_teams") {
+      if (isRefusal(error, 409) && refusalReason(error) === "no_teams") {
         throw redirect({ to: "/dashboard" });
       }
       throw error;
@@ -67,8 +67,8 @@ const mobileDevicesRoute = createRoute({
 /** 401 goes to sign-in; an account-service outage keeps the header and explains it. */
 function CoderouterRouteError(props: ErrorComponentProps) {
   const location = useLocation();
-  if (isDashboardApiError(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isDashboardApiError(props.error, 503)) {
+  if (isRefusal(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
+  if (isRefusal(props.error, 503)) {
     return (
       <CoderouterPageFrame>
         <CoderouterLoadError />
@@ -81,8 +81,8 @@ function CoderouterRouteError(props: ErrorComponentProps) {
 /** 401 goes to sign-in; a Stack outage or throttle renders recovery in place. */
 function CloudRouteError(props: ErrorComponentProps) {
   const location = useLocation();
-  if (isDashboardApiError(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isDashboardApiError(props.error, 503) || isDashboardApiError(props.error, 429)) {
+  if (isRefusal(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
+  if (isRefusal(props.error, 503) || isRefusal(props.error, 429)) {
     return <DashboardAuthRecovery returnPath={location.href} />;
   }
   return <DashboardRouteError {...props} />;

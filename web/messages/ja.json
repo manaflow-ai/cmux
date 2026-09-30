@@ -1086,7 +1086,6 @@
         "description": "チームではメンバー、請求、coderouter アカウントを共有します。チームを開いて管理してください。",
         "create": "チームを作成",
         "count": "{count, plural, other {# 件のチーム}}",
-        "members": "{count, plural, other {# 人のメンバー}}",
         "selected": "現在のチーム",
         "emptyTitle": "チームはまだありません",
         "emptyBody": "チームを作成して、メンバーを招待し、1 つのプランを共有しましょう。",

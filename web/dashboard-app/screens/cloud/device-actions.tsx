@@ -5,22 +5,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Modal } from "@/app/[locale]/components/modal";
+import { dashboardClient } from "../../lib/rpc";
 import { cloudDevicesQuery } from "../../queries/cloud";
 
 type DeviceAction =
-  | { readonly kind: "rename"; readonly displayName: FormDataEntryValue | null }
+  | { readonly kind: "rename"; readonly displayName: string }
   | { readonly kind: "revoke" };
 
 async function sendDeviceAction(id: string, action: DeviceAction): Promise<void> {
-  const url = `/api/vm/access-grants/${encodeURIComponent(id)}`;
-  const response = action.kind === "rename"
-    ? await fetch(url, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ displayName: action.displayName }),
-    })
-    : await fetch(url, { method: "DELETE" });
-  if (!response.ok) throw new Error(`${action.kind} failed`);
+  if (action.kind === "rename") await dashboardClient.cloud.renameDevice({ id, displayName: action.displayName });
+  else await dashboardClient.cloud.revokeDevice({ id });
 }
 
 export function CloudDeviceActions({
@@ -48,7 +42,8 @@ export function CloudDeviceActions({
     : null;
 
   function rename(formData: FormData) {
-    mutation.mutate({ kind: "rename", displayName: formData.get("displayName") });
+    const displayName = formData.get("displayName");
+    mutation.mutate({ kind: "rename", displayName: typeof displayName === "string" ? displayName : "" });
   }
 
   function revoke() {

@@ -813,7 +813,6 @@
         "description": "Zespoły współdzielą członków, rozliczenia i konta coderouter. Otwórz zespół, aby nim zarządzać.",
         "create": "Utwórz zespół",
         "count": "{count, plural, one {# zespół} few {# zespoły} many {# zespołów} other {# zespołu}}",
-        "members": "{count, plural, one {# członek} few {# członków} many {# członków} other {# członka}}",
         "selected": "Bieżący",
         "emptyTitle": "Nie masz jeszcze zespołów",
         "emptyBody": "Utwórz zespół, aby zapraszać osoby i korzystać z jednego planu.",

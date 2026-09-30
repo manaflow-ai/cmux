@@ -4,10 +4,27 @@ import type { RouterClient } from "@orpc/server";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { DashboardRouter } from "@/orpc/server/dashboard/router";
 
-export type DashboardClient = RouterClient<DashboardRouter>;
+/** Per-call options the dashboard passes to the RPC link. */
+export type DashboardClientContext = {
+  /** Abort the call after this many milliseconds. */
+  readonly timeoutMs?: number;
+};
 
-const link = new RPCLink({
-  url: () => new URL("/api/dashboard/rpc", window.location.origin),
+export type DashboardClient = RouterClient<DashboardRouter, DashboardClientContext>;
+
+const link = new RPCLink<DashboardClientContext>({
+  url: () => new URL("/api/dashboard/rpc", globalThis.location?.origin ?? "http://localhost"),
+  fetch: async (request, init, { context }) => {
+    const timeoutMs = context.timeoutMs;
+    if (timeoutMs === undefined) return fetch(request, init);
+    const expiry = new AbortController();
+    const timer = setTimeout(() => expiry.abort(new Error("Dashboard request timed out")), timeoutMs);
+    try {
+      return await fetch(request, { ...init, signal: AbortSignal.any([request.signal, expiry.signal]) });
+    } finally {
+      clearTimeout(timer);
+    }
+  },
 });
 
 /** The browser client of the dashboard procedures; types come from the server router. */

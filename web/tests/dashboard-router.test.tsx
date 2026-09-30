@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadMessages } from "../i18n/messages";
+import { fakeDashboardRpcFetch, refuse } from "./helpers/fake-dashboard-rpc";
 
 // Builds the real dashboard route tree with memory history and asserts the
 // public URL contract: typed routes, flat string search, not-found, and the
@@ -25,14 +26,10 @@ let sessionReply: SessionReply = { status: 200 };
 const requested: string[] = [];
 const originalFetch = globalThis.fetch;
 
-globalThis.fetch = (async (input: RequestInfo | URL) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  requested.push(url);
-  if (url === "/api/dashboard/session") {
-    if (sessionReply.status !== 200) {
-      return Response.json({ error: { code: "x" } }, { status: sessionReply.status });
-    }
-    return Response.json({
+const serveRpc = fakeDashboardRpcFetch({
+  "account.session": () => {
+    if (sessionReply.status !== 200) throw refuse(sessionReply.status, "x");
+    return {
       user: {
         id: "user-1",
         displayName: "User One",
@@ -42,12 +39,16 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
         selectedTeamId: null,
       },
       flags: { vaultEnabled: sessionReply.vaultEnabled ?? true },
-    });
-  }
-  if (url === "/api/vault/summary") {
-    return Response.json({ sessionCount: 0, rawBytes: 0, compressedBytes: 0, lastUploadedAt: null, agents: [] });
-  }
-  return Response.json({ error: "not_found" }, { status: 404 });
+    };
+  },
+  "vault.summary": () => ({ sessionCount: 0, rawBytes: 0, compressedBytes: 0, lastUploadedAt: null, agents: [] }),
+});
+
+/** Records each dashboard procedure the SPA calls, e.g. `vault.summary`. */
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+  requested.push(new URL(request.url).pathname.replace("/api/dashboard/rpc/", "").replaceAll("/", "."));
+  return serveRpc(request);
 }) as typeof fetch;
 
 afterAll(() => {
@@ -195,7 +196,7 @@ describe("dashboard router", () => {
       const { router } = await loadRouter(url);
       expect(router.state.matches.at(-1)?.status).toBe("notFound");
     }
-    expect(requested).not.toContain("/api/vault/summary");
+    expect(requested).not.toContain("vault.summary");
     const { html } = await render("/dashboard/vault");
     expect(html).toContain("Page not found");
     expect(html).not.toContain('href="/dashboard/vault"');
@@ -206,7 +207,7 @@ describe("dashboard router", () => {
   test("a malformed vault session id is not found without an API call", async () => {
     const { router } = await loadRouter("/dashboard/vault/sessions/not-a-uuid");
     expect(router.state.matches.at(-1)?.status).toBe("notFound");
-    expect(requested.some((url) => url.startsWith("/api/vault/sessions/"))).toBe(false);
+    expect(requested.some((path) => path.startsWith("vault.session"))).toBe(false);
   });
 
   test.each([
