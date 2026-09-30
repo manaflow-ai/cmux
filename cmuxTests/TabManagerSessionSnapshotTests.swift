@@ -122,6 +122,21 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, secondWorkspace.id)
     }
 
+    func testRestoreSessionSnapshotIgnoresDuplicatePanelIDs() throws {
+        let panelID = UUID()
+        var workspace = Self.localWorkspaceSnapshot(title: "Duplicate panels", panelId: panelID)
+        workspace.panels.append(Self.terminalPanelSnapshot(id: panelID))
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspace]
+        ))
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first)
+        XCTAssertEqual(restoredWorkspace.panels.count, 1)
+    }
+
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = makeTabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

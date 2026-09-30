@@ -1357,6 +1357,31 @@ struct DockSessionPersistenceTests {
         #expect(store.hasAppliedConfigurationSeed)
     }
 
+    @Test("Dock restore ignores duplicate panel IDs")
+    @MainActor
+    func duplicatePanelIDsDoNotTrapDuringRestore() throws {
+        let panelID = UUID()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-duplicate-panel-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var snapshot = emptyTerminalDockSnapshot(
+            panelID: panelID,
+            stableSurfaceID: UUID(),
+            workingDirectory: root.path
+        )
+        snapshot.panels.append(snapshot.panels[0])
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let restoredPanelIDs = store.restoreSessionSnapshot(snapshot)
+
+        #expect(restoredPanelIDs.count == 1)
+        #expect(store.panels.count == 1)
+    }
+
     @Test("Window Dock unread survives a session snapshot and direct restore")
     @MainActor
     func windowDockUnreadSurvivesSessionRestore() async throws {
