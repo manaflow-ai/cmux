@@ -51,7 +51,9 @@ final class CloudTuiManualMirrorSession {
     private var runtimeSampleTask: Task<Void, Never>?
     private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    // Shared-sizing relay commands are recorded by the feature extension in
+    // CloudTuiManualMirrorSession+SharedSizing.swift before they are sent.
+    var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     var pendingReplay: Data?
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
