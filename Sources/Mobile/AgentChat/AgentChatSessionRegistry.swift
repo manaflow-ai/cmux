@@ -17,6 +17,7 @@ final class AgentChatSessionRegistry {
     private let hookStore: AgentChatHookSessionStore
     private let metadataResolver: AgentSessionMetadataResolver
     private var metadataRefreshInFlight = false
+    private var metadataRefreshPending = false
 
     /// Called after a record mutation with the previous value (nil for a
     /// brand-new record), so the owner derives state/descriptor deltas in
@@ -562,7 +563,11 @@ final class AgentChatSessionRegistry {
     }
 
     private func scheduleMetadataRefresh() {
-        guard !metadataRefreshInFlight else { return }
+        guard !metadataRefreshInFlight else {
+            metadataRefreshPending = true
+            return
+        }
+        metadataRefreshPending = false
         metadataRefreshInFlight = true
         let snapshot = Array(records.values)
         Task { @MainActor [weak self] in
@@ -582,7 +587,11 @@ final class AgentChatSessionRegistry {
                     continue
                 }
                 if let value = metadata[sessionID] {
-                    guard current.branch == nil || current.branch == value.branch else {
+                    guard let branchAtApply = await self.metadataResolver.currentBranch(directory: snapshotDirectory) else {
+                        continue
+                    }
+                    guard branchAtApply == value.branch,
+                          current.branch == nil || current.branch == value.branch else {
                         self.update(sessionID: sessionID) { record in
                             record.branch = nil
                             record.worktree = nil
@@ -607,6 +616,9 @@ final class AgentChatSessionRegistry {
                 }
             }
             self.metadataRefreshInFlight = false
+            if self.metadataRefreshPending {
+                self.scheduleMetadataRefresh()
+            }
         }
     }
 
