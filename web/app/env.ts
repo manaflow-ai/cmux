@@ -186,6 +186,7 @@ export const env = createEnv({
   server: {
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
+    CMUX_TEAM_INVITE_FROM_EMAIL: z.string().email().optional(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
     CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -429,6 +430,7 @@ export const env = createEnv({
       process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
     ),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
+    CMUX_TEAM_INVITE_FROM_EMAIL: trimEnv(process.env.CMUX_TEAM_INVITE_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
