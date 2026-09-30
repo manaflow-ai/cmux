@@ -48,6 +48,7 @@ enum CompatFreshTopology {
         let kind = switch tab.kind {
         case .pty: "terminal"
         case .browser: "browser"
+        case .remoteTerminal: "remote-terminal"
         case .other(let value): value
         }
         return ControlTabInfo(

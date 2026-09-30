@@ -63,6 +63,7 @@ enum ControlTopologyMapper {
         let kind = switch model.kind {
         case .pty: "terminal"
         case .browser: "browser"
+        case .remoteTerminal: "remote-terminal"
         case .other(let value): value
         }
         return ControlTabInfo(

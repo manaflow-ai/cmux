@@ -5,12 +5,17 @@ public enum TabKind: Sendable, Hashable, Codable {
     /// Browser tab. `TabSnapshot.browserRenderer` says who draws it: the
     /// daemon (CDP frames) or the frontend (WebKit/CEF, never attached).
     case browser
+    /// A reference to a terminal on another session
+    /// (`remote-terminal-tabs-v1`, `TabSnapshot.remote`). The app attaches
+    /// on that session; the home daemon only stores the reference.
+    case remoteTerminal
     case other(String)
 
     public init(rawValue: String) {
         switch rawValue {
         case "pty": self = .pty
         case "browser": self = .browser
+        case "remote-terminal": self = .remoteTerminal
         default: self = .other(rawValue)
         }
     }
@@ -19,6 +24,7 @@ public enum TabKind: Sendable, Hashable, Codable {
         switch self {
         case .pty: "pty"
         case .browser: "browser"
+        case .remoteTerminal: "remote-terminal"
         case .other(let value): value
         }
     }

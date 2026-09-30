@@ -101,6 +101,8 @@ public final class DaemonStore {
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    /// The tab with durable id `id` (`TabModel.id`).
+    public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }

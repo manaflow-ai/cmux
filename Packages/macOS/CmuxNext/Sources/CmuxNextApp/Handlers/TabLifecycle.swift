@@ -89,6 +89,7 @@ enum TabLifecycle {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
+        if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }
         ctx.send(command.label, command.run)
     }
 

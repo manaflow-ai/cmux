@@ -8,11 +8,14 @@ import CmuxNextTerminal
 enum TabContent {
     case terminal(TerminalEntry)
     case browser(BrowserEntry)
+    /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
+    case placeholder(RemoteTerminalPlaceholderView)
 
     var view: NSView {
         switch self {
         case .terminal(let entry): entry.session.view
         case .browser(let entry): entry.chrome
+        case .placeholder(let view): view
         }
     }
 
@@ -21,6 +24,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
+        case .placeholder(let view): view
         }
     }
 }

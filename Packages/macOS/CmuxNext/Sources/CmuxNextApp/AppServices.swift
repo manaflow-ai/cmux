@@ -83,6 +83,8 @@ final class AppServices {
     let popups = BrowserPopupPanels()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
+    private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -155,6 +157,9 @@ final class AppServices {
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
         compat = AppCompatFrontend(services: self)
+        remoteTerminals = RemoteTerminalService(services: self)
+        remoteTerminals.start()
+        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))

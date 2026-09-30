@@ -104,7 +104,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
-            if tab.kind != .browser {
+            if tab.kind == .remoteTerminal {
+                // Its terminal runs on another machine: that machine's name.
+                item.machineBadge = services.remoteTerminals.badge(for: tab)
+                item.icon = .symbol("terminal")
+            } else if tab.kind != .browser {
                 item.machineBadge = machine
                 item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
             } else {
@@ -229,6 +233,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return .terminal(entry)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
+        case .remoteTerminal:
+            return services.remoteTerminals.content(for: tab, home: daemon)
         default:
             return nil
         }
@@ -240,6 +246,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// `key`'s live content, if its surface or page exists.
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
+        if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
 

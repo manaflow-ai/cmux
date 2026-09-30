@@ -80,7 +80,7 @@ import Testing
         .notifications: 18,
         .agents: 16,
         .cloud: 23,
-        .remote: 6, // SSH machines (Connect to Machine…)
+        .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 47,
     ]
 

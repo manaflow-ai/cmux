@@ -136,7 +136,8 @@ extension WorkspaceBlueprint {
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
                     case .browser: tab.url.map { .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:))) }
-                    case .other: nil
+                    // A remote reference is not re-created on duplicate.
+                    case .remoteTerminal, .other: nil
                     }
                 }
             }

@@ -383,6 +383,24 @@ two-finger horizontal swipe over the sidebar switches rooms.
 4. Browser profiles (section 5).
 5. Themes (`ThemeScope`, section 6).
 
+Status (2026-09-30, federation agent): stage 1 app side is built
+(qualified ids and `--session` in cli-compat.md "Sessions and qualified
+ids"). Stage 2 app side is built against `remote-terminal-tabs-v1`:
+`RemoteTerminalService` mounts a remote-terminal tab by attaching to the
+terminal's session by its `term_` id with no tab there (a kept terminal;
+`set-terminal-keep` reports the `term_` id), shows
+`RemoteTerminalPlaceholderView` with the saved screen while that session is
+away, saves the screen from the local mirror when the session drops and
+before quit, and saves the title. `tab move-to-workspace` across sessions
+moves the reference (keep, `new-remote-terminal-tab`, close the old tab; back
+home through `terminal.project`); "Open Terminal on Machine Here…"
+(`remote.openTerminalHere`) creates a kept terminal on the machine (in one of
+its workspaces, then closes that tab: cmux-tui has no placement-free create)
+and references it. Closing a remote-terminal tab lets the terminal's session
+reap it (`keep: false`). Not built: drag of a tab onto a pane of another
+session, browser tabs across sessions, `send`/`read-screen` through a
+remote-terminal tab.
+
 The app work already written for rooms (dots, swipe, window switching,
 actions) carries over; its membership test changes from a workspace tag to
 the rules in 3.2.

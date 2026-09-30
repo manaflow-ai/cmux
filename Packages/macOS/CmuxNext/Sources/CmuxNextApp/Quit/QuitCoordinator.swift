@@ -83,7 +83,12 @@ final class QuitCoordinator {
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
             },
-            prepareWindows: { await services.windows.prepareForTermination() },
+            prepareWindows: {
+                // Remote-terminal tabs keep their last screen for the
+                // placeholder after relaunch (data-model.md 1.4).
+                await services.remoteTerminals.saveSnapshots()
+                await services.windows.prepareForTermination()
+            },
             endLocalSessions: { await services.daemon.endSessionsAndStop(deletingWorkspaces: $0) }
         ))
         sender.reply(toApplicationShouldTerminate: true)

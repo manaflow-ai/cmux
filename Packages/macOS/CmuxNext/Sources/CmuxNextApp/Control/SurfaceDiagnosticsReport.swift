@@ -36,6 +36,11 @@ enum SurfaceDiagnosticsReport {
                     object["link"] = .string(Self.linkName(entry.session.model.connection))
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                 }
+                if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    // A remote-terminal tab whose session is away (data-model.md 1.4).
+                    object["placeholder"] = .string(view.statusText)
+                    if includeText { object["text"] = .string(view.snapshotText) }
+                }
                 pane = .object(object)
             }
             windows[key, default: []].append(pane)

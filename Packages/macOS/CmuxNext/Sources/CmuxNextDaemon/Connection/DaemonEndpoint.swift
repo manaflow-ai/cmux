@@ -61,6 +61,14 @@ public enum DaemonCapabilities {
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
     public static let profiles = "profiles-v1"
+    /// `identify.session_id` and `identify.machine_name` (data-model.md 1.1);
+    /// informational, the app falls back to `registry_id` and its own names.
+    public static let sessionIdentity = "session-identity-v1"
+    /// Remote-terminal tabs in a home layout: `new-remote-terminal-tab`,
+    /// `update-remote-terminal-tab`, `remote-terminal-snapshot`, tab kind
+    /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
+    /// `terminal_resource_id` in the `set-terminal-keep` result.
+    public static let remoteTerminalTabs = "remote-terminal-tabs-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
     /// Per-terminal themes in personal state (`set-personal-terminal`).
@@ -84,7 +92,7 @@ public enum DaemonCapabilities {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [personalTerminals]
+    public static let awaitingPin: [String] = [personalTerminals, remoteTerminalTabs]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [

@@ -102,7 +102,7 @@ public enum ContextMenuCatalog {
         actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
         + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
-        + actions("pane.moveToNewWorkspace") + [.separator]
+        + actions("pane.moveToNewWorkspace", "remote.openTerminalHere") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
 
     static let column: [ContextMenuEntry] =
