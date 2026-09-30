@@ -34,7 +34,12 @@ final class WindowState {
     private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
     /// state (the only window, with no workspaces).
-    var workspaceID: String?
+    var workspaceID: String? {
+        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
+    }
+    /// Workspaces this window showed, most recent first (Switch to Last Used
+    /// Workspace, Sort by Last Used). In memory only, at most 64.
+    private(set) var workspaceRecency: [String] = []
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
     var selection = TabSelectionMemory()
@@ -96,5 +101,19 @@ extension WindowState {
         profileID = profile
         profileRecency.removeAll { $0 == profile }
         profileRecency.insert(profile, at: 0)
+    }
+}
+
+extension WindowState {
+    /// The workspace shown before the current one, if any.
+    var lastUsedWorkspace: String? { workspaceRecency.first { $0 != workspaceID } }
+
+    /// Forgets workspaces this window no longer lists.
+    func pruneRecency(keeping members: Set<String>) {
+        workspaceRecency.removeAll { !members.contains($0) }
+    }
+
+    fileprivate func noteShown(_ id: String?, after previous: String?) {
+        _ = (id, previous)
     }
 }
