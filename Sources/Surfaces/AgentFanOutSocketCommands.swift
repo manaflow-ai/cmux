@@ -106,9 +106,13 @@ extension TerminalController {
         let destination: SurfaceDestination?
         if open, let workspaceID = TerminalController.shared.surfaceTargetWorkspaceID(params, strictExplicit: true) {
             destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
-        } else if open {
-            throw FanOutSocketError.destinationRequired
         } else {
+            // Default fan-out children each receive their own local workspace.
+            // An explicit remote workspace keeps the legacy shared destination
+            // contract and still requires a caller-selected local target.
+            if open, explicitWorkspace != nil {
+                throw FanOutSocketError.destinationRequired
+            }
             destination = nil
         }
         let now = Date()
@@ -132,35 +136,60 @@ extension TerminalController {
             }
             throw FanOutSocketError.conflictingOperation
         }
-        let remoteWorkspace: SurfaceRemoteWorkspace
-        do {
-            if let explicitWorkspace {
-                remoteWorkspace = SurfaceRemoteWorkspace(id: explicitWorkspace, name: explicitWorkspace, index: 0, focused: false)
-            } else {
-                remoteWorkspace = try await provider.createRemoteWorkspace(name: "\(namePrefix) · fan-out \(generatedID.suffix(8))")
-            }
-        } catch {
-            operation.state = .failed
-            operation.updatedAt = Date()
-            for index in operation.children.indices {
-                operation.children[index].state = .failed
-                operation.children[index].errorCode = "workspace_create_failed"
-                operation.children[index].endedAt = operation.updatedAt
-            }
-            try await AgentFanOutOperationStore.shared.update(operation)
-            throw error
+        let sharedWorkspace = explicitWorkspace.map {
+            SurfaceRemoteWorkspace(id: $0, name: $0, index: 0, focused: false)
         }
-        operation.remoteWorkspaceID = remoteWorkspace.id
+        operation.remoteWorkspaceID = sharedWorkspace?.id ?? ""
         operation.updatedAt = Date()
         try await AgentFanOutOperationStore.shared.update(operation)
         for index in operation.children.indices {
+            var createdChildWorkspace: SurfaceRemoteWorkspace?
+            var createdChildTerminal: SurfaceResource?
             do {
                 let childName = "\(namePrefix) [\(index + 1)/\(count)]"
-                let response = try await Self.surfaceNewTerminal(
-                    machine: .cloud(machineID), command: argv, cwd: Self.fanOutString(params["cwd"]),
-                    name: childName, remoteWorkspaceID: remoteWorkspace.id,
-                    destination: destination, focus: focus
-                )
+                // A child gets its own remote workspace by default. This makes
+                // each agent a first-class Cloud workspace row and prevents
+                // the projection reconciler from collapsing all children into
+                // one sidebar item. Explicit --remote-workspace preserves the
+                // legacy shared-workspace contract.
+                let childWorkspace: SurfaceRemoteWorkspace
+                if let sharedWorkspace {
+                    childWorkspace = sharedWorkspace
+                } else {
+                    childWorkspace = try await provider.createRemoteWorkspace(name: childName)
+                    createdChildWorkspace = childWorkspace
+                }
+                operation.children[index].remoteWorkspaceID = childWorkspace.id
+                if operation.remoteWorkspaceID.isEmpty {
+                    operation.remoteWorkspaceID = childWorkspace.id
+                }
+                try await AgentFanOutOperationStore.shared.update(operation)
+                let response: [String: Any]
+                if sharedWorkspace != nil {
+                    response = try await Self.surfaceNewTerminal(
+                        machine: .cloud(machineID), command: argv, cwd: Self.fanOutString(params["cwd"]),
+                        name: childName, remoteWorkspaceID: childWorkspace.id,
+                        destination: destination, focus: focus
+                    )
+                } else {
+                    let childTerminal = try await provider.createTerminal(
+                        command: argv, cwd: Self.fanOutString(params["cwd"]), name: childName,
+                        remoteWorkspaceID: childWorkspace.id
+                    )
+                    createdChildTerminal = childTerminal
+                    let opened = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                        machine: .cloud(machineID), provider: provider, catalog: catalog,
+                        name: childWorkspace.name, focus: focus, openLocally: open,
+                        existingWorkspace: childWorkspace, existingTerminal: childTerminal
+                    )
+                    response = [
+                        "machine": machineID,
+                        "terminal_id": childTerminal.id.key,
+                        "remote_workspace_id": childWorkspace.id,
+                        "workspace_id": opened.opened?.workspaceID.uuidString ?? NSNull(),
+                        "surface_id": opened.opened?.projections.first?.panelID.uuidString ?? NSNull(),
+                    ]
+                }
                 guard let terminalID = Self.fanOutString(response["terminal_id"]) else {
                     operation.children[index].state = .failed
                     operation.children[index].errorCode = "terminal_id_missing"
@@ -172,7 +201,24 @@ extension TerminalController {
                 operation.children[index].terminalID = terminalID
                 operation.children[index].state = .running
                 operation.children[index].startedAt = Date()
+                if explicitWorkspace == nil,
+                   let openedWorkspaceID = Self.fanOutString(response["workspace_id"]),
+                   !openedWorkspaceID.isEmpty {
+                    operation.children[index].localWorkspaceID = openedWorkspaceID
+                }
             } catch {
+                // The remote create is owned by this child until its receipt is
+                // committed into the visible local workspace. If local
+                // admission fails, close both identities so a failed fan-out
+                // cannot leave an orphaned agent in the machine sidebar.
+                if explicitWorkspace == nil {
+                    if let terminal = createdChildTerminal {
+                        try? await provider.closeTerminal(terminal.id, remoteWorkspaceID: createdChildWorkspace?.id)
+                    }
+                    if let workspace = createdChildWorkspace {
+                        try? await provider.closeRemoteWorkspace(id: workspace.id)
+                    }
+                }
                 operation.children[index].state = .failed
                 operation.children[index].errorCode = String(describing: error).prefix(120).description
                 operation.children[index].endedAt = Date()

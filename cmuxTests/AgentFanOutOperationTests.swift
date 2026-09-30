@@ -66,6 +66,30 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(operation.foundationObject["operation_id"] as? String, "f_test")
     }
 
+    func testFoundationObjectCarriesPerChildWorkspaceProjectionIdentity() {
+        let now = Date(timeIntervalSince1970: 1)
+        let child = AgentFanOutChild(
+            index: 0,
+            remoteWorkspaceID: "ws_child",
+            localWorkspaceID: "local-child",
+            terminalID: "term_child",
+            state: .running,
+            exitCode: nil,
+            errorCode: nil,
+            startedAt: now,
+            endedAt: nil
+        )
+        var value = operation()
+        value.children = [child]
+        let object = value.foundationObject
+        XCTAssertEqual(object["remote_workspace_ids"] as? [String], ["ws_child"])
+        guard let children = object["children"] as? [[String: Any]], let first = children.first else {
+            return XCTFail("child receipt is missing")
+        }
+        XCTAssertEqual(first["remote_workspace_id"] as? String, "ws_child")
+        XCTAssertEqual(first["local_workspace_id"] as? String, "local-child")
+    }
+
     func testNonZeroChildExitIsPartialFailure() {
         let now = Date(timeIntervalSince1970: 1)
         var operation = AgentFanOutOperation(

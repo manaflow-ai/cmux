@@ -23,6 +23,12 @@ enum AgentFanOutChildState: String, Codable {
 
 struct AgentFanOutChild: Codable, Equatable {
     let index: Int
+    /// Each default fan-out child gets its own remote workspace so the local
+    /// sidebar can project it as an independently visible workspace. Older
+    /// ledgers omit this field and continue to decode safely.
+    var remoteWorkspaceID: String?
+    /// The local workspace created for a visible child, when one was opened.
+    var localWorkspaceID: String?
     var terminalID: String?
     var state: AgentFanOutChildState
     var exitCode: Int?
@@ -30,8 +36,32 @@ struct AgentFanOutChild: Codable, Equatable {
     var startedAt: Date?
     var endedAt: Date?
 
+    init(
+        index: Int,
+        remoteWorkspaceID: String? = nil,
+        localWorkspaceID: String? = nil,
+        terminalID: String?,
+        state: AgentFanOutChildState,
+        exitCode: Int?,
+        errorCode: String?,
+        startedAt: Date?,
+        endedAt: Date?
+    ) {
+        self.index = index
+        self.remoteWorkspaceID = remoteWorkspaceID
+        self.localWorkspaceID = localWorkspaceID
+        self.terminalID = terminalID
+        self.state = state
+        self.exitCode = exitCode
+        self.errorCode = errorCode
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+    }
+
     var foundationObject: [String: Any] {
         var result: [String: Any] = ["index": index, "state": state.rawValue]
+        if let remoteWorkspaceID { result["remote_workspace_id"] = remoteWorkspaceID }
+        if let localWorkspaceID { result["local_workspace_id"] = localWorkspaceID }
         if let terminalID { result["terminal_id"] = terminalID }
         if let exitCode { result["exit_code"] = exitCode }
         if let errorCode { result["error_code"] = errorCode }
@@ -65,12 +95,17 @@ struct AgentFanOutOperation: Codable, Equatable {
 
     var createdCount: Int { children.filter { $0.terminalID != nil }.count }
     var settledCount: Int { children.filter { $0.state == .exited || $0.state == .failed }.count }
+    var remoteWorkspaceIDs: [String] {
+        var seen = Set<String>()
+        return children.compactMap(\.remoteWorkspaceID).filter { seen.insert($0).inserted }
+    }
 
     var foundationObject: [String: Any] {
         [
             "operation_id": id,
             "machine": machineID,
             "remote_workspace_id": remoteWorkspaceID,
+            "remote_workspace_ids": remoteWorkspaceIDs,
             "agent": agent,
             "requested": requestedCount,
             "created": createdCount,
@@ -205,6 +240,13 @@ actor AgentFanOutOperationStore {
             merged.remoteWorkspaceID = incoming.remoteWorkspaceID.isEmpty ? previous.remoteWorkspaceID : incoming.remoteWorkspaceID
             merged.children = incoming.children.map { candidate in
                 guard let current = previous.children.first(where: { $0.index == candidate.index }) else { return candidate }
+                var candidate = candidate
+                if candidate.remoteWorkspaceID == nil {
+                    candidate.remoteWorkspaceID = current.remoteWorkspaceID
+                }
+                if candidate.localWorkspaceID == nil {
+                    candidate.localWorkspaceID = current.localWorkspaceID
+                }
                 if current.state == .exited {
                     return current
                 }
@@ -213,7 +255,8 @@ actor AgentFanOutOperationStore {
                     return current
                 }
                 if current.terminalID != nil && candidate.terminalID == nil {
-                    return current
+                    candidate.terminalID = current.terminalID
+                    candidate.startedAt = candidate.startedAt ?? current.startedAt
                 }
                 return candidate
             }

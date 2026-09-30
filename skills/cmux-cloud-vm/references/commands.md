@@ -348,9 +348,11 @@ The exit code passes through (1 on timeout/signal); Ctrl-C ends the wait, not th
 remote agent. With waiting, launch diagnostics go to stderr and stdout carries
 the result. `--json` emits one final object. Without `--wait`, launch returns immediately.
 
-`--fan-out <count>` starts that many independent detached child terminals in one
-remote workspace (by default a new workspace). `--remote-workspace <ws>` reuses
-an existing remote workspace. `--operation-id <id>` makes retries idempotent:
+`--fan-out <count>` starts that many independent detached child terminals. By
+default each child gets its own named remote workspace and, unless `--no-open` is
+given, its own visible local workspace/sidebar row. `--remote-workspace <ws>`
+opts into placing all children in an existing shared remote workspace (and uses
+the caller's selected local destination when opening). `--operation-id <id>` makes retries idempotent:
 repeating the same request returns the persisted operation and does not create
 duplicate children. Fan-out does not support the single-agent `--wait` or
 `--output` path. `cmux vm agent status` reads the persisted operation, including
