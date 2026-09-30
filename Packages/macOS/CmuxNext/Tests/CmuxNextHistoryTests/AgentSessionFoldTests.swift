@@ -74,6 +74,18 @@ struct AgentSessionFoldTests {
         #expect(session.startedAt == Date(timeIntervalSince1970: 1_785_715_201))
     }
 
+    /// The live daemon sends `sequence` and `occurred_at_ms` as decimal
+    /// strings (resource API v2); a record with a string time was dropped.
+    @Test func decodesStringTimesFromTheLiveDaemon() throws {
+        let json = """
+        {"sequence":"30","kind":"agent.session.started","occurred_at_ms":"1790810388279","committed_at_ms":"1790810388279",
+         "subjects":[{"kind":"session","id":"session_x"}],
+         "payload":{"adapter":{"id":"claude","version":1},"normalized":{"agent_session_id":"hist-test-1"}}}
+        """
+        let record = try JSONDecoder().decode(AgentJournalRecord.self, from: Data(json.utf8))
+        #expect(record.occurredAtMs == 1_790_810_388_279)
+    }
+
     @Test func resumeCommandsQuoteUnsafeIDs() {
         #expect(AgentResume.command(provider: "claude", sessionID: "0b1c-22") == "claude --resume 0b1c-22")
         #expect(AgentResume.command(provider: "codex", sessionID: "a b'c") == "codex resume 'a b'\\''c'")
