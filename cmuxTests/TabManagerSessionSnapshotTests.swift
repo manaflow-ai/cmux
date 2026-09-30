@@ -126,6 +126,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let panelID = UUID()
         var workspace = Self.localWorkspaceSnapshot(title: "Duplicate panels", panelId: panelID)
         workspace.panels.append(Self.terminalPanelSnapshot(id: panelID))
+        workspace.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelID, panelID],
+            selectedPanelId: panelID
+        ))
 
         let restored = makeTabManager()
         restored.restoreSessionSnapshot(SessionTabManagerSnapshot(

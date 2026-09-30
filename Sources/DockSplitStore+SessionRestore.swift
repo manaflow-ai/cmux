@@ -48,8 +48,11 @@ extension DockSplitStore {
 
         for leaf in scaffold.leaves {
             _ = bonsplitController.setFullWidthTabMode(false, inPane: leaf.paneId)
+            var restoredPanelIdsInLeaf: Set<UUID> = []
             let desiredPanelIds = leaf.snapshot.panelIds.filter {
-                panelSnapshotsById[$0] != nil && !restoredPanelIds.contains($0)
+                panelSnapshotsById[$0] != nil &&
+                    restoredPanelIdsInLeaf.insert($0).inserted &&
+                    !restoredPanelIds.contains($0)
             }
             var createdPanelIds: [UUID] = []
             for oldPanelId in desiredPanelIds {

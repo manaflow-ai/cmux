@@ -1362,7 +1362,7 @@ struct DockSessionPersistenceTests {
     func duplicatePanelIDsDoNotTrapDuringRestore() throws {
         let panelID = UUID()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-dock-duplicate-panel-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-dock-duplicate-panel-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -1372,6 +1372,10 @@ struct DockSessionPersistenceTests {
             workingDirectory: root.path
         )
         snapshot.panels.append(snapshot.panels[0])
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelID, panelID],
+            selectedPanelId: panelID
+        ))
 
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
         defer { store.closeAllPanels() }
