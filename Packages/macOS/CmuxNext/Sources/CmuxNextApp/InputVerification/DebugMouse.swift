@@ -13,8 +13,10 @@ import CmuxNextSettings
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
 /// `pane` (the center of that pane's content); `action`: `click` (default),
-/// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y` in `steps`), or
-/// `scroll` (`dx`,`dy` pixels); `button`: `left` (default), `right`;
+/// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y` in `steps`),
+/// `move` (pointer motion with no button, for hover: tab and workspace
+/// hover cards), or `scroll` (`dx`,`dy` pixels); `button`: `left`
+/// (default), `right`;
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -51,6 +53,8 @@ enum DebugMouse {
                 events.append(mouse(dragged, at: at, in: window, flags: flags, clicks: 1))
             }
             events.append(mouse(up, at: target, in: window, flags: flags, clicks: 1))
+        case "move":
+            events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
             events = [scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0)]
         default:

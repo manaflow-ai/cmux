@@ -30,6 +30,7 @@ public nonisolated enum ActionCatalog {
         all += profileActions()
         all += paneActions()
         all += tabActions()
+        all += resourceActions()
         all += tabGroupsActions()
         all += terminalActions()
         all += browserActions()

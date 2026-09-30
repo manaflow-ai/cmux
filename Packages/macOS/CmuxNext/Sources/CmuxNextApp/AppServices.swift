@@ -35,6 +35,8 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    /// CPU and memory for the hover cards and `resources` (sampled on demand).
+    private(set) var resources: AppResourceSource!
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
@@ -86,6 +88,7 @@ final class AppServices {
         }
         surfaceInvariant.services = self
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
+        resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)

@@ -61,7 +61,7 @@ public enum ContextMenuCatalog {
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
                   "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
                   "palette.toggleFullWidthTab")
-        + [.separator] + actions("palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
+        + [.separator] + actions("tab.showResources", "palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
         + [.separator] + actions("disconnectRemoteTab", "closeTabsToLeft", "closeTabsToRight", "closeOtherTabsInPane", "closeTab")
 
     static let tabGroup: [ContextMenuEntry] =
@@ -90,7 +90,7 @@ public enum ContextMenuCatalog {
         + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
                   "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspace.moveToRoom", "workspace.duplicateToRoom")
         + [.separator]
-        + actions("reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+        + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
                   "palette.copyWorkspaceLink")
         + [.separator]
         + actions("palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "closeWorkspace")

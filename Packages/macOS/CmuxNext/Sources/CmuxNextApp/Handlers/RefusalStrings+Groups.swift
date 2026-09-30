@@ -27,6 +27,9 @@ nonisolated extension RefusalStrings {
     static var textBoxUnported: String { text("handlers.refusal.textBoxUnported", "needs the TextBox composer, which cmux-next does not have yet") }
     static var findPanelUnported: String { text("handlers.refusal.findPanelUnported", "needs the Find panel (not in cmux-next yet)") }
     static func colorMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.colorMustBeOneOf", "color must be one of %@", choices) }
+    static var resourceCardNotShown: String {
+        text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
+    }
     static var workspaceHasNoDirectory: String { text("handlers.refusal.workspaceHasNoDirectory", "the workspace has no working directory") }
     static var workspaceNotInSidebar: String { text("handlers.refusal.workspaceNotInSidebar", "the workspace is not in the sidebar") }
     static var noWorkspaceToActOn: String { text("handlers.refusal.noWorkspaceToActOn", "no workspace to act on") }

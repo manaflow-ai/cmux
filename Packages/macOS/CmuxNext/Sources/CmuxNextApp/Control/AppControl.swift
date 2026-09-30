@@ -69,6 +69,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))
             },
+            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
+            .async("resources") { [weak services] call in
+                let services = await MainActor.run { services }
+                return try await ResourceControl.run(call.params, services: services)
+            },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
