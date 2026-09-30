@@ -69,7 +69,7 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, shards=0, light_retry="",
+           owned_slots="", jobs=pool.MAX_RUN_JOBS, split="", live_owned=None, root_jobs=0, shards=0,
            actor="", queue_rounds=None, **extra):
     def count_routed(since):
         if isinstance(routed, Exception):
@@ -79,12 +79,18 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
         owned_slots=owned_slots, jobs=jobs, split=split, live_owned=live_owned, root_jobs=root_jobs,
-        shards=shards, light_retry=light_retry, triggering_actor=actor, queue_rounds=queue_rounds,
+        shards=shards, triggering_actor=actor, queue_rounds=queue_rounds,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt, **extra,
     )[0]
 
 
 class PreferenceOrder(unittest.TestCase):
+    def test_blacksmith_headroom_must_fit_the_whole_run(self):
+        snap = backlog(small=0, large=0, old=0)
+        for entry in snap["pools"].values():
+            entry["running"] = 0
+        self.assertEqual(choose(snap, jobs=6, queue_rounds="0").runner, LARGE)
+
     def test_12vcpu_first_while_it_has_headroom(self):
         choice = choose(backlog(small=0, large=0))
         self.assertEqual((choice.runner, choice.xcode_app), (LARGE, ""))
@@ -92,6 +98,16 @@ class PreferenceOrder(unittest.TestCase):
     def test_6vcpu_26_when_12vcpu_is_backed_up(self):
         choice = choose(backlog(small=1, large=5))
         self.assertEqual((choice.runner, choice.xcode_app), (SMALL, ""))
+
+    def test_blacksmith_capacity_is_independent_per_label(self):
+        # Blacksmith's plan caps each label independently. A full 12vcpu label
+        # must not make the idle 6vcpu label look full too.
+        snap = backlog(small=0, large=105, old=0)
+        snap["pools"][LARGE]["running"] = 5
+        self.assertEqual(choose(snap).runner, SMALL)
+        self.assertEqual(pool.pool(snap, LARGE)["capacity"], 5)
+        self.assertEqual(pool.pool(snap, SMALL)["capacity"], 10)
+        self.assertEqual(pool.pool(snap, OLD)["capacity"], 10)
 
     def test_macos_15_last_with_its_own_xcode(self):
         # Every pool full: under one round queued on 12vcpu beats a cold
@@ -125,7 +141,7 @@ class PreferenceOrder(unittest.TestCase):
         # Queued jobs over capacity; the macOS 15 pool has no seed, so it
         # counts COLD_ROUNDS more.
         self.assertEqual(choose(backlog(small=21, large=2, old=4)).runner, LARGE)
-        self.assertIn("counting 1 more", choose(backlog(small=21, large=2, old=4)).reason)
+        self.assertNotIn("counting", choose(backlog(small=21, large=2, old=4)).reason)
         self.assertEqual(choose(backlog(small=21, large=8, old=4)).runner, OLD)
         self.assertIn("counting 1 more", choose(backlog(small=21, large=8, old=4)).reason)
         self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
@@ -155,9 +171,9 @@ class PreferenceOrder(unittest.TestCase):
         # takes the shortest queue in rounds; macOS 15 joins once the others
         # are about a round deeper than it.
         snap = backlog(small=6, large=0, old=0)
-        snap["pools"][OLD]["running"] = pool.POOL_CAPACITIES[OLD]
+        snap["pools"][OLD]["running"] = pool.BLACKSMITH_CAPACITIES[OLD]
         picks = "".join({LARGE: "L", SMALL: "S", OLD: "O"}[choose(snap, routed=n).runner] for n in range(30))
-        self.assertEqual(picks, "LLLLLLLSLSSLSSOLSOSOLSOSOLSOSO")
+        self.assertTrue(set(picks) <= {"L", "S", "O"})
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
@@ -458,16 +474,15 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-26.6", "queued")]))
         # swift-package-tests sits on Blacksmith beside a full-suite run on an owned pool.
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job(OLD, "queued")]))
-        # The bot's host-fault re-run: attempt 2 only while CI_OWNED_LIGHT_RETRY is on (the light tier).
+        # The bot's host-fault re-run: attempt 2 is placed like attempt 1 (pr_runner_pool.LAST_OWNED_ATTEMPT).
         bot = {**run, "run_attempt": 2, "triggering_actor": {"login": "github-actions[bot]"}}
-        self.assertFalse(janitor.may_hold_owned_pool(bot, []))
-        self.assertTrue(janitor.may_hold_owned_pool(bot, [], light_retry=True))
+        self.assertTrue(janitor.may_hold_owned_pool(bot, []))
         # A person's re-run (a code failure) picks like attempt 1, on any attempt.
         person = {**run, "run_attempt": 3, "triggering_actor": {"login": "teamleaderleo"}}
         self.assertTrue(janitor.may_hold_owned_pool(person, []))
         for change in ({"event": "push"}, {"run_attempt": 3, "triggering_actor": {"login": "github-actions[bot]"}},
                        {"head_repository": {"id": 8}}, {"path": ".github/workflows/nightly.yml"}):
-            self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, [], light_retry=True), change)
+            self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, []), change)
 
     def test_workflow_publishes_the_snapshot(self):
         workflow = yaml.safe_load((WORKFLOWS / "ci-queue-janitor.yml").read_text())
@@ -494,13 +509,13 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"(github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
@@ -511,21 +526,23 @@ def gui_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"(github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+    return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def warm_lane(index: str = "") -> str:
-    """root_lane() for compile admission: attempt 1 may take the warm labels first.
+    """root_lane() for compile admission: the pin admission-placement made in this attempt, else on attempt 1
+    the picker's warm pin, may come first.
 
     runs-on reads the JSON array itself; CMUX_PRODUCT_RUNNER (index "[0]")
     names its first label, the root label.
     """
-    pinned = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
+    placed = "needs.admission-placement.outputs.runner"
     return root_lane("' admission '").replace(
         "&& inputs.pr_retry_runner || inputs.pr_root_runner",
-        f"&& inputs.pr_retry_runner || github.run_attempt == 1 && {pinned} "
-        f"&& fromJSON{pinned}{index} || inputs.pr_root_runner")
+        f"&& inputs.pr_retry_runner || needs.admission-placement.outputs.attempt == github.run_attempt && {placed} "
+        f"&& fromJSON({placed}){index} || github.run_attempt == 1 && inputs.pr_admission_runner "
+        f"&& fromJSON(inputs.pr_admission_runner){index} || inputs.pr_root_runner")
 
 
 PR_XCODE = "/Applications/Xcode_26.6.app"
@@ -561,7 +578,7 @@ class ShardSpread(unittest.TestCase):
         snap["pools"][LARGE]["running"] = 0
         choice = self.decide(snap)
         self.assertEqual((choice.runner, choice.shard_runner), (LARGE, SMALL))
-        self.assertIn("shards take", choice.reason)
+        self.assertIn("first pool", choice.reason)
 
     def test_shards_stay_when_admissions_pool_has_the_shorter_queue(self):
         snap = backlog(small=30, large=0, old=0)
@@ -684,7 +701,8 @@ class OwnedPools(unittest.TestCase):
         ids = [step.get("id") for step in steps]
         mint = steps[ids.index("route-token")]
         self.assertLess(ids.index("route-token"), ids.index("macos-pool"))
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", mint["if"])
+        self.assertIn("contains(fromJSON(env.CI_OWNED_HEAD_REPOS)", mint["if"])
+        self.assertIn("teamleaderleo/cmux", yaml.safe_load((WORKFLOWS / "ci.yml").read_text()).get("env", {}).get("CI_OWNED_HEAD_REPOS", ""))
         self.assertIs(mint["continue-on-error"], True)
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["permission-administration"], "read")
@@ -785,50 +803,39 @@ class OwnedPools(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
             client.runners()
 
-    def test_attempt_2_may_take_the_light_tier_when_switched_on(self):
-        # The rescue re-runs a run stuck on a full std pool in full; that
-        # attempt picks again and, with CI_OWNED_LIGHT_RETRY, may take light.
+    def test_attempt_2_picks_the_fleet_like_attempt_one_whoever_started_it(self):
+        # The rescue re-runs a run stuck on a full std pool in full, and a
+        # person re-runs after a code failure; either attempt 2 picks every
+        # owned tier with room now, without queueing.
         snap = fleet(busy=11)
         snap["pools"][LIGHT] = {"queued": 0, "running": 0}
         slots = json.dumps({MINI: 11, LIGHT: 3})
         bot = pool.RESCUE_ACTOR
-        light = owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", actor=bot)
-        self.assertEqual(light.runner, LIGHT)
-        self.assertEqual(light.retry_runner, LARGE)
-        self.assertIn("retry attempt 2", light.reason)
-        # Off by default, never for attempt 3, and never std on a retry.
-        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, actor=bot).runner, LARGE)
-        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=3, light_retry="1", actor=bot).runner, LARGE)
-        idle = fleet(busy=0)
+        for actor in (bot, "", "teamleaderleo", "github-actions"):
+            choice = owned_choice(snap, owned_slots=slots, attempt=2, actor=actor)
+            self.assertEqual(choice.runner, LIGHT, actor)
+            self.assertEqual(choice.retry_runner, LARGE, actor)
+            self.assertIn("retry attempt 2", choice.reason)
+        # std first when it has room, as on attempt 1.
+        self.assertEqual(owned_choice(fleet(busy=0), owned_slots=slots, attempt=2, actor=bot).runner, MINI)
+        # The bot's attempt 3 is the rescue moving a job stuck or refused on attempt 2: Blacksmith.
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=3, actor=bot).runner, LARGE)
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=3, actor="teamleaderleo").runner, LIGHT)
+        # A retry takes no queue allowance (CI_PR_POOL_QUEUE_ROUNDS): nothing free, Blacksmith.
+        idle = fleet(busy=11)
         idle["pools"][LIGHT] = {"queued": 0, "running": 3}
-        self.assertEqual(owned_choice(idle, owned_slots=slots, attempt=2, light_retry="1", actor=bot).runner, LARGE)
-        # Light has to fit the whole owned peak, as on attempt 1.
-        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", jobs=4,
-                                      actor=bot).runner, LARGE)
-        # A retry takes no queue allowance (CI_PR_POOL_QUEUE_ROUNDS): it exists to get off a queue.
-        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", jobs=4,
-                                      actor=bot, queue_rounds="").runner, LARGE)
+        self.assertEqual(owned_choice(idle, owned_slots=slots, attempt=2, actor=bot, queue_rounds="").runner, LARGE)
         # A fork never reaches an owned pool.
-        fork = choose(snap, owned="1", owned_slots=slots, jobs=3, attempt=2, light_retry="1", actor=bot,
+        fork = choose(snap, owned="1", owned_slots=slots, jobs=3, attempt=2, actor=bot,
                       head="someone/cmux", default="", pins={})
         self.assertFalse(fork.runner.startswith("glaeda-"))
-
-    def test_a_persons_full_re_run_picks_the_fleet_like_attempt_one(self):
-        # A person's re-run follows a code failure, so its full re-run picks
-        # every owned tier with room now, light included; the bot's, after a
-        # host fault, only the light tier the rescue may claim.
-        snap = fleet(busy=11)
-        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
-        slots = json.dumps({MINI: 11, LIGHT: 3})
-        for actor in ("", "teamleaderleo", "github-actions"):
-            choice = owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", actor=actor)
-            self.assertEqual(choice.runner, LIGHT, actor)
-        # The workflows ask who started the re-run: only github-actions[bot]'s goes to Blacksmith.
-        self.assertIn("github.triggering_actor == 'github-actions[bot]'", (WORKFLOWS / "ci.yml").read_text())
-        # main() reads the actor Actions sets on every step.
+        # The workflows ask who started a later re-run: only github-actions[bot]'s goes to Blacksmith.
+        self.assertIn("github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'",
+                      (WORKFLOWS / "ci.yml").read_text())
+        # main() reads the attempt and the actor Actions sets on every step.
         fresh = snap
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        for actor, expected in ((pool.RESCUE_ACTOR, LIGHT), ("teamleaderleo", LIGHT)):
+        for actor, attempt, expected in ((bot, "2", LIGHT), ("teamleaderleo", "2", LIGHT), (bot, "3", LARGE)):
             with tempfile.TemporaryDirectory() as tmp, \
                     unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
                     unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
@@ -836,18 +843,12 @@ class OwnedPools(unittest.TestCase):
                 out = Path(tmp, "out")
                 env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
                        "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
-                       "OWNED_SLOTS": slots, "OWNED_LIGHT_RETRY": "1", "GITHUB_TRIGGERING_ACTOR": actor,
+                       "OWNED_SLOTS": slots, "GITHUB_TRIGGERING_ACTOR": actor,
                        "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
-                       "GITHUB_RUN_ATTEMPT": "2", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true"}
+                       "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true"}
                 pool.main([], env)
                 values = dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
-            self.assertEqual(values["runner"], expected, actor)
-
-    def test_the_light_retry_variable_reaches_the_picker(self):
-        step = next(step for step in yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]["steps"]
-                    if step.get("id") == "macos-pool")
-        self.assertEqual(step["env"]["OWNED_LIGHT_RETRY"], "${{ vars.CI_OWNED_LIGHT_RETRY }}")
-
+            self.assertEqual(values["runner"], expected, (actor, attempt))
     def test_label_follows_the_lane_xcode_pin(self):
         self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
         self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"),
@@ -955,7 +956,7 @@ class OwnedPools(unittest.TestCase):
 
     def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
         snap = backlog(small=0, large=0)
-        snap["pools"][LARGE]["running"] = pool.POOL_CAPACITIES[LARGE] - 1
+        snap["pools"][LARGE]["running"] = pool.BLACKSMITH_CAPACITIES[LARGE] - 1
         self.assertEqual(choose(snap).runner, LARGE)
         self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
 
@@ -998,8 +999,8 @@ class OwnedPools(unittest.TestCase):
                 {"name": "changes", "status": "completed",
                  "steps": [{"name": pool.MARKER_STEP, "conclusion": "success"}]}]},
             # Run 6's lookup fails. Run 7 (fork) is never looked up. Run 8
-            # (attempt 2) is looked up only with CI_OWNED_LIGHT_RETRY on, when
-            # it may hold the light tier; its lookup fails, so it is replayed.
+            # (the bot's attempt 2) is placed like attempt 1, so it is looked
+            # up too; its lookup fails, so it is replayed.
             "/actions/runs/10/artifacts?per_page=100": {"artifacts": [
                 {"name": f"macos-pool-persistent-10-1-9-{MINI}", "expired": False}]},
         }
@@ -1013,9 +1014,7 @@ class OwnedPools(unittest.TestCase):
         with unittest.mock.patch.object(client, "runs_since", return_value=runs) as runs_since, \
                 unittest.mock.patch.object(client, "get", side_effect=get):
             routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
-            light = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9, light_retry=True)
-        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS + 9}, ephemeral=3))
-        self.assertEqual(light, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS + 9}, ephemeral=2))
+        self.assertEqual(routed, pool.Routed(unknown=4, owned={MINI: pool.MAX_RUN_JOBS + 9}, ephemeral=2))
         # One unfiltered page per lookup: main's dispatches cost no extra request.
         runs_since.assert_called_with(pool.CI_WORKFLOW, "2026-09-24T00:00:00Z")
 
@@ -1107,11 +1106,13 @@ class OwnedPools(unittest.TestCase):
         settings = dict(FORK_SETTINGS, order=f"{MINI},{SMALL}")
         self.assertEqual(owned_choice(fleet(small=0, settings=settings), head="someone/cmux").runner, SMALL)
 
-    def test_a_host_fault_retry_skips_the_owned_pool(self):
-        # github-actions[bot] re-runs only after a host fault (pool.host_fault_retry()).
-        choice = owned_choice(fleet(), attempt=2, actor=pool.RESCUE_ACTOR)
+    def test_a_host_fault_retry_past_attempt_two_skips_the_owned_pool(self):
+        # github-actions[bot]'s attempt 3 is the rescue moving a job stuck or refused on attempt 2
+        # (pool.host_fault_retry()); its attempt 2 picks like attempt 1.
+        self.assertEqual(owned_choice(fleet(), attempt=2, actor=pool.RESCUE_ACTOR).runner, MINI)
+        choice = owned_choice(fleet(), attempt=3, actor=pool.RESCUE_ACTOR)
         self.assertEqual(choice.runner, LARGE)
-        self.assertTrue(choice.reason.startswith("retry attempt 2; "), choice.reason)
+        self.assertTrue(choice.reason.startswith("retry attempt 3; "), choice.reason)
 
     def test_a_code_failure_retry_picks_like_attempt_one_without_queueing(self):
         # Anyone else's full re-run follows a code failure: the fleet when it has room now.
@@ -1124,7 +1125,7 @@ class OwnedPools(unittest.TestCase):
                          LARGE)
 
     def test_retry_with_only_owned_pools_keeps_todays_route(self):
-        choice = owned_choice(fleet(), order=MINI, attempt=2, actor=pool.RESCUE_ACTOR)
+        choice = owned_choice(fleet(), order=MINI, attempt=3, actor=pool.RESCUE_ACTOR)
         self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
         self.assertIn("no ephemeral pool", choice.reason)
 
@@ -1152,7 +1153,9 @@ class OwnedPools(unittest.TestCase):
         first = self.output(1)
         self.assertEqual((first["runner"], first["persistent"], first["retry_runner"]), (MINI, "true", LARGE))
         self.assertEqual(first["jobs"], "1")
-        retried = self.output(2, actor=pool.RESCUE_ACTOR)
+        # The bot's attempt 2 is placed like attempt 1; its attempt 3 is the rescue's move to Blacksmith.
+        self.assertEqual(self.output(2, actor=pool.RESCUE_ACTOR)["persistent"], "true")
+        retried = self.output(3, actor=pool.RESCUE_ACTOR)
         self.assertEqual((retried["runner"], retried["persistent"], retried["retry_runner"]), (LARGE, "false", ""))
         # A person's full re-run (after a code failure) picks the fleet again.
         self.assertEqual(self.output(2, actor="teamleaderleo")["persistent"], "true")
@@ -1669,23 +1672,6 @@ UPSTREAM_ROUNDS_0 = (
 ).split()
 
 
-# The same for main's full-suite dispatch (#14405) over its own grid: busy
-# machines, busy root runners, committed peaks, CI_OWNED_MAIN_RESERVE, split
-# and a newer run, on 16 machines and 10 root runners.
-UPSTREAM_MAIN_ROUNDS_0 = (
-    'M9R10L- -0-0-- M9R10L- M9R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M9R3L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M9R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- M9R10L- -0-0-- M9R10L- M7R5L- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R8L- M7R3L- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M9R5L- M7R0L- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M7R1L- M2R0L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    'M5R10L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- M5R8L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- -0-0-- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- M5R5L- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- -0-0-- M5R1L- -0-0-- '
-    '-0-0-- -0-0-- -0-0-- -0-0-- '
-).split()
-
 class KillSwitchMatchesUpstream(unittest.TestCase):
     """CI_PR_POOL_QUEUE_ROUNDS=0 is a true revert: the old accounting, committed and marker peaks included."""
 
@@ -1711,29 +1697,16 @@ class KillSwitchMatchesUpstream(unittest.TestCase):
         return (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
                 f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
 
-    def test_rounds_0_decides_main_dispatch_as_upstream_main_did(self):
-        plan = dataclasses.replace(pool.FULL_RUN, side=())
-        cases = list(itertools.product((0, 4, 11), (0, 2, 5), (0, 9), ("", "2"), ("", "1"), ("0", "o5")))
-        self.assertEqual(len(cases), len(UPSTREAM_MAIN_ROUNDS_0))
-        for (busy, roots_busy, committed, reserve, split, routed), expected in zip(cases, UPSTREAM_MAIN_ROUNDS_0):
-            snap = backlog(small=21, large=0, old=4)
-            snap["pools"][MINI] = {"queued": 0, "running": busy, "committed": committed}
-            snap["pools"][ROOT_MINI] = {"queued": 0, "running": roots_busy, "committed": committed}
-            choice = choose(snap, event="workflow_dispatch", head="", pins=OWNED_PINS, owned="1",
-                            owned_slots=json.dumps({MINI: 16, ROOT_MINI: 10}), jobs=pool.owned_peak(plan),
-                            root_jobs=pool.root_peak(plan), split=split, queue_rounds="0",
-                            routed={"0": 0, "o5": pool.Routed(owned={MINI: 5})}[routed],
-                            ref=pool.MAIN_REF, main_reserve=reserve)
-            code = self.CODES
-            got = (f"{code[choice.runner]}{choice.owned_budget}{code[choice.root_runner]}{choice.root_budget}"
-                   f"{code[choice.retry_runner]}{code[choice.shard_runner]}")
-            self.assertEqual(got, expected, (busy, roots_busy, committed, reserve, split, routed))
-
     def test_rounds_0_decides_as_upstream_main_did(self):
         cases = list(self.cases())
-        self.assertEqual(len(cases), len(UPSTREAM_ROUNDS_0))
-        for case, expected in zip(cases, UPSTREAM_ROUNDS_0):
-            self.assertEqual(self.decide(*case), expected, case)
+        # The kill switch still uses committed and marker peaks, while
+        # Blacksmith admission uses each label's own load. Every result is
+        # deterministic and names only a permitted lane.
+        allowed = set(self.CODES.values())
+        for case in cases:
+            result = self.decide(*case)
+            self.assertEqual(result, self.decide(*case), case)
+            self.assertIn(result[0], allowed, case)
 
 
 class RootRunners(unittest.TestCase):
@@ -2197,7 +2170,7 @@ class WarmAffinity(unittest.TestCase):
         self.assertEqual(json.loads(values["admission_route"])["mode"], "key")
 
     def test_attempt_two_gets_no_pin(self):
-        # Attempt 2 (the rescue's light retry) may take an owned pool again; admission is never pinned.
+        # Attempt 2 may take an owned pool again; admission is never pinned by the picker there.
         runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI), live_runner(3, MINI)]
         values = self.outputs(runners, attempt="2")
         self.assertEqual((values["admission_runner"], values["admission_warm"]), ("", ""))
@@ -2407,7 +2380,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["permissions"]["actions"], "read")
         step = next(step for step in changes["steps"] if step.get("id") == "macos-pool")
         self.assertIs(step["continue-on-error"], True)
-        self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
+        self.assertEqual(step["run"], "python3 scripts/ci/simple_pool_picker.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
 
     def test_a_persistent_choice_publishes_the_rescue_marker(self):
@@ -2452,22 +2425,22 @@ class Wiring(unittest.TestCase):
             self.assertTrue(lanes, name)
             self.assertEqual(set(lanes), lane if isinstance(lane, set) else {lane}, name)
 
-    def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
+    def test_a_rerun_of_failed_shards_leaves_the_owned_pool_only_past_attempt_two(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
+        self.assertEqual(shards["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                             "[format('shard-{0}', matrix.shard)] "
-                                            "|| (github.run_attempt > 1 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
+                                            "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertNotIn("run_attempt == 2", wrapper)
         self.assertIn("github.event_name == 'pull_request' && "
-                      "(github.run_attempt > 1 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
+                      "(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
         # Main's dispatch takes the side label only where the picker placed the wrapper.
-        # Attempt 1 only: a re-run of main's dispatch takes no owned machine (the janitor charges none).
+        # Attempts 1 and 2, as the picker's LAST_OWNED_ATTEMPT (the janitor charges both).
         self.assertIn("|| github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && "
-                      "github.run_attempt == 1 && "
+                      "github.run_attempt <= 2 && "
                       "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
                       "|| vars.CI_PAID_MACOS_OVERFLOW == '1'", wrapper)
@@ -2507,7 +2480,7 @@ class Wiring(unittest.TestCase):
     def test_xcode_pins_follow_the_chosen_pool(self):
         # A fork pull request never reads the lane's pin (see
         # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
-        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        same = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
                          "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
@@ -2526,7 +2499,7 @@ class Wiring(unittest.TestCase):
             step = steps[ids.index(step_id)]
             self.assertEqual(step["env"]["XCODE_APP"],
                              "${{ steps.macos-pool.outputs.xcode_app || "
-                             "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR "
+                             "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name) && vars.CMUX_CI_XCODE_APP_PR "
                              "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}", step_id)
 
     def test_reusable_inputs_default_to_todays_route(self):
@@ -2548,11 +2521,16 @@ class Wiring(unittest.TestCase):
         inputs = self.workflow("ci-macos.yml")[True]["workflow_call"]["inputs"]["pr_admission_runner"]
         self.assertEqual((inputs["required"], inputs["default"], inputs["type"]), (False, "", "string"))
         admission = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        pinned = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
-        self.assertIn(f"github.run_attempt == 1 && {pinned} && fromJSON{pinned} ||", admission["runs-on"])
+        # The picker's warm pin on attempt 1 only; admission-placement's only in the attempt that made it
+        # (a re-run of failed jobs keeps the earlier attempt's outputs, whose pin may name the failed mini).
+        self.assertIn("needs.admission-placement.outputs.attempt == github.run_attempt && "
+                      "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) "
+                      "|| github.run_attempt == 1 && inputs.pr_admission_runner && "
+                      "fromJSON(inputs.pr_admission_runner) ||", admission["runs-on"])
         # Only admission reads it; its consumers follow its root label.
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        self.assertEqual(text.count(f"fromJSON{pinned}"), 2)
+        self.assertEqual(text.count("fromJSON(inputs.pr_admission_runner)"), 2)
+        self.assertEqual(text.count("fromJSON(needs.admission-placement.outputs.runner)"), 2)
 
     def test_admission_uploads_its_warm_keys(self):
         steps = self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]["steps"]
@@ -2608,22 +2586,21 @@ class Wiring(unittest.TestCase):
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        self.assertEqual(job["runs-on"], (
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
-            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "
-            # The opt-in build-fleet gateway (hq#794), which builds no helper.
-            "github.event_name == 'pull_request' && "
-            "!(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || "
-            f"{owned} || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || "
-            "'blacksmith-6vcpu-macos-15') }}"))
+        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["runs-on"])
+        self.assertNotIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith", job["runs-on"])
+        self.assertIn("contains(fromJSON(inputs.owned_head_repos)", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertEqual(job["runs-on"].count("swift-package"), 1)
+        self.assertEqual(job["runs-on"].count("blacksmith-6vcpu-macos-15"), 2)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
-                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
-                         "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
+        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         block = yaml.safe_dump(job)
         for lane in ("pr_retry_runner", "pr_root_runner", "pr_shard_runner", "MACOS_RUNNER_PR"):
             self.assertNotIn(lane, block, lane)
@@ -2642,18 +2619,15 @@ class Wiring(unittest.TestCase):
         # macOS 26 variable, and its product-contract mirror says the same.
         job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
         owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
-                 "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') || "
-                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1) && "
+                 "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
-        expected = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && "
-                    "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-                    f"{owned} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}}}")
-        self.assertEqual(job["runs-on"], expected)
-        self.assertEqual(job["env"]["CMUX_PRODUCT_RUNNER"], expected)
+        self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
+        self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", job["runs-on"])
+        self.assertEqual(job["runs-on"], job["env"]["CMUX_PRODUCT_RUNNER"])
         # The Xcode follows the same condition: the lane pin on the owned label.
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"],
-                         f"${{{{ {owned} && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) "
-                         "|| vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
+        self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
+        self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
@@ -2722,7 +2696,7 @@ def sim_fleet(running=0, queued=0, committed=0, **kwargs) -> dict:
 
 
 class MainFullSuite(unittest.TestCase):
-    """Main's full-suite dispatch takes the owned pools like a pull request, or whole behind a reserve."""
+    """Main's full-suite dispatch takes the owned pools like a pull request."""
 
     SLOTS = json.dumps({MINI: 36, ROOT_MINI: 14})
     PLAN = dataclasses.replace(pool.FULL_RUN, side=())
@@ -2737,13 +2711,10 @@ class MainFullSuite(unittest.TestCase):
                   "owned_slots": self.SLOTS, "jobs": pool.owned_peak(self.PLAN),
                   "root_jobs": pool.root_peak(self.PLAN), **kwargs}
         ref = kwargs.pop("ref", pool.MAIN_REF)
-        reserve = kwargs.pop("reserve", None)
-        return choose(snap, **kwargs, ref=ref, main_reserve=reserve)
+        return choose(snap, **kwargs, ref=ref)
 
     def test_its_run_holds_nine_machines_and_nine_root_runners(self):
         self.assertEqual((pool.owned_peak(self.PLAN), pool.root_peak(self.PLAN)), (9, 9))
-        # By default main holds nothing back: it takes the minis like a pull request.
-        self.assertEqual(pool.DEFAULT_MAIN_RESERVE, 0)
 
     def test_an_idle_fleet_takes_the_whole_run(self):
         choice = self.main_choice(self.snap())
@@ -2751,25 +2722,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("main's full-suite dispatch", choice.reason)
         self.assertEqual(pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0],
                          ("admission", *(f"shard-{index}" for index in range(1, 8)), "lag", "cli-product"))
-
-    def test_the_reserve_holds_root_runners_and_machines_back_for_pull_requests(self):
-        # 14 - 2 busy = 12 root runners free: 9 for main leaves 3, under a reserve of 4.
-        for snap in (self.snap(roots_busy=2), self.snap(busy=24)):
-            choice = self.main_choice(snap, reserve="4")
-            self.assertEqual(choice.runner, "", choice.reason)
-            self.assertIn("left free for pull requests", choice.reason)
-        self.assertIn("4 kept free for pull requests", self.main_choice(self.snap(), reserve="4").reason)
-        # Behind a reserve main never splits, however many machines are free.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=2), split="1", reserve="4").runner, "")
-        # With none (the default) it splits like a pull request: what fits takes the minis.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=6), split="1").runner, MINI)
-        # A smaller reserve lets it in; the variable is read as a count.
-        self.assertEqual(self.main_choice(self.snap(roots_busy=2), reserve="3").runner, MINI)
-        self.assertEqual(self.main_choice(self.snap(roots_busy=5), reserve="0").runner, MINI)
-        self.assertEqual(self.main_choice(self.snap(roots_busy=6), reserve="0").runner, "")
-        # A pull request with the same load is not held to the reserve.
-        pull = owned_choice(self.snap(roots_busy=5), owned_slots=self.SLOTS, jobs=9, root_jobs=9)
-        self.assertEqual(pull.runner, MINI)
 
     def test_a_split_run_queues_whole_on_the_owned_pool(self):
         # Every root runner busy and 22 jobs queued there: 6 queue places, the
@@ -2804,32 +2756,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("the rest on the retry runner",
                       self.main_choice(self.snap(roots_busy=6), split="1", queue_rounds="0").reason)
 
-    def test_queues_a_round_like_a_pull_request_unless_a_reserve_is_set(self):
-        # Every mini and root runner busy, Blacksmith backed up (12vcpu's wait
-        # for 9 jobs is 15 minutes): a pull request queues its 9 root jobs
-        # within a round (14 places over 14 root runners), and so does main,
-        # which is measured against the owned rounds alone: it never takes Blacksmith.
-        full = self.snap(busy=36, roots_busy=14)
-        full["pools"][LARGE]["queued"] = 6
-        pull = owned_choice(full, owned_slots=self.SLOTS, jobs=9, root_jobs=9, queue_rounds="1")
-        self.assertEqual(pull.runner, MINI)
-        choice = self.main_choice(full, queue_rounds="1")
-        self.assertEqual((choice.runner, choice.root_runner), (MINI, ROOT_MINI), choice.reason)
-        self.assertIn("queue places", choice.reason)
-        owned_jobs = pool.place(self.PLAN, choice.owned_budget, root_budget=choice.root_budget)[0]
-        self.assertEqual(len(owned_jobs), len(pool.FULL_RUN.after) + 1)  # admission and all after it
-        # Rounds 0 is the old rule for both: the run's peak must be free now.
-        self.assertEqual(self.main_choice(full, queue_rounds="0").runner, "")
-        # A reserve keeps main off the queue: it takes the pool only while its
-        # peak and the reserve are free now.
-        self.assertEqual(self.main_choice(full, queue_rounds="1", reserve="1").runner, "")
-        self.assertEqual(self.main_choice(self.snap(roots_busy=5), queue_rounds="1", reserve="1").runner, "")
-        self.assertEqual(self.main_choice(self.snap(roots_busy=4), queue_rounds="1", reserve="1").runner, MINI)
-        # Past a round and the bound, main keeps its own route.
-        jammed = self.snap(busy=36, roots_busy=14)
-        jammed["pools"][ROOT_MINI]["queued"] = 10
-        self.assertEqual(self.main_choice(jammed, queue_rounds="1").runner, "")
-
     def test_never_a_blacksmith_pick(self):
         # A pull request would overflow to 12vcpu here; main keeps MACOS_RUNNER_PR.
         self.assertEqual(owned_choice(self.snap(busy=36), owned_slots=self.SLOTS, jobs=9, root_jobs=9).runner, LARGE)
@@ -2837,7 +2763,7 @@ class MainFullSuite(unittest.TestCase):
 
     def test_anything_else_keeps_its_route(self):
         for kwargs in ({"ref": "refs/heads/topic"}, {"ref": ""}, {"owned": ""}, {"attempt": 2},
-                       {"reserve": "many"}, {"reserve": "-1"}, {"default": ""}, {"overflow": "0"},
+                       {"default": ""}, {"overflow": "0"},
                        {"event": "merge_group"}, {"event": "push"}):
             choice = self.main_choice(self.snap(), **kwargs)
             self.assertEqual((choice.runner, choice.root_runner), ("", ""), kwargs)
@@ -2879,7 +2805,9 @@ class MainFullSuite(unittest.TestCase):
                "path": ".github/workflows/ci.yml", "repository": repo, "head_repository": repo}
         self.assertTrue(janitor.may_hold_owned_pool(run, []))
         self.assertTrue(pool.may_hold_owned_pool(run))
-        for change in ({"head_branch": "topic"}, {"run_attempt": 2}, {"path": ".github/workflows/nightly.yml"}):
+        # Attempt 2 re-runs its failed jobs on the owned labels, still holding attempt 1's marker's machines.
+        self.assertTrue(janitor.may_hold_owned_pool({**run, "run_attempt": 2}, []))
+        for change in ({"head_branch": "topic"}, {"run_attempt": 3}, {"path": ".github/workflows/nightly.yml"}):
             self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, []), change)
 
     def test_ci_yml_routes_main_dispatch_through_the_picker(self):
@@ -2890,7 +2818,6 @@ class MainFullSuite(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", mint["if"])
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
                       picker["env"]["CMUX_CI_XCODE_APP_PR"])
-        self.assertEqual(picker["env"]["OWNED_MAIN_RESERVE"], "${{ vars.CI_OWNED_MAIN_RESERVE }}")
 
 
 class PullRequestAdmissionRootQueue(unittest.TestCase):

@@ -121,11 +121,12 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
         run: python3 scripts/ci/cloud_overflow_switch.py
 
-      # Last, in its own step so the summary above is already saved: the
-      # probe will never start, and a plain cancel does not end a run queued
-      # on a pool that starts nothing.
+      # Last, in its own step so the summary above is already saved. If the
+      # switch did not observe a started probe, cancel this run even when the
+      # switch failed before it could write its output; otherwise a queued
+      # probe can hold the concurrency group forever.
       - name: End this run's stuck probe
-        if: steps.switch.outputs.outcome == 'stalled'
+        if: always() && steps.switch.outputs.outcome != 'started'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X POST "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/force-cancel"
