@@ -10,12 +10,10 @@ struct BrowserReplWorkspaceBindingTests {
 
     private func resolve(explicit: UUID? = nil, caller: UUID? = nil, focused: UUID?) -> Result<UUID, BrowserReplWorkspaceBinding.Failure> {
         let known = [self.known, focusedWorkspace]
-        return BrowserReplWorkspaceBinding.resolve(
-            explicit: explicit,
-            caller: caller,
+        return BrowserReplWorkspaceBinding(
             exists: { known.contains($0) },
             focused: { focused }
-        )
+        ).resolve(explicit: explicit, caller: caller)
     }
 
     @Test("The caller's workspace wins when this instance knows it")

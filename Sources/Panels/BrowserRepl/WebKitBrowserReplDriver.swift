@@ -79,7 +79,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func dispatch(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
-        let params = BrowserReplJSON.object(paramsJSON)
+        let params = JSONSerialization.browserReplObject(paramsJSON)
         // Every call on a tab first waits until the tab renders like a focused
         // foreground page; input must not race WebKit's focus update.
         if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
@@ -98,7 +98,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         do {
             let value = try await handle(method: method, params: params)
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
-            guard let json = BrowserReplJSON.encode(value) else {
+            guard let json = JSONSerialization.browserReplString(value) else {
                 return .failure(Self.error("invalid", "Driver result for \(method) is not JSON"))
             }
             return .success(json)
@@ -242,7 +242,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 applySessionLabel(to: uuid)
             }
         }
-        guard let json = BrowserReplJSON.encode(payload) else { return }
+        guard let json = JSONSerialization.browserReplString(payload) else { return }
         let sink = lock.withLock { self.sink }
         sink?(name, json)
     }
@@ -829,7 +829,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             _ = try await runEvaluation(
                 panel,
                 frame,
-                body: "const __key = \(BrowserReplJSON.encode(key) ?? "\"\"");\n" + dispatch,
+                body: "const __key = \(JSONSerialization.browserReplString(key) ?? "\"\"");\n" + dispatch,
                 world: BrowserReplAgentWorld.world,
                 args: [],
                 handles: handles
@@ -1512,14 +1512,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let filtered = urls.isEmpty ? all : all.filter { cookie in
             urls.contains { BrowserReplCapture.cookie(cookie, matches: $0) }
         }
-        return filtered.map(BrowserReplCookieCoding.json(from:))
+        return filtered.map(\.browserReplJSON)
     }
 
     @MainActor
     private func setCookies(_ params: [String: Any]) async throws -> Any? {
         let store = try cookieStore(params)
         for json in params["cookies"] as? [[String: Any]] ?? [] {
-            guard let cookie = BrowserReplCookieCoding.cookie(from: json) else {
+            guard let cookie = HTTPCookie.browserRepl(from: json) else {
                 throw Self.error("invalid", "Invalid cookie \(json["name"] as? String ?? "")")
             }
             await store.setCookie(cookie)

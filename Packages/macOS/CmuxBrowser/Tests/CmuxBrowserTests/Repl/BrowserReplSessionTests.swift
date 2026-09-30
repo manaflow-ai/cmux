@@ -184,6 +184,6 @@ struct BrowserReplSessionTests {
     }
 
     private func quoted(_ string: String) -> String {
-        BrowserReplJSON.encode(string) ?? "\"\""
+        JSONSerialization.browserReplString(string) ?? "\"\""
     }
 }

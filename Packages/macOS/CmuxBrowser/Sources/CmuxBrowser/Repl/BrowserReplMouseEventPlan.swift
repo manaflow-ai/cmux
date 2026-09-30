@@ -68,23 +68,21 @@ public struct BrowserReplMouseState: Sendable, Equatable {
 }
 
 /// Coordinate conversion between the driver's CSS pixels and AppKit view points.
-public enum BrowserReplCoordinateSpace {
-    /// Converts a CSS-pixel point (top-left origin of the viewport) into the
+extension CGPoint {
+    /// Converts this CSS-pixel point (top-left origin of the viewport) into the
     /// web view's own coordinate space.
     /// - Parameters:
-    ///   - cssPoint: Point in CSS pixels.
     ///   - cssPerPoint: CSS pixels per view point (`1 / (pageZoom * magnification)`).
     ///   - viewIsFlipped: Whether the view's y axis grows downward.
     ///   - viewHeight: The view's bounds height in points.
-    public static func viewPoint(
-        cssPoint: CGPoint,
+    public func browserReplViewPoint(
         cssPerPoint: CGFloat,
         viewIsFlipped: Bool,
         viewHeight: CGFloat
     ) -> CGPoint {
         let scale = cssPerPoint > 0 ? cssPerPoint : 1
-        let x = cssPoint.x / scale
-        let y = cssPoint.y / scale
+        let x = self.x / scale
+        let y = self.y / scale
         return CGPoint(x: x, y: viewIsFlipped ? y : viewHeight - y)
     }
 }

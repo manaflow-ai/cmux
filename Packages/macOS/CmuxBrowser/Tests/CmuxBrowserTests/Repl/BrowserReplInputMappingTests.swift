@@ -100,15 +100,13 @@ struct BrowserReplMouseStateTests {
 
     @Test("CSS pixels convert to view points through zoom and flipping")
     func coordinateConversion() {
-        let flipped = BrowserReplCoordinateSpace.viewPoint(
-            cssPoint: CGPoint(x: 100, y: 40),
+        let flipped = CGPoint(x: 100, y: 40).browserReplViewPoint(
             cssPerPoint: 1,
             viewIsFlipped: true,
             viewHeight: 600
         )
         #expect(flipped == CGPoint(x: 100, y: 40))
-        let zoomed = BrowserReplCoordinateSpace.viewPoint(
-            cssPoint: CGPoint(x: 100, y: 40),
+        let zoomed = CGPoint(x: 100, y: 40).browserReplViewPoint(
             cssPerPoint: 0.5,
             viewIsFlipped: false,
             viewHeight: 600

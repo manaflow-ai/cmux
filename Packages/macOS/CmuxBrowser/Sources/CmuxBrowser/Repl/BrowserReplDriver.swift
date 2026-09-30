@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A driver error with a protocol code (`not_found`, `stale`, `timeout`,
 /// `unsupported`, `invalid`, `closed`).
@@ -18,7 +18,7 @@ public struct BrowserReplDriverError: Error, Equatable, Sendable {
     public var json: String {
         var object: [String: Any] = ["code": code, "message": message]
         if let errorName { object["errorName"] = errorName }
-        return BrowserReplJSON.encode(object) ?? #"{"code":"invalid","message":"error"}"#
+        return JSONSerialization.browserReplString(object) ?? #"{"code":"invalid","message":"error"}"#
     }
 }
 
@@ -46,9 +46,9 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.
-public enum BrowserReplJSON {
+extension JSONSerialization {
     /// Encodes a JSON-compatible value (fragments allowed).
-    public static func encode(_ value: Any?) -> String? {
+    public static func browserReplString(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return "null" }
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else {
             return nil
@@ -57,13 +57,13 @@ public enum BrowserReplJSON {
     }
 
     /// Decodes JSON text (fragments allowed). Returns `nil` for invalid JSON.
-    public static func decode(_ text: String) -> Any? {
+    public static func browserReplValue(_ text: String) -> Any? {
         guard let data = text.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
     }
 
     /// Decodes a JSON object, returning an empty dictionary for anything else.
-    public static func object(_ text: String) -> [String: Any] {
-        decode(text) as? [String: Any] ?? [:]
+    public static func browserReplObject(_ text: String) -> [String: Any] {
+        browserReplValue(text) as? [String: Any] ?? [:]
     }
 }

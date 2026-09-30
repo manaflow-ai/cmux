@@ -385,13 +385,13 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
             let result = self.fileSystem.perform(
                 operation?.toString() ?? "",
-                arguments: BrowserReplJSON.object(arguments?.toString() ?? "{}")
+                arguments: JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
             )
             switch result {
             case .success(let value):
-                return BrowserReplJSON.encode(["ok": value]) ?? #"{"ok":null}"#
+                return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
             case .failure(let error):
-                return BrowserReplJSON.encode(["error": ["code": error.code, "message": error.message]])
+                return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])
                     ?? #"{"error":{"code":"EIO","message":"error"}}"#
             }
         }
@@ -437,7 +437,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         thread.perform { [weak self] in
             guard let self else { return }
             if name == "download.finished",
-               let path = BrowserReplJSON.object(payloadJSON)["path"] as? String {
+               let path = JSONSerialization.browserReplObject(payloadJSON)["path"] as? String {
                 self.fileSystem.sandbox.allowReading(path)
             }
             guard let context = self.context,

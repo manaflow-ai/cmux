@@ -150,9 +150,7 @@ extension TerminalController {
         let explicit = v2UUID(params, "workspace_id")
         let caller = v2UUID(params, "caller_workspace_id")
         return await Task { @MainActor [weak self] () -> Result<UUID, BrowserReplWorkspaceBinding.Failure> in
-            BrowserReplWorkspaceBinding.resolve(
-                explicit: explicit,
-                caller: caller,
+            BrowserReplWorkspaceBinding(
                 exists: { AppDelegate.shared?.workspaceFor(tabId: $0) != nil },
                 focused: {
                     let manager = AppDelegate.shared?.currentScriptableMainWindow()?.tabManager ?? self?.tabManager
@@ -160,7 +158,7 @@ extension TerminalController {
                           manager.tabs.contains(where: { $0.id == selected }) else { return nil }
                     return selected
                 }
-            )
+            ).resolve(explicit: explicit, caller: caller)
         }.value
     }
 }

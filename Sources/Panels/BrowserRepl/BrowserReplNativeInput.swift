@@ -10,8 +10,7 @@ enum BrowserReplNativeInput {
     /// CSS pixels (viewport top-left origin) to the web view's window coordinates.
     static func windowPoint(webView: WKWebView, cssPoint: CGPoint) -> NSPoint {
         let scale = webView.pageZoom * webView.magnification
-        let viewPoint = BrowserReplCoordinateSpace.viewPoint(
-            cssPoint: cssPoint,
+        let viewPoint = cssPoint.browserReplViewPoint(
             cssPerPoint: scale > 0 ? 1 / scale : 1,
             viewIsFlipped: webView.isFlipped,
             viewHeight: webView.bounds.height

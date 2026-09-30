@@ -32,7 +32,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
 
     /// Performs one request described by the host contract's `requestJSON`.
     public func fetch(requestJSON: String) async -> Result<String, BrowserReplDriverError> {
-        let request = BrowserReplJSON.object(requestJSON)
+        let request = JSONSerialization.browserReplObject(requestJSON)
         guard let urlString = request["url"] as? String,
               let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
@@ -75,7 +75,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 "bodyBase64": data.base64EncodedString(),
                 "redirected": http.url != url,
             ]
-            return .success(BrowserReplJSON.encode(result) ?? "null")
+            return .success(JSONSerialization.browserReplString(result) ?? "null")
         } catch {
             return .failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)"))
         }
@@ -141,8 +141,8 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         if let targetID { params["targetId"] = targetID }
         guard case .success(let json) = await driver.call(
             method: "cookies.get",
-            paramsJSON: BrowserReplJSON.encode(params) ?? "{}"
-        ), let cookies = BrowserReplJSON.decode(json) as? [[String: Any]] else {
+            paramsJSON: JSONSerialization.browserReplString(params) ?? "{}"
+        ), let cookies = JSONSerialization.browserReplValue(json) as? [[String: Any]] else {
             return nil
         }
         let pairs = cookies.compactMap { cookie -> String? in
@@ -159,10 +159,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         }
         let cookies = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
         guard !cookies.isEmpty else { return }
-        let encoded: [[String: Any]] = cookies.map(BrowserReplCookieCoding.json(from:))
+        let encoded: [[String: Any]] = cookies.map(\.browserReplJSON)
         var params: [String: Any] = ["cookies": encoded]
         if let targetID { params["targetId"] = targetID }
-        _ = await driver.call(method: "cookies.set", paramsJSON: BrowserReplJSON.encode(params) ?? "{}")
+        _ = await driver.call(method: "cookies.set", paramsJSON: JSONSerialization.browserReplString(params) ?? "{}")
     }
 }
 
@@ -195,31 +195,31 @@ private final class FetchCollector: @unchecked Sendable {
 
 /// Converts between `HTTPCookie` and the Playwright cookie shape used by the
 /// driver's `cookies.get` and `cookies.set`.
-public enum BrowserReplCookieCoding {
+extension HTTPCookie {
     /// `{ name, value, domain, path, expires, httpOnly, secure, sameSite }`;
     /// `expires` is seconds since 1970 or `-1` for a session cookie.
-    public static func json(from cookie: HTTPCookie) -> [String: Any] {
+    public var browserReplJSON: [String: Any] {
         let sameSite: String
-        switch cookie.sameSitePolicy {
+        switch sameSitePolicy {
         case HTTPCookieStringPolicy.sameSiteStrict?: sameSite = "Strict"
         case HTTPCookieStringPolicy.sameSiteLax?: sameSite = "Lax"
         default: sameSite = "None"
         }
         return [
-            "name": cookie.name,
-            "value": cookie.value,
-            "domain": cookie.domain,
-            "path": cookie.path,
-            "expires": cookie.expiresDate?.timeIntervalSince1970 ?? -1,
-            "httpOnly": cookie.isHTTPOnly,
-            "secure": cookie.isSecure,
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": path,
+            "expires": expiresDate?.timeIntervalSince1970 ?? -1,
+            "httpOnly": isHTTPOnly,
+            "secure": isSecure,
             "sameSite": sameSite,
         ]
     }
 
     /// Builds a cookie from the Playwright shape. `url` may stand in for
     /// `domain` and `path`, as in Playwright's `addCookies`.
-    public static func cookie(from json: [String: Any]) -> HTTPCookie? {
+    public static func browserRepl(from json: [String: Any]) -> HTTPCookie? {
         guard let name = json["name"] as? String, let value = json["value"] as? String else { return nil }
         var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value]
         if let urlString = json["url"] as? String, let url = URL(string: urlString), let host = url.host {
