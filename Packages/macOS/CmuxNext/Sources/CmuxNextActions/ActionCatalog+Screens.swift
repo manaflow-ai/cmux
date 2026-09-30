@@ -4,7 +4,7 @@
 // `screen.new` and `screen.newWith` have no default shortcut and no menu.
 // Titles live in ScreenActions.xcstrings (21 languages).
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func screen(
         _ id: ActionID, _ title: String, _ symbol: String, cli: String, keywords: [String],
         surfaces: ActionSurfaces = [.palette, .contextMenu], targets: [ActionTargetKind] = [.screen],
@@ -103,7 +103,7 @@ extension ActionCatalog {
 
 /// The nine group color names (Chrome's), shared by screen and screen group
 /// color actions and context submenus.
-enum GroupColor9 {
+nonisolated enum GroupColor9 {
     static let names = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
 
     static func screenTitle(_ color: String) -> String {

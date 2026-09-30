@@ -1,7 +1,7 @@
 // Screen groups: Chrome tab group parity for screens (architecture.md
 // section 7, applied to the screen tab bar). Titles in ScreenActions.xcstrings.
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func screenGroupActions() -> [ActionDescriptor] {
         membershipActions() + groupEditActions() + groupMoveActions() + savedGroupActions()
             + GroupColor9.names.map { color in

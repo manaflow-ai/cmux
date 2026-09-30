@@ -18,7 +18,7 @@ struct LocalBrowserTab: Hashable, Sendable {
 /// Everything one window owns (architecture.md 1, user requirement
 /// 2026-09-29 "each window needs its own state"): the workspace it shows,
 /// tab selection per pane, focused pane per workspace, sidebar width and
-/// collapse, and screen switcher visibility. No other window reads or
+/// collapse, and the shown screen. No other window reads or
 /// writes it; which workspaces the window lists is `WindowRegistry`'s.
 /// Outlives its `WindowController` while the window is registered (the last
 /// window closed but restorable), and persists in the daemon's `personal`

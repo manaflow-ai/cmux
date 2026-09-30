@@ -63,11 +63,6 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module), kind: .target(.screenGroup))
     }
 
-    /// An SF Symbol name or one emoji.
-    static var iconString: ActionArgument {
-        ActionArgument(name: "icon", title: String(localized: "argument.icon", defaultValue: "Icon", table: "ScreenActions", bundle: .module), kind: .string)
-    }
-
     /// A saved group id.
     static var savedString: ActionArgument {
         ActionArgument(name: "saved", title: String(localized: "argument.savedGroup", defaultValue: "Saved Group", table: "ScreenActions", bundle: .module), kind: .string)
