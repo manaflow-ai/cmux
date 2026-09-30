@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalin her fare tekerleği veya trackpad kaydırma olayında ne kadar ilerleyeceğini ölçekler. 1'in üzerindeki değerler kaydırmayı hızlandırır, 1'in altındaki değerler yavaşlatır.",
-          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
-          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
+          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak gösterir.",
+          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
           "soundWhenFocused": "Bildirimi gönderen bölme zaten odaktayken bile bildirim sesini çal. Varsayılan olarak kapalıdır; odaktaki bölme yalnızca halkasını ve parlamasını gösterir.",
@@ -1416,7 +1416,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
+          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         },
         "fileEditor": {
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS Uygulaması",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Genel Bakış",
@@ -2031,11 +2031,10 @@
       "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux beta TextBox girişini yapılandırın.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux TextBox girişini yapılandırın.",
       "intro": "TextBox, istemleri terminale göndermeden önce yazmak için cmux'un zengin terminal giriş yüzeyidir.",
-      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir.",
       "defaultsTitle": "Varsayılanlar",
       "defaultsDesc": "TextBox ayarları Settings > TextBox içindedir:",
       "showSetting": "Show TextBox on New Terminals yeni çalışma alanlarını, terminal sekmelerini ve terminal bölmelerini TextBox görünür halde açar ve odağı terminalde tutar.",

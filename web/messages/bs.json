@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Određuje koliko se terminal pomjera za svaki događaj pomicanja kotačićem miša ili trackpadom. Vrijednosti iznad 1 ubrzavaju pomicanje, a vrijednosti ispod 1 ga usporavaju.",
-          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
-          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
+          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Reprodukuj zvuk obavještenja čak i kada je panel koji je poslao obavještenje već u fokusu. Isključeno po zadanom, pa fokusirani panel prikazuje samo prsten i bljesak.",
@@ -1416,7 +1416,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         },
         "fileEditor": {
@@ -1869,7 +1869,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS aplikacija",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Pregled",
@@ -2032,12 +2032,11 @@
       "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Podesite cmux TextBox unos za nove terminalske tabove, podjele i radne prostore.",
       "metaDescriptionShort": "TextBox je cmuxova bogata terminalska površina za unos i uređivanje promptova prije slanja u terminal, s podrškom za višeredni tekst.",
       "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
-      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
       "defaultsTitle": "Zadane vrijednosti",
       "defaultsDesc": "TextBox postavke su u Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals otvara nove radne prostore, terminalske tabove i podjele s vidljivim TextBoxom, dok fokus ostaje u terminalu.",

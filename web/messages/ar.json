@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",
           "scrollSpeed": "يحدد مقدار تحرك الطرفية مع كل حدث تمرير من عجلة الماوس أو لوحة التعقب. القيم الأكبر من 1 تسرّع التمرير، والقيم الأصغر من 1 تبطئه.",
-          "showTextBoxOnNewTerminals": "يعرض إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
-          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
+          "showTextBoxOnNewTerminals": "يعرض إدخال TextBox افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
+          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
         },
         "notifications": {
           "soundWhenFocused": "شغّل صوت الإشعار حتى عندما تكون اللوحة التي أرسلت الإشعار في موضع التركيز بالفعل. معطّل افتراضيًا، لذا تعرض اللوحة المُركَّز عليها الحلقة والوميض فقط.",
@@ -1416,7 +1416,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
+          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و terminalAlternateScreen و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
         },
         "fileEditor": {
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (تجريبي)",
+      "textBox": "TextBox",
       "ios": "تطبيق iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "نظرة عامة",
@@ -2031,11 +2031,10 @@
       "daemonPath": "يتم تخزين الملف الثنائي الخفي في ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote على المضيف البعيد ويتم التحقق منه مقابل بيان SHA-256 المضمن في التطبيق."
     },
     "textBox": {
-      "title": "TextBox (تجريبي)",
-      "metaTitle": "TextBox (تجريبي)",
-      "metaDescription": "اضبط إدخال TextBox التجريبي في cmux للتبويبات والتقسيمات ومساحات العمل الطرفية الجديدة.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "اضبط إدخال TextBox في cmux للتبويبات والتقسيمات ومساحات العمل الطرفية الجديدة.",
       "intro": "TextBox هو سطح إدخال طرفي غني في cmux لكتابة المطالبات قبل إرسالها إلى الطرفية.",
-      "betaCallout": "TextBox ميزة تجريبية. قد تتغير القيم الافتراضية والسلوك أثناء الاختبار.",
       "defaultsTitle": "القيم الافتراضية",
       "defaultsDesc": "توجد إعدادات TextBox في Settings > TextBox:",
       "showSetting": "يفتح Show TextBox on New Terminals مساحات العمل وتبويبات الطرفية وتقسيماتها الجديدة مع إظهار TextBox، مع إبقاء التركيز في الطرفية.",

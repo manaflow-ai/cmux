@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Position horizontale du contenu du terminal et du chat d’agent intégré lorsque sessionContentMaxWidth est activé.",
           "copyOnSelect": "Lorsque la valeur est true, le texte sélectionné dans le terminal est copié dans le presse-papiers système quand la sélection est validée. Lorsque la valeur est false, cmux n’émet pas de remplacement Ghostty copy-on-select; la configuration et les valeurs par défaut de Ghostty contrôlent le comportement du presse-papiers de sélection.",
           "scrollSpeed": "Règle la distance parcourue par le terminal à chaque événement de défilement de la molette ou du trackpad. Une valeur supérieure à 1 accélère le défilement, une valeur inférieure à 1 le ralentit.",
-          "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
-          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
+          "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
+          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Jouer le son de notification même lorsque le panneau à l’origine de la notification a déjà le focus. Désactivé par défaut : un panneau qui a le focus affiche seulement son anneau et son clignotement.",
@@ -1416,7 +1416,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
           "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         },
         "fileEditor": {
@@ -1871,7 +1871,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (bêta)",
+      "textBox": "TextBox",
       "ios": "App iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Vue d'ensemble",
@@ -2035,11 +2035,10 @@
       "daemonPath": "Le binaire du démon est stocké dans ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sur l'hôte distant et vérifié par rapport à un manifeste SHA-256 intégré dans l'application."
     },
     "textBox": {
-      "title": "TextBox (bêta)",
-      "metaTitle": "TextBox (bêta)",
-      "metaDescription": "Configurez l'entrée TextBox bêta de cmux pour les nouveaux onglets, divisions et espaces de travail de terminal.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Configurez l'entrée TextBox de cmux pour les nouveaux onglets, divisions et espaces de travail du terminal cmux.",
       "intro": "TextBox est la surface de saisie enrichie de cmux pour composer des prompts avant de les envoyer au terminal.",
-      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests.",
       "defaultsTitle": "Valeurs par défaut",
       "defaultsDesc": "Les réglages TextBox se trouvent dans Settings > TextBox :",
       "showSetting": "Show TextBox on New Terminals ouvre les nouveaux espaces de travail, onglets et divisions de terminal avec TextBox visible, tout en gardant le focus dans le terminal.",
