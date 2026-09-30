@@ -53,6 +53,21 @@ try {
         };
         const concurrent = migration.sql.some((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
         if (concurrent) {
+          const indexStatement = migration.sql.find((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
+          const indexName = indexStatement?.match(/CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i)?.[1];
+          if (indexName) {
+            const existing = await pool.query(
+              "select n.nspname as schema_name, c.relname as index_name, i.indisvalid from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_index i on i.indexrelid = c.oid where c.relname = $1",
+              [indexName],
+            );
+            const invalid = existing.rows.find((row) => row.indisvalid === false);
+            if (invalid) {
+              const quoteIdentifier = (value) => `"${String(value).replaceAll('"', '""')}"`;
+              await pool.query(
+                `drop index concurrently if exists ${quoteIdentifier(invalid.schema_name)}.${quoteIdentifier(invalid.index_name)}`,
+              );
+            }
+          }
           await run(pool);
           continue;
         }
