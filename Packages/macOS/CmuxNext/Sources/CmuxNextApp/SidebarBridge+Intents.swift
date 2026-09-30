@@ -58,9 +58,10 @@ extension SidebarBridge {
             }
         case .move(let ids, let group):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            guard let target = daemon(ofGroup: group), let (daemon, members) = sameMachine(ids), daemon === target else { return resync() }
-            for key in members { command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: id) } }
+            guard let target = daemon(ofGroup: group), let (daemon, _) = sameMachine(ids), daemon === target else { return resync() }
+            // Appended in order, like the sidebar: each lands after the group's last member.
+            let end = daemon.store.workspaces.count { $0.group?.rawValue == group.rawValue && !ids.contains(SidebarWorkspaceID($0.id)) }
+            run(ids.enumerated().map { .place(id: $1.rawValue, group: group.rawValue, index: end + $0) }, on: daemon)
         case .renameGroup(let group, let name):
             model.apply(intent)
             groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, name: name) }
@@ -123,24 +124,30 @@ extension SidebarBridge {
         else { return resync() }
         let store = daemon.store
         let entries = store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: $0.group?.rawValue) }
-        let groupOrder = store.groups.sorted { $0.index < $1.index }.map(\.id.rawValue)
-        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groupOrder: groupOrder)
+        let groups = daemon.supports(DaemonCapabilities.workspaceGroups)
+        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: groups)
         else { return resync() }
-        let keys = Dictionary(store.workspaces.compactMap { model in model.key.map { (model.id, $0) } }, uniquingKeysWith: { first, _ in first })
-        // One task, in order: each command's index assumes the previous one applied.
+        run(commands, on: daemon)
+    }
+
+    /// Sends reorder commands one after another in one task: each index
+    /// assumes the previous command applied. A rejection re-syncs.
+    private func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService) {
+        let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
+                              uniquingKeysWith: { first, _ in first })
         Task {
             for command in commands {
                 let ok: Bool
                 switch command {
                 case .move(let id, let index):
                     guard let key = keys[id] else { continue }
-                    ok = await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: index)) { c, _ in
+                    ok = await daemon.perform("move-workspace", patch: .custom { _ in }) { c, _ in
                         _ = try await c.moveWorkspace(key, to: index)
                     }
                 case .place(let id, let group, let index):
                     guard let key = keys[id] else { continue }
                     let groupID = group.map(WorkspaceGroupID.init(rawValue:))
-                    ok = await daemon.perform("move-workspace-to-group", patch: .custom { _ in }) { c, _ in
+                    ok = await daemon.perform("move-workspace-to-group", patch: .placeWorkspace(key: key, group: groupID, index: index)) { c, _ in
                         _ = try await c.moveWorkspace(key, toGroup: groupID, index: index)
                     }
                 }

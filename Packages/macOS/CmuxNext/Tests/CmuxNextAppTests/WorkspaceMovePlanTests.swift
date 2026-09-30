@@ -56,12 +56,11 @@ struct WorkspaceMovePlanTests {
         return [SidebarRowSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    static func drop(_ moving: [String], index: Int, group: String? = nil, window: [SidebarRowSection], daemon: [Entry],
-                     groupOrder: [String] = []) -> Daemon {
+    static func drop(_ moving: [String], index: Int, group: String? = nil, window: [SidebarRowSection], daemon: [Entry]) -> Daemon {
         var simulated = Daemon(order: daemon)
         let position = DropPosition(section: .machine(.local), group: group.map(GroupID.init), index: index)
         let commands = WorkspaceMovePlan.commands(for: position, moving: moving.map(SidebarWorkspaceID.init), window: window,
-                                                  daemon: daemon, groupOrder: groupOrder) ?? []
+                                                  daemon: daemon) ?? []
         for command in commands { simulated.apply(command) }
         return simulated
     }
@@ -102,7 +101,7 @@ struct WorkspaceMovePlanTests {
     @Test func dropAtTheEndOfAGroupJoinsItLast() {
         let daemon = [Entry(id: "a"), Entry(id: "x", group: "g"), Entry(id: "y", group: "g")]
         let result = Self.drop(["a"], index: 2, group: "g", window: Self.window(["a"], groups: [("g", ["x", "y"])]),
-                               daemon: daemon, groupOrder: ["g"])
+                               daemon: daemon)
         #expect(result.ids(in: "g") == ["x", "y", "a"])
         #expect(result.ids(in: nil).isEmpty)
     }
@@ -110,7 +109,7 @@ struct WorkspaceMovePlanTests {
     @Test func dropInsideAGroupLandsBetweenItsMembers() {
         let daemon = [Entry(id: "a"), Entry(id: "b"), Entry(id: "x", group: "g"), Entry(id: "y", group: "g")]
         let result = Self.drop(["a"], index: 1, group: "g", window: Self.window(["a", "b"], groups: [("g", ["x", "y"])]),
-                               daemon: daemon, groupOrder: ["g"])
+                               daemon: daemon)
         #expect(result.ids(in: "g") == ["x", "a", "y"])
     }
 
@@ -119,7 +118,7 @@ struct WorkspaceMovePlanTests {
     @Test func endOfTheUngroupedRowsFollowsTheLastUngroupedRowInTheDurableOrder() {
         let daemon = [Entry(id: "x", group: "g"), Entry(id: "a"), Entry(id: "y", group: "g"), Entry(id: "b")]
         let result = Self.drop(["a"], index: 1, window: Self.window(["a", "b"], groups: [("g", ["x", "y"])]),
-                               daemon: daemon, groupOrder: ["g"])
+                               daemon: daemon)
         #expect(result.ids(in: nil) == ["b", "a"])
         #expect(result.ids(in: "g") == ["x", "y"])
     }
@@ -127,7 +126,7 @@ struct WorkspaceMovePlanTests {
     @Test func draggingAGroupedWorkspaceOutUngroupsItAtTheDropSlot() {
         let daemon = [Entry(id: "a"), Entry(id: "b"), Entry(id: "x", group: "g"), Entry(id: "y", group: "g")]
         let result = Self.drop(["x"], index: 2, window: Self.window(["a", "b"], groups: [("g", ["x", "y"])]),
-                               daemon: daemon, groupOrder: ["g"])
+                               daemon: daemon)
         #expect(result.ids(in: nil) == ["a", "b", "x"])
         #expect(result.ids(in: "g") == ["y"])
     }
