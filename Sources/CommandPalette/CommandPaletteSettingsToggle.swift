@@ -999,33 +999,44 @@ enum CommandPaletteSettingsToggleCommands {
 }
 
 /// Palette commands that switch `sidebar.density`, one per density.
-enum CommandPaletteSidebarDensityCommands {
+///
+/// Owns its settings client so the palette and its tests share one write path
+/// instead of threading a `UserDefaults` through every call.
+struct CommandPaletteSidebarDensityCommands {
     static let commandIdPrefix = "palette.sidebarDensity."
 
-    static func commandId(for density: SidebarDensity) -> String {
-        commandIdPrefix + density.rawValue
+    private let settings: UserDefaultsSettingsClient
+    private let densityKey: DefaultsKey<SidebarDensity>
+
+    init(defaults: UserDefaults = .standard, catalog: SettingCatalog = SettingCatalog()) {
+        settings = UserDefaultsSettingsClient(defaults: defaults)
+        densityKey = catalog.sidebar.density
     }
 
-    static func title(for density: SidebarDensity) -> String {
+    func commandId(for density: SidebarDensity) -> String {
+        Self.commandIdPrefix + density.rawValue
+    }
+
+    func title(for density: SidebarDensity) -> String {
         let format = String(localized: "command.sidebarDensity.title", defaultValue: "Set Sidebar Density: %@")
         return String.localizedStringWithFormat(format, SidebarSection.densityLabel(density))
     }
 
-    static func subtitle(for density: SidebarDensity, defaults: UserDefaults = .standard) -> String {
+    func subtitle(for density: SidebarDensity) -> String {
         let section = String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
-        guard current(defaults: defaults) == density else { return section }
+        guard current() == density else { return section }
         let format = String(localized: "command.sidebarDensity.subtitleCurrent", defaultValue: "%@ • Current")
         return String.localizedStringWithFormat(format, section)
     }
 
-    static func current(defaults: UserDefaults = .standard) -> SidebarDensity {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.density)
+    func current() -> SidebarDensity {
+        settings.value(for: densityKey)
     }
 
     /// The single write path for switching density from the palette. Settings
     /// writes the same key through its `DefaultsValueModel`.
-    static func apply(_ density: SidebarDensity, defaults: UserDefaults = .standard) {
-        UserDefaultsSettingsClient(defaults: defaults).set(density, for: SettingCatalog().sidebar.density)
+    func apply(_ density: SidebarDensity) {
+        settings.set(density, for: densityKey)
     }
 }
 
@@ -1043,11 +1054,12 @@ extension ContentView {
     }
 
     nonisolated static func commandPaletteSidebarDensityCommandContributions() -> [CommandPaletteCommandContribution] {
-        SidebarDensity.allCases.map { density in
+        let commands = CommandPaletteSidebarDensityCommands()
+        return SidebarDensity.allCases.map { density in
             CommandPaletteCommandContribution(
-                commandId: CommandPaletteSidebarDensityCommands.commandId(for: density),
-                title: { _ in CommandPaletteSidebarDensityCommands.title(for: density) },
-                subtitle: { _ in CommandPaletteSidebarDensityCommands.subtitle(for: density) },
+                commandId: commands.commandId(for: density),
+                title: { _ in commands.title(for: density) },
+                subtitle: { _ in commands.subtitle(for: density) },
                 keywords: ["sidebar.density", "sidebar", "density", "details", "settings", density.rawValue]
             )
         }
@@ -1062,9 +1074,10 @@ extension ContentView {
     }
 
     func registerSidebarDensityCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        let commands = CommandPaletteSidebarDensityCommands()
         for density in SidebarDensity.allCases {
-            registry.register(commandId: CommandPaletteSidebarDensityCommands.commandId(for: density)) {
-                CommandPaletteSidebarDensityCommands.apply(density)
+            registry.register(commandId: commands.commandId(for: density)) {
+                commands.apply(density)
             }
         }
     }

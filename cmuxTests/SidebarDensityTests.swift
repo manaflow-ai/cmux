@@ -147,9 +147,10 @@ final class SidebarDensityTests: XCTestCase {
             )
             XCTAssertTrue(showPorts.isOn(defaults))
 
-            CommandPaletteSidebarDensityCommands.apply(.quiet, defaults: defaults)
+            let paletteCommands = CommandPaletteSidebarDensityCommands(defaults: defaults)
+            paletteCommands.apply(.quiet)
 
-            XCTAssertEqual(CommandPaletteSidebarDensityCommands.current(defaults: defaults), .quiet)
+            XCTAssertEqual(paletteCommands.current(), .quiet)
             XCTAssertFalse(showPorts.isOn(defaults))
             XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsPorts)
 
@@ -163,7 +164,8 @@ final class SidebarDensityTests: XCTestCase {
 
     func testPaletteRegistersOneCommandPerDensity() {
         let ids = ContentView.commandPaletteSidebarDensityCommandContributions().map(\.commandId)
-        XCTAssertEqual(ids, SidebarDensity.allCases.map { CommandPaletteSidebarDensityCommands.commandId(for: $0) })
+        let commands = CommandPaletteSidebarDensityCommands()
+        XCTAssertEqual(ids, SidebarDensity.allCases.map { commands.commandId(for: $0) })
     }
 
     func testSettingsFileAppliesDensityAndExplicitKeysStillWin() throws {
