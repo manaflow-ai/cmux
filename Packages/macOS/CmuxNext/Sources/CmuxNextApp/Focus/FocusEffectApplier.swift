@@ -14,13 +14,20 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The CEF page this window gave focus to (blurred when focus leaves).
     private weak var focusedChildWindowPage: AnyObject?
     private var observers: [any NSObjectProtocol] = []
+    /// The panel bubble over this window that has the keyboard (group editor).
+    private weak var overlayPanel: NSWindow?
+    private var overlayPanelObserver: (any NSObjectProtocol)?
 
     init(controller: WindowController) {
         self.controller = controller
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated { if let window { self?.childWindowDidBecomeKey(window) } }
+            MainActor.assumeIsolated {
+                guard let window else { return }
+                self?.ownedWindowDidBecomeKey(window)
+                self?.childWindowDidBecomeKey(window)
+            }
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -33,6 +40,8 @@ final class FocusEffectApplier: FocusEffectApplying {
     func teardown() {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
+        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
+        overlayPanelObserver = nil
     }
 
     /// The content the state describes. While a workspace switch is in
@@ -96,7 +105,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .sidebar, .sidebarField, .textField:
             // Reported by AppKit; the responder is already there.
             blurChildWindowPage()
-        case .overlay, .none:
+        case .none:
+            // Nothing has the keyboard (an empty workspace): no page keeps it
+            // (input-spec.md bug B3).
+            blurChildWindowPage()
+        case .overlay:
             break
         }
     }
@@ -147,6 +160,33 @@ final class FocusEffectApplier: FocusEffectApplying {
         return responder === view || responder.isDescendant(of: view)
     }
 
+    /// A window this window owns became key (a sheet, a Chromium page
+    /// window, the palette, a panel): this window is the active one and
+    /// publishes its context, so menus and content shortcuts act where the
+    /// keys go (input-spec.md bug B2). A panel bubble other than the palette
+    /// (the tab group editor) is an overlay while it has the keys (bug B4).
+    private func ownedWindowDidBecomeKey(_ owned: NSWindow) {
+        let services = controller.services
+        guard owned !== controller.window, services.windows.owner(of: owned) === controller else { return }
+        services.windows.didActivate(controller)
+        publish(controller.focus.state.context)
+        guard owned is NSPanel, owned.sheetParent == nil, !services.palette.owns(owned), overlayPanel == nil else { return }
+        overlayPanel = owned
+        controller.focus.send(.overlayOpened(.groupEditor))
+        overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
+                                                                      queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() }
+        }
+    }
+
+    /// The bubble dismisses when it loses the keys.
+    private func overlayPanelDidResignKey() {
+        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
+        overlayPanelObserver = nil
+        overlayPanel = nil
+        controller.focus.send(.overlayClosed(.groupEditor))
+    }
+
     /// A Chromium page window (a child of this window, not one of our
     /// panels) became key: the user clicked into that page.
     private func childWindowDidBecomeKey(_ child: NSWindow) {
@@ -154,7 +194,11 @@ final class FocusEffectApplier: FocusEffectApplying {
               let pane = paneShowingChildWindowPage(at: child.frame) else { return }
         focusedChildWindowPage = pane.page
         InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
-        controller.focus.responderDidChange(.content(pane: pane.key), source: .mouse)
+        // A click chose the page. Anything else (AppKit restoring key after a
+        // panel or sheet) is not a choice: the model re-applies its target,
+        // which blurs the page when it is not the target (input-spec.md B7).
+        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
+        controller.focus.responderDidChange(clicked ? .content(pane: pane.key) : .windowOrNone, source: clicked ? .mouse : .programmatic)
         if window.firstResponder !== window { window.makeFirstResponder(nil) }
     }
 

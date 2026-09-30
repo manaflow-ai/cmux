@@ -178,7 +178,26 @@ responder removal. Locally: `CMUX_NEXT_FUZZ_RUNS=1000 CMUX_NEXT_FUZZ_STEPS=1500 
 InputModelFuzzTests/longRandomRun` (`CMUX_NEXT_FUZZ_SEED` picks the first seed). 1,000 seeds of
 1,500 steps passed at landing.
 
-## 7. Limits and follow-ups
+## 7. Bugs the fuzzer found
+
+Each has a test in `InputBugRegressionTests`.
+
+| Id | Found as | Bug | Fix |
+| --- | --- | --- | --- |
+| B1 | W8, `cliSelectTab(stalePane)` | `selectTab` for a tab its pane no longer holds (stale CLI snapshot, a moved tab) emitted `select`; the pane showed a tab it does not hold (blank, or took the tab's view from its real pane). | The reducer selects only a tab the shown pane holds; panes the window does not show still remember the selection. |
+| B2 | W7, click into a Chromium page / a sheet of another window | `WindowManager.active` fell back to the last key cmux window while a page window, sheet or panel of another window had the keys, and nothing republished the context: menus and Copy/Paste acted on the other window's terminal. | `active` resolves owned windows (sheet, child, panel) to their cmux window; the applier activates and republishes when an owned window becomes key. |
+| B3 | W4, switch to an empty workspace | With no target (`.none`), Chromium focus stayed on the old page. | `.none` blurs the page, as `.emptyPane` did. |
+| B4 | W5, open the group editor | The tab group editor bubble took the keys but the window had no overlay: content shortcuts and focus effects still targeted the pane below. | A key panel over the window other than the palette is a `.groupEditor` overlay until it resigns key. |
+| B5 | W5/W7, click another window while the palette is open | The palette closed on resign key and then made its parent key again, taking the keys from the clicked window. | Closing because of a resign no longer re-keys the parent. |
+| B6 | W1 and F4, drag cancel | A cancelled drag restored a text-field or sidebar target the applier cannot re-apply (model on the field, AppKit on the terminal), a chrome target on a tab that changed, and overrode a keyboard intent made during the drag. | Cancel restores the pane and pane-scoped targets only, chrome targets only on the same tab, and not after a keyboard, CLI or palette intent. The reducer also normalizes chrome targets (F4). |
+| B7 | W1, click the sidebar or a Chromium page while the palette is open | The palette's close reached focus a run-loop turn late (an `Observations` loop), so the click that closed it was dropped as a report under an overlay; the window ended with no target. A Chromium page window made key by AppKit (not a click) was also taken as a user click. | The palette reports visibility synchronously before its key change; the palette's parent is the document window, never a page window; a page window becoming key without a mouse-down re-applies the model instead of retargeting. |
+| B8 | F6 (the earlier stress test excused it) | `toggleBrowserFocusMode(tab:)` could name a tab the window does not show. | The reducer toggles only shown tabs. |
+
+B2, B4, B5 and B7 are wiring in `FocusEffectApplier`, `WindowManager` and `PaletteController`.
+Their regression tests run the fuzzer's minimal sequence through the model, which mirrors the
+fixed wiring; the live monitor (W5, W7, W1) is what catches a regression there in dogfood.
+
+## 8. Limits and follow-ups
 
 - The model assumes Chromium's `SetFocus` does not make the page window key (the fork's
   "counts as active while the parent is key", browser.md). If the page window does become key,

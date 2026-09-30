@@ -23,6 +23,10 @@ public final class PaletteController {
     public var sources: PaletteSources
 
     public private(set) var isVisible = false
+    /// Called synchronously when the panel opens (true) or closes (false),
+    /// before any key-window change it causes, so the owner's focus overlay
+    /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
+    public var onVisibilityChange: ((Bool) -> Void)?
 
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
@@ -95,7 +99,10 @@ public final class PaletteController {
     }
 
     private func present(relativeTo window: NSWindow?) {
-        let parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        // The document window, never a Chromium page window over it (a child
+        // window): hiding gives the keys back to the window, not the page.
+        var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
         presentationGeneration += 1
         registry.context.insert(.paletteOpen)
@@ -105,6 +112,7 @@ public final class PaletteController {
             return
         }
         isVisible = true
+        onVisibilityChange?(true)
         parentWindow = parent
         panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
         if let parent, panel.parent !== parent {
@@ -121,14 +129,25 @@ public final class PaletteController {
     /// command that runs right after sees the right focus; the panel fades
     /// out, then orders out.
     public func hide() {
+        hide(restoringKey: true)
+    }
+
+    /// Whether `window` is the palette's panel.
+    public func owns(_ window: NSWindow) -> Bool { window === panel }
+
+    /// `restoringKey` is false when the panel already lost key to a click
+    /// elsewhere: that window keeps the keys (plans/cmux-next/input-spec.md,
+    /// bug B5: re-keying the parent stole the click's window).
+    private func hide(restoringKey: Bool) {
         guard isVisible, let panel else { return }
         isVisible = false
         registry.context.remove(.paletteOpen)
+        onVisibilityChange?(false)
         model.closeActionsMenu()
         model.hover(nil)
         presentationGeneration += 1
         let generation = presentationGeneration
-        if let parentWindow, parentWindow.isVisible {
+        if restoringKey, let parentWindow, parentWindow.isVisible {
             parentWindow.makeKey()
         }
         contentView?.animateOut { [weak self, weak panel] in
@@ -157,8 +176,9 @@ public final class PaletteController {
         panel.contentView = content
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
         panel.onResignKey = { [weak self] in
-            // Clicking elsewhere closes the palette, like Spotlight.
-            self?.hide()
+            // Clicking elsewhere closes the palette, like Spotlight; the
+            // clicked window keeps the keys.
+            self?.hide(restoringKey: false)
         }
         self.panel = panel
         return panel

@@ -48,8 +48,19 @@ final class WindowManager {
     }
 
     var active: WindowController? {
-        if let key = NSApp.keyWindow, let controller = controllers.first(where: { $0.window === key }) { return controller }
+        if let key = NSApp.keyWindow, let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
+    }
+
+    /// The controller whose window is `window` or owns it: a sheet, a
+    /// Chromium page window, the palette or another panel over it.
+    func owner(of window: NSWindow) -> WindowController? {
+        var current: NSWindow? = window
+        while let candidate = current {
+            if let controller = controllers.first(where: { $0.window === candidate }) { return controller }
+            current = candidate.sheetParent ?? candidate.parent
+        }
+        return nil
     }
 
     func didActivate(_ controller: WindowController) {

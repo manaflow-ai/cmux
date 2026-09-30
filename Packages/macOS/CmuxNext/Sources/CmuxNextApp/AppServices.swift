@@ -50,7 +50,6 @@ final class AppServices {
     let terminalDelegate = TerminalHostDelegate()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
-    var paletteObservation: Task<Void, Never>?
     private(set) var chromiumWarmup: ChromiumWarmup!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
 

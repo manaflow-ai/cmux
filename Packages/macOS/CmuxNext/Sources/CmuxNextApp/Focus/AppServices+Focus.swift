@@ -1,23 +1,19 @@
 import CmuxNextActions
-import Observation
 
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {
     /// The palette is a panel above the active window: an overlay of that
-    /// window's focus while it is open (`paletteOpen` in the registry).
+    /// window's focus while it is open. Reported synchronously by the
+    /// palette, before the key-window change it causes, so a click that
+    /// closes it is judged with the overlay already gone (input-spec.md B7).
     func observePaletteForFocus() {
-        let registry = registry
-        paletteObservation = Task { [weak self] in
-            var wasOpen = false
-            for await open in Observations({ registry.context.contains(.paletteOpen) }) {
-                guard let self, open != wasOpen else { continue }
-                wasOpen = open
-                if open {
-                    windows.active?.focus.send(.overlayOpened(.palette))
-                } else {
-                    for controller in windows.controllers where controller.focus.state.overlays.contains(.palette) {
-                        controller.focus.send(.overlayClosed(.palette))
-                    }
+        palette.onVisibilityChange = { [weak self] open in
+            guard let self else { return }
+            if open {
+                windows.active?.focus.send(.overlayOpened(.palette))
+            } else {
+                for controller in windows.controllers where controller.focus.state.overlays.contains(.palette) {
+                    controller.focus.send(.overlayClosed(.palette))
                 }
             }
         }
