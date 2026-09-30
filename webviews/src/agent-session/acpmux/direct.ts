@@ -326,9 +326,9 @@ export class AcpmuxDirectClient {
   }
   async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
-  async select(sessionId: string): Promise<string> {
+  async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
-    this.selectionGeneration += 1;
+    const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
     this.events = [];
     this.rows.clear();
@@ -340,7 +340,7 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
     await this.attach(sessionId);
-    return sessionId;
+    return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
