@@ -938,6 +938,22 @@ struct WorkspaceGroupTests {
         #expect(manager.workspaceGroups.first { $0.id == groupId } == nil)
     }
 
+    @Test func removingLastRealMemberPreservesGeneratedAnchorWithDockContent() throws {
+        let manager = makeTabManager()
+        let realMemberId = manager.tabs[0].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        let generatedAnchor = try #require(manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
+        let anchor = try #require(manager.tabs.first { $0.id == generatedAnchor })
+
+        _ = anchor.dockSplit
+        anchor._dockSplit?.panels[UUID()] = CloudVMLoadingPanel(workspaceId: anchor.id)
+        manager.addWorkspaceToGroup(workspaceId: realMemberId, groupId: groupId)
+        manager.removeWorkspaceFromGroup(workspaceId: realMemberId)
+
+        #expect(manager.tabs.contains { $0.id == generatedAnchor })
+        #expect(manager.workspaceGroups.first { $0.id == groupId } != nil)
+    }
+
     @Test func deletingGeneratedAnchorGroupCountsTheAnchorAndMember() throws {
         let manager = makeTabManager()
         let realMemberId = manager.tabs[0].id

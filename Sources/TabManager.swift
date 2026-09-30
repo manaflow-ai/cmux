@@ -2444,7 +2444,8 @@ class TabManager: ObservableObject {
               !panel.hasReceivedExplicitInput,
               panel.surface.initialCommand == nil,
               panel.surface.initialInput == nil,
-              panel.surface.tmuxStartCommand == nil else {
+              panel.surface.tmuxStartCommand == nil,
+              anchor._dockSplit?.panels.isEmpty ?? true else {
             return false
         }
         return true
