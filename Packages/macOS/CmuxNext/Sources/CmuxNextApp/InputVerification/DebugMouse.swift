@@ -15,7 +15,9 @@ import CmuxNextSettings
 /// `pane` (the center of that pane's content); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y` in `steps`),
 /// `move` (pointer motion with no button, for hover: tab and workspace
-/// hover cards), or `scroll` (`dx`,`dy` pixels); `button`: `left`
+/// hover cards), `hover` (tracking-area owners get entered, moved and
+/// exited at once, `DebugHover`: the tab strip's hover reveal), or `scroll`
+/// (`dx`,`dy` pixels); `button`: `left`
 /// (default), `right`;
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
 enum DebugMouse {
@@ -57,6 +59,11 @@ enum DebugMouse {
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
             events = [scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0)]
+        case "hover":
+            // Hover: tracking-area owners get the events at once (DebugHover).
+            let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
+            return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                            "delivered": .number(Double(delivered))])
         default:
             return .object(["error": .string("unknown action \(action)")])
         }
