@@ -16,6 +16,10 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     private var active = false
     /// Machine of the dragged tabs or workspaces; drops stay on it.
     var sourceMachine: MachineID = .local
+    /// The last sidebar drop this target proposed, in sidebar terms, so a
+    /// drag that moves its whole workspace reuses the row-drag reorder path.
+    private(set) var lastDrop: SidebarTabDrop?
+    var bridgeForDrop: SidebarBridge? { bridge }
 
     init(bridge: SidebarBridge) {
         self.bridge = bridge
@@ -32,6 +36,7 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
         guard let bridge, let hit = hit(screenPoint: screenPoint) else { return nil }
+        lastDrop = hit.drop
         let kind: TabDropKind
         switch hit.drop {
         case .intoWorkspace(let id):

@@ -19,15 +19,7 @@ extension SidebarBridge {
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)
-            let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
-            guard let index = personalIndex(for: position, moving: ids, in: before) else { resync(); return true }
-            for (offset, workspace) in qualified(ids).enumerated() {
-                personal("set-personal-workspace") {
-                    try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                        sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key), index: index + offset,
-                        group: group.map { .set($0) } ?? .clear))
-                }
-            }
+            placePersonal(ids, at: position, in: before)
         case .move(let ids, let group):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue)
@@ -71,6 +63,21 @@ extension SidebarBridge {
             return false
         }
         return true
+    }
+
+    /// Personal order and group for `ids` at `position` in this window's
+    /// `sections` (taken before the move): one `set-personal-workspace`
+    /// each in the home session; the workspace's own daemon is not written.
+    func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+        let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
+        guard let index = personalIndex(for: position, moving: ids, in: sections) else { return resync() }
+        for (offset, workspace) in qualified(ids).enumerated() {
+            personal("set-personal-workspace") {
+                try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
+                    sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key), index: index + offset,
+                    group: group.map { .set($0) } ?? .clear))
+            }
+        }
     }
 
     /// The sidebar ids as workspaces qualified by their session, in order.
