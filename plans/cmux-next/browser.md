@@ -384,3 +384,36 @@ Change: `CEFRuntime.start` is async. The shim and framework `dlopen` (`CEFRuntim
 New check `scripts/cmux-next/check-first-chromium.py <tag>`: opens the first Chromium tab of a fresh launch while 2 clients send 20 pane actions over about 1.5 s, and fails on a deadline miss or a stall over 50 ms. Results with the change (5 fresh launches): 0 deadline misses, max action latency 9-193 ms, and two remaining stalls per launch of 81-161 ms. The check still fails on those two.
 
 The two remaining stalls are Chromium work that must run on the main thread: inside `CefInitialize` (`ScopedNativeScreen`/display enumeration, Perfetto tracing setup, profile keyed services) and the first `Browser` window (`CefNativeWidgetMac::CreateNSWindow`, `BrowserView::InitBrowser`, GPU channel setup). Removing them needs Chromium changes (for example, initializing CEF at app idle when a Chromium tab is likely) and is a decision for Lawrence, see the PR.
+
+## Chromium warm start (2026-09-29)
+
+Owner: `CmuxNextApp/ChromiumWarmup.swift` (architecture.md 5a, the one allowed exception).
+
+- Launch + 3 s: `CEFEngine.preload()` maps the shim and framework on a background thread and primes ImageIO's plugin list there (the first Chromium window otherwise built it on the main thread, 70 ms measured). No Chromium code runs.
+- `CefInitialize` runs early only when a Chromium tab is likely: a Chromium tab exists in any window (`MachineRegistry.hasChromiumTab`, so a restored tab in a background workspace counts), the "+" engine menu opens (`contextMenu(for: .newTabButton)`), or the palette selects or hovers `openBrowser.chromium` / `browser.openInChromium`. It waits for an idle moment: no key or mouse input to this app for 750 ms (a local event monitor installed only while waiting) and no menu tracking; it gives up after 60 s and stays lazy. Otherwise CEF stays lazy.
+- `debug.cef` reports state (`idle`, `loading`, `loaded`, `ready`), `preloaded`, `likely`, `trigger` (`tab` or the warm reason), load and initialize times, and the app footprint.
+
+Measured on tagged build `cefwrm` (Debug, pinned `cmux.3-band`), 3 fresh launches each:
+
+| State | App footprint | App RSS | Helpers (footprint) |
+| --- | --- | --- | --- |
+| Launch, before preload (t=1.5 s) | 66-82 MB | 110-113 MiB | none |
+| After preload (t=9.5 s) | 82-96 MB | 130-131 MiB | none |
+| Warm init, no tab shown | 124-137 MB | 265-276 MiB | 83-86 MB (GPU, network, storage) |
+| One Chromium tab open (cold) | 146-158 MB | 345-351 MiB | ~620 MiB RSS (adds renderer) |
+
+So preload costs about +10-15 MB footprint (+20 MiB RSS, mostly file-backed), and a warm init costs about +40 MB in the app plus about 85 MB in three helpers.
+
+`check-first-chromium.py` results:
+- `--mode cold` (no Chromium tab likely): PASS 3/3, 0 deadline misses, two stalls each (97-112 ms `CefInitialize`, 76-87 ms window).
+- `--mode warm` (restored Chromium tab in a background workspace): `CefInitialize` ran at idle 0.9-1 s after launch (75-100 ms), before any input. PASS 3/3 with one stall each (73-87 ms, the new Chromium window).
+
+Finding: creating a Chromium window costs 70-90 ms on the main thread every time, not only the first time (a second pane's window measured 70 and 85 ms). The 5a exception therefore covers one stall per pane that gets its first Chromium tab. Removing it would need a spare pre-created Chromium window per profile (a hidden `Browser` with a blank tab that the next pane adopts), which costs a renderer process; not done.
+
+TODO (decided 2026-09-29: not now, revisit after dogfood): spare Chromium window. Measured cost to remove: every pane that gets its first Chromium tab blocks the main thread 70-90 ms creating its Chromium window (first window per process 76-148 ms cold, 73-87 ms after a warm start; a second pane 70 and 85 ms). The fix is one hidden pre-created `Browser` per profile with a blank tab, created at idle and adopted by the next pane (navigate its tab, reparent the host view), then replaced at idle. Expected cost: one extra renderer process per profile while Chromium is running (not measured). Until then the 5a exception allows this stall once per new pane.
+
+Not verified live: the "+" menu and palette triggers (Computer Use is not set up, and the palette does not open in a `CMUX_NEXT_NO_ACTIVATE` launch). The restored-tab trigger is verified.
+
+## Chromium diagnostics
+
+Debug builds of development bundles (`com.cmuxterm.app.debug.*`) read `CMUX_NEXT_CEF_EXTRA_SWITCHES`, a colon-separated list of Chromium switches (leading dashes optional), for example `enable-ui-devtools=9311` (Views tree over the DevTools protocol, `ws://127.0.0.1:9311/0`) or `show-browser-frame-regions`. Release builds ignore it (`#if DEBUG` in `CEFSwitches.current`).

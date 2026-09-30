@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext = services.startCloud()
         services.updater.start()
         services.windows.restoreWhenLoaded()
+        services.startChromiumWarmup()
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }

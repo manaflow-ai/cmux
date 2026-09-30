@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import Foundation
 import os
 
@@ -45,8 +46,39 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    private(set) var preloaded = false
+    /// The preload finished mapping the framework (CEF not started yet).
+    private(set) var libraryLoaded = false
+    private(set) var trigger: String?
+    private(set) var loadDuration: Duration?
+    private(set) var initializeDuration: Duration?
+    private(set) var readyAfterLaunch: Double?
 
     private init() {}
+
+    /// Process start, from the kernel (`kinfo_proc.p_starttime`).
+    nonisolated static let launchUptime: Double = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return 0 }
+        let start = info.kp_proc.p_starttime
+        let started = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
+        let age = Date().timeIntervalSince1970 - started
+        return ProcessInfo.processInfo.systemUptime - age
+    }()
+
+    var report: CEFStartReport {
+        let name = switch state {
+        case .idle: "idle"
+        case .loading: libraryLoaded ? "loaded" : "loading"
+        case .ready: "ready"
+        case .failed: "failed"
+        case .shutDown: "shutDown"
+        }
+        return CEFStartReport(state: name, preloaded: preloaded, trigger: trigger, loadDuration: loadDuration,
+                              initializeDuration: initializeDuration, readyAfterLaunch: readyAfterLaunch)
+    }
 
     var forkAPIVersion: Int32 { shim?.forkAPIVersion() ?? 0 }
 
@@ -56,9 +88,11 @@ final class CEFRuntime {
     /// again) runs on a background thread. Only `CefInitialize`, which Chromium
     /// requires on the main thread, runs here. Idempotent; concurrent callers
     /// share one load.
+    /// `trigger` names why CEF starts (`tab`, or a warm start reason).
     func start(
         layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        trigger: String = "tab"
     ) async throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
@@ -76,7 +110,7 @@ final class CEFRuntime {
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(loaded, environment: environment)
+        try finishStart(loaded, environment: environment, trigger: trigger)
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -85,7 +119,13 @@ final class CEFRuntime {
     func preload(layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
-        loadTask = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        preloaded = true
+        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        loadTask = task
+        Task { [weak self] in
+            _ = await task.value
+            self?.libraryLoaded = true
+        }
     }
 
     /// Synchronous start for the debug window (loads on the main thread).
@@ -95,7 +135,7 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(Self.loadLibrary(candidate), environment: environment)
+        try finishStart(Self.loadLibrary(candidate), environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
@@ -108,7 +148,8 @@ final class CEFRuntime {
 
     private func finishStart(
         _ loaded: Result<CEFLoadedLibrary, BootError>,
-        environment: [String: String]
+        environment: [String: String],
+        trigger: String
     ) throws(BrowserEngineError) {
         do {
             let library = try loaded.get()
@@ -116,7 +157,11 @@ final class CEFRuntime {
             let started = clock.now
             try initialize(library, environment: environment)
             state = .ready
-            logger.notice("CEF ready fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            self.trigger = trigger
+            loadDuration = library.loadDuration
+            initializeDuration = clock.now - started
+            readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             let reason = "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
@@ -157,7 +202,20 @@ final class CEFRuntime {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
+        primeImageIO()
         return .success(CEFLoadedLibrary(shim: shim, layout: layout, loadDuration: clock.now - started))
+    }
+
+    /// The first Chromium window decodes its first image with
+    /// `-[NSImage initWithData:]` on the main thread, and ImageIO builds its
+    /// process-wide plugin list on first use (about 70 ms measured). Asking
+    /// for an image type here builds that list on this background thread.
+    nonisolated static func primeImageIO() {
+        // A 1x1 PNG header is enough for the type sniff.
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        if let source = CGImageSourceCreateWithData(Data(png) as CFData, nil) {
+            _ = CGImageSourceGetType(source)
+        }
     }
 
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
