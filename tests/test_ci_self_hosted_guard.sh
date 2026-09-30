@@ -1352,7 +1352,7 @@ MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
-    " && !contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)"
+    " && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
     " && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner"
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
