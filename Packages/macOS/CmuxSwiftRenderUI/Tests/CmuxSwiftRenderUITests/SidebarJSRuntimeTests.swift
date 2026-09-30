@@ -28,6 +28,47 @@ struct SidebarJSRuntimeTests {
         #expect(first?.string("font") == "headline")
     }
 
+    @Test func fixedSizeReachesTheNode() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => HStack([
+            Text("both").fixedSize(),
+            Text("one axis").fixedSize("horizontal"),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let root = try! #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let both = try! #require(runtime.store.node(root.children[0]))
+        let horizontal = try! #require(runtime.store.node(root.children[1]))
+        #expect(both.props["fixedSize"] == .bool(true))
+        #expect(horizontal.props["fixedSize"] == .string("horizontal"))
+    }
+
+    @Test func fixedSizeAxesMapping() {
+        #expect(dslFixedSizeAxes(.bool(true)).map { [$0.horizontal, $0.vertical] } == [true, true])
+        #expect(dslFixedSizeAxes(.string("both")).map { [$0.horizontal, $0.vertical] } == [true, true])
+        #expect(dslFixedSizeAxes(.string("horizontal")).map { [$0.horizontal, $0.vertical] } == [true, false])
+        #expect(dslFixedSizeAxes(.string("vertical")).map { [$0.horizontal, $0.vertical] } == [false, true])
+        #expect(dslFixedSizeAxes(.bool(false)) == nil)
+        #expect(dslFixedSizeAxes(nil) == nil)
+    }
+
+    /// `.frame(() => ({ ... }))` used to be dropped silently: the runtime read
+    /// the keys of the function object (none), so a live width never applied.
+    @Test func frameAcceptsAReactiveSpec() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => Text("bar").frame(() => ({ width: (data.pct() ?? 0) * 2, height: 4 })))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let rootId = try! #require(runtime.store.rootId)
+        #expect(runtime.store.node(rootId)?.double("width") == 0)
+        #expect(runtime.store.node(rootId)?.double("height") == 4)
+        runtime.updateData(key: "pct", value: .int(30))
+        #expect(runtime.store.node(rootId)?.double("width") == 60)
+        #expect(runtime.store.node(rootId)?.double("height") == 4)
+    }
+
     @Test func reactivePropUpdatesOnlyOnDataChange() {
         let runtime = SidebarJSRuntime()
         runtime.start(source: """
@@ -135,6 +176,57 @@ struct SidebarJSRuntimeTests {
         runtime.dispatchEvent(nodeId: rootId, event: "move", payload: ["id": "a", "index": 1])
         await pumpActions()
         #expect(captured == [.cmux(method: "workspace.reorder", params: ["workspace_id": "a", "index": "1"])])
+    }
+
+    @Test func reorderableDragFeedbackUpdatesReactiveRowsAndClears() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [drag, setDrag] = signal(null);
+        sidebar(() => Reorderable({
+            items: [{ id: "a" }, { id: "b" }],
+            key: w => w.id,
+            onDragChange: setDrag,
+        }, w => Text(() => drag() ? drag().id + ":" + drag().index + ":" + drag().side + ":" + drag().block : "idle")))
+        """))
+        let root = try #require(runtime.store.rootId)
+        let row = try #require(runtime.store.node(root)?.children.first)
+        #expect(runtime.store.node(row)?.string("text") == "idle")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "above", "block": false,
+        ])
+        #expect(runtime.store.node(row)?.string("text") ==
+            "a:1:above:false")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "below", "block": true,
+        ])
+        #expect(runtime.store.node(row)?.string("text") ==
+            "a:1:below:true")
+        runtime.dispatchEvent(nodeId: root, event: "dragChange", payload: [:])
+        #expect(runtime.store.node(row)?.string("text") == "idle")
+        #expect(runtime.store.node(root)?.children.first == row)
+        #expect(runtime.errorMessage == nil)
+    }
+
+    @Test func removingReorderableClearsFeedbackOutsideItsScope() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [drag, setDrag] = signal(null);
+        sidebar(() => VStack({}, [
+            Text(() => drag() ? drag().id : "idle"),
+            ForEach({ items: () => data.sections() ?? ["one"] }, () =>
+                Reorderable({ items: ["a", "b"], onDragChange: setDrag }, w => Text(w)))
+        ]))
+        """))
+        let root = try #require(runtime.store.rootId)
+        let children = try #require(runtime.store.node(root)?.children)
+        let list = try #require(runtime.store.node(children[1])?.children.first)
+        runtime.dispatchEvent(nodeId: list, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "above", "block": false,
+        ])
+        #expect(runtime.store.node(children[0])?.string("text") == "a")
+        runtime.updateData(key: "sections", value: .array([]))
+        #expect(runtime.store.node(children[0])?.string("text") == "idle")
+        #expect(runtime.errorMessage == nil)
     }
 
     @Test func contextMenuAttachesAsMenuChild() async {

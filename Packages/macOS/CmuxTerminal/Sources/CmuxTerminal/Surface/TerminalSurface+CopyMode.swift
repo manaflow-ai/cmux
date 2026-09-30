@@ -24,7 +24,7 @@ extension TerminalSurface {
 
     @MainActor
     private func performBindingActionImmediately(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "bindingAction") else { return false }
         return withRuntimeClipboardPasteIntent {
             action.withCString { cString in
                 ghostty_surface_binding_action(

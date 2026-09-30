@@ -1,11 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8. */
 
 
 import type * as T from "./types.js";
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
+  /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": T.AgentSource;
   "state": T.AgentState;
@@ -80,7 +82,10 @@ export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
 export type DetachedEvent = { event: "detached" } & {
+  "by"?: T.SizeDetachActor;
+  "reason"?: T.DetachReason;
   "surface": T.Id;
+  "view"?: string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -252,6 +257,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
+export type SizeStateEvent = { event: "size-state" } & {
+  "self_participant"?: string;
+  "state": T.SizeState;
+  "surface": T.Id;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -330,6 +342,13 @@ export type TitleChangedEvent = { event: "title-changed" } & {
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TreeChangedEvent = { event: "tree-changed" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type UrlOpenEvent = { event: "url-open" } & {
+  "request_id": string;
+  "terminal_id": string;
+  "url": string;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte. */
@@ -433,6 +452,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -444,6 +464,7 @@ export type KnownCmuxEvent =
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
+  | UrlOpenEvent
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
@@ -478,6 +499,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -523,6 +545,7 @@ export type KnownAttachEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -534,6 +557,7 @@ export type KnownByteAttachEvent =
   | OverflowEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -542,7 +566,8 @@ export type KnownRenderAttachEvent =
   | OverflowEvent
   | RenderDeltaEvent
   | RenderStateEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | SizeStateEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =

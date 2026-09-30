@@ -116,6 +116,36 @@ export const cloudVms = pgTable(
   ],
 );
 
+/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
+export const cloudRuntimes = pgTable("cloud_runtimes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTeamId: text("owner_team_id").notNull(),
+  /** Null until a host explicitly binds its authoritative journal lineage. */
+  journalSessionId: text("journal_session_id"),
+  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
+  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  placementGeneration: integer("placement_generation").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
+  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
+
+/** Provider-owned agent identities; multiple root/child threads can share a runtime. */
+export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings", {
+  runtimeId: uuid("runtime_id").notNull().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
+  codexThreadId: text("codex_thread_id").notNull(),
+  rootChatId: text("root_chat_id").notNull(),
+  parentChatId: text("parent_chat_id"),
+}, (table) => [
+  primaryKey({ columns: [table.runtimeId, table.codexThreadId] }),
+  check("cloud_runtime_agent_bindings_thread_nonempty", sql`length(trim(${table.codexThreadId})) > 0`),
+  check("cloud_runtime_agent_bindings_root_nonempty", sql`length(trim(${table.rootChatId})) > 0`),
+]);
+
 export const accountDeletionTombstones = pgTable(
   "account_deletion_tombstones",
   {
@@ -859,6 +889,7 @@ export const cloudVmLeases = pgTable(
     index("cloud_vm_leases_identity_cleanup_idx")
       .on(table.expiresAt, table.createdAt, table.id)
       .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
+    index("cloud_vm_leases_kind_expiry_idx").on(table.kind, table.expiresAt, table.id),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
@@ -876,6 +907,11 @@ export const cloudVmSessions = pgTable(
     title: text("title"),
     kind: text("kind").notNull().default("terminal"),
     status: cloudVmSessionStatus("status").notNull().default("running"),
+    // Lifetime number of attaches, not the number of clients attached now.
+    // upsertVmSession is the only writer and there is no detach writer at all,
+    // so the count only grows and never returns to zero. Pair it with
+    // lastAttachedAt to reason about recency; do not present it as a live
+    // viewer or participant count.
     attachmentCount: integer("attachment_count").notNull().default(0),
     effectiveCols: integer("effective_cols"),
     effectiveRows: integer("effective_rows"),
@@ -1019,6 +1055,9 @@ export const deviceTokens = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    pushKeyId: text("push_key_id").notNull().default("legacy"),
+    pushPublicKey: text("push_public_key"),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
     // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
@@ -1026,8 +1065,10 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
     deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
     deliveryLeaseToken: uuid("delivery_lease_token"),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1038,6 +1079,43 @@ export const deviceTokens = pgTable(
       table.bundleId,
       table.deviceToken,
     ),
+    uniqueIndex("device_tokens_bundle_installation_unique")
+      .on(table.bundleId, table.installationId)
+      .where(sql`${table.installationId} <> 'legacy'`),
+  ],
+);
+
+export const deviceTokenRevocations = pgTable(
+  "device_token_revocations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    bundleId: text("bundle_id").notNull(),
+    authSessionFingerprint: text("auth_session_fingerprint").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("device_token_revocations_session_unique").on(
+      table.userId,
+      table.deviceToken,
+      table.installationId,
+      table.bundleId,
+      table.authSessionFingerprint,
+    ),
+    index("device_token_revocations_lookup_idx").on(
+      table.userId,
+      table.deviceToken,
+      table.bundleId,
+    ),
+    index("device_token_revocations_installation_lookup_idx").on(
+      table.userId,
+      table.installationId,
+      table.bundleId,
+    ),
+    index("device_token_revocations_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -2105,6 +2183,19 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Durable state for state-change and reminder delivery of operator alerts. */
+export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
+  alertKey: text("alert_key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  severity: text("severity").notNull().default("warning"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  deliveryLeaseId: text("delivery_lease_id"),
+  deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
+]);
+
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
 export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
   userId: text("user_id").notNull(),
@@ -2158,4 +2249,58 @@ export const coderouterPoolAccounts = pgTable("coderouter_pool_accounts", {
   uniqueIndex("coderouter_pool_accounts_native_unique").on(table.poolId, table.accountId),
   uniqueIndex("coderouter_pool_accounts_claude_unique").on(table.poolId, table.claudeAccountId),
   check("coderouter_pool_accounts_one_account", sql`num_nonnulls(${table.accountId}, ${table.claudeAccountId}) = 1`),
+]);
+
+export const teamInviteRole = pgEnum("team_invite_role", ["admin", "member"]);
+
+/**
+ * The role an email invitation grants. Stack sends the invitation and owns the
+ * code, but its API has no role field, so the role is keyed by the team and
+ * the lowercased recipient email and applied when that invitation is accepted.
+ */
+export const teamInviteRoles = pgTable("team_invite_roles", {
+  stackTeamId: text("stack_team_id").notNull(),
+  email: text("email").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The Stack invitation this role was sent with; null until cmux sees it. */
+  stackInvitationId: text("stack_invitation_id"),
+}, (table) => [
+  primaryKey({ name: "team_invite_roles_pkey", columns: [table.stackTeamId, table.email] }),
+  check("team_invite_roles_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
+
+/**
+ * Reusable team invite links. Only a SHA-256 of the raw token is stored, links
+ * grant `member` only, and revocation sets `revoked_at` so redemptions keep
+ * their history.
+ */
+export const teamInviteLinks = pgTable("team_invite_links", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stackTeamId: text("stack_team_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  createdByUserId: text("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  maxUses: integer("max_uses"),
+  useCount: integer("use_count").notNull().default(0),
+}, (table) => [
+  uniqueIndex("team_invite_links_token_hash_unique").on(table.tokenHash),
+  index("team_invite_links_team_created_idx").on(table.stackTeamId, table.createdAt),
+  check("team_invite_links_member_only", sql`${table.role} = 'member'`),
+  check("team_invite_links_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("team_invite_links_max_uses_check", sql`${table.maxUses} is null or ${table.maxUses} > 0`),
+  check("team_invite_links_use_count_check", sql`${table.useCount} >= 0 and (${table.maxUses} is null or ${table.useCount} <= ${table.maxUses})`),
+]);
+
+/** One row per user who joined through a link, which makes redemption idempotent. */
+export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions", {
+  linkId: uuid("link_id").notNull().references(() => teamInviteLinks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "team_invite_link_redemptions_pkey", columns: [table.linkId, table.userId] }),
 ]);

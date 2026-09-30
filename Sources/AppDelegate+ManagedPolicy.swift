@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxSettings
 import Foundation
@@ -11,6 +12,9 @@ extension AppDelegate {
     func installManagedPolicyEnforcement() {
         guard managedPolicyEnforcementObserver == nil else { return }
         managedPolicyEnforcementObserver = ManagedPolicyEnforcementObserver(
+            socketControlPolicy: {
+                CmuxSettingsFileStore.socketControlPolicyResolution()
+            },
             enforceBrowserPolicy: { [weak self] in
                 self?.closeBrowserPanelsForManagedPolicy()
             },
@@ -23,6 +27,9 @@ extension AppDelegate {
                 // the policy lifts.
                 MobileHostService.shared.syncToSettings()
             },
+            enforceIncomingAccessPolicy: {
+                MobileHostService.shared.syncToSettings()
+            },
             enforceCloudPolicy: { [weak self] in
                 self?.applyManagedCloudPolicy()
             },
@@ -31,6 +38,12 @@ extension AppDelegate {
             },
             enforceComputerUsePolicy: { [weak self] in
                 self?.applyManagedComputerUsePolicy()
+            },
+            enforceUpdatePolicy: { [weak self] in
+                self?.installUpdatesAutomaticallyDidChange()
+            },
+            enforceSocketControlPolicy: { [weak self] in
+                self?.reconcileSocketListenerConfiguration(source: "managed_policy")
             }
         )
         cloudFeatureFlagObserver = CloudFeatureAvailabilityObserver(
@@ -43,6 +56,8 @@ extension AppDelegate {
     /// boundary. Existing workspace configurations and catalog identities stay
     /// persisted; only controllers, retries, and transport tasks are stopped.
     func applyCloudFeatureFlag(enabled: Bool) {
+        devicesRegistry?.evaluate()
+        MobileHostService.shared.syncToSettings()
         if !enabled {
             MachineCreateCoordinator.shared.cancelAllForAuthTransition(cleanupCreatedMachines: false)
             CloudVMActionLauncher.shared.cancelAllForAuthTransition()

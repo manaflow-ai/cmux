@@ -18,6 +18,7 @@ keep running when the laptop closes.
 | `vm exec`, `vm terminal send/read/wait` (drive anything headlessly) | shipped |
 | `vm dev` (detect/record/replay environment, named workspace) | designed (cloud-project-environments.md) |
 | `vm push --watch` (fs-event incremental sync) | next |
+| Browser device authentication (`cmux open-url`, `BROWSER`, OS URL openers; exact terminal projection, acknowledgement, headless fallback) | implemented; updated guest/Mac binaries required |
 | `vm repo clone <url>` (clone *in* the cloud — big repos never transit the Mac; gh auth via edge-injected credentials, never a token in the guest) | next |
 
 ## Goal 2 — agents that outlive the laptop

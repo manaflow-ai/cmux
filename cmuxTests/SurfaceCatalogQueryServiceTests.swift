@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -38,6 +39,45 @@ struct SurfaceCatalogQueryServiceTests {
             #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: machine.rawValue, catalog: payload)
                 == .resolved(workspaceID: "ws-1", terminalID: "term-seeded", tabID: "tab-1"))
         }
+    }
+
+    @Test("New Machine open: a linked read discovers and connects a just-created machine without forcing a pass")
+    func linkedReadDiscoversAndJoinsCurrentPass() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-new")
+        let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+        var discoveries: [String] = []
+        let query = SurfaceCatalogQueryService(catalog: catalog) { id in
+            discoveries.append(id)
+            catalog.register(provider)
+        }
+
+        // The regression: `cmux vm open` for a fresh VM read the cached catalog,
+        // found no machine row, and failed with "sessions are unavailable".
+        let result = await query.read(machine: machine, mode: .linked)
+
+        #expect(discoveries == ["vm-new"])
+        #expect(provider.forcedRefreshes == [false])
+        let payload = TerminalController.surfaceCatalogPayload(result, machine: machine)
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: machine.rawValue, catalog: payload)
+            == .resolved(workspaceID: "ws-1", terminalID: "term-seeded", tabID: "tab-1"))
+    }
+
+    @Test("Reopen: a linked read of an already-connected machine does no provider work")
+    func linkedReadOfConnectedMachineIsFree() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-live")
+        let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+        catalog.register(provider)
+        await provider.refresh(force: false)
+        var discoveries: [String] = []
+        let query = SurfaceCatalogQueryService(catalog: catalog) { discoveries.append($0) }
+
+        let result = await query.read(machine: machine, mode: .linked)
+
+        #expect(discoveries.isEmpty)
+        #expect(provider.forcedRefreshes == [false])
+        #expect(result.catalog.resources.map(\.id.key) == ["term-seeded"])
     }
 
     @Test("A cached catalog read does not discover or wake an unknown machine")

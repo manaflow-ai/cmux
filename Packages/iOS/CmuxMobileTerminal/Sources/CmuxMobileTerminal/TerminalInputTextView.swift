@@ -81,7 +81,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
-    private var modifierState = TerminalInputModifierState()
+    var modifierState = TerminalInputModifierState()
     private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
     private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
     private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
@@ -1117,7 +1117,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // and background styling so resting custom icons stay white and
             // armed built-ins keep their blue active state.
             let restingForeground = themeChromeColor
-            let activeForeground = UIColor.systemBlue.terminalReadableForeground
+            let activeForeground = UIColor.terminalAccessoryActiveForeground
             config.imageColorTransformer = UIConfigurationColorTransformer { _ in
                 armed || sticky ? activeForeground : restingForeground
             }
@@ -1131,11 +1131,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
+            actionButton.stickyLockBorderColor = UIColor.terminalAccessoryActiveForeground
             // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
-            // distinguished by a white capsule border drawn over the glass (see
+            // distinguished by an appearance-aware capsule border drawn over the glass (see
             // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
-            // flat style already renders the locked white stroke through the
+            // flat style already renders the locked contrasting stroke through the
             // background configuration, so the layer border stays off to avoid
             // a doubled stroke.
             if #available(iOS 26.0, *) {
@@ -1148,7 +1148,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         let activeBackground = UIColor.systemBlue
-        let activeForeground = activeBackground.terminalReadableForeground
+        let activeForeground = UIColor.terminalAccessoryActiveForeground
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor

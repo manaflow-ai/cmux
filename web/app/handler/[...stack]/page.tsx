@@ -1,4 +1,4 @@
-import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
+import { MagicLinkSignIn, StackHandler } from "@hexclave/next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";

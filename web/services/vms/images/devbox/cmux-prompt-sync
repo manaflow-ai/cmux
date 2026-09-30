@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Refresh the local prompt name without blocking the daemon or its terminals."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import tempfile
+import time
+import subprocess
+import threading
+import urllib.request
+
+NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def publish(directory, payload):
+    name = payload.get("name")
+    machine = payload.get("vm_id")
+    if not isinstance(name, str) or NAME.fullmatch(name) is None:
+        raise ValueError("invalid machine name")
+    if not isinstance(machine, str) or not machine:
+        raise ValueError("missing machine identity")
+    directory.mkdir(parents=True, exist_ok=True)
+    # The rename writer uses this same lock. A stopped clone worker cannot
+    # interleave partial writes with a subsequent worker or rename request.
+    with (directory / ".prompt-lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        target = directory / "vm-name"
+        value = name + "\n"
+        if target.is_file() and not target.is_symlink() and target.read_text() == value:
+            return False
+        fd, temporary = tempfile.mkstemp(prefix=".prompt-", dir=directory)
+        try:
+            with os.fdopen(fd, "w") as stream:
+                stream.write(value)
+                os.fchmod(stream.fileno(), 0o644)
+            os.replace(temporary, target)
+        finally:
+            if os.path.lexists(temporary):
+                os.unlink(temporary)
+        return True
+
+
+def fetch_name(url):
+    request = urllib.request.Request(url, headers={
+        "Authorization": "Bearer cmux-vm-edge-placeholder",
+    })
+    with urllib.request.urlopen(request, timeout=5) as response:
+        body = response.read(4097)
+    if len(body) > 4096:
+        raise ValueError("identity response too large")
+    payload = json.loads(body)
+    if not isinstance(payload, dict):
+        raise ValueError("invalid identity response")
+    return payload
+
+
+def tui_layout():
+    user = "cmux"
+    home = "/home/cmux"
+    try:
+        import pwd
+        pwd.getpwnam(user)
+        if not os.access(home, os.W_OK) or subprocess.run(
+            ["setpriv", "--reuid=cmux", "--regid=cmux", "--init-groups", "sudo", "-n", "true"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            check=False,
+        ).returncode != 0:
+            raise OSError("cmux work user is not usable")
+    except (KeyError, OSError, subprocess.SubprocessError):
+        user = "root"
+        home = "/root"
+    return user, home, os.environ.get("CMUX_TUI_BIN", f"{home}/.cmux/bin/cmux-tui")
+
+
+def tui(*args):
+    user, home, binary = tui_layout()
+    environment = {
+        **os.environ,
+        "HOME": home,
+        "TERM": "xterm-256color",
+        "TERM_PROGRAM": "ghostty",
+    }
+    command = [binary, "--session", "cloud", *args]
+    if user == "root":
+        return subprocess.run(command, capture_output=True, text=True, timeout=10, check=False, env=environment)
+    environment.update({"USER": user, "LOGNAME": user, "SHELL": "/bin/bash"})
+    return subprocess.run(
+        ["setpriv", f"--reuid={user}", f"--regid={user}", "--init-groups", "env", *[f"{key}={value}" for key, value in environment.items()], *command],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+
+def terminal_id(value):
+    for item in walk(value):
+        if not isinstance(item, dict):
+            continue
+        candidate = item.get("terminal_id") or item.get("id")
+        if isinstance(candidate, str) and candidate.startswith("term_"):
+            return candidate
+    return None
+
+
+def find_existing_terminal():
+    """Returns (answered, terminal). answered is False until the daemon replies."""
+    result = tui("terminal", "list", "--json")
+    if result.returncode != 0:
+        return False, None
+    try:
+        return True, terminal_id(json.loads(result.stdout))
+    except (ValueError, TypeError):
+        return False, None
+
+
+# Written by cmux-devbox-boot and the template shell (cmux-prompt.bash).
+RUN_DIR = Path(os.environ.get("CMUX_PROMPT_RUN_DIR") or "/run/cmux")
+
+
+def bound_terminal():
+    """The warm template terminal the clone's daemon adopted, from its binding."""
+    try:
+        for line in (RUN_DIR / "bound").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key == "CMUX_TUI_TERMINAL_ID" and value.startswith("term_"):
+                return value
+    except OSError:
+        pass
+    return None
+
+
+def seed_terminal(ready, directory):
+    marker = directory / "first-terminal.json"
+    terminal = None
+    try:
+        if marker.is_file():
+            terminal = terminal_id(json.loads(marker.read_text()))
+    except (OSError, ValueError, TypeError):
+        terminal = None
+    # A warm clone's daemon names its adopted terminal in the binding before it
+    # listens, while `terminal list` can still omit it for a moment.
+    terminal = terminal or bound_terminal()
+    for _ in range(60):
+        if terminal:
+            break
+        answered, terminal = find_existing_terminal()
+        # Create only when the daemon answered with no terminal. A warm clone's
+        # daemon is still adopting the snapshot's template terminal when this
+        # starts; a create sent then waits for the daemon and adds a second
+        # workspace beside the adopted one.
+        if not terminal and answered:
+            result = tui("workspace", "create", "--name", "Cloud", "--json")
+            if result.returncode == 0:
+                try:
+                    value = json.loads(result.stdout)
+                    terminal = terminal_id(value)
+                except (OSError, ValueError, TypeError):
+                    pass
+                if not terminal:
+                    terminal = find_existing_terminal()[1]
+                if terminal:
+                    marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
+        if not terminal:
+            time.sleep(1)
+    if terminal and ready.wait(timeout=60):
+        # The snapshot can resume with the builder's prompt already rendered.
+        # Clear that bytes/history and interrupt it after the clone identity is
+        # published. These two calls are deliberately detached from the name
+        # refresh loop, so New Machine never waits on them.
+        # A warm template shell draws its first prompt only after the name
+        # arrives (cmux-prompt.bash) and records that here. Clearing and
+        # interrupting it then would only drop what the user already typed.
+        if (RUN_DIR / "first-prompt-named").exists():
+            return
+        tui("terminal", terminal, "history", "clear", "--quiet")
+        tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
+
+
+# The bake leaves this default in vm-name. A clone's real name arrives either
+# from the reflection fetch below or from the control plane writing vm-name
+# directly (the same writer a rename uses, run once after create). The latter
+# is the only path that reaches a private dev backend, so a name that appears
+# in the file must also trigger the one-time prompt refresh.
+BAKED_NAME = "cmux"
+
+
+def watch_local_name(directory, ready, timeout=600.0):
+    target = directory / "vm-name"
+    deadline = time.monotonic() + timeout
+    while not ready.is_set() and time.monotonic() < deadline:
+        try:
+            value = target.read_text().strip()
+        except OSError:
+            value = ""
+        if value != BAKED_NAME and NAME.fullmatch(value) is not None:
+            ready.set()
+            return
+        time.sleep(0.2)
+
+
+def walk(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--directory", type=Path, default=Path("/etc/cmux"))
+    parser.add_argument("--url", default="https://reflection.cmux.internal/name")
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+    ready = threading.Event()
+    threading.Thread(target=seed_terminal, args=(ready, args.directory), daemon=True).start()
+    if not args.once:
+        threading.Thread(target=watch_local_name, args=(args.directory, ready), daemon=True).start()
+    delay = 1
+    while True:
+        try:
+            publish(args.directory, fetch_name(args.url))
+            ready.set()
+            delay = 1
+            if args.once:
+                return
+            # Display-only state; no network request runs from a shell prompt.
+            time.sleep(30)
+        except (OSError, ValueError):
+            if args.once:
+                raise
+            # Never publish a fallback as success or clear an existing name.
+            time.sleep(delay)
+            delay = min(delay * 2, 8)
+
+
+if __name__ == "__main__":
+    main()

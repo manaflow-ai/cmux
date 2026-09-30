@@ -80,4 +80,16 @@ struct VaultAllSessionsBar: View {
         .accessibilityIdentifier("VaultSessionOptionsMenu")
         .titlebarInteractiveControl()
     }
+
+    static func reloadButton(isLoading: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HeaderChromeIconStyle.symbol("arrow.clockwise")
+        }
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarVaultReloadIcon"))
+        .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
+        .accessibilityLabel(Text(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault")))
+        .accessibilityIdentifier("SessionIndexReloadButton")
+        .disabled(isLoading)
+        .titlebarInteractiveControl()
+    }
 }

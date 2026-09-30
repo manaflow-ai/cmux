@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CloudWorkspaceRenameService {
@@ -24,6 +26,19 @@ extension CloudWorkspaceRenameService {
     }
 
     /// Applies one accepted workspace name without scanning other bindings.
+    ///
+    /// The accepted daemon graph is the one authority for a cloud workspace's
+    /// name. The local custom title is its projection: the sidebar row, the
+    /// title bar and every other local reader paint that projection, while the
+    /// Cloud tree paints the graph directly, so they agree only while this
+    /// write is unconditional. The single exception is an unacknowledged local
+    /// intent (queued, in flight, or receipted but not yet in the graph): that
+    /// is the creation-race window, where a name typed before the remote
+    /// identity bound is still on its way to the daemon and an older snapshot
+    /// must not clobber it. Provenance alone never protects a title: a
+    /// user-owned title that differs from the graph is stale (renamed from the
+    /// Cloud tree or another client, or restored from an older manifest) and
+    /// follows the graph like any other (#12986).
     @MainActor
     func reconcileRemoteWorkspaceName(
         workspace: Workspace,
@@ -35,15 +50,13 @@ extension CloudWorkspaceRenameService {
         guard catalog.cloudStates[machine] == state,
               observation.freshness == .current,
               let binding = workspace.cloudVMBinding,
-              binding.vmID == machine.cloudMachineID,
+              binding.vmID == machine.tuiMachineID,
               let id = binding.remoteWorkspaceID,
               let remote = state.lookupIndex.workspace(id: id) else { return }
         let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
         if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { return }
         // Equal confirmations preserve user provenance across refresh.
-        // A user title without a pending write is also authoritative: it may
-        // have been entered while creation/discovery was in flight.
-        if workspace.effectiveCustomTitleSource == .user { return }
+        if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { return }
         guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { return }
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
         _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
@@ -61,7 +74,7 @@ extension CloudWorkspaceRenameService {
         affectedResources: Set<SurfaceResourceID>? = nil,
         workspaceNamesChanged: Bool = true
     ) {
-        guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
+        guard machine.tuiMachineID != nil, catalog.cloudStates[machine] == state else { return }
         if workspaceNamesChanged {
             let snapshot = catalog.snapshot
             let resources = snapshot.resources(on: machine)
@@ -70,7 +83,7 @@ extension CloudWorkspaceRenameService {
                 by: \.workspaceID
             )
             for workspace in environment.workspaces() {
-                guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
+                guard let binding = workspace.cloudVMBinding, binding.vmID == machine.tuiMachineID,
                       binding.remoteWorkspaceID != nil else { continue }
                 switch bindingReconciliation(
                     binding: binding,
@@ -83,11 +96,12 @@ extension CloudWorkspaceRenameService {
                 case .keep:
                     break
                 case .clear:
+                    if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspace.id) { continue }
                     workspace.cloudVMBinding = nil
                     continue
                 case .rebind(let targetMachine, let targetWorkspaceID):
                     workspace.cloudVMBinding = WorkspaceCloudVMBinding(
-                        vmID: targetMachine.cloudMachineID ?? binding.vmID,
+                        vmID: targetMachine.tuiMachineID ?? binding.vmID,
                         isBase: binding.isBase,
                         remoteWorkspaceID: targetWorkspaceID
                     )
@@ -101,12 +115,7 @@ extension CloudWorkspaceRenameService {
             guard let resource = catalog.resources[projection.resource],
                   let workspace = environment.workspace(projection.workspaceID),
                   workspace.panels[projection.panelID] != nil else { continue }
-            if resource.kind == .terminal {
-                workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
-            } else {
-                workspace.clearRemotePanelDirectory(panelId: projection.panelID)
-                continue
-            }
+            guard resource.kind == .terminal else { continue }
             if workspace.panelTitles[projection.panelID] != resource.cloudProcessDisplayTitle {
                 _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.cloudProcessDisplayTitle)
             }

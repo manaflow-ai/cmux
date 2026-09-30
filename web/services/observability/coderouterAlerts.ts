@@ -11,6 +11,7 @@
 // use higher thresholds.
 import { captureCoderouterRawBatch } from "../coderouter/analytics";
 import { query as clickHouseQuery, type ClickHouseDependencies } from "../coderouter/clickhouse";
+import { classifyCoderouterFault } from "../coderouter/faultClassification";
 import { coderouterHealth, type CoderouterHealth } from "../coderouter/health";
 import { reportCoderouterFailure } from "../coderouter/observability";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
@@ -56,11 +57,21 @@ type RouteEventRow = {
   readonly failure_stage: string;
   readonly team_id: string;
   readonly provider: string;
+  /** HTTP status the route returned; absent from pre-2026-09-25 fixtures. */
+  readonly status?: number;
   readonly c: number;
+};
+
+type RouteCrashCounts = {
+  readonly count: number;
+  readonly teams: ReadonlySet<string>;
+  readonly byStage: ReadonlyMap<string, number>;
+  readonly byProvider: ReadonlyMap<string, number>;
 };
 
 type RouteEventCounts = {
   readonly total: number;
+  readonly routeCrashes: RouteCrashCounts;
   readonly operatorFailures: number;
   readonly upstreamFailures: number;
   readonly noUsableAccount: number;
@@ -84,10 +95,10 @@ export type CoderouterAlertDependencies = {
 };
 
 const ROUTE_EVENTS_SQL = `
-SELECT outcome, failure_stage, team_id, provider, count() AS c
+SELECT outcome, failure_stage, team_id, provider, status, count() AS c
 FROM {db}.route_events
 WHERE event_time > now() - INTERVAL {window:UInt16} MINUTE
-GROUP BY outcome, failure_stage, team_id, provider
+GROUP BY outcome, failure_stage, team_id, provider, status
 `;
 
 async function loadRouteEvents(
@@ -107,6 +118,7 @@ async function loadRouteEvents(
     rows: result.rows.map((row) => ({
       ...row,
       c: Number(row.c),
+      status: Number(row.status),
       team_id: typeof row.team_id === "string" ? row.team_id.trim() : "",
     })),
   };
@@ -135,6 +147,7 @@ export async function runCoderouterAlertChecks(
   };
 
   const thresholds = {
+    routeCrashes: positiveIntegerEnv(env.CMUX_CODEROUTER_ALERT_ROUTE_CRASHES_5M, 3),
     operatorFailures: positiveIntegerEnv(env.CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M, 1),
     upstreamFailures: positiveIntegerEnv(env.CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M, 5),
     noUsableAccount: positiveIntegerEnv(env.CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M, 10),
@@ -201,12 +214,19 @@ export async function runCoderouterAlertChecks(
       if (triggered) await send({ key, ...alert() });
     };
 
+    const crashes = counts.routeCrashes;
+    await evaluate("coderouter-route-crashes", crashes.count, thresholds.routeCrashes, () => ({
+      title: "coderouter route handlers are crashing",
+      body: routeCrashAlertBody(crashes, counts.total),
+      severity: "critical",
+    }));
+
     const operatorCount = counts.operatorFailures;
     await evaluate("coderouter-operator-failures", operatorCount, thresholds.operatorFailures, () => ({
       title: "coderouter failed requests on our side",
       body: [
         `${operatorCount} of ${counts.total} routed requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes failed before reaching a provider.`,
-        "Check RDS, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter_provider_unavailable.",
+        "Check PlanetScale, KMS and the Vercel deploy; search PostHog Error Tracking for coderouter:provider_unavailable.",
       ].join(" "),
       severity: "critical",
     }));
@@ -252,10 +272,65 @@ export async function runCoderouterAlertChecks(
   };
 }
 
+/**
+ * Operator-side failures other than crashes, which have their own check. The
+ * documented `provider_unavailable` stages always count; with a status, any
+ * outcome the shared classifier files as an operator fault counts too, so a
+ * new 5xx outcome cannot go unalerted.
+ */
 function isOperatorFailure(row: RouteEventRow): boolean {
-  return row.outcome === "provider_unavailable" &&
+  if (row.outcome === "route_crash") return false;
+  if (row.outcome === "provider_unavailable" &&
     row.failure_stage !== "upstream_transport" &&
-    row.failure_stage !== "upstream_response";
+    row.failure_stage !== "upstream_response") {
+    return true;
+  }
+  const status = row.status;
+  if (status === undefined || !Number.isInteger(status)) return false;
+  return classifyCoderouterFault({ outcome: row.outcome, failureStage: row.failure_stage, status }) === "operator";
+}
+
+const MAX_TRACKED_CRASH_TEAMS = 1_000;
+
+function aggregateRouteCrashes(rows: readonly RouteEventRow[]): RouteCrashCounts {
+  let count = 0;
+  const teams = new Set<string>();
+  const byStage = new Map<string, number>();
+  const byProvider = new Map<string, number>();
+  for (const row of rows) {
+    if (row.outcome !== "route_crash") continue;
+    const c = Number.isFinite(row.c) ? row.c : 0;
+    count += c;
+    const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
+    if (teamId && teams.size < MAX_TRACKED_CRASH_TEAMS) teams.add(teamId);
+    byStage.set(row.failure_stage || "unknown", (byStage.get(row.failure_stage || "unknown") ?? 0) + c);
+    byProvider.set(row.provider || "unknown", (byProvider.get(row.provider || "unknown") ?? 0) + c);
+  }
+  return { count, teams, byStage, byProvider };
+}
+
+function formatBreakdown(counts: ReadonlyMap<string, number>): string {
+  return [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(", ");
+}
+
+/**
+ * Counts, stages and providers only: team ids stay in ClickHouse. `auth`
+ * means the crash happened inside credential verification, so every new
+ * request from the affected machines fails.
+ */
+function routeCrashAlertBody(crashes: RouteCrashCounts, total: number): string {
+  const teams = crashes.teams.size >= MAX_TRACKED_CRASH_TEAMS
+    ? `at least ${MAX_TRACKED_CRASH_TEAMS}`
+    : String(crashes.teams.size);
+  return [
+    `${crashes.count} of ${total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes crashed in a route handler (route_crash) across ${teams} identified team(s).`,
+    `Stages: ${formatBreakdown(crashes.byStage)}. Providers: ${formatBreakdown(crashes.byProvider)}.`,
+    "The cause (error class, SQLSTATE, statement kind) is on the PostHog Error Tracking issues whose fingerprint starts with coderouter:route_crash; affected teams and VMs are in ClickHouse route_events where outcome = 'route_crash'.",
+  ].join(" ");
 }
 
 function isUpstreamFailure(row: RouteEventRow): boolean {
@@ -290,7 +365,15 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     }
     if (row.outcome === "unauthorized") authRejected += count;
   }
-  return { total, operatorFailures, upstreamFailures, noUsableAccount, authRejected, noUsableAccountTeams };
+  return {
+    total,
+    routeCrashes: aggregateRouteCrashes(rows),
+    operatorFailures,
+    upstreamFailures,
+    noUsableAccount,
+    authRejected,
+    noUsableAccountTeams,
+  };
 }
 
 /**

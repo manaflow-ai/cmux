@@ -1,13 +1,18 @@
+import { grantVmImportedAccount } from "../services/coderouter/vmAccountImport";
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { changeAccountVisibility } from "../services/coderouter/accountSharing";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
-import { closeCloudDbForTests } from "../db/client";
+import { cloudDb, closeCloudDbForTests } from "../db/client";
+import { addAccount } from "../services/coderouter/accounts";
+import { encryptCredential, type CredentialKeyService } from "../services/coderouter/encryption";
+import type { CodexCredential } from "../services/coderouter/types";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
-import { authenticateRouteToken, issueRouteToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
+import "./vm-authorization-fixture";
+import { authenticateRouteToken, deleteAccount, issueRouteToken, issueVmAuthorizationToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
 import { listClaudeAccounts } from "../services/coderouter/claudeUpstream";
-import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext } from "../services/coderouter/requestContext";
+import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext, resolveCoderouterControlContext } from "../services/coderouter/requestContext";
 import { GET as accountsGet } from "../app/api/coderouter/accounts/route";
 import { GET as claudeGet } from "../app/api/coderouter/claude-upstream/route";
 import { GET as organizationsGet } from "../app/api/coderouter/organizations/route";
@@ -27,6 +32,10 @@ let privateA: string;
 let sharedB: string;
 let claudeA: string;
 let tokenA: string;
+const testKeys: CredentialKeyService = {
+  async generateDataKey() { return { plaintext: Buffer.alloc(32, 9), encrypted: Buffer.alloc(32, 9) }; },
+  async decryptDataKey() { return Buffer.alloc(32, 9); },
+};
 
 beforeAll(() => {
   if (enabled) db = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 3 });
@@ -66,6 +75,36 @@ function guest(path: string, headers: Record<string, string> = {}) {
   } });
 }
 function access() { return { kind: "vm" as const, vmId: vmA, poolId: poolA }; }
+function codexCredential(userId: string, accountId: string): CodexCredential {
+  const token = `h.${Buffer.from(JSON.stringify({ email: "vm@example.com", "https://api.openai.com/auth": { chatgpt_user_id: userId, chatgpt_account_id: accountId } })).toString("base64url")}.s`;
+  return {
+    provider: "codex",
+    accessToken: token,
+    refreshToken: `refresh-${userId}`,
+    idToken: token,
+    accountId,
+    email: "vm@example.com",
+    expiresAt: Date.now() + 3_600_000,
+  };
+}
+
+async function insertLegacyCodexAccount(credential: CodexCredential, visibility: "private" | "team" = "team") {
+  const id = randomUUID();
+  const encrypted = await encryptCredential({
+    teamId: TEAM_A,
+    accountId: id,
+    provider: "codex",
+    credentialRevision: 1,
+    credential,
+    keyId: "vm-scope-test-key",
+    keys: testKeys,
+  });
+  await db`insert into coderouter_accounts (id, team_id, provider, provider_account_id, label, state, vault_revision, visibility, created_by)
+    values (${id}, ${TEAM_A}, 'codex', ${credential.accountId}, 'legacy', 'active', 1, ${visibility}, ${visibility === "team" ? USER : "another-user"})`;
+  await db`insert into coderouter_credentials (account_id, team_id, provider, credential_revision, algorithm, ciphertext, nonce, auth_tag, encrypted_data_key, kms_key_id)
+    values (${id}, ${TEAM_A}, 'codex', 1, ${encrypted.algorithm}, ${encrypted.ciphertext}, ${encrypted.nonce}, ${encrypted.authTag}, ${encrypted.encryptedDataKey}, ${encrypted.kmsKeyId})`;
+  return id;
+}
 
 dbTest("VM list APIs ignore team overrides and hide private and foreign accounts", async () => {
   const request = guest('/api/coderouter/accounts?teamId='+TEAM_B, { 'x-cmux-team-id': TEAM_B });
@@ -88,6 +127,17 @@ dbTest("same creator cannot authorize another team's VM", async () => {
   expect(identity).toMatchObject({ ok: true, identity: { teamId: TEAM_A, vmId: vmA, poolId: poolA } });
   expect(await authenticateRequestRouteToken(guest('/v1/models', { 'x-cmux-vm-id': vmB }))).toMatchObject({ ok: false });
   expect(await resolveCoderouterUsageTeam(guest('/api/coderouter/accounts', { 'x-cmux-vm-id': vmB }))).toMatchObject({ ok: false });
+});
+
+dbTest("a signed VM authorization authenticates against the live VM row", async () => {
+  // cloud_vms.id is uuid and coderouter_route_tokens.vm_id is text; the
+  // lookup must not compare the two columns directly.
+  const signed = await issueVmAuthorizationToken(TEAM_A, USER, vmA);
+  expect(await authenticateRouteToken(signed.token)).toEqual({ teamId: TEAM_A, stackUserId: USER, vmId: vmA, poolId: poolA });
+  const request = new Request("https://coderouter.test/v1/models", { headers: { "x-cmux-authorization": `Bearer ${signed.token}` } });
+  expect(await authenticateRequestRouteToken(request)).toMatchObject({ ok: true, identity: { teamId: TEAM_A, vmId: vmA, poolId: poolA } });
+  await db`update cloud_vms set status = 'destroyed' where id = ${vmA}`;
+  expect(await authenticateRouteToken(signed.token)).toBeNull();
 });
 
 dbTest("pool membership and account visibility constrain selection and cached sessions", async () => {
@@ -166,4 +216,58 @@ dbTest("personal VMs can use their owner's private pool without granting organiz
   expect(await listAccounts(USER, access())).toEqual([]);
   expect(await listAccounts(USER, { ...personal, vmId: vmA })).toEqual([]);
   expect(await listAccounts(USER, { kind: 'user', userId: 'other-person' })).toEqual([]);
+});
+
+
+dbTest("VM account mutations retain the pool boundary and cannot borrow the creator's private access", async () => {
+  const resolved = await resolveCoderouterControlContext(guest('/api/coderouter/accounts', {'x-cmux-team-id': TEAM_B}));
+  expect(resolved).toMatchObject({ok:true,value:{team:{teamId:TEAM_A},access:access()}});
+  for (const accountId of [privateA, sharedB]) {
+    expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId,access:access()})).toMatchObject({removed:false});
+  }
+  await db`delete from coderouter_pool_accounts where pool_id = ${poolA} and account_id = ${sharedA}`;
+  expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId:sharedA,access:access()})).toMatchObject({removed:false});
+  await db`insert into coderouter_pool_accounts (team_id,pool_id,account_id) values (${TEAM_A},${poolA},${sharedA})`;
+  expect(await deleteAccount({teamId:TEAM_A,accountId:sharedA,access:access()})).toMatchObject({removed:true});
+});
+
+dbTest("a VM import is granted to its current custom pool and rejects stale or foreign bindings", async () => {
+  const [custom] = await db`insert into coderouter_pools (team_id,name) values (${TEAM_A},'Import pool') returning id`;
+  await db`update cloud_vms set coderouter_pool_id = ${custom.id} where id = ${vmA}`;
+  const scope = {kind:'vm' as const,vmId:vmA,poolId:custom.id as string};
+  expect(await listAccounts(TEAM_A,scope)).toEqual([]);
+  await cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_A,sharedA,'native',scope));
+  expect((await listAccounts(TEAM_A,scope)).map(a=>a.id)).toEqual([sharedA]);
+  await expect(cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_B,sharedB,'native',scope))).rejects.toThrow();
+  await expect(cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_A,sharedA,'native',access()))).rejects.toThrow();
+});
+
+dbTest("VM Codex imports migrate visible legacy rows and reject hidden duplicates", async () => {
+  const visibleCredential = codexCredential("legacy-visible-user", "legacy-visible-workspace");
+  const visibleId = await insertLegacyCodexAccount(visibleCredential);
+
+  const visibleResult = await addAccount(
+    TEAM_A,
+    visibleCredential,
+    testKeys,
+    async () => {},
+    async () => {},
+    { createdBy: USER, visibility: "team", access: access() },
+  );
+  expect(visibleResult).toEqual({ accountId: visibleId, alreadyExists: true });
+  const [migrated] = await db`select provider_account_id from coderouter_accounts where id = ${visibleId}`;
+  expect(migrated.provider_account_id).not.toBe(visibleCredential.accountId);
+
+  const hiddenCredential = codexCredential("legacy-hidden-user", "legacy-hidden-workspace");
+  await insertLegacyCodexAccount(hiddenCredential, "private");
+  await expect(addAccount(
+    TEAM_A,
+    hiddenCredential,
+    testKeys,
+    async () => {},
+    async () => {},
+    { createdBy: USER, visibility: "team", access: access() },
+  )).rejects.toThrow("outside this VM's account pool");
+  const [{ count }] = await db`select count(*)::int as count from coderouter_accounts where team_id = ${TEAM_A} and provider = 'codex'`;
+  expect(count).toBe(2);
 });

@@ -15,8 +15,8 @@ class GeneratedClientMixin:
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
-    def attach_surface(self, surface: Id, *, cols: Union[int, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, mode=mode, rows=rows))
+    def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, rows=rows))
 
     def browser_activate(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-activate', BrowserActivateRequest(surface=surface))
@@ -96,11 +96,11 @@ class GeneratedClientMixin:
     def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
 
-    def detach_attached_view(self, surface: Id, lease: str) -> AttachedViewOutcomeResult:
-        return self._invoke_command('detach-attached-view', DetachAttachedViewRequest(surface=surface, lease=lease))
+    def detach_attached_view(self, surface: Id, *, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewOutcomeResult:
+        return self._invoke_command('detach-attached-view', DetachAttachedViewRequest(surface=surface, lease=lease, view=view))
 
-    def detach_client(self, client: int) -> EmptyResult:
-        return self._invoke_command('detach-client', DetachClientRequest(client=client))
+    def detach_client(self, client: DetachClientTarget, *, by: Union[SizeDetachActor, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('detach-client', DetachClientRequest(client=client, by=by))
 
     def export_layout(self, screen: Union[Id, None, MissingType] = MISSING) -> ExportLayoutResult:
         return self._invoke_command('export-layout', ExportLayoutRequest(screen=screen))
@@ -119,6 +119,9 @@ class GeneratedClientMixin:
 
     def get_frontend_projection(self, frontend: str, scope: str, subject_key: str) -> FrontendProjection:
         return self._invoke_command('get-frontend-projection', GetFrontendProjectionRequest(frontend=frontend, scope=scope, subject_key=subject_key))
+
+    def get_size_state(self, surface: Id) -> GetSizeStateResult:
+        return self._invoke_command('get-size-state', GetSizeStateRequest(surface=surface))
 
     def identify(self) -> IdentifyResult:
         return self._invoke_command('identify', IdentifyRequest())
@@ -159,6 +162,9 @@ class GeneratedClientMixin:
     def move_tab(self, surface: Id, pane: Id, index: int) -> EmptyResult:
         return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index))
 
+    def move_tab_to_workspace(self, surface: Id, *, workspace: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('move-tab-to-workspace', MoveTabToWorkspaceRequest(surface=surface, workspace=workspace))
+
     def move_terminal(self, terminal_id: str, workspace_key: str, *, terminal_incarnation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> MoveTerminalResult:
         return self._invoke_command('move-terminal', MoveTerminalRequest(terminal_id=terminal_id, workspace_key=workspace_key, terminal_incarnation=terminal_incarnation, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
 
@@ -182,6 +188,9 @@ class GeneratedClientMixin:
 
     def new_workspace(self, *, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-workspace', NewWorkspaceRequest(name=name, cols=cols, rows=rows))
+
+    def note_size_activity(self, surface: Id, *, view: Union[str, None, MissingType] = MISSING) -> NoteSizeActivityResult:
+        return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, view=view))
 
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface))
@@ -213,8 +222,8 @@ class GeneratedClientMixin:
     def register_browser_provider(self, authentication: BrowserProviderAuthentication, endpoint: str, provider_id: str, targets: List[BrowserProviderTarget], *, bearer_token: Union[str, None, MissingType] = MISSING) -> BrowserProviderSnapshot:
         return self._invoke_command('register-browser-provider', RegisterBrowserProviderRequest(authentication=authentication, endpoint=endpoint, provider_id=provider_id, targets=targets, bearer_token=bearer_token))
 
-    def release_attached_view_size(self, surface: Id, lease: str) -> AttachedViewOutcomeResult:
-        return self._invoke_command('release-attached-view-size', ReleaseAttachedViewSizeRequest(surface=surface, lease=lease))
+    def release_attached_view_size(self, surface: Id, *, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewOutcomeResult:
+        return self._invoke_command('release-attached-view-size', ReleaseAttachedViewSizeRequest(surface=surface, lease=lease, view=view))
 
     def release_surface_size(self, surface: Id) -> EmptyResult:
         return self._invoke_command('release-surface-size', ReleaseSurfaceSizeRequest(surface=surface))
@@ -243,8 +252,8 @@ class GeneratedClientMixin:
     def report_focus(self, pane: Id, client_id: str, *, tab: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('report-focus', ReportFocusRequest(pane=pane, client_id=client_id, tab=tab))
 
-    def resize_attached_view(self, surface: Id, cols: int, lease: str, rows: int) -> AttachedViewResizeResult:
-        return self._invoke_command('resize-attached-view', ResizeAttachedViewRequest(surface=surface, cols=cols, lease=lease, rows=rows))
+    def resize_attached_view(self, surface: Id, cols: int, rows: int, *, identity: Union[SizingIdentity, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewResizeResult:
+        return self._invoke_command('resize-attached-view', ResizeAttachedViewRequest(surface=surface, cols=cols, rows=rows, identity=identity, lease=lease, view=view))
 
     def resize_surface(self, surface: Id, cols: int, rows: int) -> ResizeSurfaceResult:
         return self._invoke_command('resize-surface', ResizeSurfaceRequest(surface=surface, cols=cols, rows=rows))
@@ -279,8 +288,8 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, capabilities=capabilities))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, capabilities=capabilities, device_kind=device_kind, device_name=device_name, display_name=display_name, user_id=user_id))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
@@ -291,8 +300,17 @@ class GeneratedClientMixin:
     def set_ratio(self, pane: Id, dir: SplitDirection, ratio: float) -> EmptyResult:
         return self._invoke_command('set-ratio', SetRatioRequest(pane=pane, dir=dir, ratio=ratio))
 
+    def set_size_counts(self, surface: Id, *, client: Union[int, None, MissingType] = MISSING, counts: Union[bool, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, participant: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> SetSizeCountsResult:
+        return self._invoke_command('set-size-counts', SetSizeCountsRequest(surface=surface, client=client, counts=counts, lease=lease, participant=participant, view=view))
+
+    def set_size_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, policy: Union[SizePolicy, None, MissingType] = MISSING) -> SetSizePolicyResult:
+        return self._invoke_command('set-size-policy', SetSizePolicyRequest(surface=surface, workspace=workspace, policy=policy))
+
     def set_split_ratio(self, split: Id, ratio: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-split-ratio', SetSplitRatioRequest(split=split, ratio=ratio, transaction=transaction))
+
+    def set_terminal_idle_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, idle_close_seconds: Union[int, None, MissingType] = MISSING) -> SetTerminalIdlePolicyResult:
+        return self._invoke_command('set-terminal-idle-policy', SetTerminalIdlePolicyRequest(surface=surface, terminal_id=terminal_id, idle_close_seconds=idle_close_seconds))
 
     def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
@@ -323,6 +341,18 @@ class GeneratedClientMixin:
 
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
+
+    def url_open(self, terminal_id: str, url: str) -> GuestUrlOpenResult:
+        return self._invoke_command('url-open', UrlOpenRequest(terminal_id=terminal_id, url=url))
+
+    def url_open_claim(self, request_id: str) -> GuestUrlClaimResult:
+        return self._invoke_command('url-open-claim', UrlOpenClaimRequest(request_id=request_id))
+
+    def url_open_result(self, opened: bool, request_id: str) -> GuestUrlAcknowledgeResult:
+        return self._invoke_command('url-open-result', UrlOpenResultRequest(opened=opened, request_id=request_id))
+
+    def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
+        return self._open_command_stream('url-open-subscribe', UrlOpenSubscribeRequest(terminal_ids=terminal_ids))
 
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
@@ -370,6 +400,7 @@ GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
+GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
 GeneratedClientMixin.journal_frontend_event.__cmux_command__ = COMMANDS['journal-frontend-event']
@@ -383,6 +414,7 @@ GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMAND
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
+GeneratedClientMixin.move_tab_to_workspace.__cmux_command__ = COMMANDS['move-tab-to-workspace']
 GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
@@ -391,6 +423,7 @@ GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right'
 GeneratedClientMixin.new_screen.__cmux_command__ = COMMANDS['new-screen']
 GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
+GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
@@ -427,7 +460,10 @@ GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-inf
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
+GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']
+GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
+GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.shutdown_daemon.__cmux_command__ = COMMANDS['shutdown-daemon']
@@ -438,6 +474,10 @@ GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
+GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']
+GeneratedClientMixin.url_open_claim.__cmux_command__ = COMMANDS['url-open-claim']
+GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-result']
+GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']

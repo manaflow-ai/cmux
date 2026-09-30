@@ -16,8 +16,7 @@ import {
   vmGuestModelPlaneEnv,
 } from "../services/coderouter/vmGuestEnv";
 import {
-  ROUTE_TOKEN_HEADER,
-  VM_ID_HEADER,
+  VM_AUTHORIZATION_HEADER,
   VM_PLACEHOLDER_API_KEY,
 } from "../services/coderouter/routeTokenAuth";
 import { freestyleEdgeRules } from "../services/vms/drivers/freestyle";
@@ -57,12 +56,10 @@ describe("provisionVmModelPlane", () => {
         },
       }),
     );
-    expect(issued).toEqual([["team-1", "user-1", VM_ROUTE_TOKEN_LABEL, { vmId: INPUT.cloudVmId }]]);
+    expect(issued).toEqual([["team-1", "user-1", INPUT.cloudVmId]]);
     // The guest dials the alias; the edge forwards to this deployment's host.
     const headers = {
-      authorization: "Bearer crt_test-token",
-      [ROUTE_TOKEN_HEADER]: "crt_test-token",
-      [VM_ID_HEADER]: INPUT.cloudVmId,
+      [VM_AUTHORIZATION_HEADER]: "Bearer crt_test-token",
     };
     expect(provision.edgeRules).toEqual([
       { domain: "coderouter.cmux.internal", destinationHost: "coderouter.dev", headers },
@@ -77,7 +74,7 @@ describe("provisionVmModelPlane", () => {
 
   test("nothing the guest sees carries a route token", async () => {
     const provision = await provisionVmModelPlane(INPUT, deps());
-    expect(provision.edgeRules[0]?.domain).not.toMatch(/crt_/);
+    expect(provision.edgeRules[0]?.domain).not.toMatch(/crt_|eyJ/);
     expect(JSON.stringify(vmGuestModelPlaneEnv())).not.toContain("crt_");
   });
 
@@ -90,7 +87,7 @@ describe("provisionVmModelPlane", () => {
       expect(rule).toMatchObject({
         source: {},
         destination: { host: "coderouter.dev", port: 443 },
-        transform: [{ headers: { authorization: "Bearer crt_test-token" } }],
+        transform: [{ headers: { [VM_AUTHORIZATION_HEADER]: "Bearer crt_test-token" } }],
       });
     }
     expect(rules?.[1]?.transform[0]?.headers).toMatchObject({ [VM_REFLECTION_ALIAS_HEADER]: VM_REFLECTION_ALIAS_VALUE });

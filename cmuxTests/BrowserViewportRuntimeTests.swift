@@ -45,7 +45,7 @@ struct BrowserViewportRuntimeTests {
         let slot = WindowBrowserSlotView(
             frame: NSRect(x: 0, y: 0, width: 380, height: 610)
         )
-        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: slot.bounds)
         let viewportModel = BrowserViewportModel()
         defer {
@@ -126,7 +126,7 @@ struct BrowserViewportRuntimeTests {
             defer: false
         )
         let pane = NSView(frame: paneFrame)
-        let webView = CmuxWebView(frame: pane.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: pane.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: pane.bounds)
         let viewportModel = BrowserViewportModel()
         let loadDelegate = BrowserViewportRuntimeLoadDelegate()
@@ -276,7 +276,7 @@ struct BrowserViewportRuntimeTests {
     func presentationRootTracksExternalWebKitOwnershipAndRestoresSafely() throws {
         let originalContainer = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
         let externalContainer = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        let webView = CmuxWebView(frame: originalContainer.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: originalContainer.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let viewportHost = BrowserViewportHostView(frame: originalContainer.bounds)
         let viewportModel = BrowserViewportModel()
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))

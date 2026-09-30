@@ -13,6 +13,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 
 ## Contents
 
+- `RemoteClientDeviceName` — a shared app/CLI label read from the kernel hostname,
+  without DNS or Local Network access. Tests can supply `hostName` directly.
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
@@ -94,7 +96,9 @@ let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
 Pass structured `CLIError.v2Code` as `cliErrorCode` and a typed missing-path
 classification as `socketPathMissing` when those values are available; this avoids
 guessing lifecycle state from localized text. Missing, unknown, and unrestricted
-`CODEX_SANDBOX` values keep the error visible.
+`CODEX_SANDBOX` values keep the error visible, and
+`CLISentryErrorFingerprint` groups them as `socket-connect-denied`, a throttled
+kind reported at most once per stage per 15 minutes.
 
 ## Testing
 

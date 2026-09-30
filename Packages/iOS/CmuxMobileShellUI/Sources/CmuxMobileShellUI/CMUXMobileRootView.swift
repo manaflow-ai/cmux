@@ -29,6 +29,7 @@ struct CMUXMobileRootView: View {
     /// capability closures are rebuilt for the newly selected method.
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    @Environment(\.mobileLocalDataEraser) private var localDataEraser
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -55,18 +56,29 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    /// The workspace list's computer filter, shared through `UserDefaults`,
+    /// so a saved SSH computer can be selected from outside the list.
+    @AppStorage(WorkspaceMacSelection.storageKey) private var workspaceMacSelection: WorkspaceMacSelection = .all
     #if DEBUG
     /// One-shot latch for the UI-test auto-open-first-workspace hook.
     @State private var didAutoOpenFirstWorkspaceForUITest = false
     #endif
     #endif
     @State private var pendingAttachURL: String?
+    #if os(iOS)
+    /// Non-nil once "Erase All Data on This Device" starts; the reset screen
+    /// then replaces every other surface until the app is relaunched.
+    @State private var localDataResetPhase: MobileLocalDataResetPhase?
+    #endif
     @State private var didAuthenticateWithAttachTicket = false
     /// Prevents the initial authenticated publication from dialing before the
     /// auth coordinator finishes loading the account's effective team. That
     /// first team transition invalidates attempts created in the teamless
     /// scope, so connection startup belongs after this barrier.
     @State private var didFinishAuthBootstrap = false
+    /// Set while the saved-Mac dial started on the cached account during
+    /// launch restore owns startup, so bootstrap does not start a second one.
+    @State private var didStartStoredReconnectDuringRestore = false
     @State private var didExceedStartupRestoringGate = false
     /// One owner for the setup requirement's loading and required phases.
     /// Durable readiness remains in the shell store.
@@ -77,6 +89,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var openURLTask: Task<Void, Never>?
     @State private var openURLTaskToken: UUID?
+    @State private var startupReconnectRetryTask: Task<Void, Never>?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -279,6 +292,17 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        // SSH trust / identity-changed / persistence questions float above
+        // every screen, including open sheets and the terminal.
+        .sshPromptPresenter(store.sshComputers)
+        // Outside the root sheet so its Settings page gets the action too;
+        // a sheet reads the environment where `.sheet` is applied.
+        .environment(
+            \.mobileResetLocalData,
+            localDataEraser.map { eraser in
+                MobileResetLocalDataAction { resetLocalData(eraser: eraser) }
+            }
+        )
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet(initialPresentation: pairingPresentation)
@@ -337,6 +361,8 @@ struct CMUXMobileRootView: View {
         }
         .onDisappear {
             cancelOpenURLTask(failure: .cancelled)
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = nil
             clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
@@ -348,6 +374,18 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        // A tap can arrive while the Mac transport is down. Retry the parked
+        // request when the connection recovers even if the workspace list did
+        // not change in that same turn.
+        .onChange(of: store.connectionState) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        // The aggregate connection can stay connected while a secondary Mac
+        // reconnects. Observe exact pairing status changes for parked pushes.
+        .onChange(of: store.macConnectionStatuses) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        .mobilePushAlertPresentation(coordinator: pushCoordinator)
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
         // signal; `initial: true` covers a list already loaded at mount.
@@ -421,6 +459,7 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated)
             if !isAuthenticated {
                 didFinishAuthBootstrap = false
+                didStartStoredReconnectDuringRestore = false
                 startupConnectionCoordinator.reset()
             } else {
                 Task { await finishAuthenticationBootstrapAndConnect() }
@@ -503,6 +542,23 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
+        #if os(iOS)
+        if let localDataResetPhase {
+            MobileLocalDataResetView(phase: localDataResetPhase) {
+                if let localDataEraser {
+                    resetLocalData(eraser: localDataEraser)
+                }
+            }
+        } else {
+            standardRootContent
+        }
+        #else
+        standardRootContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var standardRootContent: some View {
         if shouldShowPushReadinessPreview {
             pushReadinessPreview
         } else if shouldShowChangesPreview {
@@ -547,7 +603,8 @@ struct CMUXMobileRootView: View {
                 showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
+                    hasHiddenComputers: store.hasHiddenComputers,
+                    hasSSHComputers: !store.sshComputers.hosts.isEmpty
                 ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:
@@ -585,10 +642,11 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    showAddSSHComputer: showAddSSHComputer,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
-                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    reconnectStoredMac: { reconnectStoredMacIfNeeded() },
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
                     }
@@ -636,7 +694,16 @@ struct CMUXMobileRootView: View {
                 await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
-            cancel: dismissAddDeviceSheet
+            cancel: dismissAddDeviceSheet,
+            onPairingResult: { result in
+                // Pairing another computer keeps the current Mac connected, so
+                // there is no connection-state edge to dismiss on. The attempt's
+                // own result owns closing the sheet.
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            },
+            connectWithSSH: connectWithSSHAction
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -648,7 +715,7 @@ struct CMUXMobileRootView: View {
     /// Drives one stable sheet host from the root presentation state.
     private var rootPresentationBinding: Binding<Bool> {
         Binding(
-            get: { rootPresentation.isRootSheetPresented },
+            get: { localDataResetPhase == nil && rootPresentation.isRootSheetPresented },
             set: { isPresented in
                 guard !isPresented else { return }
                 handleRootPresentation(.sheetDidRequestDismissal)
@@ -678,11 +745,26 @@ struct CMUXMobileRootView: View {
             DeviceTreeView(
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
-                showAddDevice: addComputerAction,
-                dismissAction: dismissComputers
+                showAddDevice: isAuthenticated ? addComputerAction : nil,
+                dismissAction: dismissComputers,
+                macPairingAvailable: isAuthenticated
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
+        case let .sshComputerEditor(target):
+            NavigationStack {
+                SSHComputerEditorView(
+                    computers: store.sshComputers,
+                    existing: target.hostID.flatMap { store.sshComputers.host(id: $0) },
+                    showsCancel: true,
+                    onFinish: { savedID in
+                        handleRootPresentation(.dismissSSHComputerEditor)
+                        if target == .new, let savedID {
+                            selectSSHComputerInWorkspaceList(savedID)
+                        }
+                    }
+                )
+            }
         case .child, .dismissingChild, nil:
             EmptyView()
         }
@@ -740,6 +822,23 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
+    }
+
+    /// Presents the SSH computer form from the root sheet host.
+    private func showAddSSHComputer() {
+        handleRootPresentation(.presentSSHComputerEditor(.new))
+    }
+
+    /// "Connect with SSH Instead" in the pairing sheet swaps to the SSH form.
+    private var connectWithSSHAction: (() -> Void)? {
+        showAddSSHComputer
+    }
+
+    /// PRD D22: scope the workspace list to an SSH computer and connect it.
+    private func selectSSHComputerInWorkspaceList(_ hostID: UUID) {
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        workspaceMacSelection = .machine(deviceID)
+        Task { _ = await store.switchToMac(macDeviceID: deviceID) }
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
@@ -945,7 +1044,7 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -953,7 +1052,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
-                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
             onComplete: completeOnboarding
         )
@@ -1080,7 +1179,7 @@ struct CMUXMobileRootView: View {
     /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
-    private func reconnectStoredMacIfNeeded() {
+    private func reconnectStoredMacIfNeeded(allowRetry: Bool = true) {
         guard isAuthenticated,
               didFinishAuthBootstrap,
               !authManager.isRestoringSession else { return }
@@ -1093,7 +1192,39 @@ struct CMUXMobileRootView: View {
                 isRestoringSession: authManager.isRestoringSession,
                 connectionState: store.connectionState
               ) else { return }
-        guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
+        startStoredReconnect(allowRetry: allowRetry)
+    }
+
+    /// Dials the saved Mac with the cached account while launch restore still
+    /// validates it. Restore used to gate the dial on token validation, the
+    /// user reload and the team refresh, which run in series over the network
+    /// and pushed a relay-only launch past its startup budget. A rejected
+    /// session signs the shell out and resets startup; a changed account or
+    /// team supersedes this attempt in ``prepareResolvedAccountScope()``.
+    /// - Returns: Whether the dial started.
+    private func reconnectStoredMacDuringRestoreIfPossible() -> Bool {
+        var hasLaunchConnectionRoute = pendingAttachURL != nil
+        #if os(iOS)
+        hasLaunchConnectionRoute = hasLaunchConnectionRoute || hasInjectedAttachLaunchRoute
+        #endif
+        guard MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+                stackAuthenticated: authManager.isAuthenticated,
+                isRestoringSession: authManager.isRestoringSession,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                hasLaunchConnectionRoute: hasLaunchConnectionRoute,
+                connectionState: store.connectionState
+              ),
+              prepareResolvedAccountScope() != nil,
+              startStoredReconnect(allowRetry: true) else { return false }
+        diagnosticLog?.recordAppEvent(.storedMacReconnectStartedDuringAuthRestore)
+        return true
+    }
+
+    @discardableResult
+    private func startStoredReconnect(allowRetry: Bool) -> Bool {
+        guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else {
+            return false
+        }
         let stackUserID = authManager.currentUser?.id
         didExceedStartupRestoringGate = false
         let restoringGateDeadline = Task { @MainActor in
@@ -1105,9 +1236,26 @@ struct CMUXMobileRootView: View {
         }
         Task {
             defer { restoringGateDeadline.cancel() }
-            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+            let didReconnect = await store.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                hydratePairedMacs: true
+            )
+            // A sign-out or account/team change superseded this attempt; the
+            // newer scope owns reconnecting.
+            let stillOwnedStartup = startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+            guard allowRetry, stillOwnedStartup, !didReconnect, !Task.isCancelled else { return }
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = Task { @MainActor in
+                // Mark the retry as reconnecting before its first await. A
+                // delayed root-level retry leaves the global status at
+                // Not Connected while the same Mac is already being retried.
+                guard !Task.isCancelled else { return }
+                _ = await store.retryActiveMacReconnect(
+                    stackUserID: stackUserID
+                )
+            }
         }
+        return true
     }
 
     /// Establishes the account boundary before any startup transport attempt.
@@ -1127,17 +1275,27 @@ struct CMUXMobileRootView: View {
         // policy fetch must never become a connection-startup barrier.
         startMacCompatibilityRefreshIfNeeded()
         #endif
+        if reconnectStoredMacDuringRestoreIfPossible() {
+            didStartStoredReconnectDuringRestore = true
+        }
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
         diagnosticLog?.recordAppEvent(
             .authBootstrapCompleted,
             count: authManager.isAuthenticated ? 1 : 0
         )
+        var didChangeAccountScope = false
         if authManager.isAuthenticated {
-            guard prepareResolvedAccountScope() != nil else { return }
+            guard let applied = prepareResolvedAccountScope() else { return }
+            didChangeAccountScope = applied
         }
         didFinishAuthBootstrap = true
-        if !consumePendingURLIfReady() {
+        // The restore-time dial, or its retry, still owns startup when
+        // validation kept the cached account and team.
+        let restoreDialOwnsStartup = didStartStoredReconnectDuringRestore
+            && !didChangeAccountScope
+        didStartStoredReconnectDuringRestore = false
+        if !consumePendingURLIfReady(), !restoreDialOwnsStartup {
             reconnectStoredMacIfNeeded()
         }
     }
@@ -1307,6 +1465,9 @@ struct CMUXMobileRootView: View {
             await authManager.supersedeTimedOutAuthPhases()
             let result = await store.connectPairingURLResult(rawURL)
             guard !Task.isCancelled, openURLTaskToken == token else { return }
+            if result == .connected {
+                dismissAddDeviceSheet()
+            }
             let failure: DiagnosticFailureKind? = switch result {
             case .connected:
                 nil
@@ -1403,29 +1564,49 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        Task { await performSignOut() }
+    }
+
+    private func performSignOut() async {
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
+        // Local shell teardown first so the whole UI lands signed out
+        // immediately; authManager.signOut clears the local session up
+        // front and only then runs its bounded best-effort server teardown
+        // (push-token DELETE, Stack session revocation).
+        didAuthenticateWithAttachTicket = false
+        didExceedStartupRestoringGate = false
+        startupConnectionCoordinator.reset()
+        // Hard context switch: queued toasts must not outlive the
+        // session. The connection presenter also suppresses its capsule
+        // once isSignedIn flips, but that races the snapshot change
+        // store.signOut() makes; this clears everything up front.
+        toasts.dismissAll()
+        store.signOut()
+        let serverTeardown = signOutHook.begin()
+        await authManager.signOut(onSignedOut: serverTeardown)
+        diagnosticLog?.recordAppEvent(
+            authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
+            failure: authManager.isAuthenticated ? .protocolViolation : nil
+        )
+    }
+
+    #if os(iOS)
+    /// Signs out through the normal path (which revokes the push token and the
+    /// Stack session on the server, when signed in), then erases everything
+    /// cmux stores on this device. Server-side data is never deleted.
+    private func resetLocalData(eraser: MobileLocalDataEraser) {
+        guard localDataResetPhase == nil || localDataResetPhase == .failed else { return }
+        localDataResetPhase = .erasing
         Task {
-            // Local shell teardown first so the whole UI lands signed out
-            // immediately; authManager.signOut clears the local session up
-            // front and only then runs its bounded best-effort server teardown
-            // (push-token DELETE, Stack session revocation).
-            didAuthenticateWithAttachTicket = false
-            didExceedStartupRestoringGate = false
-            startupConnectionCoordinator.reset()
-            // Hard context switch: queued toasts must not outlive the
-            // session. The connection presenter also suppresses its capsule
-            // once isSignedIn flips, but that races the snapshot change
-            // store.signOut() makes; this clears everything up front.
-            toasts.dismissAll()
-            store.signOut()
-            let serverTeardown = signOutHook.begin()
-            await authManager.signOut(onSignedOut: serverTeardown)
-            diagnosticLog?.recordAppEvent(
-                authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
-                failure: authManager.isAuthenticated ? .protocolViolation : nil
-            )
+            // `isAuthenticated` includes attach-ticket sessions, whose shell
+            // connection must also be torn down before the erase.
+            if isAuthenticated {
+                await performSignOut()
+            }
+            localDataResetPhase = await eraser.erase() ? .finished : .failed
         }
     }
+    #endif
 
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {

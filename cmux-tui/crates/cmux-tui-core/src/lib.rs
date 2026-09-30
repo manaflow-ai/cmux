@@ -27,6 +27,8 @@ mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
+mod journal_plugin;
+mod journal_reducers;
 mod model;
 mod mux;
 mod pairing;
@@ -42,7 +44,9 @@ mod resource_selector;
 mod resource_tab;
 mod short_id;
 mod sidebar_resource;
+pub mod sizing_policy;
 mod surface;
+mod terminal_metadata;
 mod workspace_registry;
 
 pub mod layout;
@@ -60,6 +64,7 @@ pub use agent_hooks::{
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
+pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
@@ -78,6 +83,7 @@ pub use mux::{
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
+pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

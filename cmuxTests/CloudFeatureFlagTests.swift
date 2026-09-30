@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSettings
 import Foundation
 import Testing
@@ -45,7 +46,16 @@ struct CloudFeatureFlagTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" })
+        #if DEBUG
+        #expect(definition.defaultWhenUnavailable == true)
+        #else
         #expect(definition.defaultWhenUnavailable == false)
+        #endif
+        #if DEBUG
+        let unavailableDefault = true
+        #else
+        let unavailableDefault = false
+        #endif
         for remote in [nil, false, true] as [Bool?] {
             defaults.removePersistentDomain(forName: suite)
             let flags = CmuxFeatureFlags(
@@ -54,11 +64,11 @@ struct CloudFeatureFlagTests {
                 remoteFlagValueProvider: { _ in remote }
             )
             flags.applyLoadedFlags()
-            #expect(flags.effectiveValue(for: definition) == (remote ?? false))
+            #expect(flags.effectiveValue(for: definition) == (remote ?? unavailableDefault))
             flags.setOverride(true, for: definition)
-            #expect(flags.effectiveValue(for: definition) == (remote ?? false))
+            #expect(flags.effectiveValue(for: definition) == (remote ?? unavailableDefault))
             flags.setOverride(false, for: definition)
-            #expect(flags.effectiveValue(for: definition) == (remote ?? false))
+            #expect(flags.effectiveValue(for: definition) == (remote ?? unavailableDefault))
         }
     }
 
@@ -111,9 +121,14 @@ struct CloudFeatureFlagTests {
         #expect(restored.effectiveValue(for: definition))
         remote = nil
         flags.applyLoadedFlags()
-        #expect(flags.effectiveValue(for: definition) == false)
+        #if DEBUG
+        let unavailableDefault = true
+        #else
+        let unavailableDefault = false
+        #endif
+        #expect(flags.effectiveValue(for: definition) == unavailableDefault)
         restored.applyLoadedFlags()
-        #expect(restored.effectiveValue(for: definition) == false)
+        #expect(restored.effectiveValue(for: definition) == unavailableDefault)
     }
 
     @Test("The shared availability observer delivers each remote/Beta transition once")
@@ -188,7 +203,7 @@ struct CloudFeatureFlagTests {
                 }
                 return VMListPage(vms: [VMSummary(id: "saved", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)], limits: nil)
             },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {},
             notificationCenter: center
         )

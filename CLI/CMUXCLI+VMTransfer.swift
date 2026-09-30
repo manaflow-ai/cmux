@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import CryptoKit
 import Foundation
 
@@ -305,6 +306,24 @@ extension CMUXCLI {
         excludes: [String],
         client: SocketClient
     ) throws -> VMPushOutcome {
+        var phase = "snapshot"
+        do {
+            return try performVMPushTransfer(vmID: vmID, localURL: localURL, localPath: localPath, isDirectory: isDirectory,
+                                            remotePath: remotePath, excludes: excludes, client: client, phase: &phase)
+        } catch {
+            // Structured API errors are already recorded by the app. Transport
+            // and local subprocess failures need their own authenticated report.
+            if (error as? CLIError)?.isStructuredProtocolResponse != true {
+                reportVMPushFailure(error, phase: phase, client: client)
+            }
+            throw error
+        }
+    }
+
+    private func performVMPushTransfer(
+        vmID: String, localURL: URL, localPath: String, isDirectory: Bool,
+        remotePath: String, excludes: [String], client: SocketClient, phase: inout String
+    ) throws -> VMPushOutcome {
         let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
         guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
             throw CLIError(message: "Cloud file destination contains an unsupported control character.")
@@ -344,6 +363,7 @@ extension CMUXCLI {
         let generated = CLIProcessRunner.runProcess(executablePath: "/usr/bin/ssh-keygen", arguments: ["-q", "-t", "ed25519", "-N", "", "-C", "cmux-scp", "-f", identity.path], stdinText: "", timeout: 15)
         guard generated.status == 0 else { throw CLIError(message: "Cloud file transfer could not create its SSH key.") }
         let publicKey = try String(contentsOf: identity.appendingPathExtension("pub"), encoding: .utf8)
+        phase = "request"
         var endpoint = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
         func refreshGrantIfNeeded() throws {
             guard endpoint.expiresAtUnix - Date().timeIntervalSince1970 < 60 else { return }
@@ -358,6 +378,7 @@ extension CMUXCLI {
         let parent = (destination as NSString).deletingLastPathComponent
         let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
         let prepare = "umask 077; mkdir -p -- \(shellQuote(parent.isEmpty ? "." : parent)) && mktemp -d -- \(shellQuote(template))"
+        phase = "connect"
         let remoteDirectory = try runSCPProcess(
             "/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, prepare],
             endpoint: endpoint, directory: transferDirectory
@@ -372,8 +393,12 @@ extension CMUXCLI {
             do {
                 try refreshGrantIfNeeded()
                 _ = try runSCPProcess("/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, cleanup], endpoint: endpoint, directory: transferDirectory)
-            } catch { cliWriteStderr("Cloud transfer staging cleanup failed.\n") }
+            } catch {
+                cliWriteStderr("Cloud transfer staging cleanup failed.\n")
+                reportVMPushFailure(error, phase: "cleanup", client: client)
+            }
         }
+        phase = "file"
         let remoteStaging = remoteDirectory + "/payload"
         _ = try runSCPProcess(
             "/usr/bin/scp", arguments: ["-q", "-P", String(endpoint.port), "--", localFile.path, endpoint.destination + ":" + remoteStaging],
@@ -381,7 +406,9 @@ extension CMUXCLI {
         )
         // An established SFTP session can outlive its grant. Refresh before
         // opening the next SSH connection, without replaying the uploaded data.
+        phase = "request"
         try refreshGrantIfNeeded()
+        phase = "process"
         let verify = "set -eu; actual=$(sha256sum < \(shellQuote(remoteStaging))); test \"${actual%% *}\" = \(shellQuote(localDigest)); "
         let finalize: String
         if isDirectory {
@@ -404,51 +431,6 @@ extension CMUXCLI {
             seconds: Int(Date().timeIntervalSince(started).rounded()),
             appliedExcludes: excludes
         )
-    }
-
-    private struct VMSCPTransferEndpoint {
-        let host: String
-        let port: Int
-        let username: String
-        let hostPublicKey: String
-        let expiresAtUnix: TimeInterval
-        var destination: String { "\(username)@\(host)" }
-    }
-
-    private func vmSCPTransferEndpoint(vmID: String, publicKey: String, client: SocketClient) throws -> VMSCPTransferEndpoint {
-        let response = try client.sendV2(method: "vm.scp_info", params: ["id": vmID, "public_key": publicKey], responseTimeout: 100)
-        guard let host = response["host"] as? String, host == "127.0.0.1",
-              let port = response["port"] as? Int, (1...65535).contains(port),
-              let username = response["username"] as? String,
-              username.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
-              let hostPublicKey = response["host_public_key"] as? String,
-              hostPublicKey.range(of: "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil,
-              let expires = response["expires_at_unix"] as? Double,
-              expires.isFinite, expires > Date().timeIntervalSince1970 else {
-            throw CLIError(message: "Cloud SCP requires a private connection and a verified SSH host key.")
-        }
-        return VMSCPTransferEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expires)
-    }
-
-    @discardableResult
-    private func runSCPProcess(_ executable: String, arguments: [String], endpoint: VMSCPTransferEndpoint, directory: URL) throws -> String {
-        let options = [
-            "-F", "/dev/null",
-            "-o", "StrictHostKeyChecking=yes",
-            "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "HostKeyAlias=cmux-scp",
-            "-o", "UserKnownHostsFile=" + directory.appendingPathComponent("known_hosts").path.replacingOccurrences(of: "%", with: "%%"),
-            "-o", "GlobalKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
-            "-o", "IdentitiesOnly=yes", "-i", directory.appendingPathComponent("identity").path,
-            "-o", "PreferredAuthentications=publickey", "-o", "BatchMode=yes",
-            "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ForwardAgent=no",
-        ]
-        let result = CLIProcessRunner.runProcess(executablePath: executable, arguments: options + arguments, stdinText: "", timeout: 10 * 60)
-        guard result.status == 0 else {
-            let detail = String(result.stderr.suffix(2000))
-            throw CLIError(message: "Cloud SSH file transfer failed (exit \(result.status)): \(detail)")
-        }
-        return result.stdout
     }
 
     // MARK: - push --secret (over the link, never the exec channel)
@@ -474,7 +456,7 @@ extension CMUXCLI {
         guard !isDirectory else {
             throw CLIError(message: "vm push --secret delivers one file; \(localPath) is a directory. Pack it first (tar czf), or push it without --secret if it holds nothing secret.")
         }
-        guard mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil else {
+        guard mode.range(of: "^[0-7]{3,4}\\z", options: .regularExpression) != nil else {
             throw CLIError(message: "--mode must be three or four octal digits such as 600 or 0644 (got '\(mode)')")
         }
         let data = try Data(contentsOf: localURL)
@@ -1444,7 +1426,7 @@ extension CMUXCLI {
         subject: String
     ) throws {
         let firstToken = report.split(separator: " ").first.map(String.init) ?? ""
-        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil {
+        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil {
             guard firstToken == expectedDigest else {
                 throw CLIError(message: "Digest mismatch on \(subject) — expected \(expectedDigest), machine reports \(firstToken)")
             }
@@ -1518,7 +1500,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1542,6 +1524,9 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --focus, --no-focus
+                           Focus the opened pane, or open it in the background.
+                           \(openFocusDefaultHelp)
           --remote-workspace <ws>
                            Land the agent's terminal in this machine workspace
                            (a `ws_…` id from `vm tree`, e.g. one staged with
@@ -1711,6 +1696,7 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var focus: Bool?
         var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
@@ -1726,6 +1712,11 @@ extension CMUXCLI {
                 }
                 index += 1
                 return flags[index]
+            }
+            if let flag = try Self.openFocusFlag(in: flags, at: index, command: "vm agent") {
+                focus = flag.focus
+                index += flag.consumed
+                continue
             }
             switch arg {
             case "--agent": agent = try takeValue().lowercased()
@@ -1814,6 +1805,7 @@ extension CMUXCLI {
             "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
+            "focus": focus ?? Self.defaultFocusForUserOpen(),
         ]
         // --remote-workspace: land the agent's terminal in a staged machine
         // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
@@ -1821,7 +1813,21 @@ extension CMUXCLI {
         if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
             params["remote_workspace_id"] = remoteWorkspaceOption
         }
-        let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        // The pane opens in the caller's own workspace when run inside cmux, not in
+        // whichever workspace happens to be selected. The server rejects an unknown
+        // workspace before it creates anything, so a stale CMUX_WORKSPACE_ID (the tab
+        // moved or its workspace closed) retries once in the selected workspace.
+        var callerParams = params
+        if !noOpen,
+           let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+            callerParams["workspace_id"] = callerWorkspace
+        }
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "surface.new_terminal", params: callerParams, responseTimeout: 240)
+        } catch let error as CLIError where error.v2Code == "invalid_params" && callerParams["workspace_id"] != nil {
+            response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        }
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }

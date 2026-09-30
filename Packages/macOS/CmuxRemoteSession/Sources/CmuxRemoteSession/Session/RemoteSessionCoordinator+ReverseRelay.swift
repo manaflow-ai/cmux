@@ -315,12 +315,16 @@ extension RemoteSessionCoordinator {
         // Fallback only: `-S none` prevents accidental adoption of a shared
         // transport after `-O forward` proved unavailable.
         var args: [String] = ["-N", "-T", "-S", "none", "-v"]
-        args += sshCommonArguments(batchMode: true, dropControlPath: true)
+        args += sshCommonArguments(
+            batchMode: true,
+            dropControlPath: true,
+            batchForwarding: .agentAndX11Off
+        )
         args += [
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
             "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
-            configuration.destination,
+            "--", configuration.destination,
         ]
         return args
     }
@@ -362,13 +366,14 @@ extension RemoteSessionCoordinator {
             relayPort: relayPort,
             relayID: relayID,
             relayToken: relayToken,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
+            persistentDaemonSlot: configuration.persistentDaemonSlot,
+            codexWrapperScript: codexWrapperScript
         )
         // Relay credentials are deliberately stored on the remote host, so
         // never place the token-bearing script in SSH argv (argv is visible to
         // other users and is retained in debug command logs). Feed it to
         // `sh -s` over stdin instead.
-        let arguments = sshCommonArguments(batchMode: true) + [configuration.destination, "sh -s"]
+        let arguments = sshCommonArguments(batchMode: true) + ["--", configuration.destination, "sh -s"]
         let result = try sshExec(
             arguments: arguments,
             stdin: Data(script.utf8),
@@ -440,7 +445,7 @@ extension RemoteSessionCoordinator {
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
             let result = try sshExec(
-                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
                 timeout: 8
             )
             if result.status == 64, let status64FallbackScript {

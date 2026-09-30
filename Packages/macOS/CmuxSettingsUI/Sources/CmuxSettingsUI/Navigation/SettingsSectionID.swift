@@ -1,10 +1,12 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; the sidebar lists them in
-/// declaration order, the search index filters across all of them.
+/// its own SwiftUI view in `Sections/`; the taxonomy groups them for the
+/// sidebar and the search index filters across them. Raw values are
+/// persisted and accepted by `cmux settings open`, so never rename one.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
@@ -12,6 +14,8 @@ import Foundation
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
     case app
+    /// App appearance, accent color, terminal themes, and browser theme.
+    case themes
     case terminal
     case textBox
     /// Sleepy Mode screensaver + keep-awake lock.
@@ -20,6 +24,10 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case mobile
     /// Cloud Machines: persistent cloud VM plan and entry points.
     case cloudMachines
+    /// Devices: this Mac's discovery and incoming access, plus the account's
+    /// other Macs. Backs the Cloud sidebar's My Devices feature; the raw value
+    /// predates the rename and stays `computers`.
+    case computers
     /// Iroh relay policy, custom relays, and private-network routes.
     case networking
     case sidebarAppearance
@@ -39,13 +47,26 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
         case .account: return String(localized: "settings.section.account", defaultValue: "Account")
+        case .computers: return String(localized: "settings.section.devices", defaultValue: "Devices")
         case .app: return String(localized: "settings.section.app", defaultValue: "App")
+        case .themes: return String(localized: "settings.section.themes", defaultValue: "Themes")
         case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
-        case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
@@ -54,7 +75,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
-        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
         case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
@@ -69,7 +90,9 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var symbolName: String {
         switch self {
         case .account: return "person.crop.circle"
+        case .computers: return "desktopcomputer"
         case .app: return "gearshape"
+        case .themes: return "paintbrush"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
         case .sleepyMode: return "moon.zzz"
@@ -97,16 +120,22 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
-        case .app: return "appearance language workspace notifications menu bar telemetry"
+        case .computers:
+            return String(
+                localized: "settings.devices.keywords",
+                defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces"
+            )
+        case .app: return "language workspace notifications menu bar telemetry"
+        case .themes: return "theme themes color scheme palette ghostty terminal colors appearance light dark accent browser"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
-        case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
+        case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile: return "ios iphone ipad mobile pairing local network sync push notifications alerts forwarding"
         case .cloudMachines: return "cloud machines vm virtual machine persistent computer plan upgrade fleet sandbox"
         case .networking: return "iroh relay server private network tailscale vpn direct peer custom provider region"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
-        case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
+        case .betaFeatures: return "beta experimental unstable feed right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
         case .computerUse:
             return String(
