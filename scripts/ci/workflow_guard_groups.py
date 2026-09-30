@@ -82,6 +82,8 @@ PATH_OWNERS = {
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
+    # test_lint_feature_flags_scope.py reads its parser and registry discovery.
+    "scripts/lint-feature-flags.py": frozenset(("preflight", "ci")),
     "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),

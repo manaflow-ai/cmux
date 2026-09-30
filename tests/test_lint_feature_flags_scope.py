@@ -41,11 +41,7 @@ class FlagLinterScopeTests(unittest.TestCase):
         )
 
     def test_every_discovered_flag_is_linted(self):
-        flags = []
-        for rel in self.linter.swift_registry_files():
-            flags += self.linter.parse_swift_registry(
-                (REPO_ROOT / rel).read_text(), rel
-            )
+        flags = self.linter.collect_flags()
         keys = {flag["key"] for flag in flags}
         self.assertIn(
             "cloud-machines-enabled-release",

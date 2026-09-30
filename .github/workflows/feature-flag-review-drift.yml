@@ -1,0 +1,58 @@
+name: Feature flag review drift
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: feature-flag-review-drift
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Report feature flag review dates
+        run: python3 scripts/report-feature-flag-review-lead-time.py --json | tee feature-flag-review-report.json
+      - name: Open or update the review date issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'feature-flag-review-drift';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = JSON.parse(fs.readFileSync('feature-flag-review-report.json', 'utf8'));
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (report.length === 0) {
+              if (open.data.length > 0) {
+                const body = `All feature flag review dates have more than 30 days remaining as of ${process.env.HEAD_SHA} (${runUrl}).`;
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const rows = report.map(flag => `| \`${flag.key}\` | \`${flag.source}\` | ${flag.reviewBy} | ${flag.daysRemaining} |`).join('\n');
+            const body = `Feature flag review dates are within 30 days as of ${process.env.HEAD_SHA} (${runUrl}).\n\n| Key | Source file | reviewBy | Days remaining |\n| --- | --- | --- | ---: |\n${rows}\n\nThis issue is updated daily by the scheduled report.`;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'Feature flag review dates are approaching' });
+            }
+            if (open.data.length > 0) {
+              await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: 'Feature flag review dates are approaching', labels: [label], body });
+            }
