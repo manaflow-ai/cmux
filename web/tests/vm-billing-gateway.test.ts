@@ -22,6 +22,7 @@ const getItem = mock(async () => ({
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getItem }),
   isStackConfigured: () => stackConfigured,
+  stackServerApp: { getItem, getUser: async () => null },
 }));
 
 beforeEach(() => {
@@ -223,7 +224,7 @@ function createInput(overrides: Partial<ReserveCreateInput> = {}): ReserveCreate
     billingCustomerType: "team" as const,
     billingTeamId: "team-billing",
     billingPlanId: "free",
-    provider: "e2b" as const,
+    provider: "freestyle" as const,
     image: "cmuxd-ws:test",
     imageVersion: "test-version",
     vmId: "vm-billing",

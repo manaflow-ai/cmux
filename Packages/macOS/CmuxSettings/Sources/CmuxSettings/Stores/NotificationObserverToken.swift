@@ -9,12 +9,14 @@ import Foundation
 /// lifecycle and must call `remove()` when their stream terminates.
 final class NotificationObserverToken: @unchecked Sendable {
     private let token: NSObjectProtocol
+    private let notificationCenter: NotificationCenter
 
-    init(_ token: NSObjectProtocol) {
+    init(_ token: NSObjectProtocol, notificationCenter: NotificationCenter = .default) {
         self.token = token
+        self.notificationCenter = notificationCenter
     }
 
     func remove() {
-        NotificationCenter.default.removeObserver(token)
+        notificationCenter.removeObserver(token)
     }
 }

@@ -87,8 +87,8 @@ public struct SettingsSearchIndex: Sendable {
     /// ``SettingsCardRow`` resolve the config path it already declares
     /// via ``SettingsConfigurationReview`` into the scroll/highlight
     /// target the navigation layer posts, without a second
-    /// hand-maintained id table. Built from the curated entries' dotted
-    /// synonym tokens.
+    /// hand-maintained id table. Built from curated entry paths, or from
+    /// dotted synonym tokens for legacy entries.
     private let pathAnchorIDs: [String: String]
 
     /// Builds an index from the section list and supplied curated entries.
@@ -99,15 +99,18 @@ public struct SettingsSearchIndex: Sendable {
     ///     by every persisted catalog key, because some catalog keys are
     ///     hidden/internal state with no visible row to scroll to.
     ///   - curatedEntries: One entry per searchable setting row, with a
-    ///     localized title + synonyms. Defaults to
-    ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
-    ///     with. Tests pass an empty array or a focused subset; hosts
-    ///     can append their own entries to expose additional rows.
+    ///     localized title + synonyms. Tests can pass an empty array or a
+    ///     focused subset; hosts can append their own entries to expose
+    ///     additional rows.
+    /// Builds the shipped search index from the catalog-backed default entry table.
+    public init(catalog: SettingCatalog) {
+        self.init(catalog: catalog, curatedEntries: .cmuxDefault(catalog: catalog))
+    }
+
     public init(
         catalog: SettingCatalog,
-        curatedEntries: [CuratedSettingEntry] = .cmuxDefault
+        curatedEntries: [CuratedSettingEntry]
     ) {
-        _ = catalog
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 
@@ -153,7 +156,8 @@ public struct SettingsSearchIndex: Sendable {
                 anchorID: entryID
             ))
 
-            for path in searchPaths {
+            let anchorPaths = entry.anchorPath.map { [$0] } ?? searchPaths
+            for path in anchorPaths {
                 if pathAnchors[path] == nil { pathAnchors[path] = entryID }
             }
         }

@@ -93,15 +93,11 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   // for text, borders, and floating overlays (menus).
   rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
-  // Page fill behind the diff surface. Opaque themes (background-opacity 1) paint
-  // the terminal color so loading and empty regions match the theme: the browser
-  // pane behind a transparent diff page is a plain gray window backdrop, not the
-  // terminal color (only transparent themes get a terminal-colored window-root
-  // backdrop behind every pane). Transparent themes keep this clear so the blurred
-  // backdrop shows. Mirrors `appearanceBackgroundColor`.
-  const surfaceFillOpaque = normalizedOpacity(appearance.backgroundOpacity) >= 0.999;
-  rootStyle.setProperty("--cmux-diff-surface-fill-light", surfaceFillOpaque ? colorString(lightTheme.background, "#ffffff") : "transparent");
-  rootStyle.setProperty("--cmux-diff-surface-fill-dark", surfaceFillOpaque ? colorString(darkTheme.background, "#000000") : "transparent");
+  // The diff viewer page stays transparent. The native browser panel behind
+  // the WebView owns the themed fill for opaque terminal themes, while clear
+  // terminal themes can show the window backdrop through the same path.
+  rootStyle.setProperty("--cmux-diff-surface-fill-light", "transparent");
+  rootStyle.setProperty("--cmux-diff-surface-fill-dark", "transparent");
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));
@@ -115,13 +111,8 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
 }
 
-export function appearanceBackgroundColor(color: unknown, appearance?: DiffViewerAppearance) {
-  // Transparent terminal themes let the cmux window backdrop show through, so
-  // code surfaces paint no fill. Opaque themes get a solid fill.
-  if (normalizedOpacity(appearance?.backgroundOpacity) < 0.999) {
-    return "transparent";
-  }
-  return colorString(color, "#000000");
+export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
+  return "transparent";
 }
 
 export function readableColor(value: unknown, background: unknown, fallback: string | undefined): string {

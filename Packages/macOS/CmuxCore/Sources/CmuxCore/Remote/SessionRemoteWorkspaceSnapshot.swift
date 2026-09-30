@@ -1,11 +1,22 @@
+public import CmuxFoundation
+
 /// The durable, codable subset of a remote-workspace configuration persisted
 /// in session snapshots so a remote workspace can be restored across launches.
 ///
 /// Wire/persistence shape: field names are encoded by `Codable`; do not rename
 /// stored properties without a migration.
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
+    /// Explicit persistent SSH owner; absent in legacy daemon snapshots.
+    public var sshSessionOwner: String? = nil
+
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
+    /// The interactive terminal protocol, absent in snapshots written before Mosh support.
+    public var terminalTransport: WorkspaceRemoteTerminalTransport? = nil
+    /// Durable terminal program intent, absent in snapshots written before terminal profiles.
+    public var terminalProfile: WorkspaceRemoteTerminalProfile? = nil
+    /// Effective host-configured command for the managed interactive shell.
+    public var configuredRemoteCommand: String? = nil
     /// SSH destination (`user@host` or `host`).
     public var destination: String
     /// Explicit SSH port, when one was configured.
@@ -22,10 +33,15 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var relayPort: Int? = nil
     /// The persistent daemon slot captured for persistent-PTY restore.
     public var persistentDaemonSlot: String? = nil
+    /// Provider-issued Cloud VM id for cmux-managed Cloud VM workspaces.
+    public var managedCloudVMID: String? = nil
 
     /// Creates a snapshot value; mirrors the synthesized memberwise initializer.
     public init(
         transport: WorkspaceRemoteTransport,
+        terminalTransport: WorkspaceRemoteTerminalTransport? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile? = nil,
+        configuredRemoteCommand: String? = nil,
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
@@ -33,9 +49,13 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         preserveAfterTerminalExit: Bool? = nil,
         skipDaemonBootstrap: Bool? = nil,
         relayPort: Int? = nil,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        managedCloudVMID: String? = nil
     ) {
         self.transport = transport
+        self.terminalTransport = terminalTransport
+        self.terminalProfile = terminalProfile
+        self.configuredRemoteCommand = configuredRemoteCommand
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
@@ -44,5 +64,6 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.skipDaemonBootstrap = skipDaemonBootstrap
         self.relayPort = relayPort
         self.persistentDaemonSlot = persistentDaemonSlot
+        self.managedCloudVMID = managedCloudVMID
     }
 }

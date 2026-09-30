@@ -193,6 +193,8 @@ extension ControlCommandCoordinator {
             return "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
         case .failed:
             return "ERROR: Failed to create pane"
+        case .noSpace:
+            return "ERROR: No space for new pane"
         }
     }
 
@@ -267,7 +269,7 @@ extension ControlCommandCoordinator {
         guard trimmed.isEmpty else {
             return "ERROR: Usage: reload_config"
         }
-        sidebarContext?.controlSidebarReloadConfig()
+        sidebarContext?.controlSidebarReloadConfig(completion: {})
         return "OK Reloaded config"
     }
 

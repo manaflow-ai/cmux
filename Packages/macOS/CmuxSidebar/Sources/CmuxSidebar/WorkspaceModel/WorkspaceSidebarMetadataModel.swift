@@ -73,6 +73,14 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelPullRequestsSubject.send(panelPullRequests) }
     }
 
+    /// Per-panel directory display labels keyed by panel id, reported via
+    /// `report_pwd <label> --path=<real-path>`. Display-only sidebar text:
+    /// the File Explorer, Finder root, and git probing always use the real
+    /// filesystem path owned by `Workspace.panelDirectories`.
+    public var panelDirectoryDisplayLabels: [UUID: String] = [:] {
+        didSet { panelDirectoryDisplayLabelsSubject.send(panelDirectoryDisplayLabels) }
+    }
+
     @ObservationIgnored
     private let limitProvider: any SidebarLogEntryLimitProviding
 
@@ -92,6 +100,8 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
+    @ObservationIgnored
+    private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
 
     /// Creates an empty sidebar-metadata model.
     /// - Parameter limitProvider: Supplies the configured maximum number of log
@@ -147,6 +157,23 @@ public final class WorkspaceSidebarMetadataModel {
     /// every change (replaces the legacy `Workspace.$panelPullRequests`).
     public var panelPullRequestsPublisher: AnyPublisher<[UUID: SidebarPullRequestState], Never> {
         panelPullRequestsSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current per-panel directory display labels on subscription,
+    /// then on every change (feeds the sidebar observation pipeline so
+    /// label-only `report_pwd` updates refresh sidebar rows without
+    /// workspace-wide invalidation).
+    public var panelDirectoryDisplayLabelsPublisher: AnyPublisher<[UUID: String], Never> {
+        panelDirectoryDisplayLabelsSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits a sidebar observation pulse without mutating metadata.
+    ///
+    /// The app target uses this when the rendered workspace-row snapshot changes
+    /// because of workspace-owned fields that are not stored in this metadata
+    /// model but intentionally share the same sidebar refresh pipeline.
+    public func invalidateWorkspaceObservation() {
+        statusEntriesSubject.send(statusEntries)
     }
 
     /// Upserts a sidebar status entry under its key (legacy

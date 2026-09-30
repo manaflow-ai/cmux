@@ -1,12 +1,16 @@
+import CmuxFoundation
 import CmuxSettings
+import Foundation
 import SwiftUI
 
-/// **TextBox** section — beta controls for the rich terminal input.
+/// **TextBox** section — controls for the rich terminal input.
 @MainActor
 public struct TextBoxSection: View {
     @State private var showOnNewTerminals: DefaultsValueModel<Bool>
     @State private var focusOnNewTerminals: DefaultsValueModel<Bool>
     @State private var maxLines: DefaultsValueModel<Int>
+    @State private var defaultSubmitAction: DefaultsValueModel<String>
+    @State private var submitActions: DefaultsValueModel<String>
 
     /// Creates the TextBox settings section.
     ///
@@ -17,23 +21,35 @@ public struct TextBoxSection: View {
         _showOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showTextBoxOnNewTerminals))
         _focusOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.focusTextBoxOnNewTerminals))
         _maxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
+        _defaultSubmitAction = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxDefaultSubmitAction))
+        _submitActions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxSubmitActions))
     }
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"), section: .textBox)
+            SettingsSectionHeader(String(localized: "settings.section.textBox", defaultValue: "TextBox"), section: .textBox)
             SettingsCard {
-                TextBoxBetaWarningNote(
-                    String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested.")
-                )
-                SettingsCardDivider()
                 showOnNewTerminalsRow
                 SettingsCardDivider()
                 focusOnNewTerminalsRow
                 SettingsCardDivider()
+                defaultSubmitActionRow
+                SettingsCardDivider()
                 maxLinesRow
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            showOnNewTerminals,
+            focusOnNewTerminals,
+            defaultSubmitAction,
+            submitActions,
+            maxLines,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder
@@ -41,9 +57,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
-            subtitle: showOnNewTerminals.current
-                ? String(localized: "settings.textBox.showOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
-                : String(localized: "settings.textBox.showOnNewTerminals.subtitleOff", defaultValue: "New terminals start with the TextBox hidden until you open it.")
+            subtitle: String(localized: "settings.textBox.showOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace shows the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { showOnNewTerminals.current }, set: { showOnNewTerminals.set($0) }))
                 .labelsHidden()
@@ -60,9 +74,7 @@ public struct TextBoxSection: View {
         SettingsCardRow(
             configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
             String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
-            subtitle: focusOnNewTerminals.current
-                ? String(localized: "settings.textBox.focusOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces put keyboard focus in the TextBox.")
-                : String(localized: "settings.textBox.focusOnNewTerminals.subtitleOff", defaultValue: "New terminals keep keyboard focus in the terminal surface.")
+            subtitle: String(localized: "settings.textBox.focusOnNewTerminals.subtitle", defaultValue: "Opening a terminal tab, split, or workspace puts keyboard focus in the TextBox.")
         ) {
             Toggle("", isOn: Binding(get: { focusOnNewTerminals.current }, set: { focusOnNewTerminals.set($0) }))
                 .labelsHidden()
@@ -72,6 +84,35 @@ public struct TextBoxSection: View {
                     String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals")
                 )
         }
+    }
+
+    @ViewBuilder
+    private var defaultSubmitActionRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("terminal.textBoxDefaultSubmitAction"),
+            String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"),
+            subtitle: String(localized: "settings.textBox.defaultSubmitAction.subtitle", defaultValue: "Used for new terminal sessions. Active Claude, Codex, OpenCode, and Pi sessions always submit as text entry."),
+            controlWidth: 210
+        ) {
+            Picker("", selection: Binding(get: { defaultSubmitAction.current }, set: { defaultSubmitAction.set($0) })) {
+                ForEach(defaultSubmitActionOptions) { option in
+                    Text(verbatim: option.title).tag(option.id)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsTextBoxDefaultSubmitActionPicker")
+            .accessibilityLabel(
+                String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action")
+            )
+        }
+    }
+
+    private var defaultSubmitActionOptions: [TextBoxSettingsSubmitActionOption] {
+        TextBoxSettingsSubmitActionOptions().normalizedOptions(
+            configuredJSON: submitActions.current,
+            currentID: defaultSubmitAction.current
+        )
     }
 
     @ViewBuilder
@@ -96,31 +137,5 @@ public struct TextBoxSection: View {
                 String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines")
             )
         }
-    }
-}
-
-@MainActor
-private struct TextBoxBetaWarningNote: View {
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.yellow)
-                .accessibilityHidden(true)
-
-            Text(text)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

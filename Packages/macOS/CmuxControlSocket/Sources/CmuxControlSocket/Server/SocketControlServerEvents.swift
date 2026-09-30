@@ -17,7 +17,8 @@ public struct SocketControlServerEvents: Sendable {
     public let breadcrumb: @Sendable (_ message: String, _ data: [String: any Sendable]) -> Void
 
     /// Reports a listener failure. The host decides whether to escalate the
-    /// breadcrumb to a captured error (the app applies a per-key cooldown).
+    /// breadcrumb to a captured error (the app dedupes through
+    /// ``SocketListenerFailureCaptureGate``).
     /// `data` already contains the listener-state snapshot fields plus
     /// `stage`/`errno` entries; `stage` and `errnoCode` are passed discretely
     /// so the host can build its dedupe key without re-parsing the dictionary.
@@ -37,6 +38,14 @@ public struct SocketControlServerEvents: Sendable {
     /// Records the bound socket path to the build-variant marker files.
     /// Invoked after `listen(2)` succeeds, before the running-state commit.
     public let recordLastSocketPath: @Sendable (_ path: String) -> Void
+
+    /// Clears discovery state while the server still owns the socket-path lock.
+    ///
+    /// The callback runs synchronously during ``SocketControlServer/stop(cleanupDiscoveryState:)``
+    /// after the listener has closed its socket and before the lock is released.
+    /// This prevents a replacement listener from publishing a marker between the
+    /// final ownership check and marker removal.
+    public let cleanupDiscoveryState: @MainActor @Sendable (_ path: String) -> Void
 
     /// The path monitor observed that the bound socket path no longer exists
     /// (validated against the published snapshot on the listener queue). The
@@ -58,27 +67,42 @@ public struct SocketControlServerEvents: Sendable {
         _ delayMs: Int
     ) -> Void
 
+    /// The accept path could not hand an accepted, configured connection to
+    /// the ``SocketControlServer/connections`` consumer because its bounded
+    /// buffer was full. The host takes ownership of the descriptor and must
+    /// close it, ideally after answering the client (the app routes it to
+    /// its overload responder). Invoked on the listener queue. When `nil`,
+    /// the server closes the descriptor itself.
+    public let connectionDropped: (@Sendable (_ socket: Int32, _ generation: UInt64) -> Void)?
+
     /// Creates the event seam.
     /// - Parameters:
     ///   - breadcrumb: Non-fatal telemetry sink.
     ///   - failure: Listener-failure sink (breadcrumb + optional capture).
     ///   - listenerDidStart: Listener-started notification hook (main actor).
     ///   - recordLastSocketPath: Bound-path marker writer.
+    ///   - cleanupDiscoveryState: Lock-owned marker/pointer cleanup hook.
     ///   - pathMissingDetected: Socket-path-deleted restart trigger.
     ///   - rearmRequested: Accept-failure rearm scheduler.
+    ///   - connectionDropped: Owner of connections the accept buffer could not
+    ///     hold; `nil` closes them in the server.
     public init(
         breadcrumb: @escaping @Sendable (String, [String: any Sendable]) -> Void,
         failure: @escaping @Sendable (String, String, Int32?, [String: any Sendable]) -> Void,
         listenerDidStart: @escaping @MainActor @Sendable (String, UInt64) -> Void,
         recordLastSocketPath: @escaping @Sendable (String) -> Void,
+        cleanupDiscoveryState: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         pathMissingDetected: @escaping @Sendable (String, UInt64) -> Void,
-        rearmRequested: @escaping @Sendable (UInt64, Int32, Int, Int) -> Void
+        rearmRequested: @escaping @Sendable (UInt64, Int32, Int, Int) -> Void,
+        connectionDropped: (@Sendable (Int32, UInt64) -> Void)? = nil
     ) {
         self.breadcrumb = breadcrumb
         self.failure = failure
         self.listenerDidStart = listenerDidStart
         self.recordLastSocketPath = recordLastSocketPath
+        self.cleanupDiscoveryState = cleanupDiscoveryState
         self.pathMissingDetected = pathMissingDetected
         self.rearmRequested = rearmRequested
+        self.connectionDropped = connectionDropped
     }
 }

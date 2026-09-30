@@ -17,7 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxSwiftRender"),
         .package(path: "../CmuxSettings"),
-        .package(path: "../CmuxFileWatch"),
+        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         .target(
@@ -25,7 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-                .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             resources: [
                 .process("Resources"),
@@ -33,6 +33,12 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSwiftRenderUITests",
+            dependencies: ["CmuxSwiftRenderUI"]
+        ),
+        // Dev-only GUI lab for iterating on the reorderable drag interaction
+        // without an app build. Run: swift run reorder-lab
+        .executableTarget(
+            name: "reorder-lab",
             dependencies: ["CmuxSwiftRenderUI"]
         ),
     ]

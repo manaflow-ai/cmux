@@ -27,11 +27,11 @@ public struct UpdateAppearance: Sendable {
             return .secondary
         case .permissionRequest:
             return .white
-        case .checking:
+        case .preparingCheck, .checking:
             return .secondary
         case .updateAvailable:
             return accent
-        case .downloading, .extracting, .installing:
+        case .startingDownload, .downloading, .extracting, .installing:
             return .secondary
         case .notFound:
             return .secondary
@@ -48,11 +48,11 @@ public struct UpdateAppearance: Sendable {
         }
         switch model.effectiveState {
         case .permissionRequest:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
+            return accentDarkened(by: 0.3)
         case .updateAvailable:
             return accent
         case .notFound:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
+            return accentDarkened(by: 0.5)
         case .error:
             return .orange.opacity(0.2)
         default:
@@ -78,5 +78,20 @@ public struct UpdateAppearance: Sendable {
         default:
             return .primary
         }
+    }
+
+    /// A darker shade of the host accent for secondary emphasis states: the
+    /// accent's sRGB components scaled toward black, so the hue is kept.
+    /// (`NSColor.blended` mixes in a generic RGB space, which shifts the hue
+    /// once the result is shown in sRGB.)
+    func accentDarkened(by fraction: CGFloat) -> Color {
+        guard let base = NSColor(accent).usingColorSpace(.sRGB) else { return accent }
+        let keep = 1 - max(0, min(fraction, 1))
+        return Color(nsColor: NSColor(
+            srgbRed: base.redComponent * keep,
+            green: base.greenComponent * keep,
+            blue: base.blueComponent * keep,
+            alpha: base.alphaComponent
+        ))
     }
 }

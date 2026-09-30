@@ -14,6 +14,10 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
     public var platform: String
     /// Human-readable device name, when the host announced one.
     public var displayName: String?
+    /// The host app's bundle id, when reported. Lets the UI label the build
+    /// channel (Stable / Nightly / RC / DEV) — see ``MacBuildChannel``. `nil` for
+    /// an older host that doesn't announce it.
+    public var bundleId: String?
     /// Capability strings announced by the host instance.
     public var capabilities: [String]
     /// Whether the instance is currently considered online by the service.
@@ -37,6 +41,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         case tag
         case platform
         case displayName
+        case bundleId
         case capabilities
         case online
         case lastSeenAt
@@ -61,6 +66,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         tag = try container.decode(String.self, forKey: .tag)
         platform = try container.decode(String.self, forKey: .platform)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        bundleId = try container.decodeIfPresent(String.self, forKey: .bundleId)
         capabilities = try container.decode([String].self, forKey: .capabilities)
         online = try container.decode(Bool.self, forKey: .online)
         lastSeenAt = try container.decode(Double.self, forKey: .lastSeenAt)
@@ -75,6 +81,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         tag: String,
         platform: String,
         displayName: String? = nil,
+        bundleId: String? = nil,
         capabilities: [String] = [],
         online: Bool,
         lastSeenAt: Double,
@@ -86,6 +93,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         self.tag = tag
         self.platform = platform
         self.displayName = displayName
+        self.bundleId = bundleId
         self.capabilities = capabilities
         self.online = online
         self.lastSeenAt = lastSeenAt

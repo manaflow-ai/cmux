@@ -35,6 +35,7 @@ public struct SettingsTextFieldRow: View {
             .textFieldStyle(.roundedBorder)
         }
         .task {
+            model.startObserving()
             // Hydrate the draft from the model on first appearance and
             // keep it in sync with externally-driven changes.
             if !loaded {

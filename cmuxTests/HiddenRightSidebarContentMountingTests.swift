@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxSettings
 import SwiftUI
 import Testing
 
@@ -66,11 +68,14 @@ struct HiddenRightSidebarContentMountingTests {
             fileExplorerState: fileExplorerState,
             sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36,
+            windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
+            onOpenSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
-            onClose: {}
+            onClose: {},
+            customSidebarDataContext: { _ in [:] }
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

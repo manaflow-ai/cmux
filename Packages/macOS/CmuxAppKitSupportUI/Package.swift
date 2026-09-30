@@ -13,9 +13,17 @@ let package = Package(
             targets: ["CmuxAppKitSupportUI"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxWorkspaces"),
+    ],
     targets: [
         .target(
             name: "CmuxAppKitSupportUI",
+            dependencies: [
+                "CmuxFoundation",
+                "CmuxWorkspaces",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

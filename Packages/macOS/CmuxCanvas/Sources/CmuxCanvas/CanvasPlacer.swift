@@ -3,9 +3,9 @@ import Foundation
 /// Chooses where a new pane goes on the canvas.
 ///
 /// Placement never moves existing panes: the placer tries the canonical-gap
-/// position to the right of the anchor, then below, left, above, then scans
-/// outward, and finally falls back to the area right of all existing content
-/// (which is free by construction).
+/// position in the requested direction when provided, then the remaining
+/// cardinal neighbors, then scans outward, and finally falls back to the area
+/// right of all existing content (which is free by construction).
 public struct CanvasPlacer: Sendable {
     /// The metrics supplying the canonical gap.
     public let metrics: CanvasMetrics
@@ -28,12 +28,15 @@ public struct CanvasPlacer: Sendable {
     ///   - anchor: The focused pane's frame, when one exists. New panes appear
     ///     near it at the canonical gap.
     ///   - existing: Frames of every pane already on the canvas.
+    ///   - preferredDirection: First cardinal direction to try, when a shortcut
+    ///     implies one.
     /// - Returns: A frame at least ``CanvasMetrics/gap`` away from every
     ///   existing pane.
     public func frameForNewPane(
         size: CanvasSize,
         near anchor: CanvasRect?,
-        avoiding existing: [CanvasRect]
+        avoiding existing: [CanvasRect],
+        preferredDirection: CanvasDirection? = nil
     ) -> CanvasRect {
         guard !existing.isEmpty else {
             let origin = anchor?.origin ?? .zero
@@ -43,13 +46,22 @@ public struct CanvasPlacer: Sendable {
             return frameRightOfContent(size: size, existing: existing)
         }
 
-        let neighbors: [CanvasRect] = [
-            CanvasRect(x: anchor.maxX + metrics.gap, y: anchor.minY, width: size.width, height: size.height),
-            CanvasRect(x: anchor.minX, y: anchor.maxY + metrics.gap, width: size.width, height: size.height),
-            CanvasRect(x: anchor.minX - metrics.gap - size.width, y: anchor.minY, width: size.width, height: size.height),
-            CanvasRect(x: anchor.minX, y: anchor.minY - metrics.gap - size.height, width: size.width, height: size.height),
+        let neighbors: [(direction: CanvasDirection, frame: CanvasRect)] = [
+            (.right, CanvasRect(x: anchor.maxX + metrics.gap, y: anchor.minY, width: size.width, height: size.height)),
+            (.down, CanvasRect(x: anchor.minX, y: anchor.maxY + metrics.gap, width: size.width, height: size.height)),
+            (.left, CanvasRect(x: anchor.minX - metrics.gap - size.width, y: anchor.minY, width: size.width, height: size.height)),
+            (.up, CanvasRect(x: anchor.minX, y: anchor.minY - metrics.gap - size.height, width: size.width, height: size.height)),
         ]
-        for candidate in neighbors where isFree(candidate, avoiding: existing) {
+        let orderedNeighbors: [CanvasRect]
+        if let preferredDirection,
+           let preferred = neighbors.first(where: { $0.direction == preferredDirection }) {
+            orderedNeighbors = [preferred.frame] + neighbors
+                .filter { $0.direction != preferredDirection }
+                .map(\.frame)
+        } else {
+            orderedNeighbors = neighbors.map(\.frame)
+        }
+        for candidate in orderedNeighbors where isFree(candidate, avoiding: existing) {
             return candidate
         }
 

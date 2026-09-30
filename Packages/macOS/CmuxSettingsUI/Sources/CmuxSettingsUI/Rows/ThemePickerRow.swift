@@ -1,9 +1,10 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
 /// Visual three-up Theme picker row.
 ///
-/// Mirrors the legacy in-app `ThemePickerRow`: a leading "Theme" title
+/// Mirrors the legacy in-app `ThemePickerRow`: a leading "Appearance" title
 /// and a trailing row of three tappable thumbnails (System / Light /
 /// Dark) backed by ``ThemeWindowThumbnail``. The System tile shows a
 /// split light/dark composition with a hairline divider. The selected
@@ -18,8 +19,8 @@ struct ThemePickerRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
-                .font(.system(size: 13, weight: .medium))
+            Text(String(localized: "settings.app.appearance", defaultValue: "Appearance"))
+                .cmuxFont(size: 13, weight: .medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
@@ -62,7 +63,7 @@ struct ThemePickerRow: View {
                             .frame(width: thumbWidth, height: thumbHeight)
 
                             Text(themeDisplayName(mode))
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .fontWeight(isSelected ? .semibold : .regular)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }

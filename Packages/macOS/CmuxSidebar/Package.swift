@@ -16,6 +16,9 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSwiftRender"),
+        // CmuxExtensionKit backs the ExtensionHost/ sidebar-extension host view
+        // and browser presenter.
+        .package(path: "../CmuxExtensionKit"),
     ],
     targets: [
         .target(
@@ -23,6 +26,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -1,18 +1,39 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
-# Prefer zsh/net/unix for socket sends (no fork, ~0.2ms per send vs ~3ms
-# for fork+exec of ncat/socat/nc).  Falls back to external tools if the
-# module is unavailable.
-typeset -g _CMUX_HAS_ZSOCKET=0
-if zmodload zsh/net/unix 2>/dev/null; then
-    _CMUX_HAS_ZSOCKET=1
-fi
+# Socket sends exec a unix-socket-capable client in a detached child. The
+# historical zsocket fast path (zmodload zsh/net/unix) never activated because
+# that module does not exist (zsocket lives in zsh/net/socket). Enabling it
+# would also lose response-based ordering between connections and introduce an
+# unbounded blocked child. A future fast path still needs one connection per
+# batch plus bounded response reads.
 
 typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
     _CMUX_HAS_ZSH_JOBSTATES=1
 fi
+
+# Prefer zsh/zselect for the poll-loop sleeps in the git-HEAD and PR-status
+# watchers (no fork, vs ~1 fork+exec of /bin/sleep per second per pane).
+# Falls back to /bin/sleep if the module is unavailable.
+typeset -g _CMUX_HAS_ZSELECT=0
+if zmodload zsh/zselect 2>/dev/null; then
+    _CMUX_HAS_ZSELECT=1
+fi
+
+# Fork-free sleep.  Argument is in centiseconds (zselect's -t unit), so a
+# whole-second wait is `_cmux_sleep_cs 100`.  zselect with only -t and no fds
+# returns status 1 on timeout, so call it then return 0 explicitly rather than
+# falling through to the /bin/sleep fallback (which would double the wait).
+_cmux_sleep_cs() {
+    if (( _CMUX_HAS_ZSELECT )); then
+        # Timeout is zselect's normal status 1. Consume it before returning so
+        # callers with ERR_RETURN/ERR_EXIT enabled do not abort the watcher.
+        zselect -t "$1" || :
+        return 0
+    fi
+    sleep "$(( $1 / 100.0 ))"
+}
 
 _cmux_zsh_job_table_saturated() {
     (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
@@ -31,38 +52,68 @@ _cmux_restore_status() {
     builtin return "$1"
 }
 
+# BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
+# server to process the line and close (which preserves send order across a
+# batched child), and -w bounds its lifetime. PATH `nc` cannot be trusted first:
+# GNU netcat (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently,
+# which dropped every hook message (report_tty, ports_kick, report_shell_state)
+# on machines where it shadows the system nc. The capability envelope keeps
+# the detached client authorized even after launchd or tmux reparents it.
+_cmux_write_socket_payload() {
+    local payload="$1"
+    case "${CMUX_SOCKET_CAPABILITY:-}" in
+        ""|*[[:space:]]*)
+            print -r -- "$payload"
+            ;;
+        *)
+            print -r -- "_cmux_capability_v1 $CMUX_SOCKET_CAPABILITY $payload"
+            ;;
+    esac
+}
+
 _cmux_send() {
     local payload="$1"
-    if (( _CMUX_HAS_ZSOCKET )); then
-        local fd
-        zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
-        fd=$REPLY
-        print -u $fd -r -- "$payload" 2>/dev/null
-        exec {fd}>&- 2>/dev/null
+    if [[ -x /usr/bin/nc ]]; then
+        # Apple's nc defines -N as `num_probes` (it is not OpenBSD's no-arg
+        # shutdown-after-EOF flag), so the -N form fails option parsing; use
+        # the bounded -w form directly. nc waits for the server to process the
+        # line and close, preserving order in a batched child.
+        _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
-        print -r -- "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
+        _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
-        print -r -- "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+        _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
     elif command -v nc >/dev/null 2>&1; then
-        if print -r -- "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+        if _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
             :
         else
-            print -r -- "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+            _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         fi
     fi
 }
 
-# Fire-and-forget send: synchronous when zsocket is available (fast, no fork),
-# backgrounded otherwise.
+# Fire-and-forget send, always detached from the interactive shell: the
+# client's connect and response wait must never run in the foreground, or a
+# wedged cmux listener (hung app, full backlog, post-wake socket) blocks every
+# precmd/preexec hook and freezes the user's prompt. Each child self-bounds
+# via its client timeout (-w 1 / -T 1), so a wedged listener cannot
+# accumulate children beyond roughly one second's worth of sends.
+# Accepts multiple payloads: they are sent sequentially inside ONE child, so
+# callers with an ordering dependency between two messages (report_tty before
+# ports_kick) batch them instead of racing two independent children.
+# Returns nonzero when the payload was dropped (job-table saturation) so
+# callers with edge-triggered latches can leave them unset and retry.
 _cmux_send_bg() {
-    if (( _CMUX_HAS_ZSOCKET )); then
-        _cmux_send "$1"
-    else
-        _cmux_zsh_job_table_saturated && return 0
-        { _cmux_send "$1" } >/dev/null 2>&1 &!
-    fi
+    _cmux_zsh_job_table_saturated && return 1
+    {
+        local _cmux_msg
+        for _cmux_msg in "$@"; do
+            _cmux_send "$_cmux_msg"
+        done
+    } >/dev/null 2>&1 &!
+    return 0
 }
 
 _cmux_socket_is_unix() {
@@ -140,15 +191,77 @@ _cmux_report_tty_via_relay() {
     local workspace_id=""
     workspace_id="$(_cmux_relay_workspace_id)" || return 1
     [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+    [[ -n "$CMUX_TERMINAL_LIFECYCLE_ID" && -n "$CMUX_SSH_ATTEMPT_ID" ]] || return 1
 
     local tty_name_json params
     tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
-    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
     params+="}"
     _cmux_relay_rpc "surface.report_tty" "$params"
+}
+
+_cmux_report_pwd_via_relay() {
+    local pwd="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$pwd" ]] || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"path\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
+_cmux_report_git_branch_via_relay() {
+    local branch="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$branch" ]] || return 1
+    local workspace_id="" branch_json="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    branch_json="$(_cmux_json_escape "$branch")"
+    params="{\"workspace_id\":\"$workspace_id\",\"branch\":\"$branch_json\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_git_branch" "$params"
+}
+
+_cmux_clear_git_branch_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.clear_git_branch" "$params"
+}
+
+_cmux_report_shell_activity_state_via_relay() {
+    local state="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$state" ]] || return 1
+    local workspace_id="" params=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    params="{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
+    if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+        params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
 }
 
 _cmux_ports_kick_via_relay() {
@@ -168,13 +281,40 @@ _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
     unset CMUX_RESTORE_SCROLLBACK_FILE
+    local token="${path:t}"
+
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$HOST" "$token"
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
+
+    # Valid kitty-shell-cwd URIs reach Ghostty's PWD action in PTY order. The
+    # following real cwd report keeps the private boundary out of title state.
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$HOST" "$token"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$HOST" "$PWD"
 }
 _cmux_restore_scrollback_once
+
+# First-launch welcome banner. cmux passes the path of a one-shot token file in
+# CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+# workspace's shell, so the banner prints during startup and never lands in
+# shell history. Only the shell whose `rm` of the token succeeds prints it, and
+# never inside tmux, so children that inherited the variable cannot repeat it.
+_cmux_show_welcome_once() {
+    local token="${CMUX_SHOW_WELCOME_FILE:-${_CMUX_BOOTSTRAP_WELCOME_FILE:-}}"
+    unset CMUX_SHOW_WELCOME_FILE _CMUX_BOOTSTRAP_WELCOME_FILE
+    [[ -n "$token" ]] || return 0
+    /bin/rm -- "$token" >/dev/null 2>&1 || return 0
+    [[ -z "${TMUX:-}" ]] || return 0
+    local cli="${CMUX_SHELL_INTEGRATION_DIR%/}"
+    cli="${cli%/shell-integration}/bin/cmux"
+    [[ -x "$cli" ]] || cli="$(_cmux_relay_cli_path)"
+    [[ -n "$cli" ]] || return 0
+    "$cli" welcome 2>/dev/null || true
+}
+_cmux_show_welcome_once
 
 _cmux_now() {
     print -r -- "${EPOCHSECONDS:-$SECONDS}"
@@ -182,7 +322,9 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
-_cmux_path_prepend_unique_directory() {
+# Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
+# without the subshell a command substitution would fork.
+_cmux_path_prepend_unique_directory_into_reply() {
     local directory="$1"
     local current_path="${2-}"
     local skipped_directory="${3-}"
@@ -192,11 +334,11 @@ _cmux_path_prepend_unique_directory() {
     local has_more=false
 
     [[ -n "$directory" ]] || {
-        printf '%s' "$current_path"
+        REPLY="$current_path"
         return 0
     }
     [[ -n "$current_path" ]] || {
-        printf '%s' "$directory"
+        REPLY="$directory"
         return 0
     }
 
@@ -217,12 +359,131 @@ _cmux_path_prepend_unique_directory() {
         [[ "$has_more" == true ]] || break
     done
 
-    printf '%s' "$result"
+    REPLY="$result"
 }
+
+_cmux_path_prepend_unique_directory() {
+    local REPLY
+    _cmux_path_prepend_unique_directory_into_reply "$@"
+    printf '%s' "$REPLY"
+}
+# Succeeds when every directory, checked in order, is an absolute path to a
+# real directory (not a symlink) owned by this user that no one else can write
+# to, with a safe ancestry. Sticky shared ancestors (such as /tmp) are safe;
+# a non-sticky writable ancestor can rename a checked child after this check.
+_cmux_private_dirs() {
+    builtin emulate -L zsh
+    local create="$1"
+    shift
+    local dir
+    local -a private_dir
+    (( $# )) || return 1
+    for dir in "$@"; do
+        [[ "$dir" == /* ]] || return 1
+        if [[ "$create" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+            /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1 || return 1
+        fi
+        # Glob qualifiers use lstat: / rejects symlinks, U requires our euid
+        # and f:go-w: requires no group or other write bit.
+        private_dir=( "$dir"(N/Uf:go-w:) )
+        (( ${#private_dir} )) || return 1
+        _cmux_private_path_chain "$dir" || return 1
+    done
+}
+
+_cmux_private_path_chain() {
+    builtin emulate -L zsh
+    local start="$1"
+    local current="$start"
+    local canonical=""
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && break
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+    canonical="$(_cmux_resolve_path "$start")" || return 1
+    [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
+}
+
+_cmux_private_path_chain_resolved() {
+    builtin emulate -L zsh
+    local current="$1"
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && return 0
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+}
+
+_cmux_private_path_node() {
+    builtin emulate -L zsh
+    local current="$1"
+    local owner=""
+    if [[ -d "$current" && ! -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]] || return 1
+        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
+            return 0
+        fi
+        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
+        return 0
+    fi
+    if [[ -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]]
+        return $?
+    fi
+    return 1
+}
+
+_cmux_resolve_path() {
+    if [[ -x /usr/bin/realpath ]]; then
+        /usr/bin/realpath -- "$1"
+    elif [[ -x /bin/realpath ]]; then
+        /bin/realpath -- "$1"
+    elif [[ -x /usr/bin/readlink ]]; then
+        /usr/bin/readlink -f -- "$1"
+    else
+        return 1
+    fi
+}
+typeset -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
-    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local surface_component="${CMUX_SURFACE_ID:-$$}"
+    local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    shim_root="${shim_root%/}"
+    local shim_parent="${shim_root%/*}"
+    local tmp_root="${TMPDIR:-/tmp}"
+    local legacy_shim_root="${tmp_root%/}/cmux-cli-shims/$surface_component"
+    local shim_state="${HOME:-}/.cmuxterm"
+    local rejected_root=""
+    local REPLY
+    # An inherited root is reused only while it is still private. Otherwise
+    # the shell makes its own, and skips the shim if it can't.
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]] \
+        || ! _cmux_private_dirs 0 "$shim_parent" "$shim_root"; then
+        # Keep a shim root this shell did not accept off PATH.
+        [[ "${shim_parent##*/}" == "cmux-cli-shims" ]] && rejected_root="$shim_root"
+        shim_parent="$shim_state/cmux-cli-shims"
+        shim_root="$shim_parent/$surface_component"
+        if [[ "${HOME:-}" != /* ]] || ! _cmux_private_dirs 1 "$shim_state" "$shim_parent" "$shim_root"; then
+            if [[ "$command_name" == "claude" ]]; then
+                unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+                _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
+            fi
+            if [[ -n "$rejected_root" ]]; then
+                _cmux_path_prepend_unique_directory_into_reply "$rejected_root" "${PATH-}"
+                REPLY="${REPLY#"$rejected_root"}"
+                PATH="${REPLY#:}"
+                hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
+    fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
 
@@ -235,26 +496,82 @@ _cmux_install_cli_command_shim() {
     {
         printf '%s\n' '#!/usr/bin/env bash'
         if [[ "$command_name" == "claude" ]]; then
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf 'cmux_wrapper="%s"\n' "$escaped_wrapper"
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then'
+            printf '%s\n' '    cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"'
+            printf '%s\n' '    if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '        cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    cmux_cli="$(command -v cmux 2>/dev/null || true)"'
+            printf '%s\n' '    if [[ -n "$cmux_cli" ]]; then'
+            printf '%s\n' '        cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"'
+            printf '%s\n' '        if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '            cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '        fi'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%q\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%q\n' "$shim_root"
+            printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    exec "$cmux_wrapper" "$@"'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'cmux_path_without_shim=""'
+            printf '%s\n' 'cmux_old_ifs="$IFS"'
+            printf '%s\n' 'IFS=:'
+            printf '%s\n' 'for cmux_entry in ${PATH:-}; do'
+            printf '%s\n' '    if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then'
+            printf '%s\n' '        continue'
+            printf '%s\n' '    fi'
+            printf '%s\n' '    if [[ -z "$cmux_path_without_shim" ]]; then'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_entry"'
+            printf '%s\n' '    else'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'done'
+            printf '%s\n' 'IFS="$cmux_old_ifs"'
+            printf '%s\n' 'export PATH="$cmux_path_without_shim"'
+            printf '%s\n' 'exec claude "$@"'
+        else
+            printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-        printf 'exec "%s" "$@"\n' "$escaped_wrapper"
-    } >"$shim_path" 2>/dev/null || return 0
+    # Use zsh's explicit clobber redirection (>|) so cmux always refreshes its
+    # own generated shim, even when the user's interactive zsh has `noclobber`
+    # set. A plain `>` is refused under noclobber and prints `file exists` on
+    # startup (the writer runs again from the _cmux_fix_path precmd hook after
+    # the shim already exists). See issue #6714.
+    } >|"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
     if [[ "$command_name" == "claude" ]]; then
         export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
         export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+        _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED="$shim_path"
     fi
 
-    PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
+    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}" "$rejected_root"
+    PATH="$REPLY"
     hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
+}
+_cmux_claude_wrapper_command() {
+    # Only run a shim this shell wrote into a directory it checked.
+    if [[ -n "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && "${CMUX_CLAUDE_WRAPPER_SHIM:-}" == "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && -x "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" ]]; then
+        "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
+    elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
+        "$_CMUX_CLAUDE_WRAPPER" "$@"
+    else
+        command claude "$@"
+    fi
 }
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
     local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    if [[ "$command_name" == "claude" && "${CMUX_CLAUDE_INTEGRATION_DISABLED:-0}" == "1" ]]; then
+        return 0
+    fi
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
@@ -269,7 +586,11 @@ _cmux_install_cli_wrapper() {
         _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
     fi
     builtin unalias "$command_name" >/dev/null 2>&1 || true
-    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    if [[ "$command_name" == "claude" ]]; then
+        eval "$command_name() { _cmux_claude_wrapper_command \"\$@\"; }"
+    else
+        eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
@@ -311,7 +632,9 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
-typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null || true)}"
+# Created on first use by _cmux_set_git_active_pwd, and only while git watching
+# is on: the git reporters are its only readers.
+typeset -g _CMUX_GIT_ACTIVE_PWD_FILE="${_CMUX_GIT_ACTIVE_PWD_FILE:-}"
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
 typeset -g _CMUX_PR_LAST_BRANCH=""
@@ -328,11 +651,11 @@ typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
-typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
-typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
+# Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is readable
+# by clients that were not started inside cmux.
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -349,11 +672,14 @@ typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_SOCKET_ENABLE
     CMUX_SOCKET_MODE
     CMUX_SOCKET_PATH
+    CMUX_SSH_ATTEMPT_ID
     CMUX_TAB_ID
     CMUX_TAG
+    CMUX_TERMINAL_LIFECYCLE_ID
     CMUX_WORKSPACE_ID
 )
 typeset -ga _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_HISTORY_FILE
     CMUX_PANEL_ID
     CMUX_SURFACE_ID
 )
@@ -367,7 +693,8 @@ _cmux_tmux_sync_key_is_managed() {
     return 1
 }
 
-_cmux_tmux_shell_env_signature() {
+# Sets REPLY rather than printing, so prompt hooks do not fork a subshell.
+_cmux_tmux_shell_env_signature_into_reply() {
     local key value
     local -a parts
     for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
@@ -375,23 +702,68 @@ _cmux_tmux_shell_env_signature() {
         [[ -n "$value" ]] || continue
         parts+=("${key}=${value}")
     done
-    print -r -- "${(j:\x1f:)parts}"
+    REPLY="${(j:\x1f:)parts}"
+}
+
+_cmux_tmux_shell_env_signature() {
+    local REPLY
+    _cmux_tmux_shell_env_signature_into_reply
+    print -r -- "$REPLY"
+}
+
+# A published environment only matters to a running default tmux server; a
+# server started later inherits it from the shell that starts it. Checking the
+# socket keeps every prompt and command from spawning a tmux client that can
+# only fail when no server is running. tmux ignores a TMUX_TMPDIR that does not
+# resolve and falls back to /tmp, so the socket path follows the same rule.
+_cmux_tmux_default_server_socket_into_reply() {
+    local socket_root="/tmp"
+    [[ -n "${TMUX_TMPDIR:-}" && -e "$TMUX_TMPDIR" ]] && socket_root="$TMUX_TMPDIR"
+    REPLY="${socket_root%/}/tmux-${UID}/default"
+}
+
+_cmux_tmux_default_server_running() {
+    local REPLY
+    _cmux_tmux_default_server_socket_into_reply
+    [[ -S "$REPLY" ]]
+}
+
+# An exited tmux server can leave its socket behind. When tmux reports that
+# nothing is listening there, a marker next to the socket records it as dead, so
+# later prompts and shells skip the tmux spawn until a new server rebinds the
+# socket (which makes the socket newer than the marker). Other failures, such as
+# an interrupted client, leave no marker. The socket directory is private to the
+# user, so the marker cannot be redirected through a planted symlink.
+_cmux_tmux_error_means_no_server() {
+    [[ "$1" == *"no server running"* || "$1" == *"error connecting"* || "$1" == *"Connection refused"* ]]
 }
 
 _cmux_tmux_publish_cmux_environment() {
     [[ -z "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
 
-    local signature
-    signature="$(_cmux_tmux_shell_env_signature)"
+    local REPLY
+    _cmux_tmux_default_server_socket_into_reply
+    local server_socket="$REPLY"
+    [[ -S "$server_socket" ]] || return 0
+    local stale_marker="${server_socket}.cmux-unreachable"
+    [[ -e "$stale_marker" && ! "$server_socket" -nt "$stale_marker" ]] && return 0
+
+    _cmux_tmux_shell_env_signature_into_reply
+    local signature="$REPLY"
     [[ -n "$signature" ]] || return 0
     [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
 
-    local key value
+    local key value tmux_error
     for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
         value="${(P)key}"
         [[ -n "$value" ]] || continue
-        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+        if ! tmux_error="$(tmux set-environment -g "$key" "$value" 2>&1 >/dev/null)"; then
+            if _cmux_tmux_error_means_no_server "$tmux_error"; then
+                : 2>/dev/null >| "$stale_marker"
+            fi
+            return 0
+        fi
     done
 
     for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
@@ -405,10 +777,18 @@ _cmux_tmux_refresh_cmux_environment() {
     [[ -n "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
 
-    local output
-    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+    local key did_change=0
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        if [[ -n "${(P)key}" ]]; then
+            unset "$key"
+            did_change=1
+        fi
+    done
 
-    local line key filtered="" did_change=0
+    local output
+    output="$(tmux show-environment 2>/dev/null)" || return 0
+
+    local line filtered=""
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
         key="${line%%=*}"
@@ -417,7 +797,7 @@ _cmux_tmux_refresh_cmux_environment() {
     done <<< "$output"
 
     [[ -n "$filtered" ]] || return 0
-    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && (( ! did_change )) && return 0
 
     local value
     while IFS= read -r line; do
@@ -455,56 +835,6 @@ _cmux_tmux_sync_cmux_environment() {
     fi
 }
 
-_cmux_ensure_ghostty_preexec_strips_both_marks() {
-    local fn_name="$1"
-    (( $+functions[$fn_name] )) || return 0
-
-    local old_strip new_strip updated
-    old_strip=$'PS1=${PS1//$\'%{\\e]133;A;cl=line\\a%}\'}'
-    new_strip=$'PS1=${PS1//$\'%{\\e]133;A;redraw=last;cl=line\\a%}\'}'
-    updated="${functions[$fn_name]}"
-
-    if [[ "$updated" == *"$new_strip"* && "$updated" != *"$old_strip"* ]]; then
-        updated="${updated/$new_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-        return 0
-    fi
-    if [[ "$updated" == *"$old_strip"* && "$updated" != *"$new_strip"* ]]; then
-        updated="${updated/$old_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-}
-
-_cmux_patch_ghostty_semantic_redraw() {
-    local old_frag new_frag
-    old_frag='133;A;cl=line'
-    new_frag='133;A;redraw=last;cl=line'
-
-    # Patch both deferred and live hook definitions, depending on init timing.
-    if (( $+functions[_ghostty_deferred_init] )); then
-        functions[_ghostty_deferred_init]="${functions[_ghostty_deferred_init]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_precmd] )); then
-        functions[_ghostty_precmd]="${functions[_ghostty_precmd]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_preexec] )); then
-        functions[_ghostty_preexec]="${functions[_ghostty_preexec]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-
-    # Keep legacy + redraw-aware strip lines so prompts created before patching
-    # are still cleared by preexec.
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_deferred_init
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_preexec
-}
-_cmux_patch_ghostty_semantic_redraw
-
 _cmux_prepend_job_table_guard_to_function() {
     local fn_name="$1"
     (( $+functions[$fn_name] )) || return 0
@@ -517,16 +847,23 @@ _cmux_restore_status \"\$${saved_var}\"
 ${functions[$fn_name]}"
 }
 
+# Usage: _cmux_insert_job_table_guard_after_declaration FN TARGET GUARD [TARGET GUARD]...
+# Inserts each GUARD after the first nested declaration of its TARGET inside FN,
+# walking FN's body once for every pair.
 _cmux_insert_job_table_guard_after_declaration() {
     builtin emulate -L zsh -o extended_glob -o no_aliases
 
     local fn_name="$1"
-    local target_name="$2"
-    local guard="$3"
+    shift
     (( $+functions[$fn_name] )) || return 0
 
     local body="${functions[$fn_name]}"
-    [[ "$body" == *"$guard"* ]] && return 0
+    local -A pending
+    while (( $# >= 2 )); do
+        [[ "$body" == *"$2"* ]] || pending[$1]="$2"
+        shift 2
+    done
+    (( ${#pending} )) || return 0
 
     local -a lines patched_lines declaration_names
     lines=("${(@f)body}")
@@ -535,7 +872,7 @@ _cmux_insert_job_table_guard_after_declaration() {
 
     for line in "${lines[@]}"; do
         patched_lines+=("$line")
-        (( inserted )) && continue
+        (( ${#pending} )) || continue
 
         trimmed="${line##[[:space:]]#}"
         [[ "$trimmed" == *"{"* ]] || continue
@@ -548,10 +885,10 @@ _cmux_insert_job_table_guard_after_declaration() {
         declaration_names=("${(@z)declaration}")
 
         for candidate in "${declaration_names[@]}"; do
-            if [[ "$candidate" == "$target_name" ]]; then
-                patched_lines+=("${(@f)guard}")
+            if (( ${+pending[$candidate]} )); then
+                patched_lines+=("${(@f)pending[$candidate]}")
+                unset "pending[$candidate]"
                 inserted=1
-                break
             fi
         done
     done
@@ -570,11 +907,12 @@ _cmux_patch_ghostty_job_table_guard() {
     # Patch deferred definitions before Ghostty's first precmd installs and
     # invokes its live hook functions.
     if (( $+functions[_ghostty_deferred_init] )); then
-        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_precmd "$guard_precmd"
-        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_preexec "$guard_preexec"
-        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_init "$guard_zle_init"
-        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_finish "$guard_zle_finish"
-        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_keymap_select "$guard_zle_keymap"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init \
+            _ghostty_precmd "$guard_precmd" \
+            _ghostty_preexec "$guard_preexec" \
+            _ghostty_zle_line_init "$guard_zle_init" \
+            _ghostty_zle_line_finish "$guard_zle_finish" \
+            _ghostty_zle_keymap_select "$guard_zle_keymap"
     fi
 
     _cmux_prepend_job_table_guard_to_function _ghostty_precmd
@@ -585,53 +923,14 @@ _cmux_patch_ghostty_job_table_guard() {
 }
 _cmux_patch_ghostty_job_table_guard
 
-_cmux_prompt_wrap_guard() {
-    local cmd_start="$1"
-    local pwd="$2"
-    [[ -n "$cmd_start" && "$cmd_start" != 0 ]] || return 0
-
-    local cols="${COLUMNS:-0}"
-    (( cols > 0 )) || return 0
-
-    local budget=$(( cols - 24 ))
-    (( budget < 20 )) && budget=20
-    (( ${#pwd} >= budget )) || return 0
-
-    # Keep a spacer line between command output and a wrapped prompt so
-    # resize-driven prompt redraw cannot overwrite the command tail.
-    builtin print -r -- ""
-}
-
-_cmux_install_winch_guard() {
-    (( _CMUX_WINCH_GUARD_INSTALLED )) && return 0
-
-    # Respect user-defined WINCH handlers (function-based or trap-based).
-    local existing_winch_trap=""
-    existing_winch_trap="$(trap -p WINCH 2>/dev/null || true)"
-    if (( $+functions[TRAPWINCH] )) || [[ -n "$existing_winch_trap" ]]; then
-        _CMUX_WINCH_GUARD_INSTALLED=1
-        return 0
-    fi
-
-    TRAPWINCH() {
-        [[ -n "$CMUX_TAB_ID" ]] || return 0
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
-
-        # Ghostty already marks prompt redraws on SIGWINCH. Writing to the PTY
-        # here grows the screen and makes resize look like a fresh prompt.
-        return 0
-    }
-
-    _CMUX_WINCH_GUARD_INSTALLED=1
-}
-_cmux_install_winch_guard
-
-_cmux_git_resolve_head_path() {
-    # Resolve the HEAD file path without invoking git (fast; works for worktrees).
+# Resolve the HEAD file path without invoking git (fast; works for worktrees).
+# Sets REPLY (empty when not in a repository) so prompt hooks need no subshell.
+_cmux_git_resolve_head_path_into_reply() {
+    REPLY=""
     local dir="${1:-$PWD}"
     while true; do
         if [[ -d "$dir/.git" ]]; then
-            print -r -- "$dir/.git/HEAD"
+            REPLY="$dir/.git/HEAD"
             return 0
         fi
         if [[ -f "$dir/.git" ]]; then
@@ -643,7 +942,7 @@ _cmux_git_resolve_head_path() {
                 gitdir="${gitdir%% }"
                 [[ -n "$gitdir" ]] || return 1
                 [[ "$gitdir" != /* ]] && gitdir="$dir/$gitdir"
-                print -r -- "$gitdir/HEAD"
+                REPLY="$gitdir/HEAD"
                 return 0
             fi
         fi
@@ -651,6 +950,12 @@ _cmux_git_resolve_head_path() {
         dir="${dir:h}"
     done
     return 1
+}
+
+_cmux_git_resolve_head_path() {
+    local REPLY
+    _cmux_git_resolve_head_path_into_reply "$@" || return 1
+    print -r -- "$REPLY"
 }
 
 _cmux_git_resolve_git_dir() {
@@ -685,7 +990,15 @@ _cmux_git_branch_for_path() {
 _cmux_set_git_active_pwd() {
     local active_pwd="$1"
     [[ -n "$active_pwd" ]] || return 0
-    [[ -n "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]] || return 0
+    if [[ -z "${_CMUX_GIT_ACTIVE_PWD_FILE:-}" ]]; then
+        # Create it only from the prompt in the shell itself: chpwd also fires in
+        # subshells (`$(cd x && pwd)` in startup files), whose copy would leak.
+        [[ "${2:-}" == "create" ]] || return 0
+        (( ${ZSH_SUBSHELL:-0} == 0 )) || return 0
+        [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
+        _CMUX_GIT_ACTIVE_PWD_FILE="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-git-active-pwd.XXXXXX" 2>/dev/null)"
+        [[ -n "$_CMUX_GIT_ACTIVE_PWD_FILE" ]] || return 0
+    fi
     print -r -- "$active_pwd" >| "$_CMUX_GIT_ACTIVE_PWD_FILE" 2>/dev/null || true
 }
 
@@ -711,7 +1024,9 @@ _cmux_git_report_path_is_active() {
     [[ -n "$repo_head" && "$repo_head" == "$active_head" ]]
 }
 
-_cmux_report_tty_payload() {
+# Sets REPLY (empty when there is nothing to report) without forking.
+_cmux_report_tty_payload_into_reply() {
+    REPLY=""
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$_CMUX_TTY_NAME" ]] || return 0
 
@@ -721,7 +1036,14 @@ _cmux_report_tty_payload() {
         payload+=" --panel=$CMUX_PANEL_ID"
     fi
 
-    print -r -- "$payload"
+    REPLY="$payload"
+}
+
+_cmux_report_tty_payload() {
+    local REPLY
+    _cmux_report_tty_payload_into_reply
+    [[ -n "$REPLY" ]] || return 0
+    print -r -- "$REPLY"
 }
 
 _cmux_report_tty_once() {
@@ -731,11 +1053,20 @@ _cmux_report_tty_once() {
     _cmux_has_port_scan_transport || return 0
 
     if _cmux_socket_is_unix; then
-        local payload=""
-        payload="$(_cmux_report_tty_payload)"
+        local REPLY
+        _cmux_report_tty_payload_into_reply
+        local payload="$REPLY"
         [[ -n "$payload" ]] || return 0
+        # Batch the first ports kick behind the registration in the same
+        # child: the scanner drops kicks for unregistered TTYs, and two
+        # detached children can connect out of order. Latch only after the
+        # send was actually enqueued so a cap-dropped registration retries.
+        if [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]]; then
+            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command" || return 0
+        else
+            _cmux_send_bg "$payload" || return 0
+        fi
         _CMUX_TTY_REPORTED=1
-        _cmux_send_bg "$payload"
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -748,12 +1079,22 @@ _cmux_report_tty_once() {
 _cmux_report_shell_activity_state() {
     local state="$1"
     [[ -n "$state" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if _cmux_socket_is_unix; then
+        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+            payload+=" --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+        fi
+        _cmux_send_bg "$payload" \
+            || _CMUX_SHELL_ACTIVITY_LAST=""
+    else
+        _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
+    fi
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -772,7 +1113,7 @@ _cmux_ports_kick() {
     if _cmux_socket_is_unix; then
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
-    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+    _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
     if _cmux_socket_is_unix; then
         _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
     else
@@ -784,18 +1125,27 @@ _cmux_report_git_branch_for_path() {
     local repo_path="$1"
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -n "$repo_path" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     _cmux_git_report_path_is_active "$repo_path" || return 0
 
     local branch dirty_opt="--status=unknown"
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
     _cmux_git_report_path_is_active "$repo_path" || return 0
     if [[ -n "$branch" ]]; then
-        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_report_git_branch_via_relay "$branch" || true
+        fi
     else
-        _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix; then
+            _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        else
+            _cmux_clear_git_branch_via_relay || true
+        fi
     fi
 }
 
@@ -1162,14 +1512,37 @@ _cmux_github_repo_slug_for_path() {
     print -r -- "$path_part"
 }
 
+# Sets REPLY to the PR watcher's state directory. Pass 1 to create it when
+# missing. Fails unless the path is a real directory that this user owns and
+# nobody else can write, so no state file lands in a place another local
+# account prepared, as the shared /tmp allows.
+_cmux_pr_state_dir() {
+    builtin emulate -L zsh
+    local dir="${${TMPDIR:-/tmp}%/}/cmux-pr-${EUID}"
+    if [[ "${1:-0}" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+        /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1 || true
+    fi
+    # Glob qualifiers inspect the link itself: a directory, owned by this
+    # user, without group or other write permission.
+    local -a private_dir
+    private_dir=( "$dir"(N/Uf:go-w:) )
+    (( ${#private_dir} )) || return 1
+    _cmux_private_path_chain "$dir" || return 1
+    REPLY="$dir"
+}
+
 _cmux_pr_cache_prefix() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/cache-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_force_signal_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/force-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_debug_log() {
@@ -1178,20 +1551,30 @@ _cmux_pr_debug_log() {
     local branch="$1"
     local event="$2"
     local now="${EPOCHSECONDS:-$SECONDS}"
-    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> /tmp/cmux-pr-debug.log
+    local REPLY
+    _cmux_pr_state_dir 1 || return 0
+    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> "$REPLY/debug.log"
 }
 
 _cmux_pr_cache_clear() {
-    local prefix=""
-    prefix="$(_cmux_pr_cache_prefix 2>/dev/null || true)"
-    if [[ -n "$prefix" ]]; then
-        /bin/rm -f -- \
+    # Runs on every prompt while git watching is off, so only spawn rm when a
+    # cache file is actually there (it only exists while PR watching is on).
+    local REPLY
+    if [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir; then
+        local prefix="$REPLY/cache-${CMUX_PANEL_ID}"
+        local cache_file
+        local -a cache_files
+        for cache_file in \
             "${prefix}.branch" \
             "${prefix}.repo" \
             "${prefix}.result" \
             "${prefix}.timestamp" \
-            "${prefix}.no-pr-branch" \
-            >/dev/null 2>&1 || true
+            "${prefix}.no-pr-branch"; do
+            [[ -e "$cache_file" || -L "$cache_file" ]] && cache_files+=("$cache_file")
+        done
+        if (( ${#cache_files} )); then
+            /bin/rm -f -- "${cache_files[@]}" >/dev/null 2>&1 || true
+        fi
     fi
 
     _CMUX_PR_LAST_BRANCH=""
@@ -1274,7 +1657,7 @@ _cmux_report_pr_for_path() {
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
-                2>"$err_file"
+                2>|"$err_file"
     )"
     gh_status=$?
     if [[ -f "$err_file" ]]; then
@@ -1379,14 +1762,14 @@ _cmux_run_pr_probe_with_timeout() {
     probe_pid=$!
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
-        sleep 1
+        _cmux_sleep_cs 100
         now="${EPOCHSECONDS:-$SECONDS}"
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
             _cmux_kill_process_tree "$probe_pid" TERM
-            sleep 0.2
+            _cmux_sleep_cs 20
             if kill -0 "$probe_pid" >/dev/null 2>&1; then
                 _cmux_kill_process_tree "$probe_pid" KILL
-                sleep 0.2
+                _cmux_sleep_cs 20
             fi
             if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
                 wait "$probe_pid" >/dev/null 2>&1 || true
@@ -1398,14 +1781,161 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
+# Stable parent identity for disowned watchers (issue #10926): a bare
+# `kill -0 $pid` guard is defeated by PID reuse. macOS recycles PIDs within
+# days on a busy machine, so once the recorded shell PID is reassigned to any
+# live process the guard returns true forever and the watcher never exits
+# (793 orphans / 2.1 GB after 20 days). Pair the PID with Darwin's kernel
+# start time (epoch seconds) from Darwin so a recycled PID no longer counts as
+# the parent. Both providers return the same representation.
+_cmux_watcher_parent_start_time() {
+    local pid="${1:-}" raw month day clock year token
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
+    local kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
+    local -a fields=(${=kernel})
+    local i sec usec
+    for (( i = 1; i < ${#fields}; i++ )); do
+        sec="${fields[i]}"; usec="${fields[i+1]}"
+        if [[ "$sec" == <-> && "$usec" == <-> ]] && (( sec >= 1000000000 && sec <= 3000000000 && usec < 1000000 )); then
+            token="$sec"
+            _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
+            print -r -- "$token"
+            return 0
+        fi
+    done
+    # Darwin's ps exposes process start time through `lstart`, which is a
+    # locale-formatted string. Force the stable C locale and UTC timezone,
+    # then use date(1) to convert it to the same epoch-second token.
+    raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
+    case "$raw" in *$'\n'*) return 1 ;; esac
+    local -a words
+    words=("${(@z)raw}")
+    (( ${#words} == 5 )) || return 1
+    case "${words[1]}" in Mon|Tue|Wed|Thu|Fri|Sat|Sun) ;; *) return 1 ;; esac
+    case "${words[2]}" in
+        Jan) month=01 ;; Feb) month=02 ;; Mar) month=03 ;;
+        Apr) month=04 ;; May) month=05 ;; Jun) month=06 ;;
+        Jul) month=07 ;; Aug) month=08 ;; Sep) month=09 ;;
+        Oct) month=10 ;; Nov) month=11 ;; Dec) month=12 ;;
+        *) return 1 ;;
+    esac
+    case "${words[3]}" in
+        [1-9]) day="0${words[3]}" ;;
+        0[1-9]|[12][0-9]|3[01]) day="${words[3]}" ;;
+        *) return 1 ;;
+    esac
+    case "${words[4]}" in
+        [01][0-9]:[0-5][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]:[0-5][0-9]) clock="${words[4]}" ;;
+        *) return 1 ;;
+    esac
+    case "${words[5]}" in
+        [0-9][0-9][0-9][0-9]) year="${words[5]}" ;;
+        *) return 1 ;;
+    esac
+    token="$(TZ=UTC LC_ALL=C /bin/date -j -u -f '%a %b %d %T %Y' "$raw" '+%s' 2>/dev/null)" || return 1
+    [[ "$token" == <-> ]] || return 1
+    _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
+    print -r -- "$token"
+}
+
+_cmux_watcher_parent_identity_valid() {
+    local pid="${1:-}" identity="${2:-}"
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    case "$pid" in
+        *[1-9]*) ;;
+        *) return 1 ;;
+    esac
+    case "$identity" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    (( ${#identity} >= 10 && ${#identity} <= 11 ))
+}
+
+_cmux_watcher_parent_state_valid() {
+    local pid="${1:-}" state
+    state="$(LC_ALL=C /bin/ps -o state= -p "$pid" 2>/dev/null)" || return 1
+    state="${state#"${state%%[![:space:]]*}"}"
+    state="${state%%[[:space:]]*}"
+    case "$state" in
+        ''|Z*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+_cmux_watcher_parent_alive() {
+    # $1 = parent PID, $2 = numeric start time recorded at watcher spawn. A
+    # mismatch means the PID was recycled; a failed /bin/ps counts as
+    # parent-dead. Missing or malformed identity is also parent-dead, so a
+    # watcher never falls back to PID-only liveness.
+    local pid="${1:-}" expected="${2:-}" actual
+    _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
+    kill -0 "$pid" >/dev/null 2>&1 || return 1
+    _cmux_watcher_parent_state_valid "$pid" || return 1
+    actual="$(_cmux_watcher_parent_start_time "$pid")" || return 1
+    [[ "$actual" == "$expected" ]]
+}
+
+_cmux_capture_shell_start_time() {
+    # Cache this shell's own start time once per shell lifetime: $$ never
+    # changes, so the value cannot go stale, and watcher starts (one runs from
+    # preexec) must not pay a /bin/ps fork per command. Only a valid value tied
+    # to this shell PID is cached, so a transient ps failure heals on the next
+    # watcher start.
+    if [[ "${_CMUX_SHELL_START_PID:-}" == "$$" ]] \
+        && _cmux_watcher_parent_identity_valid "$$" "${_CMUX_SHELL_START_TIME:-}"; then
+        return 0
+    fi
+    typeset -g _CMUX_SHELL_START_PID _CMUX_SHELL_START_TIME
+    _CMUX_SHELL_START_TIME=""
+    _CMUX_SHELL_START_PID=""
+    _CMUX_SHELL_START_TIME="$(_cmux_watcher_parent_start_time "$$" 2>/dev/null)" || return 1
+    _cmux_watcher_parent_identity_valid "$$" "$_CMUX_SHELL_START_TIME" || {
+        _CMUX_SHELL_START_TIME=""
+        return 1
+    }
+    _CMUX_SHELL_START_PID="$$"
+}
+
+_cmux_watcher_guard_tick() {
+    # Tiered per-iteration guard for watcher loops: the builtin kill -0 runs
+    # every call (plain parent death is caught within one iteration), and the
+    # /bin/ps identity comparison runs only every Nth call (default 30, via
+    # _CMUX_WATCHER_IDENTITY_INTERVAL) so steady-state watchers do not fork
+    # once per second. PID-reuse detection latency is bounded by N iterations.
+    # Runs inside the forked watcher, so the countdown global is private to
+    # that watcher.
+    local pid="${1:-}" expected="${2:-}"
+    _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
+    kill -0 "$pid" >/dev/null 2>&1 || return 1
+    local countdown="${_CMUX_WATCHER_GUARD_COUNTDOWN:-0}"
+    case "$countdown" in
+        ''|*[!0-9]*) countdown=0 ;;
+    esac
+    if (( countdown > 0 )); then
+        _CMUX_WATCHER_GUARD_COUNTDOWN=$(( countdown - 1 ))
+        return 0
+    fi
+    local interval="${_CMUX_WATCHER_IDENTITY_INTERVAL:-30}"
+    case "$interval" in
+        ''|*[!0-9]*) interval=30 ;;
+    esac
+    (( interval > 0 )) || interval=30
+    _CMUX_WATCHER_GUARD_COUNTDOWN=$(( interval - 1 ))
+    _cmux_watcher_parent_alive "$pid" "$expected"
+}
+
 _cmux_halt_pr_poll_loop() {
     # Process-group kill: background jobs are process-group leaders, so
     # negative PID kills the loop + all descendants (gh, sleep) without
     # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
     [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-    local signal_path=""
-    [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
-    [[ -z "$signal_path" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    local signal_path="" REPLY
+    [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir && signal_path="$REPLY/force-${CMUX_PANEL_ID}"
+    # preexec runs this before every command; only spawn rm when there is a file.
+    [[ -n "$signal_path" && -e "$signal_path" ]] && { /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true; }
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
 }
@@ -1429,6 +1959,8 @@ _cmux_start_pr_poll_loop() {
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
     local watch_shell_pid="$$"
+    _cmux_capture_shell_start_time || return 0
+    local watch_shell_start="$_CMUX_SHELL_START_TIME"
     local interval="${_CMUX_PR_POLL_INTERVAL:-45}"
 
     if [[ "$force_restart" != "1" && "$watch_pwd" == "$_CMUX_PR_POLL_PWD" && -n "$_CMUX_PR_POLL_PID" ]] \
@@ -1446,8 +1978,9 @@ _cmux_start_pr_poll_loop() {
     {
         local signal_path=""
         signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+        _CMUX_WATCHER_GUARD_COUNTDOWN=0
         while true; do
-            kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
+            _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
             local force_probe=0
             if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                 force_probe=1
@@ -1457,11 +1990,11 @@ _cmux_start_pr_poll_loop() {
 
             local slept=0
             while (( slept < interval )); do
-                kill -0 "$watch_shell_pid" >/dev/null 2>&1 || exit 0
+                _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || exit 0
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                     break
                 fi
-                sleep 1
+                _cmux_sleep_cs 100
                 slept=$(( slept + 1 ))
             done
         done
@@ -1496,11 +2029,14 @@ _cmux_start_git_head_watch() {
 
     _cmux_stop_git_head_watch
     local watch_shell_pid="$$"
+    _cmux_capture_shell_start_time || return 0
+    local watch_shell_start="$_CMUX_SHELL_START_TIME"
     {
         local last_signature="$watch_head_signature"
+        _CMUX_WATCHER_GUARD_COUNTDOWN=0
         while true; do
-            kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
-            sleep 1
+            _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
+            _cmux_sleep_cs 100
 
             local signature
             signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
@@ -1578,13 +2114,14 @@ _cmux_preexec() {
     _cmux_tmux_sync_cmux_environment
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
-        local t
-        t="$(tty 2>/dev/null || true)"
+        # zsh already knows its terminal in $TTY; only spawn tty(1) without it.
+        local t="${TTY:-}"
+        [[ -n "$t" ]] || t="$(tty 2>/dev/null || true)"
         t="${t##*/}"
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _CMUX_CMD_START="$(_cmux_now)"
+    _CMUX_CMD_START="${EPOCHSECONDS:-$SECONDS}"
     _cmux_report_shell_activity_state running
     _cmux_record_pr_command_hint "$cmd"
 
@@ -1604,12 +2141,50 @@ _cmux_preexec() {
     _cmux_start_git_head_watch
 }
 
+# Per-terminal history, layered on the shell's own. HISTFILE is left alone,
+# so a new terminal recalls global history and every command still reaches
+# the global file exactly as in any other terminal. Alongside it, each
+# command is appended to this surface's file; when a restored terminal finds
+# entries there, they are read on top of global history so Up recalls what
+# was typed in this terminal first. With SAVEHIST unset or zero zsh persists
+# nothing, and neither does this.
+_cmux_terminal_history_precmd() {
+    [[ -n "${CMUX_HISTORY_FILE:-}" && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
+    (( ${SAVEHIST:-0} > 0 )) || return 0
+    local entry
+    if [[ -z "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+        typeset -g _CMUX_HISTORY_INITIALIZED=1
+        if [[ -s "$CMUX_HISTORY_FILE" ]]; then
+            local -a lines
+            lines=("${(@f)$(<"$CMUX_HISTORY_FILE")}")
+            if (( ${#lines} > SAVEHIST )); then
+                print -rl -- "${(@)lines[-SAVEHIST,-1]}" >| "$CMUX_HISTORY_FILE"
+            fi
+            builtin fc -R "$CMUX_HISTORY_FILE"
+        fi
+        # Anything already in the list came from a file, not from this
+        # terminal's prompt; start recording after it.
+        entry="$(builtin fc -l -1 2>/dev/null)"
+        [[ "$entry" =~ '^ *([0-9]+)' ]] && typeset -g _CMUX_HISTORY_LAST="$match[1]"
+        return 0
+    fi
+    entry="$(builtin fc -l -1 2>/dev/null)"
+    [[ "$entry" =~ '^ *([0-9]+)\*? +(.*)$' ]] || return 0
+    [[ "$match[1]" != "${_CMUX_HISTORY_LAST:-}" ]] || return 0
+    typeset -g _CMUX_HISTORY_LAST="$match[1]"
+    # hist_ignore_space leaves the last such line in the list until the next
+    # command; it was never meant to be kept, so it is not recorded either.
+    local line="$(builtin fc -ln -1 2>/dev/null)"
+    [[ -o hist_ignore_space && "$line" == ' '* ]] && return 0
+    print -r -- "$line" >> "$CMUX_HISTORY_FILE"
+}
+
 _cmux_precmd() {
     local last_status=$?
-    # Handle cases where Ghostty integration initializes after this file. This
-    # is pure function-body patching, so it remains safe under job saturation.
+    _cmux_terminal_history_precmd
+    # Ghostty integration can initialize after this file, so retry its job-table
+    # guards when each prompt begins.
     _cmux_patch_ghostty_job_table_guard
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
     _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0
 
@@ -1625,38 +2200,39 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
+    fi
+    if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
         _cmux_report_shell_activity_state prompt
     fi
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
-        local t
-        t="$(tty 2>/dev/null || true)"
+        # zsh already knows its terminal in $TTY; only spawn tty(1) without it.
+        local t="${TTY:-}"
+        [[ -n "$t" ]] || t="$(tty 2>/dev/null || true)"
         t="${t##*/}"
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
     _cmux_report_tty_once
 
-    local now="$(_cmux_now)"
+    local now="${EPOCHSECONDS:-$SECONDS}"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
+    local pwd="$PWD"
     local cmd_dur=0
     if [[ -n "$cmd_start" && "$cmd_start" != 0 ]]; then
         cmd_dur=$(( now - cmd_start ))
     fi
 
     if (( ! cmux_has_unix_socket )); then
-        if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-            _cmux_ports_kick refresh
+        if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+            _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
-        return 0
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
 
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    local pwd="$PWD"
-    _cmux_set_git_active_pwd "$pwd"
-
-    _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
+    _cmux_set_git_active_pwd "$pwd" create
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.
@@ -1673,7 +2249,7 @@ _cmux_precmd() {
 
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    if (( cmux_has_unix_socket )) && [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -1706,12 +2282,17 @@ _cmux_precmd() {
     else
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"
-            _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
+            local REPLY
+            _cmux_git_resolve_head_path_into_reply "$pwd" 2>/dev/null || true
+            _CMUX_GIT_HEAD_PATH="$REPLY"
             _CMUX_GIT_HEAD_SIGNATURE=""
         fi
         if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
-            local head_signature
-            head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
+            # Read HEAD in place; a command substitution here forked every prompt.
+            local head_signature=""
+            if [[ -r "$_CMUX_GIT_HEAD_PATH" ]]; then
+                IFS= read -r head_signature < "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || head_signature=""
+            fi
             if [[ -n "$head_signature" ]]; then
                 if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
                     # The first observed HEAD value establishes the baseline for this
@@ -1768,15 +2349,17 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
-    if (( git_head_changed )); then
-        _cmux_pr_cache_clear
-        _cmux_clear_pr_for_panel
-    fi
-    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
-        _cmux_emit_pr_command_hint
-    else
-        _CMUX_LAST_PR_ACTION=""
-        _CMUX_LAST_PR_TARGET=""
+    if (( cmux_has_unix_socket )); then
+        if (( git_head_changed )); then
+            _cmux_pr_cache_clear
+            _cmux_clear_pr_for_panel
+        fi
+        if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
+            _cmux_emit_pr_command_hint
+        else
+            _CMUX_LAST_PR_ACTION=""
+            _CMUX_LAST_PR_TARGET=""
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner.
@@ -1790,15 +2373,23 @@ _cmux_precmd() {
 # Ensure Resources/bin is at the front of PATH, and remove the app's
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.zprofile/.zshrc) may prepend other dirs after launch.
-# We fix this once on first prompt (after all init files have run).
+# We fix this once on first prompt (after all init files have run), and
+# reinstall cmux-owned wrapper functions in case user startup replaced them.
 _cmux_fix_path() {
-    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    integration_dir="${integration_dir%/}"
+    if [[ "$integration_dir" == */Resources/shell-integration ]]; then
+        local resources_dir="${integration_dir%/shell-integration}"
+        local gui_dir="${resources_dir%/Resources}/MacOS"
+        local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
-            PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
+            local REPLY
+            _cmux_path_prepend_unique_directory_into_reply "$bin_dir" "${PATH-}" "$gui_dir"
+            PATH="$REPLY"
         fi
     fi
+    _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -42,11 +43,12 @@ public struct SettingsDefaultsTextFieldRow: View {
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .task {
+            model.startObserving()
             if !loaded {
                 draft = model.current
                 loaded = true

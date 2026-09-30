@@ -8,8 +8,17 @@ import Foundation
 /// that talk to the web API (e.g. ``PushRegistrationService``) so they never
 /// reach for an auth singleton.
 public protocol TokenProviding: Sendable {
+    /// Coherent account id + token pair pinned to one auth-session generation.
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot
+    /// Whether a previously captured snapshot still names the live session.
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool
     /// The current access token, throwing when there is no valid session.
     func accessToken() async throws -> String
+    /// The currently stored access token, without refresh or auth-state mutation.
+    func storedAccessToken() async -> String?
     /// The current refresh token, or `nil` when there is no valid session.
     func refreshToken() async -> String?
     /// Force-mint a fresh access token, bypassing the cached-token freshness
@@ -26,4 +35,13 @@ public protocol TokenProviding: Sendable {
     func forceRefreshAccessToken() async throws -> String
 }
 
-extension AuthCoordinator: TokenProviding {}
+extension AuthCoordinator: TokenProviding {
+    public func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool {
+        isAuthenticated
+            && !sessionTokenTransitionIsActive
+            && authSessionGeneration == snapshot.generation
+            && currentUser?.id == snapshot.accountID
+    }
+}

@@ -14,13 +14,17 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxAppKitSupportUI"),
+        .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxUpdater"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.1"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
     ],
     targets: [
         .target(
             name: "CmuxUpdaterUI",
             dependencies: [
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
+                "CmuxFoundation",
                 "CmuxUpdater",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],

@@ -1,10 +1,9 @@
 import Foundation
 
 /// Beta-feature toggles. Each key here gates an experimental code path
-/// in the running app. The id prefix is `rightSidebar.beta.*` for the
-/// existing right-sidebar Dock toggle; new betas should follow the
-/// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
-/// groups them sensibly.
+/// in the running app. New beta keys should follow the pattern
+/// `<feature-domain>.beta.<flag-name>` so the cmux.json view groups them
+/// sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
@@ -14,15 +13,6 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "rightSidebar.beta.feed.enabled",
         defaultValue: false,
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
-    )
-
-    /// Right-sidebar Dock: an experimental terminal-controls dock that
-    /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults off; flagged as unstable in the Settings UI.
-    public let rightSidebarDock = DefaultsKey<Bool>(
-        id: "rightSidebar.beta.dock.enabled",
-        defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
@@ -47,6 +37,42 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
+    /// Workspace todo controls: the experimental UI that lets users add
+    /// checklist items and set workspace completion/status lanes. Defaults off
+    /// so the todo summary remains read-only unless the user opts in or the
+    /// remote rollout flag enables it.
+    public let workspaceTodoControls = DefaultsKey<Bool>(
+        id: "sidebar.beta.workspaceTodos.controls.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled"
+    )
+
+    /// How a workspace row's checklist opens from its summary line while the
+    /// workspace-todos feature is on: an anchored popover (default) or the
+    /// round-1 inline expansion.
+    public let workspaceTodosChecklistStyle = DefaultsKey<WorkspaceTodoChecklistStyle>(
+        id: "sidebar.beta.workspaceTodos.checklistStyle",
+        defaultValue: .popover,
+        userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
+    )
+
+    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
+    /// Cloud VM surface (Settings section, palette commands), and the gate
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
+    /// builds default on for dogfood; release builds stay opt-in. An explicit
+    /// setting still wins on either build.
+    public let cloudMachines = DefaultsKey<Bool>(
+        id: "cloud.beta.machines.enabled",
+        defaultValue: Self.cloudMachinesDefault,
+        userDefaultsKey: "cloud.beta.machines.enabled"
+    )
+
+    #if DEBUG
+    private static let cloudMachinesDefault = true
+    #else
+    private static let cloudMachinesDefault = false
+    #endif
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
@@ -58,6 +84,19 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "remoteTmux.beta.enabled"
+    )
+
+    /// Predictive local echo: draw typed characters over a remote terminal
+    /// before the remote echoes them, and withdraw them if the remote
+    /// disagrees. Only engages at a shell prompt on a link slow enough to
+    /// notice, never in a full-screen application, and never until the remote
+    /// has been seen echoing -- so a password prompt displays nothing.
+    /// Defaults off; while off the terminal input and output paths are
+    /// unchanged.
+    public let predictedEcho = DefaultsKey<Bool>(
+        id: "terminal.beta.predictedEcho.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
     )
 
     public init() {}

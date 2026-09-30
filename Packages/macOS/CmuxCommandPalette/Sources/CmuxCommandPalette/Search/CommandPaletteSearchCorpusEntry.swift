@@ -11,6 +11,8 @@ public struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: 
     public let title: String
     /// Prepared normalized title, or nil when the title normalizes to empty.
     public let preparedTitle: CommandPaletteFuzzyMatcher.PreparedCandidateText?
+    /// Normalized title word text excluding symbol-only segments.
+    public let normalizedTitleSearchWordText: String
     /// Prepared normalized searchable texts (title, subtitle, keywords).
     public let preparedSearchableTexts: [CommandPaletteFuzzyMatcher.PreparedCandidateText]
     /// Set of normalized searchable texts for exact-match checks.
@@ -26,7 +28,11 @@ public struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: 
         self.rank = rank
         self.title = title
         let normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
-        self.preparedTitle = CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText(normalizedTitle)
+        let preparedTitle = CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText(normalizedTitle)
+        self.preparedTitle = preparedTitle
+        self.normalizedTitleSearchWordText = preparedTitle.map {
+            commandPaletteNormalizedSearchWordText(characters: $0.characters, segments: $0.wordSegments)
+        } ?? ""
 
         var nucleoSearchTexts: [String] = []
         var normalizedTexts: [String] = []

@@ -66,7 +66,7 @@ extension CMUXCLI {
                 "--verbatim"
             ]
             stdinPrompt = ""
-        case "pi", "omp":
+        case "pi":
             guard let promptPath = promptFile() else { return nil }
             executablePath = executable()
             arguments = [
@@ -77,6 +77,22 @@ extension CMUXCLI {
                 "--no-skills",
                 "--no-prompt-templates",
                 "--no-context-files",
+                "@\(promptPath)",
+                "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
+            ]
+            stdinPrompt = ""
+        case "omp":
+            guard let promptPath = promptFile() else { return nil }
+            executablePath = executable()
+            // OMP uses rules for context isolation and rejects Pi's
+            // --no-prompt-templates and --no-context-files flags.
+            arguments = [
+                "--print",
+                "--no-tools",
+                "--no-session",
+                "--no-extensions",
+                "--no-skills",
+                "--no-rules",
                 "@\(promptPath)",
                 "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
             ]
@@ -141,12 +157,12 @@ extension CMUXCLI {
         process.standardError = FileHandle.nullDevice
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
         if let promptData = prompt.data(using: .utf8) {
-            try? stdinPipe.fileHandleForWriting.write(contentsOf: promptData)
+            _ = cliWrite(promptData, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
         }
         try? stdinPipe.fileHandleForWriting.close()
 

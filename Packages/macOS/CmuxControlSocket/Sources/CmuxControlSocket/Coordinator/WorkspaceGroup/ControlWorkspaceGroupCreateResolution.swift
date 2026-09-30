@@ -1,15 +1,12 @@
-public import Foundation
-
 /// The outcome of `workspace.group.create`, preserving the legacy body's
-/// app-state failures and the created group it echoes back.
+/// app-state failures and the group it echoes back.
 ///
 /// The coordinator parses `name` / `cwd` / `child_workspace_ids` (resolving each
 /// child through the handle registry) and surfaces the param-shape failures
 /// (`invalid_params` for a malformed `child_workspace_ids` or unresolved
-/// handles) itself. The remaining resolution depends on live app state — the
-/// fallback selection when children are absent, the existence check against the
-/// target window, the all-children-are-anchors eligibility guard, and the create
-/// call — so it happens behind the seam and returns one of these cases.
+/// handles) itself. Missing children become an explicit empty list. The target
+/// window existence check, all-children-are-anchors guard, and create call
+/// depend on live app state, so they happen behind the seam.
 public enum ControlWorkspaceGroupCreateResolution: Sendable, Equatable {
     /// No TabManager resolved (legacy `unavailable` / "TabManager not
     /// available").
@@ -30,4 +27,7 @@ public enum ControlWorkspaceGroupCreateResolution: Sendable, Equatable {
     case notCreated
     /// The group was created. Carries its snapshot for the `group` payload.
     case created(ControlWorkspaceGroupSnapshot)
+    /// An idempotent create request found the existing group for its external
+    /// identity. Carries the same snapshot shape as `created`.
+    case existing(ControlWorkspaceGroupSnapshot)
 }

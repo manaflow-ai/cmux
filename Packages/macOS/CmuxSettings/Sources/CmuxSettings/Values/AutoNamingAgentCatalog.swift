@@ -65,6 +65,7 @@ public enum AutoNamingAgentCatalog {
         .init(slug: "codebuddy", displayName: "CodeBuddy", summarizerSupported: false),
         .init(slug: "factory", displayName: "Factory", summarizerSupported: false),
         .init(slug: "qoder", displayName: "Qoder", summarizerSupported: false),
+        .init(slug: "ollama", displayName: "Ollama", summarizerSupported: false),
     ]
 
     /// Supported agents, in display order (picker "primary" group).

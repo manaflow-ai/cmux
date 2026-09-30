@@ -1,4 +1,7 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import CmuxWorkspaces
 import SwiftUI
 import Testing
 

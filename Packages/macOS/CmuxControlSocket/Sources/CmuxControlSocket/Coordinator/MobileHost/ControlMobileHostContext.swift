@@ -31,17 +31,28 @@
 /// `v2MainSync` hops the legacy command bodies used disappear once the domain
 /// moves onto the coordinator.
 ///
-/// The worker-lane mobile method (`mobile.attach_ticket.create`) blocks/awaits
-/// on the socket worker and is deliberately NOT part of this seam; it stays on
-/// the app-side worker path. So do the DEBUG-only and mobile-data-plane-only
-/// verbs (`mobile.dev_stack_auth.configure`, `mobile.terminal.paste_image`,
-/// `workspace.create`/`workspace.action` mobile wrappers, `dogfood.feedback.*`),
-/// which are dispatched only from the mobile RPC handler, not `processV2Command`.
+/// ## One entrypoint: the v2 control socket
+///
+/// This seam serves only the v2 control socket (`processV2Command`, sync,
+/// main-actor), dispatched by ``ControlCommandCoordinator/handleMobileHost(_:)``:
+/// the eight shared verbs plus `mobile.terminal.paste` / `terminal.paste` and the
+/// local debug `chat.sessions.dump`. Every method is a thin pass-through; the app
+/// conformance runs the EXACT legacy body and bridges its Foundation payload to a
+/// ``JSONValue``.
+///
+/// The mobile data-plane RPC (`TerminalController.mobileHostHandleRPC`) does NOT
+/// transit this seam. It speaks `MobileHostRPCRequest` / `MobileHostRPCResult`
+/// and dispatches its `v2Mobile*` bodies directly app-side, so routing it through
+/// this coordinator (native `ControlCallResult`) would only add a pointless
+/// `MobileHostRPCRequest → ControlRequest → ControlCallResult → MobileHostRPCResult`
+/// type round-trip. The shared bodies keep both paths byte-identical without a
+/// bridge.
 @MainActor
 public protocol ControlMobileHostContext: AnyObject {
-    /// `mobile.host.status` — host identity, route status, advertised
-    /// capabilities, and the resolved workspace count (the `processV2Command`
-    /// path includes private metadata, matching the legacy default argument).
+    /// `mobile.host.status` (v2 control socket) — host identity, route status,
+    /// advertised capabilities, and the resolved workspace count. The
+    /// `processV2Command` path includes private metadata, matching the legacy
+    /// default argument (`includePrivateMetadata: true`).
     ///
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
@@ -98,4 +109,80 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.terminal.paste` / `terminal.paste` — paste text into the resolved
+    /// terminal surface as a bracketed paste.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult
+
+    /// `mobile.task.attachment.upload` — stage or finalize one task file chunk.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult
+
+    /// `mobile.task.models.list` — discover one provider's available models.
+    ///
+    /// This worker-lane witness is nonisolated and asynchronous because it may
+    /// read configuration files or run a bounded provider command.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    /// `mobile.chat.send` — types a prompt into an agent session's terminal,
+    /// the same delivery the iOS chat uses.
+    ///
+    /// - Parameter params: The decoded request params (`session_id`, `text`).
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    /// `mobile.chat.interrupt` — interrupts an agent session's running turn.
+    ///
+    /// - Parameter params: The decoded request params (`session_id`, `hard`).
+    /// - Returns: The fully-built command result.
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
+    /// dump, for diagnosing inconsistent phone-side chat state.
+    ///
+    /// - Returns: The fully-built command result.
+    func controlMobileChatSessionsDump() -> ControlCallResult
+}
+
+public extension ControlMobileHostContext {
+    /// Default for test and partial contexts that do not expose model discovery.
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(
+            code: "method_not_found",
+            message: "Task model discovery is unavailable",
+            data: nil
+        )
+    }
+
+    /// Default for test and partial contexts without agent chat delivery.
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    /// Default for test and partial contexts without agent chat delivery.
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
 }

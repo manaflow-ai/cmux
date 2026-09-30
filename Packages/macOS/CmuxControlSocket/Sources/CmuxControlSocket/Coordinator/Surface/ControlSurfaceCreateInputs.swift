@@ -21,16 +21,24 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
     public let initialCommand: String?
+    /// The nonblank raw `initial_input`, preserving surrounding whitespace.
+    public let initialInput: String?
     /// The trimmed-non-empty `tmux_start_command`, or `nil`.
     public let tmuxStartCommand: String?
     /// The trimmed-non-empty `remote_pty_session_id`, or `nil`.
     public let remotePTYSessionID: String?
+    /// The raw `remote_context` token (`inherit`/`local`/`cloud`), or `nil`.
+    public let remoteContextRaw: String?
     /// The startup environment (`startup_environment`/`initial_env`), `[:]` if none.
     public let startupEnvironment: [String: String]
     /// The requested target `pane_id`, or `nil` for the focused pane.
     public let requestedPaneID: UUID?
     /// Whether the request asked to focus the new surface.
     public let requestedFocus: Bool
+    /// The raw `placement` string, if present. The seam resolves it to the
+    /// target container (main workspace vs. right-sidebar Dock), defaulting to
+    /// the workspace when absent.
+    public let placementRaw: String?
 
     /// Creates surface-create inputs.
     public init(
@@ -40,11 +48,14 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         urlRaw: String?,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         tmuxStartCommand: String?,
         remotePTYSessionID: String?,
+        remoteContextRaw: String?,
         startupEnvironment: [String: String],
         requestedPaneID: UUID?,
-        requestedFocus: Bool
+        requestedFocus: Bool,
+        placementRaw: String? = nil
     ) {
         self.typeRaw = typeRaw
         self.providerRaw = providerRaw
@@ -52,10 +63,13 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.urlRaw = urlRaw
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
+        self.initialInput = initialInput
         self.tmuxStartCommand = tmuxStartCommand
         self.remotePTYSessionID = remotePTYSessionID
+        self.remoteContextRaw = remoteContextRaw
         self.startupEnvironment = startupEnvironment
         self.requestedPaneID = requestedPaneID
         self.requestedFocus = requestedFocus
+        self.placementRaw = placementRaw
     }
 }

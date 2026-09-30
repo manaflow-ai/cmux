@@ -94,7 +94,7 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
     /// "No importable browsers found" alert. Mirrors the env seam used by
     /// `BrowserImportProfilesUITests`.
     private func makeLaunchedAppWithImportFixture() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"] =

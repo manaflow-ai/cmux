@@ -42,9 +42,22 @@ import Testing
     /// and the next render relaunches a fresh worker.
     @Test func timesOutAHangingWorkerAndRecovers() async {
         let hangToken = "__HANG_THE_WORKER__"
+        // `timeout` is a single per-render deadline applied to EVERY render on
+        // this client, including the recovery render after the worker is killed.
+        // A tight deadline (e.g. 400ms) makes the hang render fail fast, but it
+        // also caps the recovery render — which must cold-spawn a fresh
+        // subprocess and complete a full JSON-encode → stdin → render → stdout →
+        // decode roundtrip. On a loaded CI host that cold spawn + first pipe
+        // roundtrip can exceed 400ms, the watchdog fires on the recovery render,
+        // and `recovered?.text == "after timeout"` fails nondeterministically.
+        // Use a generous deadline so only the failure path is affected: the
+        // worker hangs forever, so the timed-out render still returns nil (just
+        // after the longer deadline), while the real cold-spawn recovery is no
+        // longer racing a tight clock. This keeps same-client relaunch coverage
+        // (the watchdog's `discardWorker()` path) intact.
         let client = InterpreterClient(
             executableURL: interpreterWorkerURL(),
-            timeout: .milliseconds(400),
+            timeout: .seconds(10),
             environment: ["CMUX_INTERPRETER_TEST_HANG_TOKEN": hangToken]
         )
 

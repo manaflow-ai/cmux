@@ -1,28 +1,25 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-
-/// **Sidebar** section — mirrors the legacy in-app section
-/// row-for-row. Single card containing match-terminal-background
-/// followed by every workspace-row detail toggle. Rows that depend
-/// on a parent toggle (`hideAllDetails`, PR visibility, PR
-/// clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions
+    let hostActions: SettingsHostActions
+    @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
-
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
-    @State private var hideAll: DefaultsValueModel<Bool>
+    @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
+    @State private var workspaceDescriptionHex: DefaultsValueModel<String>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
-    @State private var showNotification: DefaultsValueModel<Bool>
+    @State var showNotification: DefaultsValueModel<Bool>
+    @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
@@ -33,22 +30,28 @@ public struct SidebarSection: View {
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
+    @State var showAgentActivity: DefaultsValueModel<Bool>
+    @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
-
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
+        _rightSidebarTabs = State(initialValue: hostActions.rightSidebarTabs())
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
+        _workspaceDescriptionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceDescriptionColorHex))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
@@ -59,33 +62,70 @@ public struct SidebarSection: View {
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
+        _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
+        _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
+        _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
-
+    /// The rendered sidebar settings section.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
+            rightSidebarTabsCard
+        }
+        .task { startObservingSettings() }
+        .task {
+            for await tabs in hostActions.rightSidebarTabsUpdates() {
+                rightSidebarTabs = tabs
+            }
         }
     }
 
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            matchTerminal,
+            hideAll,
+            wrapTitles,
+            showDesc,
+            workspaceDescriptionHex,
+            branchVerticalLayout,
+            stackBranchDir,
+            pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
+            showPR,
+            watchGit,
+            prClickable,
+            prLinks,
+            portLinks,
+            showSSH,
+            showPorts,
+            showLog,
+            showProgress,
+            showAgentActivity,
+            loadingSpinnerPosition,
+            notificationBadgePosition,
+            showMetadata,
+            compactAgentStatus,
+            rightMaxWidth,
+            rememberedRightMaxWidth,
+        ]
+        models.forEach { $0.startObserving() }
+    }
     /// Persists a new sidebar font size, cancelling any in-flight save so a
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSidebarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
-
     private var rightMaxWidthOverrideEnabled: Bool {
         rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
     }
-
     private var rightMaxWidthOverrideBinding: Binding<Bool> {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
@@ -128,10 +168,7 @@ public struct SidebarSection: View {
     }
 
     private var rightMaxWidthSubtitle: String {
-        if rightMaxWidthOverrideEnabled {
-            return String(localized: "settings.sidebar.rightMaxWidth.subtitleOn", defaultValue: "The Dock can grow past the built-in width cap while preserving terminal space.")
-        }
-        return String(localized: "settings.sidebar.rightMaxWidth.subtitleOff", defaultValue: "Use the built-in dynamic cap that keeps extra terminal space reserved.")
+        String(localized: "settings.sidebar.rightMaxWidth.subtitle", defaultValue: "Lets the Dock in the right sidebar grow up to this width while leaving room for terminals.")
     }
 
     private func clampedRightMaxWidth(_ value: Double) -> Double {
@@ -172,7 +209,7 @@ public struct SidebarSection: View {
                         .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(sidebarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -187,7 +224,7 @@ public struct SidebarSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.sidebarAppearance.fontSize.saveFailed", defaultValue: "Couldn't save sidebar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
@@ -224,9 +261,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.hideAllDetails"),
                 String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
-                subtitle: hideAll.current
-                    ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
-                    : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
+                subtitle: String(localized: "settings.app.hideAllSidebarDetails.subtitle", defaultValue: "Shows only workspace titles in the sidebar.")
             ) {
                 Toggle("", isOn: Binding(get: { hideAll.current }, set: { hideAll.set($0) }))
                     .labelsHidden()
@@ -237,9 +272,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.wrapWorkspaceTitles"),
                 String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"),
-                subtitle: wrapTitles.current
-                    ? String(localized: "settings.app.wrapWorkspaceTitles.subtitleOn", defaultValue: "Long workspace titles can use as many lines as they need.")
-                    : String(localized: "settings.app.wrapWorkspaceTitles.subtitleOff", defaultValue: "Workspace titles stay on one line and truncate at the end.")
+                subtitle: String(localized: "settings.app.wrapWorkspaceTitles.subtitle", defaultValue: "Shows long workspace titles in full on multiple lines.")
             ) {
                 Toggle("", isOn: Binding(get: { wrapTitles.current }, set: { wrapTitles.set($0) }))
                     .labelsHidden()
@@ -260,11 +293,42 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("sidebar.workspaceDescriptionColor"),
+                String(localized: "settings.app.workspaceDescriptionColor", defaultValue: "Workspace Description Color"),
+                subtitle: String(localized: "settings.app.workspaceDescriptionColor.subtitle", defaultValue: "Text color used for workspace descriptions. Default follows the current theme.")
+            ) {
+                HStack(spacing: 8) {
+                    if !workspaceDescriptionHex.current.isEmpty {
+                        Button(String(localized: "settings.app.workspaceDescriptionColor.reset", defaultValue: "Reset")) {
+                            workspaceDescriptionHex.reset()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    HexColorPicker(
+                        storedHex: workspaceDescriptionHex.current,
+                        fallback: Color.secondary,
+                        reconcileRevision: workspaceDescriptionHex.revision
+                    ) { hex in
+                        workspaceDescriptionHex.set(hex)
+                    }
+                    Text(
+                        workspaceDescriptionHex.current.isEmpty
+                            ? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default")
+                            : workspaceDescriptionHex.current
+                    )
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+                }
+            }
+            .disabled(hideAll.current || !showDesc.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
                 configurationReview: .json("sidebar.branchLayout"),
                 String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
-                subtitle: branchVerticalLayout.current
-                    ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
-                    : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
+                subtitle: String(localized: "settings.app.sidebarBranchLayout.subtitle", defaultValue: "Choose whether branches share one line or each get their own line."),
                 controlWidth: 196
             ) {
                 Picker("", selection: Binding(get: { branchVerticalLayout.current }, set: { branchVerticalLayout.set($0) })) {
@@ -280,23 +344,19 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: stackBranchDir.current
-                    ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
-                    : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
+                subtitle: String(localized: "settings.app.stackBranchDirectory.subtitle", defaultValue: "Shows the branch and directory on separate lines.")
             ) {
-                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            .disabled(hideAll.current || branchVerticalLayout.current)
             SettingsCardDivider()
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.pathLastSegmentOnly"),
                 String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"),
-                subtitle: pathLastOnly.current
-                    ? String(localized: "settings.app.pathLastSegmentOnly.subtitleOn", defaultValue: "Show as much of the trailing path as fits; shorter forms are prefixed with …/.")
-                    : String(localized: "settings.app.pathLastSegmentOnly.subtitleOff", defaultValue: "Render full paths abbreviated with ~/.")
+                subtitle: String(localized: "settings.app.pathLastSegmentOnly.subtitle", defaultValue: "Shortens long paths from the start to keep their end visible.")
             ) {
                 Toggle("", isOn: Binding(get: { pathLastOnly.current }, set: { pathLastOnly.set($0) }))
                     .labelsHidden()
@@ -317,10 +377,13 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
+            notificationMessageLineLimitRow
+            SettingsCardDivider()
+
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
-                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
+                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display git branches, Cloud machine info, and working directories.")
             ) {
                 Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) }))
                     .labelsHidden()
@@ -381,9 +444,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
                 String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
-                subtitle: portLinks.current
-                    ? String(localized: "settings.app.openSidebarPortLinks.subtitleOn", defaultValue: "Port clicks open inside cmux browser.")
-                    : String(localized: "settings.app.openSidebarPortLinks.subtitleOff", defaultValue: "Port clicks open in your default browser.")
+                subtitle: String(localized: "settings.app.openSidebarPortLinks.subtitle", defaultValue: "Clicking a port link in the sidebar opens it in the cmux browser.")
             ) {
                 Toggle("", isOn: Binding(get: { portLinks.current }, set: { portLinks.set($0) }))
                     .labelsHidden()
@@ -440,6 +501,8 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
+            agentActivityRows
+
             SettingsCardRow(
                 configurationReview: .json("sidebar.showCustomMetadata"),
                 String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
@@ -450,6 +513,17 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.compactAgentStatus"),
+                String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
+                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details.")
+            ) {
+                Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -460,8 +534,6 @@ public struct SidebarSection: View {
         if !prClickable {
             return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
         }
-        return openInCmux
-            ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-            : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
+        return String(localized: "settings.app.openSidebarPRLinks.subtitle", defaultValue: "Clicking a pull request link in the sidebar opens it in the cmux browser.")
     }
 }

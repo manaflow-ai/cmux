@@ -108,6 +108,7 @@ extension CanvasRootView {
     /// (no banned asyncAfter); re-entry restarts the debounce.
     func noteInPaneScrollForHint() {
         guard !Self.didShowCommandScrollHintThisSession else { return }
+        guard commandScrollHintHost == nil else { return }
         commandScrollHintTask?.cancel()
         commandScrollHintTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -117,8 +118,21 @@ extension CanvasRootView {
     }
 
     func presentCommandScrollHint() {
-        guard !Self.didShowCommandScrollHintThisSession, commandScrollHintHost == nil else { return }
-        Self.didShowCommandScrollHintThisSession = true
+        presentCommandScrollHint(markSessionShown: true, replacingExisting: false)
+    }
+
+    func presentCommandScrollHint(markSessionShown: Bool, replacingExisting: Bool) {
+        if replacingExisting {
+            commandScrollHintHost?.removeFromSuperview()
+            commandScrollHintHost = nil
+        } else {
+            guard commandScrollHintHost == nil else { return }
+        }
+
+        if markSessionShown {
+            guard !Self.didShowCommandScrollHintThisSession else { return }
+            Self.didShowCommandScrollHintThisSession = true
+        }
 
         let host = NSHostingView(rootView: CanvasCommandScrollHint(text: commandScrollHintText))
         host.translatesAutoresizingMaskIntoConstraints = false

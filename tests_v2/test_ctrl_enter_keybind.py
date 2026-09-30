@@ -72,6 +72,24 @@ def run_osascript(script: str) -> None:
     )
 
 
+def wait_for_path(path: Path, timeout: float = 5.0, interval: float = 0.05) -> bool:
+    """Poll until `path` exists or the deadline passes.
+
+    Returns True as soon as the file appears, False only at the deadline.
+    The marker only exists after a chain that is not instantaneous under load:
+    osascript delivers the synthetic key event, Ghostty maps the keybind to a
+    newline, the shell runs `touch`, and the write becomes visible. Polling the
+    real signal avoids racing a fixed sleep against that latency.
+    """
+    deadline = time.time() + timeout
+    while True:
+        if path.exists():
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(interval)
+
+
 def has_ctrl_enter_keybind(config_text: str) -> bool:
     for line in config_text.splitlines():
         stripped = line.strip()
@@ -129,9 +147,10 @@ def test_ctrl_enter_keybind(client: cmux) -> tuple[bool, str]:
 
     # Send Ctrl+Enter (key code 36 = Return)
     run_osascript('tell application "System Events" to key code 36 using control down')
-    time.sleep(0.5)
 
-    ok = marker.exists()
+    # Wait for the real readiness signal (the marker file appearing) rather than
+    # racing a fixed sleep against event-delivery + shell + filesystem latency.
+    ok = wait_for_path(marker, timeout=5.0)
     if ok:
         marker.unlink(missing_ok=True)
     try:

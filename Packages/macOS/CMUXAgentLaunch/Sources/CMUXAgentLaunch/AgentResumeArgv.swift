@@ -49,18 +49,106 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// command containing it must reach those shells wrapped via
     /// ``portableClaudeResumeShellCommand(posixCommand:)``.
     public static let claudeWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\""
+        ManagedAgentWrapperDescriptor.claude.wrapperShellExecutableToken
+
+    /// The shell token that resolves cmux's `codex` wrapper at exec time.
+    ///
+    /// When the codex resume argv emits a bare `codex` executable, the captured
+    /// auto-resume command (`codex resume <id>`) can resolve to the *real* codex
+    /// binary inside the `$SHELL -lic` restore launcher, bypassing
+    /// `cmux-codex-wrapper` and dropping every cmux hook (no `SessionStart`, the
+    /// session registry never marks the resumed session live, so the iOS GUI
+    /// stays read-only). This mirrors the claude wrapper-shim mechanism: the
+    /// per-surface `codex` shim path is exported as the *managed* terminal
+    /// environment variable `CMUX_CODEX_WRAPPER_SHIM` (set by
+    /// `TerminalSurface+RuntimeSurfaceCreation`), inherited by every descendant
+    /// shell regardless of `PATH`/function shadowing, so resolving the codex
+    /// executable through it routes the resume command through the wrapper and
+    /// the hooks fire. https://github.com/manaflow-ai/cmux/issues/5639
+    ///
+    /// The token guards on `[ -x … ]` rather than bare `${VAR:-codex}`: a
+    /// long-idle surface can hold the env var after macOS reaps the shim file,
+    /// and the executability guard degrades to bare `codex` (PATH resolution —
+    /// hooks lost but resume works), the same graceful fallback used when the
+    /// variable is unset outside cmux.
+    ///
+    /// Like the claude token, this is POSIX command substitution that fish and
+    /// csh/tcsh reject, so any command containing it must reach those shells
+    /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
+    public static let codexWrapperShellExecutableToken =
+        ManagedAgentWrapperDescriptor.codex.wrapperShellExecutableToken
+
+    /// The shell token that resolves cmux's managed Amp wrapper at restore time.
+    public static let ampWrapperShellExecutableToken =
+        ManagedAgentWrapperDescriptor.amp.wrapperShellExecutableToken
+
+    /// The managed Codex wrapper token with a captured executable as its fallback.
+    ///
+    /// Remote restore shells can lack the `bash` required by `cmux-codex-wrapper`,
+    /// or a previously installed shim can disappear. In those cases a routed
+    /// restore must retain the captured Codex executable instead of assuming a
+    /// separate `codex` is available on `PATH`.
+    public static func codexWrapperShellExecutableToken(fallbackExecutable: String) -> String {
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' \(ManagedAgentWrapperDescriptor.posixSingleQuoted(fallbackExecutable)))\""
+    }
+
+    /// The shell token that resolves cmux's Hermes wrapper at restore time.
+    ///
+    /// Restored Hermes sessions must pass through the per-surface wrapper so its
+    /// native hooks are reinstalled for every later turn. The executable guard
+    /// preserves the same graceful fallback used by Claude and Codex when a
+    /// temporary shim has disappeared.
+    public static let hermesWrapperShellExecutableToken =
+        "\"$([ -x \"${CMUX_HERMES_AGENT_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_HERMES_AGENT_WRAPPER_SHIM\" || printf hermes)\""
+
+    /// Per-invocation config override appended to every cmux-generated codex resume argv.
+    ///
+    /// codex's TUI shows a blocking "Update available!" picker at startup whenever no
+    /// initial prompt is passed — exactly the shape of `codex resume <id>` — so a cmux
+    /// relaunch that auto-restores codex sessions lands every pane on the update prompt
+    /// instead of the restored conversation, and the session appears "not restarted".
+    /// `-c key=value` is codex's per-process config override (a clap-global flag, valid
+    /// after subcommands), so this suppresses the startup update check for the restored
+    /// process only; `~/.codex/config.toml` and the user's own manual codex launches are
+    /// untouched. Injection is skipped when the captured launch arguments already set
+    /// `check_for_update_on_startup` (see ``codexResumeConfigOverrides(preserved:)``):
+    /// that keeps an explicit user choice authoritative and keeps restore-of-a-restore
+    /// idempotent, since the codex sanitizer policy preserves `-c key=value` pairs.
+    public static let codexUpdateCheckSuppressionOverride = ["-c", "check_for_update_on_startup=false"]
+
+    /// The override tokens to inject between `resume <id>` and the preserved launch
+    /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
+    /// sets `check_for_update_on_startup` (either value).
+    func codexResumeConfigOverrides(preserved: [String]) -> [String] {
+        hasExplicitCheckForUpdateOnStartupOverride(in: preserved) ? [] : Self.codexUpdateCheckSuppressionOverride
+    }
+
+    /// Returns true when an argv already carries an explicit codex startup update-check setting.
+    public func hasExplicitCheckForUpdateOnStartupOverride(in arguments: [String]) -> Bool {
+        for (index, argument) in arguments.enumerated() {
+            if argument == "-c" || argument == "--config",
+               index + 1 < arguments.count,
+               arguments[index + 1].hasPrefix("check_for_update_on_startup=") {
+                return true
+            }
+            if argument.hasPrefix("-c=check_for_update_on_startup=") {
+                return true
+            }
+            if argument.hasPrefix("--config=check_for_update_on_startup=") {
+                return true
+            }
+        }
+        return false
+    }
 
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
     /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
-    /// command is not always parsed by a POSIX shell: the restore launcher dispatches it
-    /// through the user's `$SHELL` (`TerminalStartupReturnShellScript` runs
-    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` and `*` branches), and the
-    /// session-index resume command is typed into — and copy-pasted into — the user's
-    /// interactive shell. fish rejects `${…}` outright and csh/tcsh have no `:-` modifier,
-    /// so the raw token turns claude resume into a hard parse error there, even though the
-    /// pre-token command was valid in those shells.
+    /// command is not always parsed by a POSIX shell: the session-index resume command is
+    /// typed into — and copy-pasted into — the user's interactive shell. fish rejects `${…}`
+    /// outright and csh/tcsh have no `:-` modifier, so the raw token turns claude resume
+    /// into a hard parse error there, even though the pre-token command was valid in those
+    /// shells.
     ///
     /// `/bin/sh -c '<command>'` is the one spelling every dispatching shell parses
     /// identically (plain words plus single-quote escaping, which zsh, bash, fish, csh,
@@ -71,7 +159,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// *before* prepending any working-directory guard, so cd-prefix rewriting keeps
     /// composing on the outside. https://github.com/manaflow-ai/cmux/issues/5639
     public static func portableClaudeResumeShellCommand(posixCommand: String) -> String {
-        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+        ManagedAgentWrapperDescriptor.claude.portableShellCommand(posixCommand: posixCommand)
     }
 
     /// Renders claude command `parts` through ``renderingClaudeWrapperExecutable(parts:quote:)``
@@ -87,10 +175,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> String {
-        let rendered = renderingClaudeWrapperExecutable(parts: parts, quote: quote)
-        let joined = rendered.joined(separator: " ")
-        guard rendered.contains(claudeWrapperShellExecutableToken) else { return joined }
-        return portableClaudeResumeShellCommand(posixCommand: joined)
+        AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: ManagedAgentWrapperDescriptor.claude.kind,
+            quote: quote
+        )
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
@@ -107,14 +196,153 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "claude" {
-                replaced = true
-                return claudeWrapperShellExecutableToken
-            }
-            return quote(part)
+        AgentResumeArgv().renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: .claude,
+            quote: quote
+        )
+    }
+
+    /// Wraps a rendered codex resume command so it parses in any login shell.
+    ///
+    /// Mirror of ``portableClaudeResumeShellCommand(posixCommand:)`` for codex:
+    /// ``codexWrapperShellExecutableToken`` is POSIX-only command substitution,
+    /// but the rendered codex resume command is dispatched through the user's
+    /// `$SHELL` by the restore launcher and copy-pasted into the user's
+    /// interactive shell (fish/csh included), so wrapping it in
+    /// `/bin/sh -c '<command>'` makes every dispatching shell parse it
+    /// identically while `sh` still inherits `CMUX_CODEX_WRAPPER_SHIM` from the
+    /// managed terminal environment (and falls back to bare `codex` when unset).
+    public static func portableCodexResumeShellCommand(posixCommand: String) -> String {
+        ManagedAgentWrapperDescriptor.codex.portableShellCommand(posixCommand: posixCommand)
+    }
+
+    /// Wraps a rendered Amp resume command so it parses in any login shell.
+    ///
+    /// - Parameter posixCommand: The rendered POSIX command containing the Amp wrapper token.
+    /// - Returns: A `/bin/sh -c` command that dispatching shells can parse consistently.
+    public static func portableAmpResumeShellCommand(posixCommand: String) -> String {
+        ManagedAgentWrapperDescriptor.amp.portableShellCommand(posixCommand: posixCommand)
+    }
+
+    /// Wraps a rendered Hermes restore command so it parses in any login shell.
+    public static func portableHermesResumeShellCommand(posixCommand: String) -> String {
+        ManagedAgentWrapperDescriptor.hermesAgent.portableShellCommand(posixCommand: posixCommand)
+    }
+
+    /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
+    /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
+    /// when the wrapper token was actually substituted.
+    ///
+    /// The `/bin/sh -c` layer exists solely to make the POSIX-only token parse in
+    /// non-POSIX shells, so it is applied exactly when the token is present; a
+    /// codex resume that emitted no bare `codex` executable stays unwrapped.
+    public static func renderedPortableCodexResumeShellCommand(
+        parts: [String],
+        quote: (String) -> String
+    ) -> String {
+        AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: ManagedAgentWrapperDescriptor.codex.kind,
+            quote: quote
+        )
+    }
+
+    /// Renders shell command `parts` to quoted tokens, substituting
+    /// ``codexWrapperShellExecutableToken`` only when `codex` is the executable token.
+    ///
+    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: the
+    /// executable position is the first token, or the first non-assignment after an
+    /// `env` prefix. A nested `codex` subcommand such as `sr codex resume` is left alone.
+    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    public static func renderingCodexWrapperExecutable(
+        parts: [String],
+        quote: (String) -> String
+    ) -> [String] {
+        AgentResumeArgv().renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: .codex,
+            quote: quote
+        )
+    }
+
+    /// Renders a managed agent's resume command through its wrapper shim.
+    ///
+    /// - Parameters:
+    ///   - parts: The complete resume command, including any environment prefix.
+    ///   - kind: The provider identity registered with the managed wrapper.
+    ///   - quote: The shell-word quoting function supplied by the caller.
+    /// - Returns: A shell-portable command routed through the provider wrapper.
+    ///   Unknown providers are returned as ordinarily quoted shell words.
+    public func renderedPortableManagedResumeShellCommand(
+        parts: [String],
+        kind: String,
+        quote: (String) -> String
+    ) -> String {
+        guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind) else {
+            return parts.map(quote).joined(separator: " ")
         }
+        let rendered = renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: descriptor,
+            quote: quote
+        )
+        let joined = rendered.joined(separator: " ")
+        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
+        return descriptor.portableShellCommand(posixCommand: joined)
+    }
+
+    /// Returns the safe custom-executable environment needed by a managed wrapper.
+    ///
+    /// - Parameters:
+    ///   - kind: The managed agent kind.
+    ///   - executablePath: The captured executable path, when available.
+    ///   - arguments: The captured argv, including `argv[0]`.
+    /// - Returns: A single wrapper environment binding, or an empty dictionary
+    ///   when the capture uses the default executable name.
+    public func managedWrapperCustomExecutableEnvironment(
+        kind: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind),
+              let executable = normalizedManagedExecutable(executablePath ?? arguments.first),
+              (executable as NSString).lastPathComponent == descriptor.executableName,
+              executable != descriptor.executableName else {
+            return [:]
+        }
+        return [descriptor.customExecutablePathEnvironmentKey: executable]
+    }
+
+    private func renderingManagedWrapperExecutable(
+        parts: [String],
+        descriptor: ManagedAgentWrapperDescriptor,
+        quote: (String) -> String
+    ) -> [String] {
+        // The executable position is the first token, or the first
+        // non-assignment after an `env` prefix. A nested subcommand such as
+        // `sr codex resume` is not the managed executable and stays quoted.
+        var executableIndex = 0
+        if let first = parts.first, (first as NSString).lastPathComponent == "env" {
+            executableIndex = 1
+            while executableIndex < parts.count,
+                  parts[executableIndex].contains("=") {
+                executableIndex += 1
+            }
+        }
+        return parts.enumerated().map { index, part in
+            index == executableIndex && part == descriptor.executableName
+                ? descriptor.wrapperShellExecutableToken
+                : quote(part)
+        }
+    }
+
+    private func normalizedManagedExecutable(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
@@ -139,8 +367,28 @@ public struct AgentResumeArgv: Sendable, Equatable {
         launcher: String?,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]? = nil
     ) -> LauncherResolution {
+        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+            launcher: launcher,
+            sessionID: sessionId,
+            launchArguments: arguments,
+            environment: environment
+        ) {
+            let parts = commandParts(
+                executablePath: executablePath,
+                arguments: arguments,
+                fallbackExecutable: "codex"
+            )
+            guard let captured = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return .resolved(nil) }
+            let preserved = SubrouterCodexResumeRouting().removingRoutingArguments(from: captured)
+            return .resolved(routed + codexResumeConfigOverrides(preserved: preserved) + preserved)
+        }
         switch launcher {
         case "claudeTeams":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
@@ -154,10 +402,13 @@ public struct AgentResumeArgv: Sendable, Equatable {
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
             if tail.first == "codex-teams" { tail.removeFirst() }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail) else {
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: tail) else {
                 return .resolved(nil)
             }
-            return .resolved([parts.executable, "codex-teams", "resume", sessionId] + preserved)
+            return .resolved(
+                [parts.executable, "codex-teams", "resume", sessionId]
+                    + codexResumeConfigOverrides(preserved: preserved) + preserved
+            )
         case "omo":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
@@ -181,29 +432,52 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - sessionId: the session/thread id to resume.
     ///   - executablePath: the captured executable path, if any.
     ///   - arguments: the captured launch arguments (argv, including the executable as element 0).
+    ///   - observedPermissionMode: the hook-observed Claude permission mode the session last ran
+    ///     in, re-applied via ``claudeArgvApplyingObservedPermissionMode(_:observedPermissionMode:)``
+    ///     for user-owned claude restore; ignored for every other kind.
     public func builtInKind(
         kind: String,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch kind {
         case "claude":
-            return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            guard let argv = claudeResumeArgv(
+                sessionId: sessionId,
+                executablePath: executablePath,
+                arguments: arguments
+            ) else { return nil }
+            return Self.claudeArgvApplyingObservedPermissionMode(
+                argv,
+                observedPermissionMode: observedPermissionMode
+            )
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return nil }
+            let replayExecutable = codexReplayExecutable(
+                capturedExecutable: parts.executable,
+                launchTail: parts.tail
+            )
+            return [replayExecutable, "resume", sessionId]
+                + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
             return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "campfire":
+            return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }
-            return [parts.executable, "threads", "continue"] + preserved + [sessionId]
+            return ["amp", "threads", "continue"] + preserved + [sessionId]
         case "cursor":
             return withOption("cursor", executable: "cursor-agent", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "gemini":
@@ -234,6 +508,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "kimi":
+            return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:
             return nil
         }
@@ -283,12 +559,37 @@ public struct AgentResumeArgv: Sendable, Equatable {
         return [parts.executable, option, sessionId] + preserved
     }
 
+    /// Executable names that are shells or login bootstraps, never an agent binary.
+    ///
+    /// A launch snapshot can degrade to the pane's bootstrap process when no agent
+    /// launch metadata was captured (e.g. the agent was started without the shell
+    /// integration's wrapper). cmux spawns panes via
+    /// `login … /bin/bash --noprofile --norc -c 'exec -l <shell>'`, so such a snapshot
+    /// replays as `bash --resume <id>` — a guaranteed parse error that also drops the
+    /// binding's cd prefix when the child shell exits.
+    /// https://github.com/manaflow-ai/cmux/issues/5796
+    private static let shellBootstrapExecutableNames: Set<String> = [
+        "sh", "bash", "zsh", "fish", "csh", "tcsh", "ksh", "dash", "login",
+    ]
+
+    private func isShellBootstrapExecutable(_ executable: String) -> Bool {
+        var name = URL(fileURLWithPath: executable).lastPathComponent
+        // Login shells rewrite argv[0] with a leading dash ("-bash", "-fish").
+        if name.hasPrefix("-") { name.removeFirst() }
+        return Self.shellBootstrapExecutableNames.contains(name)
+    }
+
     private func commandParts(
         executablePath: String?,
         arguments: [String],
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
+        // A shell is never the agent; fall back to the kind's known executable and
+        // drop the captured argv too — those arguments belong to the shell.
+        guard !isShellBootstrapExecutable(executable) else {
+            return (fallbackExecutable, [])
+        }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
     }
@@ -299,9 +600,4 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
         return trimmed
     }
-}
-
-/// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
-private func posixSingleQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }

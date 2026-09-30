@@ -1,17 +1,26 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case customSidebar
+    case simulator
     case agentSession
     case project
     case extensionBrowser
+    case workspaceTodo
+    case notifications
+    case cloudVMLoading
+    case mobilePairing
+    case accountSignIn
+    case cloudVPNSetup
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -28,8 +37,36 @@ public enum PanelType: String, Codable, Sendable {
             self = .rightSidebarTool
             return
         }
+        if rawValue.lowercased() == Self.customSidebar.rawValue.lowercased() {
+            self = .customSidebar
+            return
+        }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
+            self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
+            self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() {
+            self = .mobilePairing
+            return
+        }
+        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
+            self = .accountSignIn
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
+            self = .cloudVPNSetup
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -81,19 +118,21 @@ public enum PanelFocusIntent: Equatable {
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
+    case userInitiated
     case notificationArrival
     case notificationDismiss
     case unreadIndicatorDismiss
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case cmuxAccent
 
-    var strokeColor: NSColor {
+    func strokeColor(accent: CmuxAccentColor) -> NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .cmuxAccent:
+            return accent.dynamicNSColor
         }
     }
 }
@@ -130,20 +169,20 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.6,
         glowRadius: 6
     )
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .navigation, .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
     }
@@ -157,7 +196,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 
@@ -177,7 +216,7 @@ enum FocusFlashCurve: Equatable {
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
     static let cornerRadius: CGFloat = 6
-    static let lineWidth: CGFloat = 2.5
+    static let lineWidth: CGFloat = .paneIndicatorStrokeWidth
 
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)
@@ -273,6 +312,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unique identifier for this panel
     var id: UUID { get }
 
+    /// Box that owns this panel's restart-stable surface identity.
+    var stableSurfaceIdentity: PanelStableSurfaceIdentity { get }
+
     /// The type of panel
     var panelType: PanelType { get }
 
@@ -293,6 +335,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 
     /// Unfocus the panel
     func unfocus()
+
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
 
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
@@ -322,6 +367,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

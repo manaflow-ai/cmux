@@ -15,15 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxGit"),
-        .package(path: "../CmuxFileWatch"),
-        .package(path: "../CmuxProcess"),
+        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         .target(
             name: "CmuxSidebarGit",
             dependencies: [
                 .product(name: "CmuxGit", package: "CmuxGit"),
-                .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -36,7 +35,7 @@ let package = Package(
             dependencies: [
                 "CmuxSidebarGit",
                 .product(name: "CmuxGit", package: "CmuxGit"),
-                .product(name: "CmuxProcess", package: "CmuxProcess"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

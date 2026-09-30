@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXProjectModel
 import SwiftUI
@@ -7,6 +8,7 @@ import SwiftUI
 /// Renders the project chrome (project name, scheme/configuration pickers,
 /// tab strip) and dispatches into the per-tab subviews.
 struct ProjectPanelView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
@@ -31,7 +33,7 @@ struct ProjectPanelView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Label(panel.displayTitle, systemImage: "hammer.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .help(panel.projectURL.path)
                 schemePicker
                 configurationPicker
@@ -40,17 +42,21 @@ struct ProjectPanelView: View {
                     panel.reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
+                        .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
-                .help("Reload project")
+                .safeHelp(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
+                .accessibilityLabel(String(localized: "projectPanel.reload", defaultValue: "Reload Project"))
             }
             if let error = panel.lastLoadError, case .loaded = panel.loadState {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
-                    Text("Reload returned errors: \(error)")
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
+                    Text(String(
+                        format: String(localized: "projectPanel.reloadErrors", defaultValue: "Reload returned errors: %@"),
+                        error
+                    ))
+                        .cmuxFont(size: 10)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer()
@@ -58,9 +64,11 @@ struct ProjectPanelView: View {
                         panel.lastLoadError = nil
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9))
+                            .cmuxFont(size: 9)
                     }
                     .buttonStyle(.plain)
+                    .safeHelp(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
+                    .accessibilityLabel(String(localized: "projectPanel.dismissReloadErrors", defaultValue: "Dismiss Errors"))
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
@@ -104,7 +112,7 @@ struct ProjectPanelView: View {
         let schemes = allSchemes
         if !schemes.isEmpty {
             Picker(
-                "Scheme",
+                String(localized: "projectPanel.scheme", defaultValue: "Scheme"),
                 selection: Binding(
                     get: { panel.selectedSchemeName ?? schemes.first?.name ?? "" },
                     set: { panel.selectedSchemeName = $0 }
@@ -124,7 +132,7 @@ struct ProjectPanelView: View {
         let names = allConfigurationNames
         if !names.isEmpty {
             Picker(
-                "Configuration",
+                String(localized: "projectPanel.configuration", defaultValue: "Configuration"),
                 selection: Binding(
                     get: { panel.selectedConfigurationName ?? names.first ?? "" },
                     set: { panel.selectedConfigurationName = $0 }
@@ -150,13 +158,13 @@ struct ProjectPanelView: View {
             ForEach(ProjectPanelTab.allCases, id: \.self) { tab in
                 Button(action: { panel.activeTab = tab }) {
                     Text(tab.displayLabel)
-                        .font(.system(size: 11, weight: .medium))
+                        .cmuxFont(size: 11, weight: .medium)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(panel.activeTab == tab
-                                      ? Color.accentColor
+                                      ? cmuxAccent.color
                                       : Color.secondary.opacity(0.10))
                         )
                         .foregroundStyle(panel.activeTab == tab ? Color.white : Color.primary)
@@ -171,9 +179,19 @@ struct ProjectPanelView: View {
     private var content: some View {
         switch panel.loadState {
         case .idle, .loading:
-            ProjectPanelStatusView(message: "Loading \(panel.displayTitle)")
+            ProjectPanelStatusView(
+                message: String(
+                    format: String(localized: "projectPanel.loadingFormat", defaultValue: "Loading %@"),
+                    panel.displayTitle
+                )
+            )
         case let .failed(reason):
-            ProjectPanelStatusView(message: "Failed: \(reason)")
+            ProjectPanelStatusView(
+                message: String(
+                    format: String(localized: "projectPanel.failedFormat", defaultValue: "Failed: %@"),
+                    reason
+                )
+            )
         case let .loaded(model):
             tabContent(for: model)
         }
@@ -203,7 +221,7 @@ struct ProjectPanelStatusView: View {
             HStack {
                 Spacer()
                 Text(message)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -226,13 +244,13 @@ struct ProjectEmptyDetailView: View {
         VStack(spacing: 6) {
             Spacer()
             Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .light))
+                .cmuxFont(size: 28, weight: .light)
                 .foregroundStyle(.tertiary)
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
                 .foregroundStyle(.primary)
             Text(hint)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
             Spacer()
         }

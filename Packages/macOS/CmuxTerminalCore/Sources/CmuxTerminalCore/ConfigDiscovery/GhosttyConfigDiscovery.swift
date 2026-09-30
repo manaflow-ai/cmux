@@ -20,7 +20,7 @@ public struct GhosttyConfigDiscovery {
     /// own identifier.
     public static let releaseBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
 
-    private let fileReader: any GhosttyConfigFileReading
+    let fileReader: any GhosttyConfigFileReading
     private let fontProbe: any GhosttyFontProbing
     private let pathResolver: CmuxGhosttyConfigPathResolver
 
@@ -181,12 +181,17 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should apply its managed default appearance across the
-    /// resolved config paths (delegates to ``GhosttyConfig``).
+    /// resolved config paths when enabled and no theme or terminal colors are set
+    /// (delegates to ``GhosttyConfig``).
     public func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        adaptiveDefaultThemeEnabled: Bool = false
     ) -> Bool {
         let configPaths = configPaths ?? loadedGhosttyConfigScanPaths()
-        return GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        return GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        )
     }
 
     /// Computes the resolved plain-theme override cmux must inject when the
@@ -451,7 +456,7 @@ public struct GhosttyConfigDiscovery {
         let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
         let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
         paths.append(nativeConfig.path)
-        if Self.shouldIncludeLegacyGhosttyConfigInScanPaths(
+        if shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: fileReader.fileSize(atPath: nativeConfig.path),
             legacyConfigFileSize: fileReader.fileSize(atPath: nativeLegacyConfig.path)
         ) {
@@ -474,7 +479,7 @@ public struct GhosttyConfigDiscovery {
         let releaseConfigSize = fileReader.fileSize(atPath: releaseConfig.path)
         let releaseLegacyConfigSize = fileReader.fileSize(atPath: releaseLegacyConfig.path)
 
-        if Self.shouldIncludeLegacyGhosttyConfigInScanPaths(
+        if shouldIncludeLegacyGhosttyConfigInScanPaths(
             newConfigFileSize: releaseConfigSize,
             legacyConfigFileSize: releaseLegacyConfigSize
         ), !paths.contains(releaseLegacyConfig.path) {
@@ -502,7 +507,11 @@ public struct GhosttyConfigDiscovery {
     /// Whether cmux should load the legacy `config` file because the new
     /// `config.ghostty` is empty (size 0). Only true when the legacy file is
     /// non-empty and the new file is exactly empty.
-    public static func shouldLoadLegacyGhosttyConfig(
+    ///
+    /// Pure with respect to its inputs; an instance method (not a static
+    /// namespace member) so call sites invoke it on the held discovery value
+    /// rather than as `GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(...)`.
+    public func shouldLoadLegacyGhosttyConfig(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
@@ -513,7 +522,10 @@ public struct GhosttyConfigDiscovery {
     /// Whether the legacy `config` path should be included in the scan paths:
     /// true when the legacy file is non-empty and the new file is absent or
     /// empty.
-    public static func shouldIncludeLegacyGhosttyConfigInScanPaths(
+    ///
+    /// Pure with respect to its inputs; an instance method (not a static
+    /// namespace member) so call sites invoke it on the held discovery value.
+    public func shouldIncludeLegacyGhosttyConfigInScanPaths(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {

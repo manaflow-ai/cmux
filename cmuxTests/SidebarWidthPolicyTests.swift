@@ -1,6 +1,9 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -20,12 +23,12 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             SessionPersistencePolicy.defaultMinimumSidebarWidth,
-            216,
+            240,
             accuracy: 0.001
         )
         XCTAssertEqual(
             SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
-            216,
+            240,
             accuracy: 0.001
         )
     }
@@ -276,7 +279,108 @@ final class SidebarWidthPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
+@Suite("App web theme contrast")
+struct AppWebThemeContrastTests {
+    @Test
+    func keepsReadableCmuxBlue() throws {
+        let accent = try #require(NSColor(hex: "#0088FF"))
+        let background = try #require(NSColor(hex: "#171717"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            accent,
+            on: background
+        )
+
+        #expect(adjusted.hexString() == accent.hexString())
+    }
+
+    @Test
+    func darkensAgainstLightTheme() throws {
+        let background = try #require(NSColor(hex: "#FDF6E3"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#0071D5")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func lightensAgainstDarkSelectedButton() throws {
+        let background = try #require(NSColor(hex: "#4A4543"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#6BB9FF")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func choosesSmallestRGBAdjustmentWhenBothDirectionsAreReadable() throws {
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#000040")),
+            on: try #require(NSColor(hex: "#8060D0"))
+        )
+
+        #expect(adjusted.hexString() == "#000000")
+    }
+}
+
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
+    func testIncreaseContrastStrengthensMultiSelectionWashOnly() {
+        for style in [WorkspaceIndicatorStyle.leftRail, .solidFill] {
+            func multiSelected(increaseContrast: Bool) -> SidebarWorkspaceRowBackgroundStyle {
+                sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: style,
+                    isActive: false,
+                    isMultiSelected: true,
+                    customColorHex: nil,
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    increaseContrast: increaseContrast
+                )
+            }
+            XCTAssertEqual(multiSelected(increaseContrast: false).opacity, 0.25, accuracy: 0.001)
+            XCTAssertGreaterThan(
+                multiSelected(increaseContrast: true).opacity,
+                multiSelected(increaseContrast: false).opacity
+            )
+
+            let active = { (increaseContrast: Bool) in
+                sidebarWorkspaceRowBackgroundStyle(
+                    activeTabIndicatorStyle: style,
+                    isActive: true,
+                    isMultiSelected: false,
+                    customColorHex: nil,
+                    colorScheme: .dark,
+                    sidebarSelectionColorHex: nil,
+                    increaseContrast: increaseContrast
+                )
+            }
+            XCTAssertEqual(active(true), active(false), "Selection fill values are not changed by Increase Contrast")
+        }
+    }
+
+    func testActiveBorderDrawsForSolidFillOrIncreaseContrast() {
+        XCTAssertTrue(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertFalse(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: false))
+        XCTAssertTrue(WorkspaceIndicatorStyle.leftRail.drawsActiveBorder(isActive: true, increaseContrast: true))
+        XCTAssertFalse(WorkspaceIndicatorStyle.solidFill.drawsActiveBorder(isActive: false, increaseContrast: true))
+    }
+
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
@@ -424,19 +528,19 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             terminalRenderingMode: .windowHostBackdrop,
             unifySurfaceBackdrops: true,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
-                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
-                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
-                stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: SidebarTintDefaults.hex,
+                materialRawValue: WindowChromeSidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: WindowChromeSidebarStateOption.followWindow.rawValue,
+                tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
-                tintOpacity: SidebarTintDefaults.opacity,
+                tintOpacity: SidebarTintDefaults().opacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .light
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                sidebarBlendModeRawValue: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
                 isEnabled: false,
                 tintHex: "#000000",
                 tintOpacity: 0,
