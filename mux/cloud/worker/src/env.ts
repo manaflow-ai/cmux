@@ -6,7 +6,7 @@ export interface Env {
   ACCOUNT: DurableObjectNamespace<AccountDO>;
   CONVERSATION: DurableObjectNamespace<ConversationDO>;
   MUX: DurableObjectNamespace<MuxDO>;
-  LOADER: unknown;
+  LOADER: WorkerLoader;
   /** "1" accepts the `dev_user` query parameter as identity. Never set in staging. */
   MUX_DEV_AUTH?: string;
   CODEROUTER_API_KEY?: string;

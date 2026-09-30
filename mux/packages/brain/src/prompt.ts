@@ -1,4 +1,4 @@
-import type { Conversation, ID, Message } from "@mux/protocol";
+import type { Conversation, ID, LinkEvent, Message } from "@mux/protocol";
 import type { InputItem } from "./model.ts";
 
 export interface PromptContext {
@@ -61,4 +61,16 @@ export function messageText(message: Message): string {
       }
     })
     .join("\n");
+}
+
+/** An agent event as a developer turn the mux reacts to. */
+export function eventInput(event: LinkEvent): InputItem {
+  const header =
+    event.kind === "turn_end"
+      ? `Agent "${event.name}" (${event.sessionId}) finished a turn: ${event.status}${event.stopReason ? ` (${event.stopReason})` : ""}.\nIts reply:\n${event.reply || "(empty)"}`
+      : `Agent "${event.name}" (${event.sessionId}) is waiting for permission: ${event.title} (permission ${event.permissionId}).`;
+  return {
+    role: "developer",
+    content: `${header}\n\nTell the people in this conversation what they need to know, briefly, and take any next step yourself. If nothing is worth saying, answer with an empty message.`,
+  };
 }

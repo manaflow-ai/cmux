@@ -1,26 +1,38 @@
 import {
   conversationInput,
   DEFAULT_MODEL,
+  eventInput,
+  formatRunResult,
   instructions,
   responsesModel,
+  RUN_TOOL,
+  runModule,
   runTurn,
   type ModelConfig,
+  type RunResult,
+  type ToolCall,
 } from "@mux/brain";
-import type { ID, Message, Participant } from "@mux/protocol";
+import type { ID, LinkEvent, Message, Participant } from "@mux/protocol";
 import { DurableObject } from "cloudflare:workers";
 import { conversation, type Env } from "./env.ts";
+import type { MuxApi, MuxApiProps } from "./mux-api.ts";
 
 /** Turn attempts before the mux reports the error in chat and moves on. */
 const MAX_ATTEMPTS = 3;
+const RUN_TIMEOUT_MS = 60_000;
 
-interface Pending {
-  conversationId: ID;
-  message: Message;
+/** One inbox item: a chat message or an agent event, for one conversation. */
+type Pending = { conversationId: ID; message: Message } | { conversationId: ID; event: LinkEvent };
+
+interface Identity {
+  participant: Participant;
+  ownerId: ID;
 }
 
 /**
- * One per mux. Incoming messages go to a durable inbox; an alarm drains it one
- * turn at a time, so a crash or deploy mid-turn retries instead of dropping.
+ * One per mux. Incoming messages and agent events go to a durable inbox; an
+ * alarm drains it one turn at a time, so a crash or deploy mid-turn retries
+ * instead of dropping.
  */
 export class MuxDO extends DurableObject<Env> {
   private sql = this.ctx.storage.sql;
@@ -40,20 +52,22 @@ export class MuxDO extends DurableObject<Env> {
     }
   }
 
-  async ensure(id: ID, displayName: string): Promise<Participant> {
+  /** Creates the mux on first use. The owner's machines are the ones it can drive. */
+  async ensure(id: ID, displayName: string, ownerId: ID): Promise<Participant> {
+    const identity: Identity = { participant: { kind: "mux", id, displayName }, ownerId };
     this.sql.exec(
-      "INSERT OR IGNORE INTO meta (key, value) VALUES ('participant', ?)",
-      JSON.stringify({ kind: "mux", id, displayName } satisfies Participant),
+      "INSERT OR IGNORE INTO meta (key, value) VALUES ('identity', ?)",
+      JSON.stringify(identity),
     );
-    return this.participant();
+    return this.identity().participant;
   }
 
   async receive(conversationId: ID, message: Message): Promise<void> {
-    this.sql.exec(
-      "INSERT INTO inbox (json) VALUES (?)",
-      JSON.stringify({ conversationId, message } satisfies Pending),
-    );
-    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now());
+    await this.enqueue({ conversationId, message });
+  }
+
+  async receiveEvent(conversationId: ID, event: LinkEvent): Promise<void> {
+    await this.enqueue({ conversationId, event });
   }
 
   override async alarm(): Promise<void> {
@@ -74,7 +88,7 @@ export class MuxDO extends DurableObject<Env> {
       }
       const reason = error instanceof Error ? error.message : String(error);
       await conversation(this.env, pending.conversationId)
-        .post(this.participant().id, [
+        .post(this.identity().participant.id, [
           { type: "text", text: `I could not answer that: ${reason.slice(0, 300)}` },
         ])
         .catch(() => undefined);
@@ -84,9 +98,14 @@ export class MuxDO extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now());
   }
 
-  private async turn({ conversationId }: Pending): Promise<void> {
-    const me = this.participant();
-    const room = conversation(this.env, conversationId);
+  private async enqueue(pending: Pending): Promise<void> {
+    this.sql.exec("INSERT INTO inbox (json) VALUES (?)", JSON.stringify(pending));
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now());
+  }
+
+  private async turn(pending: Pending): Promise<void> {
+    const { participant: me, ownerId } = this.identity();
+    const room = conversation(this.env, pending.conversationId);
     await room.setTyping(me.id, true);
     try {
       const snapshot = await room.snapshot();
@@ -94,12 +113,46 @@ export class MuxDO extends DurableObject<Env> {
       const result = await runTurn({
         model: responsesModel(this.modelConfig(me.id)),
         instructions: instructions(context),
-        input: conversationInput(context),
+        input: [
+          ...conversationInput(context),
+          ...("event" in pending ? [eventInput(pending.event)] : []),
+        ],
+        tools: [RUN_TOOL],
+        runTool: (call) =>
+          this.runTool(call, { muxId: me.id, ownerId, conversationId: pending.conversationId }),
       });
       if (result.text) await room.post(me.id, [{ type: "text", text: result.text }]);
     } finally {
       await room.setTyping(me.id, false);
     }
+  }
+
+  /** Runs model-written code in a Dynamic Worker whose only capability is the `mux` API. */
+  private async runTool(call: ToolCall, props: MuxApiProps): Promise<string> {
+    if (call.name !== RUN_TOOL.name) return `no tool named ${call.name}`;
+    const { code } = JSON.parse(call.arguments) as { code: string };
+    const exports = this.ctx.exports as unknown as {
+      MuxApi: (options: { props: MuxApiProps }) => MuxApi;
+    };
+    const sandbox = this.env.LOADER.load({
+      compatibilityDate: "2026-09-30",
+      mainModule: "run.js",
+      modules: { "run.js": runModule(code) },
+      env: { API: exports.MuxApi({ props }) },
+      globalOutbound: null,
+    });
+    const entry = sandbox.getEntrypoint("Run") as unknown as { run(): Promise<RunResult> };
+    const result = await Promise.race([
+      entry.run(),
+      new Promise<RunResult>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({ ok: false, error: `timed out after ${RUN_TIMEOUT_MS / 1000}s`, logs: [] }),
+          RUN_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+    return formatRunResult(result);
   }
 
   private modelConfig(muxId: ID): ModelConfig {
@@ -118,11 +171,11 @@ export class MuxDO extends DurableObject<Env> {
     };
   }
 
-  private participant(): Participant {
+  private identity(): Identity {
     const row = this.sql
-      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'participant'")
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'identity'")
       .toArray()[0];
     if (!row) throw new Error("mux not initialized");
-    return JSON.parse(row.value) as Participant;
+    return JSON.parse(row.value) as Identity;
   }
 }
