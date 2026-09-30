@@ -3902,6 +3902,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
+            splitButtonsOnHover: Self.paneTabBarActionsFoldBehindHover(),
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -4462,6 +4463,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
         bonsplitController.configuration = configuration
+    }
+
+    /// Whether `app.density` folds the pane tab bar's action buttons (new
+    /// terminal, browser, splits) behind hover. Compact density does.
+    nonisolated static func paneTabBarActionsFoldBehindHover(defaults: UserDefaults = .standard) -> Bool {
+        InterfaceDensity.stored(in: defaults).foldsActionsBehindHover
+    }
+
+    /// Re-applies `app.density` to this workspace's pane tab bars.
+    ///
+    /// Reads the same store the initial appearance did. `closeTabWarningDefaults`
+    /// is the close-warning store and can be a test injection, so reading it
+    /// here let a refresh disagree with the value the appearance was built from.
+    func refreshInterfaceDensity() {
+        let foldsActions = Self.paneTabBarActionsFoldBehindHover()
+        guard bonsplitController.configuration.appearance.splitButtonsOnHover != foldsActions else { return }
+        bonsplitController.configuration.appearance.splitButtonsOnHover = foldsActions
     }
 
     /// Re-applies the `app.tabBarVisibility` setting to this workspace's

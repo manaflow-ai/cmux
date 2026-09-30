@@ -2024,6 +2024,13 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "settings.app.density.standard": {
+    "source": "Standard",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
   "settings.automation.kiro.notificationLevel.standard": {
     "source": "Standard",
     "identityLocales": {

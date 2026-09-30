@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
 
@@ -9,9 +10,17 @@ struct SidebarAccountMenuButton: View {
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-    @State private var isPopoverPresented = false
+    @Environment(\.cmuxInterfaceDensity) private var density
+    private var buttonSize: CGFloat { SidebarFooterButtonMetrics.buttonSize(for: density) }
+    /// The sidebar footer owns this so compact density can keep the button
+    /// visible while its popover is open; the pointer is inside the popover by
+    /// then, so footer hover has already ended.
+    @Binding var isPopoverPresented: Bool
     @State private var popoverGroup = CmuxPopoverGroup()
+
+    init(isPopoverPresented: Binding<Bool>) {
+        _isPopoverPresented = isPopoverPresented
+    }
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
@@ -21,10 +30,14 @@ struct SidebarAccountMenuButton: View {
 
     private var profileIconSize: CGFloat {
 #if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.profileIconSize
+        if let override = SidebarFooterButtonMetrics.debugOverride(
+            key: SidebarFooterProfileIconDebugSettings.sizeKey,
+            value: debugIconSize
+        ) {
+            return override
+        }
 #endif
+        return SidebarFooterButtonMetrics.primaryIconSize(for: density)
     }
 
     private var prefersProfileIcon: Bool {
@@ -42,7 +55,8 @@ struct SidebarAccountMenuButton: View {
         let presentation = SidebarAccountButtonPresentation.resolve(
             isSignedIn: isSignedIn,
             prefersProfileIcon: prefersProfileIcon,
-            hasProfilePicture: hasProfilePicture
+            hasProfilePicture: hasProfilePicture,
+            density: density
         )
 #if DEBUG
         if !presentation.showsProfilePicture {

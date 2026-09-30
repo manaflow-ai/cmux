@@ -3155,6 +3155,7 @@
           "tabBarVisibility": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Percentage zoom for everything cmux draws itself: terminal text, tab titles, sidebars, Settings, overlays, and window chrome. Web pages inside browser surfaces keep their own size.",
+          "density": "Size of window controls: titlebar buttons, the sidebar footer, and pane tab bar action buttons. \"comfortable\" uses larger icons and hit targets, \"standard\" keeps the previous sizes, and \"compact\" uses smaller icons (never below the 20pt macOS minimum hit target) and fades titlebar, pane tab bar, and sidebar footer actions until the pointer reaches them. Notification badges and update state stay visible. Text size is app.globalFontMagnification; sidebar row detail is the sidebar.show* settings.",
           "paneResizeStepPixels": "Pixels moved per keypress when using pane-resize shortcuts. Accepts 1–200; defaults to 20. Changes apply immediately."
         },
         "terminal": {

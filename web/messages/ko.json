@@ -1937,7 +1937,8 @@
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
           "tabBarVisibility": "창 영역이 탭 막대를 그리는 시점을 정합니다. \"always\"는 탭이 하나뿐인 창 영역에서도 그리고, \"multiple-tabs\"는 탭이 하나인 동안에는 숨겼다가 두 번째 탭이 열리면 그립니다. 미니멀 모드(app.minimalMode)에서는 항상 그립니다. 그곳에서는 맨 위 창 영역의 탭 막대가 창 제목 표시줄을 겸하기 때문입니다.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다.",
-          "globalFontMagnification": "cmux가 직접 그리는 모든 요소(터미널 텍스트, 탭 제목, 사이드바, 설정, 오버레이, 창 테두리)의 확대 비율을 퍼센트로 지정합니다. 브라우저 서피스 안의 웹 페이지는 자체 크기를 유지합니다."
+          "globalFontMagnification": "cmux가 직접 그리는 모든 요소(터미널 텍스트, 탭 제목, 사이드바, 설정, 오버레이, 창 테두리)의 확대 비율을 퍼센트로 지정합니다. 브라우저 서피스 안의 웹 페이지는 자체 크기를 유지합니다.",
+          "density": "창 컨트롤의 크기: 제목 표시줄 버튼, 사이드바 하단, 창 탭 막대의 동작 버튼. \"comfortable\"은 아이콘과 클릭 영역을 키우고, \"standard\"는 기존 크기를 유지하며, \"compact\"는 아이콘을 작게 하고(macOS 최소 클릭 영역 20pt 미만으로는 줄이지 않음) 포인터가 닿기 전까지 제목 표시줄, 창 탭 막대, 사이드바 하단의 동작 버튼을 흐리게 숨깁니다. 알림 배지와 업데이트 상태는 항상 표시됩니다. 글자 크기는 app.globalFontMagnification, 사이드바 행 세부 정보는 sidebar.show* 설정에서 조정합니다."
         },
         "terminal": {
           "adaptiveDefaultTheme": "true(기본값)이면 Ghostty 테마나 터미널 색상이 설정되지 않은 경우 cmux가 모양에 따라 바뀌는 기본 팔레트를 제공합니다. 글꼴 및 기타 설정은 유지됩니다. false이면 Ghostty가 고정된 내장 팔레트를 사용합니다. theme = light:X,dark:Y를 포함한 명시적 테마 및 색상 설정이 항상 우선합니다.",

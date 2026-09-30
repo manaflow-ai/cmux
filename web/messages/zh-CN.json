@@ -1937,7 +1937,8 @@
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
           "tabBarVisibility": "决定窗格何时绘制其标签栏。\"always\" 即使窗格只有一个标签也会绘制；\"multiple-tabs\" 在窗格只有一个标签时隐藏，开启第二个标签后绘制。极简模式（app.minimalMode）始终绘制，因为在该模式下顶部窗格的标签栏同时充当窗口标题栏。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
-          "globalFontMagnification": "按百分比缩放 cmux 自行绘制的所有内容：终端文本、标签页标题、侧边栏、设置、浮层和窗口边框。浏览器 surface 中的网页保持自身的大小。"
+          "globalFontMagnification": "按百分比缩放 cmux 自行绘制的所有内容：终端文本、标签页标题、侧边栏、设置、浮层和窗口边框。浏览器 surface 中的网页保持自身的大小。",
+          "density": "窗口控件的尺寸:标题栏按钮、侧边栏底部和窗格标签栏的操作按钮。\"comfortable\" 使用更大的图标和点击区域,\"standard\" 保持原有尺寸,\"compact\" 使用更小的图标(点击区域不低于 macOS 最小值 20pt),并在指针移到标题栏、窗格标签栏和侧边栏底部之前淡出这些操作按钮。通知徽章和更新状态始终可见。文字大小由 app.globalFontMagnification 控制,侧边栏行详情由 sidebar.show* 设置控制。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题或终端颜色，否则 cmux 会提供随外观变化的默认配色。字体和其他设置会保留。为 false 时，Ghostty 使用固定的内置配色。显式主题和颜色始终优先，包括 theme = light:X,dark:Y。",

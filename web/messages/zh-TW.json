@@ -1937,7 +1937,8 @@
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
           "tabBarVisibility": "決定窗格何時繪製其分頁列。\"always\" 即使窗格只有一個分頁也會繪製；\"multiple-tabs\" 在窗格只有一個分頁時隱藏，開啟第二個分頁後繪製。極簡模式（app.minimalMode）一律繪製，因為該模式下最上方窗格的分頁列同時充當視窗標題列。",
           "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
-          "globalFontMagnification": "以百分比縮放 cmux 自行繪製的所有內容：終端機文字、分頁標題、側邊欄、設定、浮層和視窗外框。瀏覽器 surface 中的網頁會維持各自的大小。"
+          "globalFontMagnification": "以百分比縮放 cmux 自行繪製的所有內容：終端機文字、分頁標題、側邊欄、設定、浮層和視窗外框。瀏覽器 surface 中的網頁會維持各自的大小。",
+          "density": "視窗控制項的尺寸:標題列按鈕、側邊欄底部和窗格分頁列的動作按鈕。\"comfortable\" 使用較大的圖示和點擊區域,\"standard\" 維持原有尺寸,\"compact\" 使用較小的圖示(點擊區域不低於 macOS 最小值 20pt),並在指標移到標題列、窗格分頁列和側邊欄底部之前淡出這些動作按鈕。通知徽章和更新狀態始終可見。文字大小由 app.globalFontMagnification 控制,側邊欄列詳細資訊由 sidebar.show* 設定控制。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "為 true（預設）時，除非已設定 Ghostty 主題或終端機顏色，否則 cmux 會提供隨外觀變更的預設配色。字體和其他設定會保留。為 false 時，Ghostty 使用固定的內建配色。明確指定的主題和顏色一律優先，包括 theme = light:X,dark:Y。",

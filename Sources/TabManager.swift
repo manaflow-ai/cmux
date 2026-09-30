@@ -436,6 +436,9 @@ class TabManager: ObservableObject {
             }
     }
     private var observers: [NSObjectProtocol] = []
+    /// `app.density` last applied to split controllers, so unrelated
+    /// defaults writes skip the refresh.
+    private var appliedInterfaceDensity = InterfaceDensity.stored()
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -761,6 +764,7 @@ class TabManager: ObservableObject {
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.interfaceDensitySettingsDidChange()
                 self?.refreshTabBarVisibility()
                 self?.refreshWindowTitle()
             }
@@ -4459,6 +4463,31 @@ class TabManager: ObservableObject {
     func refreshTabCloseButtonVisibility() {
         for workspace in tabs {
             workspace.refreshTabCloseButtonVisibility()
+        }
+    }
+
+    /// Schedules a density refresh when `app.density` changed. The defaults
+    /// observer can fire while a workspace is mid-write (for example while it
+    /// assigns its Dock), so the refresh runs after the current write instead
+    /// of reading workspace state inside it.
+    private func interfaceDensitySettingsDidChange() {
+        let density = InterfaceDensity.stored()
+        guard density != appliedInterfaceDensity else { return }
+        appliedInterfaceDensity = density
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshInterfaceDensity()
+        }
+    }
+
+    /// Re-applies `app.density` to every live split controller: workspace
+    /// panes, per-workspace Docks, and window-scope Docks.
+    func refreshInterfaceDensity() {
+        for workspace in tabs {
+            workspace.refreshInterfaceDensity()
+            workspace._dockSplit?.refreshInterfaceDensity()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshInterfaceDensity()
         }
     }
 

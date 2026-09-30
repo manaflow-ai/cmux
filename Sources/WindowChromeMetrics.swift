@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import CoreGraphics
 
 enum WindowChromeMetrics {
@@ -28,6 +29,69 @@ enum HeaderChromeControlMetrics {
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
         max(Self.iconFrameSize, iconSize + 2)
+    }
+}
+
+/// Control sizes for each `app.density` level.
+///
+/// `standard` is the set cmux shipped before the setting: 20pt titlebar
+/// buttons with 12pt glyphs and 22pt sidebar footer buttons with 14pt glyphs.
+/// The macOS HIG lists 28x28pt as the default control size and 20x20pt as
+/// the minimum, so `standard` sits at or just above the minimum.
+/// `comfortable` moves toward the default while still fitting the 28pt
+/// titlebar row, and `compact` shrinks glyphs without going under 20pt.
+struct InterfaceDensityMetrics: Equatable {
+    /// Square hit target of each titlebar control button.
+    let titlebarButtonSize: CGFloat
+    /// SF Symbol point size inside titlebar control buttons.
+    let titlebarIconSize: CGFloat
+    /// Unread-count badge diameter on the titlebar notifications button.
+    let titlebarBadgeSize: CGFloat
+    /// Gap between titlebar control buttons.
+    let titlebarSpacing: CGFloat
+    /// Square hit target of each sidebar footer button.
+    let sidebarFooterButtonSize: CGFloat
+    /// Glyph size for the account and help buttons.
+    let sidebarFooterPrimaryIconSize: CGFloat
+    /// Glyph size for the lighter footer glyphs (mobile, extensions).
+    let sidebarFooterSecondaryIconSize: CGFloat
+
+    static let comfortable = InterfaceDensityMetrics(
+        titlebarButtonSize: 24,
+        titlebarIconSize: 14,
+        titlebarBadgeSize: 13,
+        titlebarSpacing: 4,
+        sidebarFooterButtonSize: 26,
+        sidebarFooterPrimaryIconSize: 16,
+        sidebarFooterSecondaryIconSize: 14
+    )
+
+    static let standard = InterfaceDensityMetrics(
+        titlebarButtonSize: HeaderChromeControlMetrics.buttonSize,
+        titlebarIconSize: HeaderChromeControlMetrics.iconSize,
+        titlebarBadgeSize: 12,
+        titlebarSpacing: 6,
+        sidebarFooterButtonSize: 22,
+        sidebarFooterPrimaryIconSize: 14,
+        sidebarFooterSecondaryIconSize: 12
+    )
+
+    static let compact = InterfaceDensityMetrics(
+        titlebarButtonSize: 20,
+        titlebarIconSize: 11,
+        titlebarBadgeSize: 11,
+        titlebarSpacing: 4,
+        sidebarFooterButtonSize: 20,
+        sidebarFooterPrimaryIconSize: 13,
+        sidebarFooterSecondaryIconSize: 11
+    )
+
+    static func metrics(for density: InterfaceDensity) -> InterfaceDensityMetrics {
+        switch density {
+        case .comfortable: return .comfortable
+        case .standard: return .standard
+        case .compact: return .compact
+        }
     }
 }
 
