@@ -54,6 +54,12 @@ public enum DaemonCapabilities {
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
     public static let profiles = "profiles-v1"
+    /// Personal state kept only on the home (local) session
+    /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
+    public static let homeOnly: [String] = [profiles]
+    /// Written to the local daemon's personal rows instead of each machine's
+    /// daemon once the local daemon serves `profiles-v1`.
+    public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, profiles]

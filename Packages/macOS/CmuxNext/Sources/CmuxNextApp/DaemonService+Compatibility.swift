@@ -9,9 +9,16 @@ extension DaemonService {
     /// What this machine's daemon can do for the app: from the handshake
     /// that refused it while `startup` shows that refusal, else from the
     /// current identity. Nil before the first answer.
+    /// Home-only capabilities never count against a remote machine; use
+    /// `MachineRegistry.compatibility(of:)` to also drop the ones personal
+    /// state moved to the local daemon.
     var compatibility: DaemonCompatibility? {
+        compatibility(notNeeded: isLocal ? [] : Set(DaemonCapabilities.homeOnly))
+    }
+
+    func compatibility(notNeeded: Set<String>) -> DaemonCompatibility? {
         if case .unavailable(let error) = startup, let refused = DaemonCompatibility(refusal: error) { return refused }
-        return identity.map(DaemonCompatibility.init(identity:))
+        return identity.map { DaemonCompatibility(identity: $0, notNeeded: notNeeded) }
     }
 
     /// The refusal for an action that needs `capability`: on a Cloud machine

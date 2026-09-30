@@ -90,7 +90,7 @@ extension CloudHandlers {
             let pid = await session.link.pid.map(String.init) ?? "none"
             lines.append("\(session.machineID) \(session.machine.title): \(session.machine.status.rawValue), "
                 + "daemon \(session.daemon.store.connectionState), link pid \(pid), workspaces \(session.daemon.store.workspaces.count)")
-            if let compat = session.daemon.compatibility {
+            if let compat = context.services.machines.compatibility(of: session.daemon) {
                 lines.append("  cmux-tui \(compat.versionLabel): \(compat.level.rawValue)"
                     + (compat.level == .current ? "" : "; \(CloudStrings.compatibility(compat))"))
             }

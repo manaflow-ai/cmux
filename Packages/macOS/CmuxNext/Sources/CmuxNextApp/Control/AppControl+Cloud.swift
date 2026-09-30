@@ -31,7 +31,7 @@ extension AppControl {
                     case .disconnected: "disconnected"
                     case .failed(let reason): "failed: \(reason)"
                     }
-                    let compat = session.daemon.compatibility
+                    let compat = services.machines.compatibility(of: session.daemon)
                     return .object([
                         "id": .string(session.machineID),
                         "title": .string(session.machine.title),

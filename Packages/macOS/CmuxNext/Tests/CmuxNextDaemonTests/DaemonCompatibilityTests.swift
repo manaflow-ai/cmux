@@ -44,6 +44,17 @@ import Testing
         #expect(compat.missingOptional.isEmpty)
     }
 
+    @Test func personalStateOnTheHomeSessionIsNotAMissingRemoteFeature() {
+        let notNeeded = Set(DaemonCapabilities.homeOnly + DaemonCapabilities.personalOnHome)
+        let compat = DaemonCompatibility(identity: Self.identity(Self.cloudImage3412812), notNeeded: notNeeded)
+        #expect(compat.level == .limited)
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.workspaceGroups))
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.savedTabGroups))
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.profiles))
+        let personalOnly = DaemonCapabilities.required + DaemonCapabilities.optional.filter { !notNeeded.contains($0) }
+        #expect(DaemonCompatibility(identity: Self.identity(personalOnly), notNeeded: notNeeded).level == .current)
+    }
+
     @Test func refusedHandshakeIsIncompatible() {
         let missing = DaemonCompatibility(refusal: .missingCapabilities(["view-attachment-detach-v1"]))
         #expect(missing?.level == .incompatible)

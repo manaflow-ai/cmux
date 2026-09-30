@@ -120,14 +120,16 @@ final class SidebarBridge {
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                statusLine: status)
         for session in machines.cloud {
-            let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive)
+            let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
+                                 compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, statusLine: status)
         }
         return sections
     }
 
-    static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true) -> SidebarMachine {
+    static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true,
+                        compatibility: DaemonCompatibility? = nil) -> SidebarMachine {
         var status: SidebarMachine.Status = switch daemon.store.connectionState {
         case .connected: .connected
         case .connecting, .disconnected: live ? .connecting : .offline
@@ -135,7 +137,7 @@ final class SidebarBridge {
         }
         // A remote machine keeps its own cmux-tui build: say when it is too
         // old instead of showing it as connecting (or silently limited).
-        let compat = kind == .local ? nil : daemon.compatibility
+        let compat = kind == .local ? nil : (compatibility ?? daemon.compatibility)
         if let compat, live {
             switch compat.level {
             case .incompatible where daemon.startup.isUnavailable: status = .updateRequired

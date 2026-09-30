@@ -34,14 +34,17 @@ public struct DaemonCompatibility: Sendable, Equatable {
     /// order) that this daemon lacks.
     public var missingOptional: [String]
 
-    public init(identity: DaemonIdentity) {
+    /// `notNeeded` names optional capabilities this app does not use on
+    /// this daemon (home-only state on a remote machine), so their absence
+    /// does not make it limited.
+    public init(identity: DaemonIdentity, notNeeded: Set<String> = []) {
         version = identity.version
         buildCommit = identity.buildCommit
         sessionID = identity.sessionID
         sessionName = identity.session.isEmpty ? nil : identity.session
         protocolVersion = identity.protocolVersion
         missingRequired = DaemonCapabilities.required.filter { !identity.supports($0) }
-        missingOptional = DaemonCapabilities.optional.filter { !identity.supports($0) }
+        missingOptional = DaemonCapabilities.optional.filter { !notNeeded.contains($0) && !identity.supports($0) }
         level = !missingRequired.isEmpty ? .incompatible : missingOptional.isEmpty ? .current : .limited
     }
 
