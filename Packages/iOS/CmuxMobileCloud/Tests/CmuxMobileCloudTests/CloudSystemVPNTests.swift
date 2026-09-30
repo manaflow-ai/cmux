@@ -321,10 +321,12 @@ import Testing
 
     @Test func signOutSurfacesUnavailableIdentityInsteadOfSilentlySkippingRevocation() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
+        let manager = FakeSystemVPNManager()
+        manager.phase = .connected
         let controller = CloudSystemVPNController(
             service: FakeCloudVMService(),
             identityStore: store,
-            manager: FakeSystemVPNManager(),
+            manager: manager,
             deviceName: "Aziz's iPhone",
             pendingRevocationStore: InMemoryCloudSystemVPNPendingRevocationStore()
         )

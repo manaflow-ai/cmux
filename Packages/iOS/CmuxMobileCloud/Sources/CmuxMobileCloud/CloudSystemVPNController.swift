@@ -51,6 +51,12 @@ public final class CloudSystemVPNController {
         credentials: CloudAPITokenSource.TokenContext?
     )?
     private var browserTunnelGeneration: UInt64?
+    private var browserEnrollmentInFlight: (
+        scope: String,
+        deviceFingerprint: String,
+        teamID: String?,
+        credentials: CloudAPITokenSource.TokenContext?
+    )?
     private var pendingBrowserTunnelRevocations: [(
         scope: String,
         deviceFingerprint: String,
@@ -151,6 +157,11 @@ public final class CloudSystemVPNController {
            browserTunnel.scope != newScope
                || browserTunnel.teamID != newScopeTeamID {
             rememberPendingBrowserTunnelRevocation(browserTunnel)
+        }
+        if let browserEnrollmentInFlight,
+           browserEnrollmentInFlight.scope != newScope
+               || browserEnrollmentInFlight.teamID != newScopeTeamID {
+            rememberPendingBrowserTunnelRevocation(browserEnrollmentInFlight)
         }
         scope = newScope
         scopeTeamID = newScopeTeamID
@@ -371,13 +382,25 @@ public final class CloudSystemVPNController {
                         )
                         throw CancellationError()
                     }
-                    try await self.install(
-                        enrollment: enrollment,
-                        privateKey: keyPair.privateKey,
+                    let browserEnrollment = (
                         scope: scope,
-                        teamID: ownerTeamID,
+                        deviceFingerprint: enrollment.deviceFingerprint,
+                        teamID: credentials?.teamID ?? ownerTeamID,
                         credentials: credentials
                     )
+                    self.browserEnrollmentInFlight = browserEnrollment
+                    do {
+                        try await self.install(
+                            enrollment: enrollment,
+                            privateKey: keyPair.privateKey,
+                            scope: scope,
+                            teamID: ownerTeamID,
+                            credentials: credentials
+                        )
+                    } catch {
+                        self.browserEnrollmentInFlight = nil
+                        throw error
+                    }
                     guard attempt.isValid,
                           self.isCurrent(generation),
                           self.scope == scope,
@@ -390,15 +413,12 @@ public final class CloudSystemVPNController {
                             teamID: ownerTeamID,
                             credentials: credentials
                         )
+                        self.browserEnrollmentInFlight = nil
                         throw CancellationError()
                     }
-                    self.browserTunnel = (
-                        scope: scope,
-                        deviceFingerprint: enrollment.deviceFingerprint,
-                        teamID: credentials?.teamID ?? self.scopeTeamID,
-                        credentials: credentials
-                    )
+                    self.browserTunnel = browserEnrollment
                     self.browserTunnelGeneration = generation
+                    self.browserEnrollmentInFlight = nil
                 }
                 guard self.isCurrent(generation) else { return }
                 publish(manager.phase == .off ? .connecting : manager.phase)
@@ -476,11 +496,17 @@ public final class CloudSystemVPNController {
         let creationTeamID = scopeTeamID
         let creationTunnels = browserTunnelsForTeardown()
         let creationBrowserTunnelGeneration = browserTunnelGeneration
+        let creationHadLiveBrowserPhase = manager.phase.isRequestedOn
         return { accessToken, refreshToken in
             let gateReady = await controller.waitForPendingOperationAndGate()
             var enrolled = creationTunnels.filter { tunnel in
                 tunnel.scope == creationScope
             }
+            // A signed-in account may never have enabled the browser VPN.
+            // With no live, pending, or currently active browser peer, sign
+            // out has no server cleanup to perform and must not infer one
+            // from the terminal device identity.
+            guard !enrolled.isEmpty || creationHadLiveBrowserPhase else { return }
             if enrolled.isEmpty {
                 guard let scope = creationScope else { return }
                 let identity: CloudDeviceIdentity?
@@ -859,6 +885,15 @@ public final class CloudSystemVPNController {
                        == normalizedTeamID(browserTunnel.teamID)
            }) {
             tunnels.append(browserTunnel)
+        }
+        if let browserEnrollmentInFlight,
+           !tunnels.contains(where: {
+               $0.scope == browserEnrollmentInFlight.scope
+                   && $0.deviceFingerprint == browserEnrollmentInFlight.deviceFingerprint
+                   && normalizedTeamID($0.teamID)
+                       == normalizedTeamID(browserEnrollmentInFlight.teamID)
+           }) {
+            tunnels.append(browserEnrollmentInFlight)
         }
         return tunnels
     }
