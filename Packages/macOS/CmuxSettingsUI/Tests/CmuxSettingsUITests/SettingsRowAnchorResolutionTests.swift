@@ -155,6 +155,8 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",
+        "terminal.textEditingCommandMovesByWord",
+        "terminal.textEditingGesturesInFullScreenApps",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",

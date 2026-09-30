@@ -27,6 +27,8 @@ const signedInUser = {
   primaryEmail: "signed@example.com",
   update: mock(async () => undefined),
   selectedTeam: null as null | typeof teamCustomer,
+  // Admin of any team it selects; legacy team checkout requires team admin.
+  hasPermission: mock(async () => true),
 };
 const anonymousUser = {
   id: ANONYMOUS_USER_ID,
