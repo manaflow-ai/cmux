@@ -62,6 +62,34 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
         return try XCTUnwrap(MobileTerminalInputAcknowledgement.fromRPC(payload: object))
     }
 
+    private func pasteParameters(
+        workspace: Workspace,
+        panel: TerminalPanel,
+        text: String = "queued prompt"
+    ) -> [String: Any] {
+        [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panel.id.uuidString,
+            "text": text,
+            "submit_key": "return",
+        ]
+    }
+
+    private func pastePayload(_ result: MobileHostRPCResult) throws -> [String: Any] {
+        guard case let .ok(payload) = result, let object = payload as? [String: Any] else {
+            XCTFail("Expected terminal.paste response, got \(result)")
+            throw XCTSkip("no paste response")
+        }
+        return object
+    }
+
+    private func waitForPasteToQueue(_ panel: TerminalPanel) async {
+        for _ in 0..<20 {
+            if panel.surface.debugPendingSocketInputForTesting().pasteTextItems > 0 { return }
+            await Task.yield()
+        }
+    }
+
     func testPhonePasteAndCloseThatNameNoTerminalAreRefused() async throws {
         let (workspace, panel) = try makeQueueingTerminal()
 
@@ -166,6 +194,75 @@ final class MobileTerminalInputRoutingTests: XCTestCase {
 
         let answer = try acknowledgement(await send("terminal.input", params))
         XCTAssertEqual(answer.status, .terminalUnavailable)
+    }
+
+    func testConcurrentTerminalPastesAreSerializedPerSurface() async throws {
+        let (workspace, panel) = try makeQueueingTerminal()
+        let params = pasteParameters(workspace: workspace, panel: panel)
+
+        let firstTask = Task { await self.send("terminal.paste", params) }
+        await waitForPasteToQueue(panel)
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().pasteTextItems, 1)
+
+        let second = await send("terminal.paste", params)
+        guard case let .failure(error) = second else {
+            XCTFail("A concurrent paste must be rejected while the first submit settles")
+            return
+        }
+        XCTAssertEqual(error.code, "busy")
+
+        let first = try await firstTask.value
+        let payload = try pastePayload(first)
+        XCTAssertEqual(payload["submitted"] as? Bool, true)
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(pending.pasteTextItems, 1)
+        XCTAssertEqual(pending.keyEvents, 1)
+    }
+
+    func testPasteDoesNotSubmitAfterTargetBeginsClosingDuringSettle() async throws {
+        let (workspace, panel) = try makeQueueingTerminal()
+        let firstTask = Task {
+            await self.send("terminal.paste", pasteParameters(workspace: workspace, panel: panel))
+        }
+        await waitForPasteToQueue(panel)
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().pasteTextItems, 1)
+
+        panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.paste.close")
+        let payload = try pastePayload(await firstTask.value)
+        XCTAssertEqual(payload["submitted"] as? Bool, false)
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().keyEvents, 0)
+    }
+
+    func testPasteDoesNotSubmitAfterRuntimeSurfaceIsReleasedDuringSettle() async throws {
+        let (workspace, panel) = try makeQueueingTerminal()
+        guard panel.surface.surface != nil else {
+            throw XCTSkip("requires a live runtime surface")
+        }
+        let firstTask = Task {
+            await self.send("terminal.paste", pasteParameters(workspace: workspace, panel: panel))
+        }
+        await waitForPasteToQueue(panel)
+
+        panel.surface.releaseSurfaceForTesting()
+        let payload = try pastePayload(await firstTask.value)
+        XCTAssertEqual(payload["submitted"] as? Bool, false)
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().keyEvents, 0)
+    }
+
+    func testPasteDoesNotSubmitThroughAReplacedRuntimeSurfaceDuringSettle() async throws {
+        let (workspace, panel) = try makeQueueingTerminal()
+        guard panel.surface.surface != nil else {
+            throw XCTSkip("requires a live runtime surface")
+        }
+        let firstTask = Task {
+            await self.send("terminal.paste", pasteParameters(workspace: workspace, panel: panel))
+        }
+        await waitForPasteToQueue(panel)
+
+        panel.surface.replaceSurfaceWithFreedPointerForTesting()
+        let payload = try pastePayload(await firstTask.value)
+        XCTAssertEqual(payload["submitted"] as? Bool, false)
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().keyEvents, 0)
     }
 
     func testOrderedInputKeyIsTheSameForEverySpellingOfOneTerminal() {

@@ -520,3 +520,72 @@ func TestSendSubmitPopupNotConfirmedUntilClosed(t *testing.T) {
 		t.Fatal("popup falsely confirmed")
 	}
 }
+
+func TestSendSubmitTrustsAgentKindWithoutHookFlag(t *testing.T) {
+	for _, kind := range []string{"claude", "codex"} {
+		t.Run(kind, func(t *testing.T) {
+			mock, socket := startSendSubmitMock(t, []map[string]any{
+				{"agent": false, "state": "empty", "agent_kind": kind, "busy": true},
+				{"agent": false, "state": "draft", "agent_kind": kind, "busy": true},
+				{"agent": false, "state": "empty", "agent_kind": kind},
+			}, nil)
+			output := captureStdout(t, func() {
+				if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+					t.Fatalf("exit %d", code)
+				}
+			})
+			keys := mock.keysSnapshot()
+			wantKey := "return"
+			if kind == "codex" {
+				wantKey = "tab"
+			}
+			if len(keys) != 1 || keys[0] != wantKey {
+				t.Fatalf("keys = %v, want [%s]", keys, wantKey)
+			}
+			if output != "submitted\n" {
+				t.Fatalf("output = %q, want submitted", output)
+			}
+			if len(mock.methods()) < 6 {
+				t.Fatalf("skipped composer visibility/confirmation: %v", mock.methods())
+			}
+		})
+	}
+}
+
+func TestSendSubmitHonorsHostShellClassification(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": false, "state": "unknown"},
+	}, []string{"│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› hello"})
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	if output != "submitted\n" {
+		t.Fatalf("output = %q", output)
+	}
+	keys := mock.keysSnapshot()
+	if len(keys) != 1 || keys[0] != "return" {
+		t.Fatalf("shell keys = %v", keys)
+	}
+}
+
+func TestSendSubmitPromptShapeAndDialogScope(t *testing.T) {
+	for _, screen := range []string{"›", "›shell output", "codex\n> continuation", "│ >_ OpenAI Codex (v0.154.0) │"} {
+		if sendStateAgent(sendStateFromScreen(screen)) {
+			t.Errorf("classified shell or banner as agent: %q", screen)
+		}
+	}
+	state := sendStateFromScreen("esc to cancel\nold tool output\n› hello")
+	if sendStateDialog(state) {
+		t.Fatalf("dialog hint above prompt blocked composer: %v", state)
+	}
+	state = sendStateFromScreen("esc to interrupt\nold output\nmore output\nextra row\n› hello")
+	if boolValue(state, "busy") {
+		t.Fatalf("historical hint marked busy: %v", state)
+	}
+	state = sendStateFromScreen("› hello\nEnter to select")
+	if !sendStateDialog(state) {
+		t.Fatalf("current hint not dialog: %v", state)
+	}
+}

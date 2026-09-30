@@ -168,6 +168,35 @@ struct CLISendDraftGuardTests {
         #expect(key["key"] as? String == "return")
     }
 
+    @Test(arguments: ["claude", "codex"])
+    func sendSubmitRecognizesAgentKindWithoutHookAgentFlag(kind: String) throws {
+        let empty: [String: Any] = ["state": "empty", "agent": false, "terminal": true,
+                                   "agent_kind": kind, "busy": true, "blocks_typing": false]
+        let draft: [String: Any] = ["state": "draft", "agent": false, "terminal": true,
+                                   "agent_kind": kind, "busy": true]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [empty, draft, empty]
+        )
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains(kind == "codex" ? "queued" : "submitted"))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == (kind == "codex" ? "tab" : "return"))
+        #expect(run.requests.filter { $0["method"] as? String == "surface.input_state" }.count >= 3)
+    }
+
+    @Test func sendSubmitDoesNotMistakeClaudePlaceholderForVisiblePaste() throws {
+        let empty: [String: Any] = ["state": "empty", "agent": true, "agent_kind": "claude", "blocks_typing": false]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [empty],
+            screenText: "✻ Welcome to Claude Code!\n❯\u{00A0}Try \"fix lint errors\""
+        )
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"))
+        #expect(!run.requests.contains { $0["method"] as? String == "surface.send_key" })
+    }
+
     @Test func sendSubmitQueuesBusyCodexWithTab() throws {
         let busyCodex: [String: Any] = [
             "state": "empty", "agent": true, "terminal": true,
