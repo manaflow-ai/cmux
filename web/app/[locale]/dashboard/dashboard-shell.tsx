@@ -50,6 +50,11 @@ export function DashboardShell({
       label: t("cloudGroup"),
       items: [
         {
+          href: "/home",
+          label: t("cloudOverview"),
+          active: pathname === "/home" || pathname.startsWith("/home/"),
+        },
+        {
           href: "/dashboard/cloud",
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
