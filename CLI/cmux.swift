@@ -38154,6 +38154,32 @@ export default {
                 return
             }
 
+            // Claude periodically repeats a generic waiting reminder after a
+            // completed turn. If the durable session is already idle, this
+            // delayed reminder must not resurrect Needs input on the pane.
+            let staleWaitingReminderAfterIdleSession = summary.status == .needsInput
+                && summary.notifyCategory == .idleReminder
+                && mapped?.runtimeStatus == .idle
+                && mapped?.agentLifecycle == .idle
+            if staleWaitingReminderAfterIdleSession {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=staleWaitingReminderAfterIdleSession workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                emitJournal(
+                    .stateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    detail: "stale-idle-reminder"
+                )
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
+            }
+
             if !sessionId.isEmpty {
                 let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(

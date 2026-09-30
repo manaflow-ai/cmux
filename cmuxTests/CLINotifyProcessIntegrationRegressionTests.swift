@@ -924,6 +924,72 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    /// A delayed Claude waiting reminder must not resurrect Needs input after Stop
+    /// has already persisted the session as idle.
+    func testClaudeIdleReminderDoesNotReclassifyFinishedSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-idle-reminder")
+        defer { context.cleanup() }
+
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 20
+        )
+        let sessionId = "claude-stale-idle-reminder-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "claude",
+            executable: "/usr/local/bin/claude"
+        )
+
+        for (subcommand, payload) in [
+            (
+                "session-start",
+                #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            ),
+            (
+                "prompt-submit",
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+            ),
+            (
+                "stop",
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Finished"}"#
+            ),
+        ] {
+            let result = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: payload,
+                extraEnvironment: launchEnvironment
+            )
+            XCTAssertFalse(result.timedOut, "\(subcommand) timed out: \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(subcommand) failed: \(result.stderr)")
+        }
+
+        let reminderCommandStart = context.state.commands.count
+        let reminder = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(reminder.timedOut, reminder.stderr)
+        XCTAssertEqual(reminder.status, 0, reminder.stderr)
+        let reminderCommands = Array(context.state.commands.dropFirst(reminderCommandStart))
+        XCTAssertFalse(
+            reminderCommands.contains { $0.hasPrefix("set_status claude_code Needs input ") },
+            "A delayed waiting reminder must not resurrect Needs input, saw \(reminderCommands)"
+        )
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        let record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(record["runtimeStatus"] as? String, "idle")
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(record["lastNotificationStatus"] as? String, "idle")
+    }
+
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
     // `claude --resume <parent> --fork-session` reports the newly minted CHILD
