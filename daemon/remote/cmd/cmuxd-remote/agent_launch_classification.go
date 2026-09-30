@@ -214,6 +214,18 @@ func omxLaunchIsNonLaunch(args []string) bool {
 	return agentInformationalOptions[args[0]] || omxManagementCommands[args[0]]
 }
 
+func ompLaunchIsNonLaunch(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if !strings.HasPrefix(args[0], "-") || args[0] == "-" {
+		if agentNestedInformationalInvocation(args, 1, nil, nil) {
+			return true
+		}
+	}
+	return agentInformationalOptions[args[0]] || ompManagementCommands[args[0]]
+}
+
 func conservativeAgentNonLaunchInvocation(
 	args []string,
 	managementCommands map[string]bool,
@@ -417,4 +429,16 @@ var omxManagementCommands = map[string]bool{
 	"list": true, "reasoning": true, "session": true, "setup": true,
 	"sparkshell": true, "status": true, "tmux-hook": true, "uninstall": true,
 	"update": true, "version": true,
+}
+
+var ompManagementCommands = map[string]bool{
+	"acp": true, "agents": true, "auth-broker": true, "auth-gateway": true, "bench": true,
+	"browser-relay": true, "cleanse": true, "clip": true, "collab": true, "commit": true,
+	"completions": true, "compress": true, "config": true, "dry-balance": true, "find": true,
+	"gallery": true, "gc": true, "grievances": true, "help": true, "hooks": true,
+	"hud": true, "if-bench": true, "images": true, "install": true, "login": true,
+	"models": true, "plugin": true, "ps": true, "read": true, "search": true,
+	"setup": true, "share": true, "skill": true, "ssh": true, "stats": true,
+	"tiny-models": true, "token": true, "toks": true, "ttsr": true, "update": true,
+	"usage": true, "version": true, "worktree": true,
 }

@@ -1767,7 +1767,15 @@ func tmuxNewWindow(rc *rpcContext, args []string) error {
 func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	p := parseTmuxArgs(args, []string{"-c", "-F", "-l", "-t"}, []string{"-P", "-b", "-d", "-h", "-v"})
 
-	targetWs, _, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
+	// A HUD pane whose config disables the HUD produces no split, matching the
+	// local CLI.
+	hudProvider := tmuxHudProviderForCommand(p.positional)
+	hudCwd := tmuxHudConfiguredCwd(p.value("-c"))
+	if hudProvider != "" && tmuxHudConfigDisablesHud(hudProvider, hudCwd) {
+		return nil
+	}
+
+	targetWs, targetPaneId, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
 	if err != nil {
 		return err
 	}
@@ -1810,12 +1818,24 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
-	created, err := rc.call("surface.split", map[string]any{
+	splitParams := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
 		"direction":    direction,
 		"focus":        focusNewPane,
-	})
+	}
+	if hudCwd != "" {
+		splitParams["working_directory"] = hudCwd
+	}
+	if hudProvider != "" {
+		// The HUD pane launches through a generated startup script and keeps its raw
+		// command for restore, the way the local CLI does, instead of receiving the
+		// command as typed input below.
+		for key, value := range tmuxHudSplitMetadata(rc, targetWs, targetPaneId, targetSurface, direction, p.positional, hudCwd, p.value("-l")) {
+			splitParams[key] = value
+		}
+	}
+	created, err := rc.call("surface.split", splitParams)
 	if err != nil {
 		return err
 	}
@@ -1849,18 +1869,22 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		return fmt.Errorf("persist tmux compatibility layout: %w", err)
 	}
 
-	// Equalize vertical splits
-	rc.call("workspace.equalize_splits", map[string]any{
-		"workspace_id": targetWs,
-		"orientation":  "vertical",
-	})
-
-	if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
-		rc.call("surface.send_text", map[string]any{
+	// Equalize vertical splits. A HUD pane keeps the compact size it asked for,
+	// so it is excluded from the layout equalization the same way the local CLI
+	// excludes it from main-vertical tracking.
+	if hudProvider == "" {
+		rc.call("workspace.equalize_splits", map[string]any{
 			"workspace_id": targetWs,
-			"surface_id":   surfaceId,
-			"text":         text,
+			"orientation":  "vertical",
 		})
+
+		if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
+			rc.call("surface.send_text", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+				"text":         text,
+			})
+		}
 	}
 
 	if p.hasFlag("-P") {
