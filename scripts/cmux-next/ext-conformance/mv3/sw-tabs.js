@@ -176,24 +176,46 @@ async function windowTests(cfg) {
     const last = await chrome.windows.getLastFocused();
     return { windows: all.length, tabs: all.map((w) => w.tabs.length), current: current.id, last: last.id };
   });
-  await test("windows", "create_remove", async () => {
-    const created = event(chrome.windows.onCreated, 8000, "windows.onCreated");
-    const win = await chrome.windows.create({ url: cfg.collector + "/blank.html?window=1", focused: false, type: "normal" });
-    await created;
-    await CXT.post("/tab", { role: "window", windowId: win.id, tabId: win.tabs && win.tabs[0] && win.tabs[0].id });
-    const got = await chrome.windows.get(win.id, { populate: true });
-    await new Promise((r) => setTimeout(r, 1500));
-    const removed = event(chrome.windows.onRemoved, 8000, "windows.onRemoved", (id) => id === win.id);
-    await chrome.windows.remove(win.id);
-    await removed;
-    expect(got.tabs.length === 1, "tabs " + got.tabs.length);
-    return { id: win.id, type: got.type, bounds: [got.left, got.top, got.width, got.height] };
-  });
-  await test("windows", "create_popup", async () => {
-    const win = await chrome.windows.create({ url: cfg.collector + "/blank.html?popup=1", type: "popup", width: 400, height: 300, focused: false });
-    await CXT.post("/tab", { role: "popup-window", windowId: win.id });
-    await new Promise((r) => setTimeout(r, 1500));
-    await chrome.windows.remove(win.id);
-    return { id: win.id, type: win.type };
-  });
+  // cmux shows no Chrome windows. From fork API 8 the created window W is
+  // hidden, its tab T moves into the extension's cmux pane window on the
+  // next task, and W closes (windows.onRemoved). Before API 8, W stays until
+  // removed. Both pass when the tab keeps its id and W ends with onRemoved.
+  const createAndEnd = async (options, role) => {
+    let closedByCmux = null;
+    const closed = new Promise((resolve) => { closedByCmux = resolve; });
+    let windowId = null;
+    const early = new Set();
+    const onRemoved = (id) => { if (id === windowId) closedByCmux(true); else early.add(id); };
+    chrome.windows.onRemoved.addListener(onRemoved);
+    try {
+      const created = event(chrome.windows.onCreated, 8000, "windows.onCreated");
+      const win = await chrome.windows.create(options);
+      windowId = win.id;
+      if (early.has(win.id)) closedByCmux(true);
+      await created;
+      const tabId = win.tabs && win.tabs[0] && win.tabs[0].id;
+      expect(tabId != null, "windows.create returned no tab");
+      await CXT.post("/tab", { role, windowId: win.id, tabId });
+      // One timer, not a polling loop: timers in a background-priority
+      // extension renderer can each take seconds on a loaded machine.
+      const moved = await Promise.race([closed, new Promise((r) => setTimeout(() => r(false), 3000))]);
+      const tab = await chrome.tabs.get(tabId);
+      if (moved) {
+        await chrome.tabs.remove(tabId);
+      } else {
+        await chrome.windows.remove(win.id);
+        await CXT.timeout(closed, 8000, "windows.onRemoved");
+      }
+      return { window: win.id, type: win.type, tab: tabId, tabWindow: tab.windowId,
+               behavior: moved ? "tab moved to a cmux pane window; window closed" : "window kept until windows.remove" };
+    } finally {
+      chrome.windows.onRemoved.removeListener(onRemoved);
+    }
+  };
+  await test("windows", "create_remove", () =>
+    createAndEnd({ url: cfg.collector + "/blank.html?window=1", focused: false, type: "normal" }, "window"), { timeout: 30000 });
+  await test("windows", "create_popup", () =>
+    createAndEnd({ url: cfg.collector + "/blank.html?popup=1", type: "popup", width: 400, height: 300, focused: false }, "popup-window"),
+    { timeout: 30000 });
 }
+
