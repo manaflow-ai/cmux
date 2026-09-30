@@ -14,8 +14,14 @@ import WebKit
 struct CloudWorkspaceLiveProjectionTests {
     private let machine = SurfaceMachineID.cloud("live-fixture")
 
-    private func graph(_ placement: [String: String], revision: Int, generation: String = "live") throws -> CloudVMState {
+    private func graph(
+        _ placement: [String: String],
+        revision: Int,
+        generation: String = "live",
+        contentIDs: [String: String] = [:]
+    ) throws -> CloudVMState {
         let tabs = placement.keys.sorted()
+        let terminalIDs = Set(tabs.map { contentIDs[$0] ?? ($0 == "third" ? "term_other" : "term_shared") }).sorted()
         let document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": ["a", "b"].enumerated().map { ["id": $0.element, "name": "Workspace " + $0.element, "index": $0.offset] as [String: Any] },
@@ -26,20 +32,29 @@ struct CloudWorkspaceLiveProjectionTests {
             "panes": ["a", "b"].map { ["id": "pane_" + $0, "screen_id": "screen_" + $0] },
             "tabs": tabs.enumerated().map { index, id in
                 ["id": id, "pane_id": "pane_" + placement[id]!, "name": "Name " + id, "index": index,
-                 "content_kind": "terminal", "content_id": id == "third" ? "term_other" : "term_shared"] as [String: Any]
+                 "content_kind": "terminal", "content_id": contentIDs[id] ?? (id == "third" ? "term_other" : "term_shared")] as [String: Any]
             },
-            "terminals": ["term_shared", "term_other"].map { ["id": $0, "title": "Process " + $0, "lifecycle": "running"] },
+            "terminals": terminalIDs.map { ["id": $0, "title": "Process " + $0, "lifecycle": "running"] },
             "browsers": [], "agents": []
         ]
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
     }
 
-    private func install(_ state: CloudVMState, catalog: SurfaceCatalog, extraResources: [SurfaceResource] = []) {
+    private func install(
+        _ state: CloudVMState,
+        catalog: SurfaceCatalog,
+        extraResources: [SurfaceResource] = [],
+        resourceOverride: [SurfaceResource]? = nil
+    ) {
         let info = SurfaceMachineInfo(id: machine, name: "Fixture", status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
             remoteWorkspaces: state.workspaces.map { SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused) })
-        catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state) + extraResources, info: info)
+        catalog.replaceCloudState(
+            state,
+            resources: resourceOverride ?? (CmuxTuiSnapshotParser.resources(from: state) + extraResources),
+            info: info
+        )
         catalog.reconcileCloudRemoteState(machine: machine, state: state)
     }
 
@@ -219,6 +234,46 @@ struct CloudWorkspaceLiveProjectionTests {
         coordinator.endLocalMutation(token, on: machine, catalog: catalog)
         await coordinator.waitForIdle()
         #expect(catalog.projections == [native])
+    }
+
+    @Test("A partial resource inventory does not retire a live Cloud projection")
+    func partialResourceInventoryDoesNotRetireProjection() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let workspace = live.add()
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let firstPanel = try #require(workspace.focusedPanelId)
+        let missingPanel = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        var closed: [SurfaceProjection] = []
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
+            bindings: { [workspace.id: binding] }, close: { closed.append($0) }
+        ))
+        let catalog = SurfaceCatalog(
+            live: live,
+            cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let firstResource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_shared")
+        let missingResource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_missing")
+        catalog.record(SurfaceProjection(
+            resource: firstResource, workspaceID: workspace.id, panelID: firstPanel,
+            remoteWorkspaceID: "a", remoteTabID: "first"
+        ))
+        catalog.record(SurfaceProjection(
+            resource: missingResource, workspaceID: workspace.id, panelID: missingPanel,
+            remoteWorkspaceID: "a", remoteTabID: "missing"
+        ))
+        let state = try graph(
+            ["first": "a", "missing": "a"], revision: 1,
+            contentIDs: ["missing": "term_missing"]
+        )
+        let resources = CmuxTuiSnapshotParser.resources(from: state).filter { $0.id != missingResource }
+        install(state, catalog: catalog, resourceOverride: resources)
+        await coordinator.waitForIdle()
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: missingPanel)?.remoteTabID == "missing")
     }
 
     @Test("Opening one remote terminal repeatedly reuses its exact local projection")

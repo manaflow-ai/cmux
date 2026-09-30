@@ -103,6 +103,9 @@ final class CloudWorkspaceProjectionCoordinator {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
             }
+            guard catalog.cloudWorkspaceGraphIsComplete(machine: machine, state: state, workspaceID: remoteID) else {
+                continue
+            }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
                 !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine)
@@ -131,8 +134,9 @@ final class CloudWorkspaceProjectionCoordinator {
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
-                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !desired.isEmpty,
-                   Set(desired).isSubset(of: Set(layout.placements)) {
+                let daemonDesired = desired.filter { $0.remoteTabID != nil }
+                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !daemonDesired.isEmpty,
+                   Set(daemonDesired).isSubset(of: Set(layout.placements)) {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
                     environment.applyLayout(workspaceID, layout, Array(live))
                 }

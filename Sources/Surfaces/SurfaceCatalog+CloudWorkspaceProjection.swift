@@ -27,6 +27,34 @@ extension SurfaceCatalog {
         )
     }
 
+    /// Returns false while a workspace tab is present in the accepted daemon
+    /// graph but its catalog resource has not arrived yet. Retiring a local
+    /// projection from that partial graph would turn an inventory race into a
+    /// user-visible pane close.
+    func cloudWorkspaceGraphIsComplete(
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        workspaceID: String
+    ) -> Bool {
+        let resources = Set(snapshot.resources(on: machine).map(\.id))
+        for tab in state.tabs {
+            guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID),
+                  screen.workspaceID == workspaceID else { continue }
+            let kind: SurfaceResourceKind
+            switch tab.contentKind {
+            case "terminal": kind = .terminal
+            case "browser": kind = .browser
+            case "display", "screen": kind = .display
+            default: return false
+            }
+            guard resources.contains(SurfaceResourceID(machine: machine, kind: kind, key: tab.contentID)) else {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Workspace-row actions may outlive the immutable row that launched them.
     /// Resolve its identity again at the last synchronous point before opening,
     /// so a rename, move or close during refresh cannot resurrect captured members.
