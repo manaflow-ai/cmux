@@ -89,13 +89,15 @@ enum SessionEntryResumeCoordinator {
                           lhs: observation.snapshot.sessionId,
                           rhs: entry.sessionId
                       )
-                      && (tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
-                          ? tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
-                          : DockSplitStore.liveStore(containingPanel: panelKey.panelId) != nil)
+                      && (tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
+                          || DockSplitStore.liveStore(containingPanel: panelKey.panelId) != nil)
               }) else {
             return nil
         }
 
+        if DockSplitStore.liveStore(containingPanel: match.0.panelId) != nil {
+            return .dock(panelID: match.0.panelId)
+        }
         if tabManager.tabs.contains(where: { $0.id == match.0.workspaceId }) {
             return .workspace(workspaceID: match.0.workspaceId, surfaceID: match.0.panelId)
         }
@@ -172,9 +174,17 @@ enum SessionEntryResumeCoordinator {
         case .workspace(let workspaceID, let surfaceID):
             tabManager.focusTab(workspaceID, surfaceId: surfaceID)
         case .dock(let panelID):
-            guard let dock = DockSplitStore.liveStore(containingPanel: panelID),
-                  TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: tabManager)
-            else { return false }
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID) else { return false }
+            if dock.scope == .global {
+                // The live target is consumed even if its owning window is
+                // temporarily unavailable. Do not fall through to `open`,
+                // which would launch a duplicate session.
+                _ = TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: dock.workspaceId) {
+                owner.focusTab(dock.workspaceId)
+            } else {
+                tabManager.focusTab(dock.workspaceId)
+            }
             dock.focusPanelFromDockInteraction(panelID, window: nil)
         }
         return true

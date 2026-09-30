@@ -622,10 +622,16 @@ struct ConversationSidebarView: View {
         case .live(let workspaceID, let panelID):
             tabManager.focusTab(workspaceID, surfaceId: panelID)
         case .dock(let panelID):
-            guard let dock = DockSplitStore.liveStore(containingPanel: panelID),
-                  let owner = AppDelegate.shared?.dockReferenceTabManager(for: dock),
-                  TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: owner)
-            else { return }
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID) else { return }
+            if dock.scope == .global {
+                guard let owner = AppDelegate.shared?.dockReferenceTabManager(for: dock),
+                      TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: owner)
+                else { return }
+            } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: dock.workspaceId) {
+                owner.focusTab(dock.workspaceId)
+            } else {
+                tabManager.focusTab(dock.workspaceId)
+            }
             dock.focusPanelFromDockInteraction(panelID, window: nil)
         case .indexed(let entry):
             if SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager) {
