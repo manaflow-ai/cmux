@@ -1,0 +1,72 @@
+### Page state
+- Page URL: http://localhost:18765/states.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- Page Title: States Fixture
+- Page Snapshot:
+```yaml
+- main [ref=e2]:
+  - heading "States" [level=1] [ref=e3]
+  - form "Profile" [ref=e4]:
+    - generic [ref=e5]:
+      - text: Name
+      - textbox "Name" [ref=e6]
+    - generic [ref=e7]:
+      - text: Code
+      - textbox "Code" [ref=e8]: x1
+    - generic [ref=e9]:
+      - text: Account
+      - textbox "Account" [ref=e10]: "42"
+    - generic [ref=e11]:
+      - text: Secret
+      - textbox "Secret" [ref=e12]: hunter2
+    - generic [ref=e13]:
+      - checkbox "Some selected" [checked=mixed] [ref=e14]
+      - text: Some selected
+    - combobox "Size" [ref=e15]:
+      - option "S"
+      - option "M" [selected]
+      - option "L"
+    - listbox "Tags" [ref=e16]:
+      - option "red" [selected] [ref=e17]
+      - option "blue" [ref=e18]
+  - button "Partial" [pressed=mixed] [ref=e19]
+  - combobox "City" [expanded] [ref=e20]: Paris
+  - listbox "Cities" [ref=e21]:
+    - option "Paris" [selected] [ref=e22]
+    - option "Rome" [ref=e23]
+  - table "Users" [ref=e24]:
+    - rowgroup [ref=e25]:
+      - row "User Action" [ref=e26]:
+        - columnheader "User" [ref=e27]
+        - columnheader "Action" [ref=e28]
+      - row "Ada Edit" [ref=e29]:
+        - cell "Ada" [ref=e30]
+        - cell "Edit" [ref=e31]:
+          - button "Edit" [ref=e32]
+      - row "Grace none" [ref=e33]:
+        - cell "Grace" [ref=e34]
+        - cell "none" [ref=e35]
+  - paragraph [ref=e36]:
+    - text: "Links:"
+    - link "relative" [ref=e37] [cursor=pointer]:
+      - /url: /aria.html?x=1#y
+    - text: ","
+    - link "peer" [ref=e38] [cursor=pointer]:
+      - /url: http://127.0.0.1:18766/aria.html
+    - text: ","
+    - link "script" [ref=e39] [cursor=pointer]:
+      - /url: javascript:void 0
+    - text: .
+  - generic [ref=e40]:
+    - term [ref=e41]: Term
+    - definition [ref=e42]: Definition
+  - progressbar "Progress" [ref=e43]
+  - paragraph [ref=e44]:
+    - text: Spaces
+    - emphasis [ref=e45]: around
+    - text: inline elements stay single.
+  - generic "Log" [ref=e46]:
+    - paragraph [ref=e47]: line one
+    - paragraph [ref=e48]: line two
+    - paragraph [ref=e49]: line three
+    - paragraph [ref=e50]: line four
+```

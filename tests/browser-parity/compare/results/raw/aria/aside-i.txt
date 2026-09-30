@@ -1,0 +1,51 @@
+# note: interactive (clickable / focusable) elements only.
+- title: "ARIA Fixture" [url=http://localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766]
+- banner:
+  - heading "ARIA roles" [level=1]
+- navigation "Breadcrumb" [ref=e1]:
+  - link "Root" [ref=e3]
+  - link "Here" [ref=e5]
+- main:
+  - heading "Names" [level=2]
+  - text: "Labelled by span"
+  - textbox "Labelled by span" [ref=e6]
+  - text: "Label for"
+  - textbox "Label for" [ref=e7]: "prefilled"
+  - textbox "Title only" [ref=e8]
+  - button "Icon button" [ref=e9]
+  - button "Described" [ref=e10]
+  - text: "extra description"
+  - heading "Level three" [level=3]
+  - heading "Level four" [level=4]
+  - heading "Widgets" [level=2]
+  - tablist "Tabs":
+    - tab "First" [ref=e11] [selected]
+    - tab "Second" [ref=e12]
+  - tabpanel: "Panel one"
+  - button "Menu" [ref=e13]
+  - button "Bold" [ref=e14]
+  - switch "Wifi" [ref=e15] [checked]
+  - textbox "Volume" [ref=e16]: "3"
+  - text: "Size"
+  - radio "Small" [ref=e17] [checked]
+  - text: "Small"
+  - radio "Large" [ref=e18]
+  - text: "Large"
+  - progressbar "Upload"
+  - alert: "Heads up"
+  - text: "Scores Name Score Ada 9"
+  - tree "Files":
+    - treeitem "src" [ref=e19]:
+      - text: "src"
+      - group:
+        - treeitem "main.swift" [ref=e20]
+  - generic "More" [ref=e22]
+  - heading "Visibility" [level=2]
+  - text: "Offscreen text"
+  - dialog "Inline dialog":
+    - text: "Dialog body"
+    - button "OK" [ref=e23]
+  - link "Anchor link" [ref=e24]
+  - generic "Clickable div" [ref=e25]
+  - textbox "Editor" [ref=e26]: "Editable text"
+- contentinfo: "Footer text"

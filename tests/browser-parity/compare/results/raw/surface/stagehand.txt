@@ -1,0 +1,33 @@
+[2-2] RootWebArea: Surface Fixture
+  [2-13] scrollable, html
+    [2-11] body
+      [2-18] heading: Surface
+      [2-4] textbox: Search here
+      [2-24] button: Count 0
+      [2-6] checkbox: Check me
+      [2-5] textbox: Text field
+        [2-30] StaticText: start
+      [2-31] paragraph
+      [2-32] button: Late
+      [2-10] button: Off
+      [2-35] group
+        [2-38] DisclosureTriangle: More
+      [2-49] group
+        [2-50] StaticText: Drag
+      [2-52] StaticText: Drop zone
+      [2-53] Iframe: Outer
+        [0-8] RootWebArea
+          [0-54] scrollable, html
+            [0-56] body
+              [0-57] paragraph
+                [0-58] StaticText: Outer
+              [0-59] Iframe: Inner
+                [1-9] RootWebArea
+                  [1-60] scrollable, html
+                    [1-62] body
+                      [1-63] LabelText
+                        [1-64] StaticText: Inner label
+                        [1-7] textbox: Inner label
+                      [1-69] paragraph
+                        [1-70] StaticText: Inner text
+      [2-72] StaticText: Far text

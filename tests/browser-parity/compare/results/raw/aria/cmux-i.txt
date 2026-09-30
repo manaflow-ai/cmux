@@ -1,0 +1,29 @@
+title: ARIA Fixture
+url: http://localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- navigation "Breadcrumb" [ref=e1]:
+  - link "Root" [ref=e2]
+  - link "Here" [ref=e3]
+- textbox "Labelled by span" [ref=e4]
+- textbox "Label for" [ref=e5]: "prefilled"
+- textbox "Title only" [ref=e6]
+- button "Icon button" [ref=e7]
+- button "Described" [ref=e8]
+- tablist "Tabs" [ref=e9]:
+  - tab "First" [ref=e10] [selected]
+  - tab "Second" [ref=e11]
+- button "Menu" [ref=e12] [expanded=false]
+- button "Bold" [ref=e13] [pressed]
+- switch "Wifi" [ref=e14] [checked]
+- slider "Volume" [ref=e15]: "3"
+- group "Size":
+  - radio "Small" [ref=e16] [checked]
+  - radio "Large" [ref=e17]
+- tree "Files" [ref=e18]:
+  - treeitem "src" [ref=e19] [expanded]:
+    - treeitem "main.swift" [ref=e20]
+- button "More" [ref=e21] [expanded=false]
+- dialog "Inline dialog" [ref=e22]:
+  - button "OK" [ref=e23]
+- link "Anchor link" [ref=e24]
+- generic [ref=e25]: "Clickable div"
+- textbox "Editor" [ref=e26]: "Editable text"

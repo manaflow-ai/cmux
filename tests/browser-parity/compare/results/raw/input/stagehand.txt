@@ -1,0 +1,47 @@
+[0-4] RootWebArea: Input Fixture
+  [0-6] scrollable, html
+    [0-13] body
+      [0-14] heading: Input
+      [0-2] textbox: Keys
+      [0-19] button: Hover me
+      [0-24] button: Double
+      [0-26] button: Right click
+      [0-28] group
+        [0-29] StaticText: Drag
+      [0-31] StaticText: Drop zone
+      [0-32] scrollable, div: Scroller
+        [0-34] StaticText: Row 0
+        [0-36] StaticText: Row 1
+        [0-38] StaticText: Row 2
+        [0-40] StaticText: Row 3
+        [0-42] StaticText: Row 4
+        [0-44] StaticText: Row 5
+        [0-46] StaticText: Row 6
+        [0-48] StaticText: Row 7
+        [0-50] StaticText: Row 8
+        [0-52] StaticText: Row 9
+        [0-54] StaticText: Row 10
+        [0-56] StaticText: Row 11
+        [0-58] StaticText: Row 12
+        [0-60] StaticText: Row 13
+        [0-62] StaticText: Row 14
+        [0-64] StaticText: Row 15
+        [0-66] StaticText: Row 16
+        [0-68] StaticText: Row 17
+        [0-70] StaticText: Row 18
+        [0-72] StaticText: Row 19
+        [0-74] StaticText: Row 20
+        [0-76] StaticText: Row 21
+        [0-78] StaticText: Row 22
+        [0-80] StaticText: Row 23
+        [0-82] StaticText: Row 24
+        [0-84] StaticText: Row 25
+        [0-86] StaticText: Row 26
+        [0-88] StaticText: Row 27
+        [0-90] StaticText: Row 28
+        [0-92] StaticText: Row 29
+      [0-93] Canvas: Canvas
+      [0-94] paragraph
+        [0-95] StaticText: none
+      [0-97] StaticText: start
+      [0-3] textbox: Clipboard target

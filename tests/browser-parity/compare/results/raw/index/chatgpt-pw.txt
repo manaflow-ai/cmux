@@ -1,0 +1,27 @@
+- navigation "Main":
+  - link "Home":
+    - /url: /aria.html
+  - link "Docs":
+    - /url: /dynamic.html
+- main:
+  - heading "Sign up" [level=1]
+  - text: Email
+  - textbox "Email":
+    - /placeholder: you@x.com
+  - checkbox "Accept terms"
+  - text: Accept terms
+  - combobox "Plan":
+    - option "Free"
+    - option "Pro" [selected]
+    - option "Team"
+  - textbox "Bio": hi
+  - button "Create account"
+  - button "Disabled" [disabled]
+  - list:
+    - listitem: One
+    - listitem: Two
+  - paragraph:
+    - text: Plain
+    - strong: bold
+    - text: text.
+  - button "Far away"

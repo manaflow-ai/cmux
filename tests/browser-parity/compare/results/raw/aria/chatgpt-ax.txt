@@ -1,0 +1,77 @@
+Browser tab: 1, Title: "ARIA Fixture", URL: "http://localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766".
+0 AXWebArea ARIA Fixture, URL: localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+	1 heading ARIA roles, Value: 1
+		2 text ARIA roles
+	3 container Breadcrumb
+		4 content list
+			5 container
+				6 AXListMarker 1. 
+				7 link Description: Root, Value: localhost:18765/
+			8 container
+				9 AXListMarker 2. 
+				10 link Description: Here, Value: localhost:18765/aria.html
+	11 container
+		12 heading Names, Value: 2
+			13 text Names
+		14 text Labelled by span
+		15 text field (settable) Labelled by span
+		16 text Label for
+		17 text field (settable) Label for, Value: prefilled, ID: for-input
+		18 text field (settable) Title only
+		19 button Icon button
+		20 button Described
+		21 text extra description
+		22 heading Level three, Value: 3
+			23 text Level three
+		24 heading Level four, Value: 4
+			25 text Level four
+		26 heading Widgets, Value: 2
+			27 text Widgets
+		28 tab group Tabs
+			29 tab (selected, settable, boolean) First, Value: 1
+			30 tab (selectable, settable, boolean) Second, Value: 0
+		31 text Panel one
+		32 button (collapsed) Menu, Secondary Actions: Expand
+		33 checkbox Bold, Value: 1
+		34 switch Wifi, Value: 1
+		35 slider (settable, integer) Description: Volume, Value: 3
+		36 container Size
+			37 text Size
+			38 radio button (settable, integer) Description: Small, Value: 1
+			39 radio button (settable, integer) Description: Large, Value: 0
+		40 progress indicator Description: Upload, Value: 40
+		41 text Heads up
+		42 table Scores
+			43 text Scores
+			44 row
+				45 cell
+					46 text Name
+				47 cell
+					48 text Score
+			49 row
+				50 cell
+					51 text Ada
+				52 cell
+					53 text 9
+		54 outline Files
+			55 row (selectable, expanded) src, Secondary Actions: Collapse
+				56 text • 
+				57 text src
+				58 row (selectable) main.swift
+					59 text ◦ 
+					60 text main.swift
+		61 button (collapsed) More, Secondary Actions: Expand
+			62 text More
+		63 heading Visibility, Value: 2
+			64 text Visibility
+		65 text Offscreen text
+		66 container Inline dialog
+			67 text Dialog body
+			68 button OK
+		69 link Description: Anchor link, Value: localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766#top
+		70 text Clickable div
+		71 container Description: Editor, Value: Editable text
+			72 text Editable text
+	73 text Footer text
+
+The focused UI element is 0 AXWebArea ARIA Fixture, URL: localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766

@@ -1,0 +1,41 @@
+title: States Fixture
+url: http://localhost:18765/states.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- main:
+  - heading "States" [level=1]
+  - form "Profile" [ref=e1]:
+    - textbox "Name" [ref=e2] [required]
+    - textbox "Code" [ref=e3] [invalid]: "x1"
+    - textbox "Account" [ref=e4] [readonly]: "42"
+    - textbox "Secret" [ref=e5]: "********"
+    - checkbox "Some selected" [ref=e6] [checked=mixed]
+    - combobox "Size" [ref=e7]: "M"
+    - listbox "Tags" [ref=e8]:
+      - option "red" [selected]
+      - option "blue"
+  - button "Partial" [ref=e9] [pressed=mixed]
+  - combobox "City" [ref=e10] [expanded]: "Paris"
+  - listbox "Cities" [ref=e11]:
+    - option "Paris" [ref=e12] [selected]
+    - option "Rome" [ref=e13]
+  - table "Users":
+    - row: "User | Action"
+    - row:
+      - cell: "Ada"
+      - button "Edit" [ref=e14]
+    - row: "Grace | none"
+  - text: "Links:"
+  - link "relative" [ref=e15]
+  - text: ","
+  - link "peer" [ref=e16]
+  - text: ","
+  - link "script" [ref=e17]
+  - text: "."
+  - term: "Term"
+  - definition: "Definition"
+  - progressbar "Progress": "30"
+  - text: "Spaces around inline elements stay single."
+  - generic "Log" [ref=e18] [scrollable]:
+    - text: "line one"
+    - text: "line two"
+    - text: "line three"
+    - text: "line four"

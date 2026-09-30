@@ -1,0 +1,92 @@
+{
+ "items": [
+  {
+   "role": "button",
+   "name": "Inside frame",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "inner-btn",
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "textbox",
+   "name": "Frame field",
+   "tag": "input",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "inner-input",
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Inside frame",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "inner-btn",
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": true,
+   "srcdoc": false
+  },
+  {
+   "role": "textbox",
+   "name": "Frame field",
+   "tag": "input",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "inner-input",
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": true,
+   "srcdoc": false
+  }
+ ],
+ "hiddenTexts": [],
+ "frames": [
+  {
+   "url": "http://localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766",
+   "depth": 0,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "url": "http://localhost:18765/frame-inner.html",
+   "depth": 1,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "url": "http://127.0.0.1:18766/frame-inner.html",
+   "depth": 1,
+   "visible": true,
+   "crossOrigin": true,
+   "srcdoc": false
+  }
+ ]
+}

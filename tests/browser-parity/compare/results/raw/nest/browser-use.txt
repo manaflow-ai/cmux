@@ -1,0 +1,18 @@
+Top
+[6]<button />
+	Top button
+|scroll element[17]<iframe id=l1 title=Level one /> (scroll)
+	Level one (peer origin)
+	|SHADOW(open)|[1]<input aria-label=L1 field />
+	|scroll element[5]<iframe id=l2 title=Level two /> (scroll)
+		Level two (back to top origin)
+		|scroll element[26]<iframe id=l3 title=Level three /> (scroll)
+			[18]<button />
+				Deep button
+			Closed Shadow
+				[27]<button />
+					Closed shadow button
+			Shadow End
+|scroll element[19]<iframe id=srcdoc title=Srcdoc /> (scroll)
+	[24]<button />
+		Srcdoc button

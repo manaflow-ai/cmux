@@ -1,0 +1,37 @@
+[0-8] RootWebArea: Parity Fixture
+  [0-10] scrollable, html
+    [0-15] body
+      [0-16] navigation: Main
+        [0-17] link: Home
+        [0-85] StaticText: 
+        [0-19] link: Docs
+      [0-21] main
+        [0-22] heading: Sign up
+        [0-2] form
+          [0-24] LabelText
+            [0-25] StaticText: Email
+            [0-3] textbox: Email
+          [0-6] checkbox: Accept terms
+          [0-4] select: Plan
+            [0-36] MenuListPopup
+              [0-38] option: Free
+              [0-39] option: Pro [selected]
+              [0-40] option: Team
+          [0-5] textbox: Bio
+            [0-60] StaticText: hi
+          [0-62] button: Create account
+          [0-64] button: Disabled
+        [0-66] list
+          [0-67] listitem
+            [0-68] ListMarker: •
+            [0-69] StaticText: One
+          [0-70] listitem
+            [0-71] ListMarker: •
+            [0-72] StaticText: Two
+        [0-73] paragraph
+          [0-74] StaticText: Plain
+          [0-75] strong
+            [0-76] StaticText: bold
+          [0-77] StaticText: text.
+          [0-78] image: Logo
+        [0-80] button: Far away

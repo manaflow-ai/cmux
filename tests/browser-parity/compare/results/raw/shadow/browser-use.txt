@@ -1,0 +1,8 @@
+Shadow DOM
+Open Shadow
+	Card title
+	|SHADOW(open)|[2]<input aria-label=Shadow input />
+	[17]<button />
+		Shadow button
+Shadow End
+none

@@ -1,0 +1,78 @@
+{
+ "items": [
+  {
+   "role": "button",
+   "name": "Alert",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "alert",
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Confirm",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "confirm",
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Prompt",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "prompt",
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Arm beforeunload",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": "unload",
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  }
+ ],
+ "hiddenTexts": [],
+ "frames": [
+  {
+   "url": "http://localhost:18765/dialogs.html?peer=http%3A%2F%2F127.0.0.1%3A18766",
+   "depth": 0,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  }
+ ]
+}

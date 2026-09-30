@@ -1,0 +1,13 @@
+[0-2] RootWebArea: Files Fixture
+  [0-4] scrollable, html
+    [0-8] body
+      [0-9] LabelText
+        [0-10] StaticText: Single
+        [0-11] input, file: Single
+      [0-18] LabelText
+        [0-19] StaticText: Many
+        [0-20] input, file: Many
+      [0-27] button: Choose via button
+      [0-36] link: Download file
+      [0-38] paragraph
+        [0-39] StaticText: none

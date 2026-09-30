@@ -1,0 +1,16 @@
+### Page state
+- Page URL: http://localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- Page Title: Frames Fixture
+- Page Snapshot:
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Frames" [level=1] [ref=e2]
+  - iframe [ref=e3]:
+    - generic [active] [ref=f1e1]:
+      - button "Inside frame" [ref=f1e2]
+      - textbox "Frame field" [ref=f1e3]
+  - iframe [ref=e4]:
+    - generic [active] [ref=f2e1]:
+      - button "Inside frame" [ref=f2e2]
+      - textbox "Frame field" [ref=f2e3]
+```

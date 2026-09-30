@@ -1,0 +1,7 @@
+- heading "Frames" [level=1]
+- iframe:
+  - button "Inside frame"
+  - textbox "Frame field"
+- iframe:
+  - button "Inside frame"
+  - textbox "Frame field"

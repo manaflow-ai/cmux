@@ -1,0 +1,13 @@
+### Page state
+- Page URL: http://localhost:18765/shadow.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- Page Title: Shadow Fixture
+- Page Snapshot:
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Shadow DOM" [level=1] [ref=e2]
+  - region "Card" [ref=e4]:
+    - heading "Card title" [level=2] [ref=e5]
+    - textbox "Shadow input" [ref=e6]
+    - button "Shadow button" [ref=e7]
+  - paragraph [ref=e8]: none
+```

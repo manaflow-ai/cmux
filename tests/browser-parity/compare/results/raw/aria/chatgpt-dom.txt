@@ -1,0 +1,17 @@
+<a node_id=1 href="/">Root</a>
+<a node_id=2 href="/aria.html">Here</a>
+<input node_id=3 />
+<input node_id=4 value="prefilled" />
+<input node_id=5 title="Title only" />
+<button node_id=6 aria-label="Icon button" />
+<button node_id=7>Described</button>
+<button node_id=8 role="tab">First</button>
+<button node_id=9 role="tab">Second</button>
+<button node_id=10>Menu</button>
+<button node_id=11>Bold</button>
+<div node_id=12 role="switch">Wifi</div>
+<input node_id=13 aria-label="Volume" type="range" value="3" />
+<input node_id=14 name="s" type="radio" value="on" checked="true" />
+<input node_id=15 name="s" type="radio" value="on" />
+<details node_id=16>More Hidden details text</details>
+<summary node_id=17>More</summary>

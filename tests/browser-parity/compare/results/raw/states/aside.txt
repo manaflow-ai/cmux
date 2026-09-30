@@ -1,0 +1,46 @@
+- title: "States Fixture" [url=http://localhost:18765/states.html?peer=http%3A%2F%2F127.0.0.1%3A18766]
+- main:
+  - heading "States" [level=1]
+  - form "Profile":
+    - label:
+      - text: "Name"
+      - textbox "Name" [ref=e1]
+    - label:
+      - text: "Code"
+      - textbox "Code" [ref=e2]: "x1"
+    - label:
+      - text: "Account"
+      - textbox "Account" [ref=e3]: "42"
+    - label:
+      - text: "Secret"
+      - textbox "Secret" [ref=e4]: "[redacted]"
+    - label:
+      - checkbox "Some selected" [ref=e5]
+      - text: "Some selected"
+    - combobox "Size" [ref=e6]:
+      - option "S"
+      - option "M" (selected)
+      - option "L"
+    - combobox "Tags" [ref=e7]:
+      - option "red" (selected)
+      - option "blue"
+      - text: "red blue"
+  - button "Partial" [ref=e8]
+  - combobox "City" [ref=e9]: "Paris"
+  - listbox "Cities" [ref=e10]:
+    - option "Paris" [ref=e11] [selected]
+    - option "Rome" [ref=e12]
+  - table "Users":
+    - text: "User Action Ada"
+    - button "Edit" [ref=e13]
+    - text: "Grace none"
+  - paragraph:
+    - text: "Links:"
+    - link "relative" [ref=e14]
+    - text: ","
+    - link "peer" [ref=e15]
+    - text: ","
+    - link "script" [ref=e16]
+    - text: "."
+  - text: "Term Definition\n\n Spaces    around \n   inline  elements  stay single."
+  - generic "line one line two line three line four" [ref=e17] [scrollable]

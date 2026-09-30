@@ -1,0 +1,122 @@
+{
+ "items": [
+  {
+   "role": "button",
+   "name": "Top button",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "textbox",
+   "name": "L1 field",
+   "tag": "input",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": true,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Srcdoc button",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 1,
+   "crossOrigin": false,
+   "srcdoc": true
+  },
+  {
+   "role": "button",
+   "name": "Deep button",
+   "tag": "button",
+   "reason": "native",
+   "shadow": null,
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 3,
+   "crossOrigin": true,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Closed shadow button",
+   "tag": "button",
+   "reason": "native",
+   "shadow": "closed",
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 3,
+   "crossOrigin": true,
+   "srcdoc": false
+  }
+ ],
+ "hiddenTexts": [],
+ "frames": [
+  {
+   "url": "http://localhost:18811/top.html",
+   "depth": 0,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "url": "http://127.0.0.1:18812/l1.html",
+   "depth": 1,
+   "visible": true,
+   "crossOrigin": true,
+   "srcdoc": false
+  },
+  {
+   "url": "about:srcdoc",
+   "depth": 1,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": true
+  },
+  {
+   "url": "http://localhost:18811/l2.html",
+   "depth": 2,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "url": "http://127.0.0.1:18812/l3.html",
+   "depth": 3,
+   "visible": true,
+   "crossOrigin": true,
+   "srcdoc": false
+  }
+ ]
+}

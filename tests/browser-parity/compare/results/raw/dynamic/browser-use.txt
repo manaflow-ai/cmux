@@ -1,0 +1,18 @@
+Dynamic
+[4]<button id=later />
+	Load later
+[5]<button id=push />
+	Push state
+[25]<a id=blank />
+	Open new tab
+[6]<button id=popup />
+	Open popup
+[7]<button id=nav />
+	Slow navigate
+[8]<button id=fetch />
+	Fetch
+idle
+[9]<button id=log />
+	Log
+[10]<button id=storage />
+	Store

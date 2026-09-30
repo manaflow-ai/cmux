@@ -1,0 +1,5 @@
+title: Shadow Fixture
+url: http://localhost:18765/shadow.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- region "Card" [ref=e1]:
+  - textbox "Shadow input" [ref=e2]
+  - button "Shadow button" [ref=e3]
