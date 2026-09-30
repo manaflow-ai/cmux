@@ -41,7 +41,8 @@ extension SurfaceCatalog {
             resources: resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) },
             projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
             staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys),
-            displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines
+            displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines,
+            cloudDisplayMemberships: cloudDisplayMemberships()
         )
     }
 
