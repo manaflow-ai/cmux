@@ -12,12 +12,19 @@ import (
 )
 
 type sendSubmitMock struct {
-	mu       sync.Mutex
-	requests []map[string]any
-	state    []map[string]any
-	screen   []string
-	keys     []string
-	listener net.Listener
+	mu              sync.Mutex
+	requests        []map[string]any
+	state           []map[string]any
+	screen          []string
+	inputStateError bool
+	keys            []string
+	listener        net.Listener
+}
+
+func startSendSubmitInputStateErrorMock(t *testing.T) (*sendSubmitMock, string) {
+	mock, socket := startSendSubmitMock(t, nil, nil)
+	mock.inputStateError = true
+	return mock, socket
 }
 
 func sendTestFingerprint(text string) string {
@@ -98,6 +105,13 @@ func (m *sendSubmitMock) handle(conn net.Conn) {
 	var result any = map[string]any{}
 	switch method {
 	case "surface.input_state":
+		if m.inputStateError {
+			m.mu.Unlock()
+			resp := map[string]any{"id": req["id"], "ok": false, "error": map[string]any{"code": "method_not_found", "message": "Unknown method"}}
+			payload, _ := json.Marshal(resp)
+			_, _ = conn.Write(append(payload, '\n'))
+			return
+		}
 		if len(m.state) > 0 {
 			result = m.state[0]
 			m.state = m.state[1:]
@@ -118,6 +132,16 @@ func (m *sendSubmitMock) handle(conn net.Conn) {
 	resp := map[string]any{"id": req["id"], "ok": true, "result": result}
 	payload, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(payload, '\n'))
+}
+
+func TestSendRelayPlainSendFallsBackWhenInputStateUnavailable(t *testing.T) {
+	mock, socket := startSendSubmitInputStateErrorMock(t)
+	if code := runCLI([]string{"--socket", socket, "send", "hello"}); code != 0 {
+		t.Fatalf("send: exit %d", code)
+	}
+	if mock.request("surface.send_text") == nil {
+		t.Fatal("plain send did not use its legacy fallback")
+	}
 }
 
 func (m *sendSubmitMock) methods() []string {

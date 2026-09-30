@@ -496,6 +496,7 @@ struct CLISendDraftGuardTests {
             screenTexts: ["✻ Welcome to Claude Code!\n❯\u{00A0}", "✻ Thinking…\n❯\u{00A0}hello", "✻ Welcome to Claude Code!\n❯\u{00A0}"]
         )
         #expect(claude.result.status == 0, Comment(rawValue: claude.result.stderr))
+        #expect(claude.result.stdout.contains("sent"), Comment(rawValue: claude.result.stdout))
         #expect(claude.requests.contains { ($0["method"] as? String) == "surface.send_key" })
 
         let codex = try runCLI(
@@ -503,6 +504,7 @@ struct CLISendDraftGuardTests {
             screenTexts: ["│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything", "│ >_ OpenAI Codex (v0.154.0) │\n› hello", "│ >_ OpenAI Codex (v0.154.0) │\n› "]
         )
         #expect(codex.result.status == 0, Comment(rawValue: codex.result.stderr))
+        #expect(codex.result.stdout.contains("sent"), Comment(rawValue: codex.result.stdout))
         #expect(codex.requests.contains { ($0["method"] as? String) == "surface.send_key" })
     }
 
