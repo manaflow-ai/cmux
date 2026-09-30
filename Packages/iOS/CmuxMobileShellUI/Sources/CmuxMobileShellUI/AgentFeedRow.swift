@@ -76,18 +76,22 @@ struct AgentFeedActionButton: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 32)
+                .frame(height: 44)
         }
+        .frame(maxWidth: .infinity, height: 44)
     }
 }
 
-/// The overflow menu label uses the same 44-point control height as the text
-/// actions while letting the system provide the border and pressed state.
+/// The overflow menu label is a fourth action button, not a small trailing
+/// chip. Keeping its label flexible lets the surrounding action row give all
+/// four controls the same rectangle.
 struct AgentFeedOverflowMenuLabel: View {
     var body: some View {
         Image(systemName: "ellipsis")
             .font(.subheadline.weight(.semibold))
-            .frame(width: 20, height: 30)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
     }
 }
 
@@ -659,8 +663,9 @@ private struct AgentFeedDecisionControls: View {
             .buttonStyle(.bordered)
             .controlSize(.regular)
             .buttonBorderShape(.roundedRectangle(radius: 9))
-            .tint(.secondary)
-            .frame(width: 44, height: 44)
+            .tint(.white.opacity(0.9))
+            .frame(maxWidth: .infinity, height: 44)
+            .accessibilityIdentifier("MobileAgentFeedPermissionMore")
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
                 defaultValue: "More permission options",
@@ -730,8 +735,9 @@ private struct AgentFeedExitPlanControls: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .buttonBorderShape(.roundedRectangle(radius: 9))
-                .tint(.secondary)
-                .frame(width: 44, height: 44)
+                .tint(.white.opacity(0.9))
+                .frame(maxWidth: .infinity, height: 44)
+                .accessibilityIdentifier("MobileAgentFeedExitPlanMore")
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",
                     defaultValue: "More approval modes",
@@ -779,9 +785,9 @@ private struct AgentFeedExitPlanControls: View {
     }
 }
 
-/// Option cards for one or more questions. Multi-question rounds use a
-/// swipeable page at a time and submit one ordered, human-readable answer per
-/// page, mirroring Claude's desktop question flow.
+/// One question at a time, with native horizontal paging when a request has
+/// multiple prompts. Each option is an independent, full-width control so the
+/// answer surface stays readable inside a feed row.
 private struct AgentFeedQuestionControls: View {
     let item: MobileAgentFeedItem
     let isReplyPending: Bool
@@ -789,17 +795,16 @@ private struct AgentFeedQuestionControls: View {
     @State private var selectedOptionIDsByQuestion: [String: Set<String>] = [:]
     @State private var customTextByQuestion: [String: String] = [:]
     @State private var pageIndex = 0
-    /// Natural height of each question page. A paged TabView never sizes to
-    /// its content: it takes the proposed height and centers overflow, which
-    /// clipped tall questions. The frame follows the current page instead.
+    /// Natural height of each question page. The horizontal scroll track uses
+    /// the current page's height so a short page does not leave a large blank
+    /// block under its controls.
     @State private var pageHeights: [Int: CGFloat] = [:]
+    @State private var scrolledPage: Int? = 0
     @State private var editingCustomAnswerForQuestionID: String?
     @FocusState private var focusedCustomAnswerQuestionID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var questions: [MobileAgentFeedQuestion] {
-        if item.questions.isEmpty {
-            return [MobileAgentFeedQuestion(id: "q0", prompt: "")]
-        }
         return item.questions
     }
 
@@ -828,20 +833,7 @@ private struct AgentFeedQuestionControls: View {
         VStack(alignment: .leading, spacing: 8) {
             if isPaged {
                 pagerHeader
-                TabView(selection: $pageIndex) {
-                    ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
-                        questionPage(question, index: index)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                                pageHeights[index] = height
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(height: max(pageHeights[pageIndex] ?? 212, 120))
-                .clipped()
-                .animation(.snappy, value: pageIndex)
+                questionPager
                 pagerFooter
             } else if let question = questions.first {
                 questionPage(question, index: 0)
@@ -855,13 +847,53 @@ private struct AgentFeedQuestionControls: View {
         .disabled(isReplyPending)
         .onAppear {
             pageIndex = min(pageIndex, max(questions.count - 1, 0))
+            scrolledPage = pageIndex
         }
         .onChange(of: item.id) { _, _ in
             pageIndex = 0
+            scrolledPage = 0
+            pageHeights = [:]
             selectedOptionIDsByQuestion = [:]
             customTextByQuestion = [:]
             editingCustomAnswerForQuestionID = nil
         }
+        .onChange(of: scrolledPage) { _, newValue in
+            guard let newValue, !questions.isEmpty else { return }
+            let clamped = min(max(newValue, 0), questions.count - 1)
+            if pageIndex != clamped {
+                pageIndex = clamped
+            }
+        }
+    }
+
+    /// A real horizontal scroll track gives the user continuous finger
+    /// tracking and native paging. `TabView(.page)` was fighting the row's
+    /// dynamic height and snapping back after an interrupted swipe.
+    private var questionPager: some View {
+        GeometryReader { geometry in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
+                        questionPage(question, index: index)
+                            .frame(width: geometry.size.width, alignment: .top)
+                            .allowsHitTesting(index == pageIndex)
+                            .accessibilityHidden(index != pageIndex)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                guard pageHeights[index] != height else { return }
+                                pageHeights[index] = height
+                            }
+                            .id(index)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
+            .scrollPosition(id: $scrolledPage)
+            .scrollDisabled(isReplyPending)
+        }
+        .frame(height: max(pageHeights[pageIndex] ?? 180, 120))
+        .clipped()
     }
 
     private var pagerHeader: some View {
@@ -893,7 +925,7 @@ private struct AgentFeedQuestionControls: View {
             HStack(spacing: 5) {
                 ForEach(questions.indices, id: \.self) { index in
                     Button {
-                        withAnimation(.snappy) { pageIndex = index }
+                        moveToPage(index)
                     } label: {
                         Capsule()
                             .fill(index == pageIndex ? Color.accentColor : Color.secondary.opacity(0.22))
@@ -929,7 +961,7 @@ private struct AgentFeedQuestionControls: View {
                     chevron: "chevron.left",
                     chevronLeading: true,
                     role: .neutral
-                ) { pageIndex -= 1 }
+                ) { moveToPage(pageIndex - 1) }
             }
             if pageIndex < questions.count - 1 {
                 pagerNavButton(
@@ -941,7 +973,7 @@ private struct AgentFeedQuestionControls: View {
                     chevron: "chevron.right",
                     chevronLeading: false,
                     role: .primary
-                ) { pageIndex += 1 }
+                ) { moveToPage(pageIndex + 1) }
             } else {
                 submitButton(title: String(
                     localized: "mobile.agentFeed.question.submitAll",
@@ -990,7 +1022,7 @@ private struct AgentFeedQuestionControls: View {
         action: @escaping @MainActor () -> Void
     ) -> some View {
         Button {
-            withAnimation(.snappy) { action() }
+            action()
         } label: {
             HStack(spacing: 5) {
                 if chevronLeading {
@@ -1002,7 +1034,16 @@ private struct AgentFeedQuestionControls: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 32)
+            .frame(minHeight: 44)
+        }
+    }
+
+    private func moveToPage(_ newPage: Int) {
+        guard questions.indices.contains(newPage), newPage != pageIndex else { return }
+        pageIndex = newPage
+        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.32)
+        withAnimation(animation) {
+            scrolledPage = newPage
         }
     }
 
@@ -1031,28 +1072,16 @@ private struct AgentFeedQuestionControls: View {
                     defaultValue: "Select all that apply",
                     bundle: .module
                 ), systemImage: "checklist")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 2)
             }
-            VStack(spacing: 0) {
-                ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
+            VStack(spacing: 8) {
+                ForEach(question.options, id: \.id) { option in
                     optionChip(option, question: question)
-                    if index < question.options.count - 1 {
-                        Divider()
-                            .padding(.leading, 14)
-                    }
-                }
-                if !question.options.isEmpty {
-                    Divider()
-                        .padding(.leading, 14)
                 }
                 customAnswerControl(for: question)
             }
-            .background(
-                Color.secondary.opacity(0.10),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 1)
@@ -1069,7 +1098,7 @@ private struct AgentFeedQuestionControls: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 32)
+                .frame(minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.regular)
@@ -1117,8 +1146,18 @@ private struct AgentFeedQuestionControls: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .frame(minHeight: 44)
-            .background(isSelected ? Color.accentColor.opacity(0.14) : .clear)
+            .padding(.vertical, 7)
+            .frame(minHeight: 52)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10),
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.accentColor.opacity(0.55), lineWidth: 1)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1148,9 +1187,10 @@ private struct AgentFeedQuestionControls: View {
             .lineLimit(2...5)
             .focused($focusedCustomAnswerQuestionID, equals: question.id)
             .textFieldStyle(.plain)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
             .onAppear {
                 if isEditing { focusedCustomAnswerQuestionID = question.id }
             }
@@ -1170,11 +1210,15 @@ private struct AgentFeedQuestionControls: View {
                     .font(.subheadline.weight(.medium))
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                 .padding(.horizontal, 12)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.42), lineWidth: 1)
+            }
         }
     }
 }

@@ -40,6 +40,12 @@ struct AgentFeedInlineText: UIViewRepresentable {
 }
 
 final class AgentFeedInlineTextView: UIView {
+    private static let measurementCache: NSCache<NSString, AgentFeedInlineTextCacheEntry> = {
+        let cache = NSCache<NSString, AgentFeedInlineTextCacheEntry>()
+        cache.countLimit = 256
+        return cache
+    }()
+
     private let textView = UITextView()
     private let moreButton = UIButton(type: .custom)
     private var source = ""
@@ -52,6 +58,8 @@ final class AgentFeedInlineTextView: UIView {
     private var measuredWidth: CGFloat = -1
     private var measuredSize: CGSize = .zero
     private var linkRange: NSRange?
+    private var laidOutWidth: CGFloat = -1
+    private var textLayoutNeedsUpdate = true
     private let moreTitle = String(localized: "mobile.agentFeed.fullText.seeMore",
                                    defaultValue: "See more", bundle: .module)
 
@@ -96,15 +104,30 @@ final class AgentFeedInlineTextView: UIView {
         font = nextFont
         textColor = color
         measuredWidth = -1
+        textLayoutNeedsUpdate = true
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
 
     func measure(width: CGFloat) -> CGSize {
         if measuredWidth == width { return measuredSize }
-        measuredWidth = width
+        let cacheKey = Self.cacheKey(
+            source: source,
+            hasMoreText: hasMoreText,
+            lineLimit: lineLimit,
+            font: font,
+            color: textColor,
+            width: width
+        )
+        if let cached = Self.measurementCache.object(forKey: cacheKey) {
+            apply(cached, width: width)
+            return measuredSize
+        }
+
         let complete = attributed(source)
         let needsExpansion = hasMoreText || lineCount(complete, width: width) > lineLimit
+        var displayed: NSMutableAttributedString
+        var displayedLinkRange: NSRange?
         if needsExpansion {
             // Markdown delimiters and link destinations are absent from the
             // rendered string. Truncate that string, preserving its attributes
@@ -135,28 +158,60 @@ final class AgentFeedInlineTextView: UIView {
                 cut = range.location
                 attempts += 1
             }
-            let displayed = preview(utf16Length: cut)
+            displayed = preview(utf16Length: cut)
             textView.textContainer.maximumNumberOfLines = lineLimit
             let range = NSRange(location: displayed.length - moreTitle.utf16.count, length: moreTitle.utf16.count)
             displayed.addAttribute(.foregroundColor, value: tintColor ?? UIColor.systemBlue, range: range)
-            textView.attributedText = displayed
-            textView.accessibilityLabel = String(displayed.string.dropLast(moreTitle.count))
-            linkRange = range
+            displayedLinkRange = range
         } else {
-            textView.textContainer.maximumNumberOfLines = 0
-            textView.attributedText = complete
-            textView.accessibilityLabel = complete.string
-            linkRange = nil
+            displayed = complete
         }
-        moreButton.isHidden = !needsExpansion
-        measuredSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        // Mark the width before asking UITextView for its fitting size. UIKit
+        // may synchronously lay out this view while doing that measurement.
+        measuredWidth = width
+        textView.textContainer.maximumNumberOfLines = needsExpansion ? lineLimit : 0
+        textView.attributedText = displayed
+        let size = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        measuredSize = size
         measuredSize.width = width
         if needsExpansion {
             // Keep the inline button's 44-point hit target inside this view,
             // including a one-line preview shortened by the Mac.
             measuredSize.height = max(44, measuredSize.height + max(0, (44 - font.lineHeight) / 2))
         }
+        let entry = AgentFeedInlineTextCacheEntry(
+            displayedText: displayed,
+            measuredSize: measuredSize,
+            linkRange: displayedLinkRange,
+            needsExpansion: needsExpansion
+        )
+        Self.measurementCache.setObject(entry, forKey: cacheKey)
+        apply(entry, width: width)
         return measuredSize
+    }
+
+    private func apply(_ entry: AgentFeedInlineTextCacheEntry, width: CGFloat) {
+        measuredWidth = width
+        measuredSize = entry.measuredSize
+        linkRange = entry.linkRange
+        textView.textContainer.maximumNumberOfLines = entry.needsExpansion ? lineLimit : 0
+        textView.attributedText = entry.displayedText
+        textLayoutNeedsUpdate = true
+        textView.accessibilityLabel = entry.needsExpansion
+            ? String(entry.displayedText.string.dropLast(moreTitle.count))
+            : entry.displayedText.string
+        moreButton.isHidden = !entry.needsExpansion
+    }
+
+    private static func cacheKey(
+        source: String,
+        hasMoreText: Bool,
+        lineLimit: Int,
+        font: UIFont,
+        color: UIColor,
+        width: CGFloat
+    ) -> NSString {
+        "\(source)|\(hasMoreText)|\(lineLimit)|\(font.fontName)|\(font.pointSize)|\(color.description)|\(width.rounded(.up))" as NSString
     }
 
     override func layoutSubviews() {
@@ -164,7 +219,11 @@ final class AgentFeedInlineTextView: UIView {
         guard bounds.width > 0 else { return }
         _ = measure(width: bounds.width)
         textView.frame = bounds
-        textView.layoutManager.ensureLayout(for: textView.textContainer)
+        if textLayoutNeedsUpdate || laidOutWidth != bounds.width {
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+            laidOutWidth = bounds.width
+            textLayoutNeedsUpdate = false
+        }
         if let linkRange {
             let glyphs = textView.layoutManager.glyphRange(forCharacterRange: linkRange, actualCharacterRange: nil)
             let rect = textView.layoutManager.boundingRect(forGlyphRange: glyphs, in: textView.textContainer)
@@ -349,6 +408,25 @@ final class AgentFeedInlineTextView: UIView {
             return super.gestureRecognizerShouldBegin(recognizer)
         }
         return link(at: recognizer.location(in: self)) != nil
+    }
+}
+
+private final class AgentFeedInlineTextCacheEntry: NSObject {
+    let displayedText: NSAttributedString
+    let measuredSize: CGSize
+    let linkRange: NSRange?
+    let needsExpansion: Bool
+
+    init(
+        displayedText: NSAttributedString,
+        measuredSize: CGSize,
+        linkRange: NSRange?,
+        needsExpansion: Bool
+    ) {
+        self.displayedText = displayedText.copy() as! NSAttributedString
+        self.measuredSize = measuredSize
+        self.linkRange = linkRange
+        self.needsExpansion = needsExpansion
     }
 }
 #endif

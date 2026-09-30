@@ -22,9 +22,31 @@ struct AgentFeedView: View {
     var searchText: String = ""
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var filter: AgentFeedFilter = .all
+    @State private var preparedRows: [AgentFeedRowModel]
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
     @State private var readingItem: MobileAgentFeedItem?
+
+    init(
+        items: [MobileAgentFeedItem],
+        status: MobileNotificationFeedStatus,
+        pendingReplyRequestIDs: Set<String>,
+        pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>,
+        failedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:],
+        refreshesOnAppear: Bool,
+        actions: AgentFeedActions,
+        searchText: String = ""
+    ) {
+        self.items = items
+        self.status = status
+        self.pendingReplyRequestIDs = pendingReplyRequestIDs
+        self.pendingTerminalReplyItemIDs = pendingTerminalReplyItemIDs
+        self.failedTerminalReplies = failedTerminalReplies
+        self.refreshesOnAppear = refreshesOnAppear
+        self.actions = actions
+        self.searchText = searchText
+        _preparedRows = State(initialValue: items.map(AgentFeedRowModel.init))
+    }
 
     /// Row actions with the composer hook bound to this view's sheet state.
     private var rowActions: AgentFeedActions {
@@ -45,7 +67,8 @@ struct AgentFeedView: View {
         // prompt shows as the quoted context line under agent rows instead);
         // failed tool results are notable and stay visible.
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notable = items.compactMap { item -> AgentFeedRowModel? in
+        let notable = preparedRows.compactMap { model -> AgentFeedRowModel? in
+            let item = model.item
             guard query.isEmpty || item.matchesFeedSearch(query) else { return nil }
             switch item.kind {
             case .toolUse, .userPrompt:
@@ -56,7 +79,6 @@ struct AgentFeedView: View {
                  .assistantMessage, .stop, .todos, .unsupported:
                 break
             }
-            let model = AgentFeedRowModel(item: item)
             return model.hasVisibleContent ? model : nil
         }
         switch filter {
@@ -109,6 +131,9 @@ struct AgentFeedView: View {
             now = Date()
             guard refreshesOnAppear else { return }
             Task { await actions.refresh() }
+        }
+        .onChange(of: items) { _, newItems in
+            preparedRows = newItems.map(AgentFeedRowModel.init)
         }
     }
 

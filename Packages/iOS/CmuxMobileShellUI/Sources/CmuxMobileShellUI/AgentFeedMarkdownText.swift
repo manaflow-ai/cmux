@@ -10,6 +10,12 @@ struct AgentFeedMarkdownText: View {
     let color: Color
     let lineLimit: Int?
 
+    private static let renderedCache: NSCache<NSString, AgentFeedMarkdownCacheEntry> = {
+        let cache = NSCache<NSString, AgentFeedMarkdownCacheEntry>()
+        cache.countLimit = 256
+        return cache
+    }()
+
     init(markdown: String, font: Font, color: Color = .primary, lineLimit: Int? = nil) {
         self.markdown = markdown
         self.font = font
@@ -25,11 +31,24 @@ struct AgentFeedMarkdownText: View {
     }
 
     private var renderedMarkdown: AttributedString {
+        if let cached = Self.renderedCache.object(forKey: markdown as NSString) {
+            return cached.value
+        }
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         options.failurePolicy = .returnPartiallyParsedIfPossible
-        return (try? AttributedString(markdown: markdown, options: options))
+        let rendered = (try? AttributedString(markdown: markdown, options: options))
             ?? AttributedString(markdown)
+        Self.renderedCache.setObject(AgentFeedMarkdownCacheEntry(rendered), forKey: markdown as NSString)
+        return rendered
+    }
+}
+
+private final class AgentFeedMarkdownCacheEntry: NSObject {
+    let value: AttributedString
+
+    init(_ value: AttributedString) {
+        self.value = value
     }
 }
 #endif

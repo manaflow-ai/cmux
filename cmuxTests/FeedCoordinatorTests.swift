@@ -10,6 +10,47 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test("Mobile Feed excludes sparse records before they become rows")
+    func mobileFeedRenderabilityGate() {
+        let emptyAssistant = WorkstreamItem(
+            workstreamId: "codex-empty",
+            source: .codex,
+            kind: .assistantMessage,
+            payload: .assistantMessage(text: "   ")
+        )
+        let emptyQuestion = WorkstreamItem(
+            workstreamId: "claude-empty-question",
+            source: .claude,
+            kind: .question,
+            payload: .question(requestId: "request", questions: [])
+        )
+        let emptyStop = WorkstreamItem(
+            workstreamId: "codex-empty-stop",
+            source: .codex,
+            kind: .stop,
+            payload: .stop(reason: nil)
+        )
+        let question = WorkstreamItem(
+            workstreamId: "claude-question",
+            source: .claude,
+            kind: .question,
+            payload: .question(
+                requestId: "request",
+                questions: [WorkstreamQuestionPrompt(
+                    id: "deploy",
+                    prompt: "Where should this deploy?",
+                    multiSelect: false,
+                    options: [WorkstreamQuestionOption(id: "prod", label: "Production")]
+                )]
+            )
+        )
+
+        #expect(!FeedSocketEncoding.isMobileFeedRenderable(emptyAssistant))
+        #expect(!FeedSocketEncoding.isMobileFeedRenderable(emptyQuestion))
+        #expect(!FeedSocketEncoding.isMobileFeedRenderable(emptyStop))
+        #expect(FeedSocketEncoding.isMobileFeedRenderable(question))
+    }
+
     @Test("Workspace-only blocking events retain their session surface")
     func workspaceOnlyAttentionUsesSessionSurface() {
         let workspaceID = UUID()

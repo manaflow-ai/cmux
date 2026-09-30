@@ -8,25 +8,24 @@ import Foundation
 struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
     let item: MobileAgentFeedItem
     let presentation: AgentFeedRowPresentation
+    /// Metadata-only events are excluded before SwiftUI builds a list row.
+    let hasVisibleContent: Bool
 
     init(item: MobileAgentFeedItem) {
         self.item = item
-        presentation = AgentFeedRowPresentation(item: item)
-    }
-
-    var id: MobileAgentFeedItemID { item.id }
-
-    /// Whether the row has content or an inline control beyond its metadata.
-    /// Metadata-only events are not useful Feed entries and render as empty
-    /// rows when an older Mac sends a sparse event.
-    var hasVisibleContent: Bool {
-        presentation.quotedUserMessage != nil
+        let presentation = AgentFeedRowPresentation(item: item)
+        self.presentation = presentation
+        hasVisibleContent = (item.kind == .todos && presentation.headline != nil)
+            || (item.kind == .question && item.status.isPending && !item.questions.isEmpty)
+            || presentation.quotedUserMessage != nil
             || presentation.outputText != nil
             || presentation.toolLine != nil
             || presentation.resolutionLabel != nil
-            || item.needsInput
+            || (item.needsInput && (item.kind != .question || !item.questions.isEmpty))
             || item.supportsTerminalReply
     }
+
+    var id: MobileAgentFeedItemID { item.id }
 
     /// `presentation` is a pure derivation of `item`.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -252,6 +251,12 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     }
 
     private static func quotedUserMessage(for item: MobileAgentFeedItem) -> String? {
+        // The pending question surface already owns the prompt. Older Macs
+        // also attach a concatenated last-user-message context string, which
+        // duplicates every page above the actual answer controls.
+        if item.kind == .question, item.status.isPending, !item.questions.isEmpty {
+            return nil
+        }
         switch item.kind {
         case .permissionRequest, .exitPlan, .question, .stop:
             return normalized(item.context?.lastUserMessage)

@@ -71,6 +71,7 @@ extension TerminalController {
         // rows instead. Failed tool results stay — they are the notable
         // exceptions worth surfacing.
         let visibleItems = items.filter { item in
+            guard FeedSocketEncoding.isMobileFeedRenderable(item) else { return false }
             switch item.kind {
             case .sessionStart, .sessionEnd, .toolUse, .userPrompt:
                 return false
@@ -107,6 +108,9 @@ extension TerminalController {
             // tab regardless.
             for notification in notificationSnapshot.notifications
             where !workstreamIDs.contains(notification.id) && notification.isAgentEvent == false {
+                let hasText = [notification.title, notification.subtitle, notification.body]
+                    .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                guard hasText else { continue }
                 datedRows.append((notification.createdAt, notification.id.uuidString, mobileNotificationFeedRow(notification)))
             }
         }

@@ -1623,6 +1623,50 @@ enum FeedSocketEncoding {
     private static let primaryTextLimit = 8_000
     private static let secondaryTextLimit = 2_000
 
+    /// The mobile Feed is a rendered event stream, so an item must carry at
+    /// least one field the phone can display or act on before it enters the
+    /// response. This gate keeps sparse persistence records from becoming
+    /// blank rows after the client maps them into a presentation model.
+    static func isMobileFeedRenderable(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .permissionRequest(let requestID, let toolName, _, _):
+            return hasText(requestID) && hasText(toolName)
+        case .exitPlan(let requestID, _, _):
+            return hasText(requestID)
+        case .question(let requestID, let questions):
+            guard hasText(requestID) else { return false }
+            return questions.contains { question in
+                hasText(question.header)
+                    || hasText(question.prompt)
+                    || question.options.contains { option in
+                        hasText(option.label) || hasText(option.description)
+                    }
+            }
+        case .toolUse, .userPrompt, .sessionStart, .sessionEnd:
+            return false
+        case .toolResult(let toolName, let result, let isError):
+            return isError && (hasText(toolName) || hasText(result))
+        case .assistantMessage(let text):
+            return hasText(text)
+        case .stop(let reason):
+            return hasText(reason)
+                || item.context.map { context in
+                    hasText(context.lastUserMessage)
+                        || hasText(context.assistantPreamble)
+                        || hasText(context.planSummary)
+                        || hasText(context.toolSummary)
+                } == true
+                || hasText(item.reply?.text)
+        case .todos(let todos):
+            return todos.contains { hasText($0.content) }
+        }
+    }
+
+    private static func hasText(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     static func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
         switch result {
         case .acknowledged(let itemId):
