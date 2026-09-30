@@ -63,9 +63,9 @@ async function hookStatus(runtime) {
   const marker = `${runtime.marker}-hooks`;
   const done = `${marker}-done`;
   const statusCommand = [
-    "cmux --json agent hook status claude codex | tr -d '\\n' | sed",
-    `-n 's/.*\"provider\":\"claude\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-claude:\\1/p;`,
-    `s/.*\"provider\":\"codex\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-codex:\\1/p'`,
+    "status=$(cmux --json agent hook status claude codex | tr -d '\\n');",
+    `printf '%s\\n' \"$status\" | sed -n 's/.*\"provider\":\"claude\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-claude:\\1/p';`,
+    `printf '%s\\n' \"$status\" | sed -n 's/.*\"provider\":\"codex\"[^}]*\"state\":\"\\([^\"]*\\)\".*/${marker}-codex:\\1/p'`,
     `; printf '\\n%s\\n' '${done}'`,
   ].join(" ");
   return probe(runtime, "agentHooks", { providers: { claude: null, codex: null } }, async (deadline, observation) => {
