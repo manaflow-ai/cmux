@@ -130,6 +130,31 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(current?.children.first?.exitCode, 0)
     }
 
+    func testOperationStoreMergesLateLocalProjectionAfterExit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-fan-out-late-projection-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("operations.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentFanOutOperationStore(fileURL: file)
+        try await store.insertIfAbsent(operation())
+
+        var exited = operation()
+        exited.children[0].state = .exited
+        exited.children[0].exitCode = 0
+        exited.recomputeState(now: Date(timeIntervalSince1970: 2))
+        try await store.update(exited)
+
+        var projected = exited
+        projected.children[0].localWorkspaceID = "local-child"
+        projected.children[0].projectionErrorCode = nil
+        try await store.update(projected)
+        let stored = try await store.operation(id: "f_test")
+        let current = try XCTUnwrap(stored)
+        XCTAssertEqual(current.children[0].state, .exited)
+        XCTAssertEqual(current.children[0].exitCode, 0)
+        XCTAssertEqual(current.children[0].localWorkspaceID, "local-child")
+    }
+
     func testOperationStoreRejectsCorruptLedgerInsteadOfTreatingItAsEmpty() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-fan-out-corrupt-\(UUID().uuidString)", isDirectory: true)

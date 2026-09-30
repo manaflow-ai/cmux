@@ -1582,9 +1582,9 @@ extension CMUXCLI {
                            (a `ws_…` id from `vm tree`, e.g. one staged with
                            `vm workspace new --no-open`) instead of the detached pool.
           --fan-out <n>    Start 2…32 independent children as one durable operation.
-                           The children share a new remote workspace unless one is
-                           supplied with --remote-workspace. Use status/wait to observe
-                           the operation after this command returns.
+                           Each child gets its own remote workspace and visible local
+                           workspace by default. --remote-workspace opts into sharing.
+                           Use status/wait to observe the operation after this command returns.
           --operation-id <id>
                            Reuse the same id on retries; an accepted operation never
                            creates a second child for the same id.
@@ -1881,10 +1881,12 @@ extension CMUXCLI {
             ]
             if let operationIDOption { fanOutParams["operation_id"] = operationIDOption }
             if let remoteWorkspaceOption { fanOutParams["remote_workspace_id"] = remoteWorkspaceOption }
-            // Fan-out children are first-class sessions: the app creates one
-            // local workspace/sidebar row per child by default. A caller
-            // workspace is intentionally not forwarded here; use
-            // --remote-workspace for the explicit shared-placement mode.
+            // Fan-out children are first-class sessions by default. The
+            // explicit shared-workspace mode still targets the caller's pane.
+            if let remoteWorkspaceOption,
+               let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+                fanOutParams["workspace_id"] = callerWorkspace
+            }
             let response = try client.sendV2(method: "vm.agent_fan_out", params: fanOutParams, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)) } else { print(Self.vmAgentFanOutSummary(response)) }
             return
