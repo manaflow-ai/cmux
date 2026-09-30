@@ -7125,13 +7125,14 @@ struct ContentView: View {
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(&handlerRegistry)
+        let cloudCapabilityPolicy = CommandPaletteCloudCapabilityPolicy()
 
         var commands: [CommandPaletteCommand] = []
         commands.reserveCapacity(contributions.count)
         var nextRank = 0
 
         for contribution in contributions {
-            guard CommandPaletteCloudCapabilityPolicy().allows(
+            guard cloudCapabilityPolicy.allows(
                 commandId: contribution.commandId,
                 context: context
             ) else { continue }

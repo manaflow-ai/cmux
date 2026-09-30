@@ -36,6 +36,44 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         )
     }
 
+    @Test("keeps the audited Cloud and local-only command sets explicit")
+    func auditedCapabilitySetsRemainStable() {
+        let cloudOnly = [
+            "palette.cloud.fork",
+            "palette.cloud.snapshot",
+            "palette.cloud.restore",
+            "palette.cloud.promoteTemplate",
+            "palette.cloud.status",
+            "palette.cloud.ports",
+            "palette.cloud.tools",
+            "palette.cloud.handoff",
+        ]
+        let localOnly = [
+            "palette.newBrowserWorkspace",
+            "palette.newAgentChat",
+            "palette.newBrowserTab",
+            "palette.newSimulatorPane",
+            "palette.openFolder",
+            "palette.openFolderInVSCodeInline",
+            "palette.openWorkspacePullRequests",
+            "palette.openDiffViewer",
+            "palette.openDirectoryDiffViewer",
+            "palette.findInDirectory",
+            "palette.vscodeServeWebStop",
+            "palette.vscodeServeWebRestart",
+            "palette.browserSplitRight",
+            "palette.browserSplitDown",
+            "palette.terminalSplitBrowserRight",
+            "palette.terminalSplitBrowserDown",
+            "palette.terminalOpenDirectory.finder",
+        ]
+
+        #expect(cloudOnly.allSatisfy { policy.capability(for: $0) == .cloudOnly })
+        #expect(localOnly.allSatisfy { policy.capability(for: $0) == .localOnly })
+        #expect(policy.capability(for: "palette.newTerminalTab") == .shared)
+        #expect(policy.capability(for: "palette.browserBack") == .shared)
+    }
+
     @Test("scopes Cloud-only and local-only commands to the workspace context")
     func contextAllowsOnlyValidCapabilities() {
         let localContext = CommandPaletteContextSnapshot()
