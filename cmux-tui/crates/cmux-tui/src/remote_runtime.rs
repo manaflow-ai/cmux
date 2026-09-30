@@ -787,10 +787,10 @@ async fn run_client(
             let _ = connection.close().await;
             return Err(anyhow!("remote client startup was cancelled"));
         }
-        let local_socket = options
-            .local_socket
-            .clone()
-            .unwrap_or_else(|| default_client_socket(&options.state_dir, options.session));
+        let local_socket = match options.local_socket.clone() {
+            Some(path) => path,
+            None => default_client_socket(&options.state_dir, options.session)?,
+        };
         let socket_preparation =
             prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
         if *shutdown.borrow() {
@@ -1672,23 +1672,32 @@ fn unix_socket_path_fits(path: &Path) -> bool {
     path.as_os_str().as_bytes().len() < capacity
 }
 
-fn default_client_socket(state_dir: &Path, session: SessionId) -> PathBuf {
+fn default_client_socket(state_dir: &Path, session: SessionId) -> anyhow::Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    client_socket_path_in(state_dir, session, runtime.as_deref(), Path::new("/tmp"))
+}
+
+/// Resolves the client socket for `session`. `runtime` is `XDG_RUNTIME_DIR`
+/// and `shared_tmp` is the world-writable directory used when the state path
+/// is too long for a Unix socket.
+fn client_socket_path_in(
+    state_dir: &Path,
+    session: SessionId,
+    runtime: Option<&Path>,
+    shared_tmp: &Path,
+) -> anyhow::Result<PathBuf> {
     let candidate = state_dir.join("connections").join(format!("{session:?}")).join("mux.sock");
-    #[cfg(unix)]
     if !unix_socket_path_fits(&candidate) {
         let uid = unsafe { libc::geteuid() };
         let name =
             format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
-        let fallback = runtime.join(format!("cmux-r-{uid}")).join(&name);
+        let fallback = runtime.unwrap_or(shared_tmp).join(format!("cmux-r-{uid}")).join(&name);
         if unix_socket_path_fits(&fallback) {
-            return fallback;
+            return Ok(fallback);
         }
-        return PathBuf::from(format!("/tmp/cmux-r-{uid}/{name}"));
+        return Ok(shared_tmp.join(format!("cmux-r-{uid}")).join(name));
     }
-    candidate
+    Ok(candidate)
 }
 
 pub fn daemon_paths(
@@ -1720,16 +1729,27 @@ pub fn daemon_paths(
 
 #[cfg(unix)]
 fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    daemon_runtime_socket_paths_in(state, runtime.as_deref(), Path::new("/tmp"))
+}
+
+/// Resolves the daemon's link and admin sockets for a state path that is too
+/// long for a Unix socket. `runtime` is `XDG_RUNTIME_DIR` and `shared_tmp` is
+/// the world-writable directory used when no runtime directory is usable.
+#[cfg(unix)]
+fn daemon_runtime_socket_paths_in(
+    state: &Path,
+    runtime: Option<&Path>,
+    shared_tmp: &Path,
+) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
     let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };
-    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .map(|path| path.join("cmux-rd"))
+    if let Some(runtime) =
+        runtime.filter(|path| path.is_absolute()).map(|path| path.join("cmux-rd"))
     {
         let (link, admin) = socket_names(&runtime);
         if unix_socket_path_fits(&link)
@@ -1740,7 +1760,7 @@ fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf
         }
     }
 
-    let runtime = PathBuf::from(format!("/tmp/cmux-rd-{}", unsafe { libc::geteuid() }));
+    let runtime = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
     ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).with_context(|| {
         format!("could not create private remote daemon runtime directory {}", runtime.display())
     })?;
@@ -6261,8 +6281,83 @@ mod tests {
     #[test]
     fn long_state_path_uses_a_short_runtime_socket() {
         let state = PathBuf::from("/tmp").join("x".repeat(256));
-        let socket = default_client_socket(&state, SessionId([4; 16]));
+        let socket = default_client_socket(&state, SessionId([4; 16])).unwrap();
         assert!(unix_socket_path_fits(&socket));
         assert!(!socket.starts_with(state));
+    }
+
+    /// Another local user can create `/tmp/cmux-r-<uid>` first. The ownership
+    /// checks must still reject it, and the client must still start in a
+    /// fresh private directory that a second resolution finds again.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn squatted_shared_client_socket_directory_falls_back_to_a_private_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+
+        // A short root keeps the fallback socket paths inside sun_path, as
+        // they are under the real /tmp.
+        let root = tempfile::Builder::new().prefix("r").rand_bytes(2).tempdir_in("/tmp").unwrap();
+        let shared_tmp = root.path().to_path_buf();
+        let decoy = root.path().join("decoy");
+        fs::create_dir(&decoy).unwrap();
+        let squatted = shared_tmp.join(format!("cmux-r-{}", unsafe { libc::geteuid() }));
+        symlink(&decoy, &squatted).unwrap();
+        let state = root.path().join("x".repeat(160));
+        let session = SessionId([7; 16]);
+
+        let socket = client_socket_path_in(&state, session, None, &shared_tmp).unwrap();
+        let prepared = prepare_client_socket(&socket).await;
+        assert!(
+            prepared.is_ok(),
+            "a squatted shared directory blocked the client socket {}: {:?}",
+            socket.display(),
+            prepared.err()
+        );
+        let directory = socket.parent().unwrap();
+        assert_ne!(directory, squatted);
+        assert!(directory.starts_with(&shared_tmp));
+        let metadata = fs::symlink_metadata(directory).unwrap();
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        assert_eq!(client_socket_path_in(&state, session, None, &shared_tmp).unwrap(), socket);
+        assert!(fs::read_dir(&decoy).unwrap().next().is_none());
+    }
+
+    /// The daemon's link and admin sockets fall back the same way, and every
+    /// later `remote-link`, `remote-stop` or status call resolves the same
+    /// directory from the session state.
+    #[cfg(unix)]
+    #[test]
+    fn squatted_shared_daemon_runtime_directory_falls_back_to_a_private_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+
+        // A short root keeps the fallback socket paths inside sun_path, as
+        // they are under the real /tmp.
+        let root = tempfile::Builder::new().prefix("r").rand_bytes(2).tempdir_in("/tmp").unwrap();
+        let shared_tmp = root.path().to_path_buf();
+        let decoy = root.path().join("decoy");
+        fs::create_dir(&decoy).unwrap();
+        let squatted = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
+        symlink(&decoy, &squatted).unwrap();
+        let state = root.path().join("state").join("sessions").join("session");
+
+        let resolved = daemon_runtime_socket_paths_in(&state, None, &shared_tmp);
+        assert!(resolved.is_ok(), "a squatted shared directory blocked the daemon: {resolved:?}");
+        let (link, admin) = resolved.unwrap();
+        let directory = link.parent().unwrap();
+        assert_eq!(admin.parent().unwrap(), directory);
+        assert_ne!(directory, squatted);
+        assert!(directory.starts_with(&shared_tmp));
+        assert!(unix_socket_path_fits(&link) && unix_socket_path_fits(&admin));
+        let metadata = fs::symlink_metadata(directory).unwrap();
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            daemon_runtime_socket_paths_in(&state, None, &shared_tmp).unwrap(),
+            (link, admin)
+        );
+        assert!(fs::read_dir(&decoy).unwrap().next().is_none());
     }
 }
