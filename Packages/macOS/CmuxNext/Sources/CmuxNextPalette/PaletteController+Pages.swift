@@ -108,6 +108,9 @@ extension PaletteController {
         provider.effectOverrides["palette.goToTab"] = { [weak self] in
             self?.tabsPage().map { .push($0) }
         }
+        for (id, make) in sources.actionPages {
+            provider.effectOverrides[id] = { make().map { .push($0) } }
+        }
         provider.effectOverrides["palette.terminalOpenDirectory"] = { [weak self] in
             self?.openInPage().map { .push($0) }
         }

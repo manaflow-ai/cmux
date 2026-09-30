@@ -75,9 +75,9 @@ public final class BrowserChromeView: NSView {
     /// commit and cancel return focus to the page.
     public var onOmnibarEvent: ((OmnibarEvent) -> Void)?
 
-    /// A modified omnibar commit (Cmd-Enter, Cmd-click): the host opens `url`
-    /// in another tab or window. When nil, this tab loads it.
+    /// Modified commits (Cmd-Enter) open elsewhere, nil: here; `loadOverride` true: the host served it (`cmux://history`).
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)?
+    public var loadOverride: ((URL) -> Bool)?
 
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?

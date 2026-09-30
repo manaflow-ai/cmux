@@ -133,6 +133,10 @@ final class CmuxActionCLI {
     /// when the verb is not a generated one, for nouns that are also legacy
     /// commands (`cmux browser open`, `cmux browser surface:2 eval`).
     func runNounCommand(noun: String, arguments: [String], fallsBackOnUnknownVerb: Bool = false) throws -> Bool {
+        if let verb = arguments.first, let method = Self.queryVerbs[noun]?[verb] {
+            try runQuery(method: method, verb: verb, noun: noun, tokens: Array(arguments.dropFirst()))
+            return true
+        }
         let verbs = try actions(noun: noun)
         guard !verbs.isEmpty else { return false }
         guard let verb = arguments.first, !verb.hasPrefix("-") else {
@@ -153,6 +157,60 @@ final class CmuxActionCLI {
         }
         try run(action, tokens: Array(arguments.dropFirst()))
         return true
+    }
+
+    // MARK: - Query verbs
+
+    /// Verbs that read data (actions return none): `cmux history list` and
+    /// `cmux history search <text>` call `history.list`.
+    static let queryVerbs: [String: [String: String]] = [
+        "history": ["list": "history.list", "search": "history.list"],
+    ]
+
+    private func runQuery(method: String, verb: String, noun: String, tokens: [String]) throws {
+        let usage = "Usage: cmux \(noun) \(verb)\(verb == "search" ? " <text>" : "") [--kind page|location|closed|agent|command] [--range hour|today|week|month|all] [--limit N] [--json]"
+        var params: [String: Any] = [:]
+        var words: [String] = []
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index]
+            switch token {
+            case "--kind", "--range", "--limit":
+                guard index + 1 < tokens.count else { throw Failure(usage, exitCode: 2) }
+                let value = tokens[index + 1]
+                if token == "--limit" {
+                    guard let limit = Int(value) else { throw Failure(usage, exitCode: 2) }
+                    params["limit"] = limit
+                } else {
+                    params[String(token.dropFirst(2))] = value
+                }
+                index += 2
+            case "--json":
+                index += 1
+            default:
+                if token.hasPrefix("-") { throw Failure(usage, exitCode: 2) }
+                words.append(token)
+                index += 1
+            }
+        }
+        if verb == "search" {
+            guard !words.isEmpty else { throw Failure(usage, exitCode: 2) }
+            params["text"] = words.joined(separator: " ")
+        } else if !words.isEmpty {
+            throw Failure(usage, exitCode: 2)
+        }
+        let result = try call(method, params)
+        if jsonOutput || tokens.contains("--json") {
+            output(Self.json(result))
+            return
+        }
+        let entries = result["entries"] as? [[String: Any]] ?? []
+        output(entries.map(Self.historyLine).joined(separator: "\n"))
+    }
+
+    /// `time  kind  title  detail  id`, tab separated.
+    static func historyLine(_ entry: [String: Any]) -> String {
+        ["time", "kind", "title", "detail", "id"].map { entry[$0] as? String ?? "" }.joined(separator: "\t")
     }
 
     // MARK: - Commands

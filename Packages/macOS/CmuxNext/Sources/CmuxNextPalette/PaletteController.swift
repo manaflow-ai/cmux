@@ -136,6 +136,16 @@ public final class PaletteController {
         present(relativeTo: window)
     }
 
+    /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
+    /// the palette serves as a page).
+    public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+        openStarted = .now
+        captureContext()
+        model.reset(to: page)
+        modelReady = .now
+        present(relativeTo: window)
+    }
+
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
     /// shortcut for an argument-taking action asks inline.
