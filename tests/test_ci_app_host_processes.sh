@@ -380,6 +380,27 @@ if cmux_app_host_verified_pids \
   fail "a receipt whose PID had another executable vnode was accepted"
 fi
 
+# The app host exited and another executable now has its PID. The receipt is
+# stale: cleanup succeeds, authorizes nothing, and signals nothing.
+make_scope reused-pid
+spawn_process
+reused_pid="$CMUX_TEST_SPAWNED_PID"
+printf '%s|%s\n' "$reused_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
+write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$reused_pid" "$TEST_EXECUTABLE"
+export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$reused_pid"
+cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  > "$TMP_DIR/reused-pid.out" 2> "$TMP_DIR/reused-pid.err" \
+  || fail "a receipt whose PID was reused by another executable failed cleanup: $(cat "$TMP_DIR/reused-pid.err")"
+[ ! -s "$TMP_DIR/reused-pid.out" ] \
+  || fail "a reused PID was authorized by a stale receipt"
+cmux_terminate_verified_app_hosts \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  || fail "a stale receipt for a reused PID failed termination"
+unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
+/bin/kill -0 "$reused_pid" 2>/dev/null \
+  || fail "stale receipt verification signaled the reused PID"
+
 make_scope missing-receipt
 spawn_process
 unreceipted_pid="$CMUX_TEST_SPAWNED_PID"
