@@ -91,7 +91,8 @@ struct AgentFeedActionButton: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
         }
-        .frame(maxWidth: .infinity, height: 44)
+        .frame(maxWidth: .infinity)
+        .frame(height: 44)
         .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }
@@ -681,7 +682,8 @@ private struct AgentFeedDecisionControls: View {
             .controlSize(.regular)
             .buttonBorderShape(.roundedRectangle(radius: 9))
             .tint(.white.opacity(0.9))
-            .frame(maxWidth: .infinity, height: 44)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
             .accessibilityIdentifier("MobileAgentFeedPermissionMore")
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
@@ -753,7 +755,8 @@ private struct AgentFeedExitPlanControls: View {
                 .controlSize(.regular)
                 .buttonBorderShape(.roundedRectangle(radius: 9))
                 .tint(.white.opacity(0.9))
-                .frame(maxWidth: .infinity, height: 44)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
                 .accessibilityIdentifier("MobileAgentFeedExitPlanMore")
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",
