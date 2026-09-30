@@ -198,6 +198,18 @@ struct AgentPromptInputDetectorTests {
         #expect(snapshot.state == .dialog)
     }
 
+    @Test("Slash command suggestions above the composer are detected")
+    func slashCommandPopupAbovePrompt() {
+        let screen = [
+            [span("  /goal resume    Resume a goal")],
+            [span("  /help           Show help")],
+            [span("\u{276F}\u{00A0}/goal resume")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.slashCommandPopup)
+        #expect(snapshot.state == .dialog)
+    }
+
     @Test("Text-only screen detection is available for remote panes")
     func textOnlyScreen() {
         let snapshot = AgentPromptSubmissionSnapshot(screenText: "Working...\n› Ask Codex to do anything\n  Tab to queue")

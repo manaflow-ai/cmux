@@ -283,8 +283,9 @@ private extension AgentPromptSubmissionSnapshot {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let promptText = String(promptBody.dropFirst(promptPrefix(in: plainRows[promptRow])?.count ?? 0))
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasSlashOption = plainRows.dropFirst(promptRow + 1).contains { row in
-            row.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+        let hasSlashOption = plainRows.enumerated().contains { index, row in
+            index != promptRow && abs(index - promptRow) <= 8
+                && row.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
         }
         guard hasSlashOption else { return false }
         let hasSelectionHint = bottomRows.contains { row in
