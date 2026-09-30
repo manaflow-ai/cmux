@@ -23,8 +23,10 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 }
 
 /// A subtle fade at the top and bottom of a scrolling list, only on an edge
-/// with content hidden beyond it. It is an alpha mask on the scroll view's
-/// layer, not a painted band, so it matches every theme (light, dark,
+/// with content hidden beyond it. It is an alpha mask on the clip view's
+/// layer (the document's parent; on macOS 26 a mask on the scroll view's own
+/// layer does not reach the document, which AppKit composites with its
+/// scroll-edge pocket), not a painted band, so it matches every theme (light, dark,
 /// room, workspace) and translucent windows with no color of its own. It
 /// updates from the clip view's bounds and frame notifications and the
 /// document's frame notifications (no polling); an edge appears or goes
@@ -40,6 +42,7 @@ public final class ScrollEdgeFade {
     public init(scrollView: NSScrollView) {
         self.scrollView = scrollView
         scrollView.wantsLayer = true
+        scrollView.contentView.wantsLayer = true
         mask.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
         let clip = scrollView.contentView
         clip.postsBoundsChangedNotifications = true
@@ -60,7 +63,7 @@ public final class ScrollEdgeFade {
     /// Re-reads the scroll position; call after the document changes size
     /// when its frame notifications are off.
     public func update(animated: Bool = true) {
-        guard let scrollView, let layer = scrollView.layer else { return }
+        guard let scrollView, let layer = scrollView.contentView.layer else { return }
         observeDocument(scrollView.documentView)
         let clip = scrollView.contentView
         let document = scrollView.documentView
@@ -71,8 +74,9 @@ public final class ScrollEdgeFade {
         Motion.transaction(nil) {
             if layer.mask !== mask { layer.mask = mask }
             mask.frame = layer.bounds
-            // Gradient location 0 is the list's top: y 0 in a flipped layer
-            // (NSScrollView's backing layer is), y 1 otherwise.
+            // The frame follows the clip's bounds, whose origin is the scroll
+            // offset. Gradient location 0 is the list's top: y 0 in a flipped
+            // layer (NSClipView's is), y 1 otherwise.
             let top: CGFloat = layer.isGeometryFlipped ? 0 : 1
             mask.startPoint = CGPoint(x: 0.5, y: top)
             mask.endPoint = CGPoint(x: 0.5, y: 1 - top)
