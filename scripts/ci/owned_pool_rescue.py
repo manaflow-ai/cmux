@@ -20,16 +20,15 @@ ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
 after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
-re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
-retry attempt the std pool, so every macOS job of the re-run lands on
-Blacksmith together, unless CI_OWNED_LIGHT_RETRY is 1 (passed here as
-OWNED_LIGHT_RETRY). Then that full re-run runs `changes` again and may take
-the `light` owned pool, so the watch follows attempt 2 the way it follows
-attempt 1: it waits for `changes` and looks for attempt 2's own marker (the
-marker name carries the attempt), because a macOS job gets its label only
-after the picker has chosen. A job stuck or refused on light has its failed
-and cancelled jobs re-run on attempt 3, which always takes Blacksmith. With
-the variable off, the full re-run is not watched.
+re-runs it. The re-run is attempt 2, which runs `changes` again: the picker
+places it like attempt 1 without queueing (pr_runner_pool.LAST_OWNED_ATTEMPT),
+on the owned machines free now and Blacksmith for the rest. The sweeper finds
+attempt 2 among the unfinished CI runs (owned_reruns()) and watches it the way
+it watches attempt 1: it waits for `changes` and looks for attempt 2's own
+marker (the marker name carries the attempt), because a macOS job gets its
+label only after the picker has chosen, then for late-placement's. A job stuck
+or refused there has its failed and cancelled jobs re-run on attempt 3, which
+always takes Blacksmith.
 
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
@@ -37,15 +36,20 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+(compile admission's `always()` metrics steps still succeed after a refusal).
+A failed job that ran no step at all counts too, whatever its length: GitHub
+fails a job whose runner went away only after 10 minutes ("The self-hosted
+runner lost communication with the server"). A failed Select Xcode or Select
+helper Xcode step also counts, without a time limit, because a missing pin is
+a machine fault even when a helper build succeeded first. The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
 full-suite run (whose failure would open main's red-CI issue), is cancelled
 first.
-That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
-retry_runner, the Blacksmith pool the picker named, and what already passed
-(compile admission, say) is kept. A run on an owned pool is split across pools
+That attempt 2 reuses attempt 1's outputs, so its owned jobs take the owned
+labels again (a runner pinned on attempt 1 is not reused) and what already
+passed (compile admission, say) is kept. A run on an owned pool is split across pools
 anyway (per-job placement, CI_PR_POOL_OWNED_SPLIT), which is
 sound only because both sides run the same Xcode: retry_runner is a macOS
 26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
@@ -53,35 +57,48 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
-A refused job never goes back to the fleet: this rescue re-runs as
-github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
-(Blacksmith), so it cannot land on the mini that refused it, and one re-run
-is all a refusal costs. So the watch ends with that re-run. A person's re-run
-of a pull request (a code failure) goes back to the minis on any attempt with
-no marker of its own; the sweeper finds it among the in-progress CI runs
-(person_reruns()) and watches it like attempt 1, and a job stuck or refused
-there gets the bot's re-run onto Blacksmith.
+glaeda's hook does not refuse a job for the mini's capacity: it waits, with
+no limit, inside the runner's setup until the units and tokens the job needs
+are free. A job on the persistent pool still in its runner's setup
+SETUP_WAIT_SECONDS after it started is stuck like a queued one: once no
+sibling is still running (or the watch is about to end), the run is cancelled
+and re-run the same way. Until then the job is not accepted, so the watch goes
+on.
+
+Attempt 2 goes back to the fleet whoever started it: the failure
+attribution's re-run after a machine failure, this rescue's after a refusal
+or a stuck queue, or a person's. The job takes the owned label, not the mini
+that failed it: a runner that lost communication is offline, and a busy
+mini's gui runner stops listening. A person's re-run of a pull request (a code
+failure) goes back to the minis on any attempt. Neither has a marker of its
+own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
+watches them like attempt 1, and a job stuck or refused there gets the bot's
+next re-run, which every runs-on sends to retry_runner (Blacksmith) from
+attempt 3 on, so a refusal costs two re-runs at most.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
 (with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
 is no head to re-check, and its build and test jobs are not a split that can
-break: from attempt 2 on both take the runner job's retry_label, a macOS 26
-Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
-its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. A UI run's
-retry_label stays on its owned pool, since Blacksmith cannot run UI tests
-(e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
-no attempt past 2 is watched, so it still never loops. A queued UI run
-moved that way only rejoins the same owned queue, costing its place in it;
-the watch stays for the refusals, which a re-run does clear. When the build
-itself did not succeed, every job is re-run instead, so the `sibling` job
-looks again for another run compiling the same revision
-(e2e_build_unfinished). A stuck E2E run
-that finished some other way (a newer dispatch in its concurrency group
-cancelled it) is not re-run, since that would cancel the newer one. Its
-watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
-sibling wait and a build.
+break. A stuck or refused E2E job gets its failed and cancelled jobs re-run,
+keeping a build that passed; those jobs keep attempt 1's pick, so they take
+the runner job's retry_label, a macOS 26 Blacksmith pool on the same Xcode
+build, and the follow-on watch of attempt 2 finds no owned job and stops.
+A UI run's retry_label stays on its owned pool, since Blacksmith cannot run UI
+tests (e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
+no attempt past 2 is watched, so it still never loops. A queued UI run moved
+that way only rejoins the same owned queue, costing its place in it; the watch
+stays for the refusals, which a re-run does clear. When the build itself did
+not succeed, every job is re-run instead, so the `sibling` job looks again for
+another run compiling the same revision (e2e_build_unfinished), and the runner
+job picks again: attempt 2 takes that live pick, which may be an owned Mac,
+because a Blacksmith re-run cannot adopt a product an owned Mac compiled (their
+Rust toolchains differ) and so compiled it again. That attempt is followed like
+a full re-run, by its picker and its own marker, and attempt 3 and later always
+take retry_label. A stuck E2E run that finished some other way (a newer dispatch
+in its concurrency group cancelled it) is not re-run, since that would cancel
+the newer one. Its watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job
+queues only after a sibling wait and a build.
 
 Main's full-suite dispatch of ci.yml (ci-main-full-suite.yml, a
 workflow_dispatch on main) is watched exactly like a pull request run:
@@ -155,9 +172,10 @@ It stops watching, doing nothing, when:
   DISPATCH_WORKFLOW_PATHS;
 - a side-lane run finished with no job on an owned label, or the fleet
   accepted all of its owned jobs;
-- on the attempt 2 it re-ran from failed jobs, no job runs on an owned label;
-- on the attempt 2 it re-ran in full, `changes` finished without that
-  attempt's marker, or CI_OWNED_LIGHT_RETRY is off (not watched at all);
+- on a re-run of failed jobs, no job runs on an owned label once
+  late-placement, if it re-ran, has finished;
+- on a full re-run, `changes` and late-placement finished without that
+  attempt's markers;
 - `changes` finished without a marker: the run is on an ephemeral pool.
   When ci.yml started the watch for late placement (LATE_PLACEMENT=1), it
   first waits for ci-macos.yml's late-placement job and follows the run if
@@ -188,10 +206,10 @@ CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round
 job is still moved. With the rounds at 0 the picker takes an owned pool
 only with machines free now, and the budget is the configured one. A
 test-ios.yml or test-e2e.yml run's picker queues by the same rounds, so it
-gets the same allowance. The configured budget alone is an iOS screenshots
-or side-lane run's (#14391: no picker; the side lanes share the
-runners PR runs queue on, so they are moved to Blacksmith more often), and a
-re-run of failed jobs'.
+gets the same allowance, on every attempt: a re-run of failed jobs queues on
+the owned labels like attempt 1's jobs. The configured budget alone is an iOS
+screenshots or side-lane run's (#14391: no picker; the side lanes share the
+runners PR runs queue on, so they are moved to Blacksmith more often).
 """
 from __future__ import annotations
 
@@ -291,6 +309,8 @@ MARKER_PREFIX = "macos-pool-persistent"
 # owned root runners (late_placement.py), and started this watch itself.
 LATE_MARKER_PREFIX = "macos-pool-late"
 LATE_JOB = "macos / late-placement"
+# Compile admission: when a re-run of failed jobs runs it again, late-placement runs again after it.
+ADMISSION_JOB = "macos / macOS compile admission"
 # A cancelled run is only useful re-run: giving up leaves the pull request's
 # run cancelled for good. A Mac job mid-compile has taken over 5 minutes to
 # settle after a force-cancel (run 36074561333, 2026-09-24), so wait long, and
@@ -310,28 +330,37 @@ JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEO
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails within the runner's setup; a real failure of the first
 # step after checkout takes longer than this, and one that does not is cheap to
-# retry. glaeda's hook may wait up to 240 s inside that setup for the mini's one
-# gui token (GUI_WAIT_S) before refusing, and an app-host shard waiting there
-# costs far less than a refusal's rescue round trip and a Blacksmith re-run
-# (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
+# retry. glaeda's hook once waited up to 240 s inside that setup for the mini's
+# capacity before refusing; it now waits with no limit (SETUP_WAIT_SECONDS
+# covers that), so a refusal is the hook's other checks, which answer at once.
 REFUSAL_SECONDS = 360
-# The last attempt of the bot's own re-runs that may run on an owned pool: a
-# stuck run's full re-run on the light tier (CI_OWNED_LIGHT_RETRY). A person's
-# re-run of a pull request (a code failure: pr_runner_pool.host_fault_retry())
-# goes back to the minis on any attempt and is watched whatever its attempt
-# (person_rerun()); the rescue's re-run of it is the bot's, on Blacksmith.
+# The last attempt of the bot's own re-runs that may run on an owned pool
+# (pr_runner_pool.LAST_OWNED_ATTEMPT): attempt 2 is placed like attempt 1. A
+# person's re-run of a pull request (a code failure:
+# pr_runner_pool.host_fault_retry()) goes back to the minis on any attempt and
+# is watched whatever its attempt (owned_rerun()); the rescue's re-run of it is
+# the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
 RESCUE_ACTOR = "github-actions[bot]"
 
 
-def person_rerun(run: Mapping[str, Any]) -> bool:
-    """A re-run of a pull request's CI run someone other than github-actions[bot] started: its owned jobs go
-    back to the minis, so it is watched like attempt 1."""
-    return (int(run.get("run_attempt") or 0) > 1 and run.get("path") == CI_WORKFLOW_PATH
-            and run.get("event") == "pull_request"
-            and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
+def owned_rerun(run: Mapping[str, Any]) -> bool:
+    """A re-run of a CI run whose owned jobs go back to the minis, so it is watched like attempt 1: attempt 2,
+    or a later one of a pull request someone other than github-actions[bot] started."""
+    attempt = int(run.get("run_attempt") or 0)
+    return attempt > 1 and run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
+        run.get("event") == "pull_request"
+        and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+XCODE_SELECTION_STEPS = frozenset({"Select Xcode", "Select helper Xcode"})
+# glaeda's hook no longer refuses a job for the mini's capacity: it waits,
+# with no limit, inside the runner's setup ("Set up runner") until the units
+# and tokens it needs are free (glaeda CAPACITY_WAIT, 2026-09-28). A job still
+# there this long after it started is stuck like a queued one and is moved the
+# same way (Look "rescue"). A compile waiting for a canonical root normally
+# waits for one running compile, about 7 minutes.
+SETUP_WAIT_SECONDS = 15 * 60
 MAX_JOB_PAGES = 3
 # Main's full-suite dispatch (ci-main-full-suite.yml) runs ci.yml on this branch.
 MAIN_BRANCH = "main"
@@ -382,6 +411,23 @@ def waiting_for_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
+def in_setup(job: Mapping[str, Any]) -> bool:
+    """A job its runner took that is still in the runner's setup, where glaeda's hook waits for capacity."""
+    if job.get("status") != "in_progress":
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    return any(step.get("name") in SETUP_STEPS and step.get("status") == "in_progress" for step in steps)
+
+
+def setup_seconds(job: Mapping[str, Any], now: dt.datetime) -> float:
+    """How long the job has been in its current setup step (glaeda's hook runs in "Set up runner")."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    step = next((step for step in steps if step.get("name") in SETUP_STEPS and step.get("status") == "in_progress"),
+                None)
+    started = parse_time((step or {}).get("started_at")) or parse_time(job.get("started_at"))
+    return 0.0 if started is None else max(0.0, (now - started).total_seconds())
+
+
 def wait_start(job: Mapping[str, Any], first_seen: dt.datetime | None = None) -> dt.datetime | None:
     created = parse_time(job.get("created_at"))
     return max(filter(None, (created, first_seen)), default=None)
@@ -412,13 +458,24 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
 
 
 def refused(job: Mapping[str, Any]) -> bool:
-    """A job the owned runner refused at job start (see the module docstring)."""
+    """An owned runner's setup or Xcode pin failure, or a lost runner."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    if not steps:
+        # The runner ran nothing, not even "Set up job": GitHub failed a job whose
+        # runner went away ("The self-hosted runner lost communication with the
+        # server"), which it reports only after 10 minutes, so no length applies
+        # (run 36420353579).
+        return True
+    # A helper build can precede Xcode selection, so neither elapsed time nor
+    # earlier successful steps make a missing pin a source failure.
+    if any(step.get("name") in XCODE_SELECTION_STEPS and step.get("conclusion") == "failure"
+           for step in steps):
+        return True
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
         return False
-    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
     # The hook runs inside the runner's own setup, so a failed setup step is a
     # refusal even when the job's `always()` steps still ran and succeeded.
     if any(step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
@@ -428,12 +485,27 @@ def refused(job: Mapping[str, Any]) -> bool:
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
-    """An owned job its runner took and has not refused: started over REFUSAL_SECONDS ago, or done."""
+    """An owned job its runner took and has not refused: past its setup and started over REFUSAL_SECONDS ago,
+    or done."""
     if job.get("status") == "completed":
         return not refused(job)
     started = parse_time(job.get("started_at"))
-    return job.get("status") == "in_progress" and started is not None and \
+    return job.get("status") == "in_progress" and not in_setup(job) and started is not None and \
         (now - started).total_seconds() > REFUSAL_SECONDS
+
+
+def carried(job: Mapping[str, Any], attempt_started: dt.datetime | None = None) -> bool:
+    """A job a re-run of failed jobs kept from an earlier attempt.
+
+    GitHub's attempt-jobs response has no documented ``created_at`` field. When
+    the workflow run supplies its API-backed attempt start, compare the job's
+    start with that boundary; retain the receipt fallback for older callers.
+    """
+    if attempt_started is not None:
+        started = parse_time(job.get("started_at"))
+        return started is not None and started < attempt_started
+    created, started = parse_time(job.get("created_at")), parse_time(job.get("started_at"))
+    return created is not None and started is not None and started < created
 
 
 def picker_finished(jobs: Sequence[Mapping[str, Any]], picker_job: str = PICKER_JOB) -> bool:
@@ -452,6 +524,16 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
+                 deadline: dt.datetime | None) -> float:
+    """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
+    job_budget() cuts a queued job's), and never below the queued budget."""
+    if deadline is None:
+        return SETUP_WAIT_SECONDS
+    left = setup_seconds(job, now) + (deadline - now).total_seconds() - END_MARGIN_SECONDS
+    return min(SETUP_WAIT_SECONDS, max(budget_seconds, left))
+
+
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None) -> Look:
@@ -465,12 +547,24 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
+    settling = [job for job in jobs if job_pool(job) and in_setup(job)]
+    held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
+    # Cancelling the run would kill siblings still running (run 36198335113 lost five
+    # shards that way to a refusal), so a job held in setup waits for them, as a
+    # refusal does, until the watch is about to end.
+    running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
+    closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
+    if held and (not running or closing):
+        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
+        return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
+                              f"{SETUP_WAIT_SECONDS}s")
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
-        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start")
-    if waiting:
-        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner", waiting=True)
+        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if waiting or settling:
+        return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
+                    waiting=True)
     return Look("watch", "no job is waiting for a persistent runner")
 
 
@@ -562,12 +656,16 @@ class GitHub:
     def run(self, run_id: int) -> Mapping[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
 
-    def person_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of in-progress CI runs a person re-ran (person_rerun()): a re-run of failed jobs
-        uploads no marker."""
-        data = self.request("GET", f"/actions/workflows/ci.yml/runs?status=in_progress&per_page={count}")
-        return [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                if isinstance(run, Mapping) and run.get("id") and person_rerun(run)]
+    def owned_reruns(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of unfinished CI re-runs whose owned jobs go back to the minis (owned_rerun()): a
+        re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
+        runner, so both statuses are read."""
+        found: list[tuple[int, int]] = []
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/workflows/ci.yml/runs?status={status}&per_page={count}")
+            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
@@ -665,6 +763,7 @@ class Target:
     # ci.yml started this watch because late-placement may move jobs onto owned
     # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
     late: bool = False
+    attempt_started_at: dt.datetime | None = None
 
     @property
     def picker_job(self) -> str:
@@ -688,6 +787,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, {NIGHTLY_WORKFLOW_PATH}, "
                 f"a side-lane workflow or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
+    attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
     on_main = (path == CI_WORKFLOW_PATH and run.get("event") == "workflow_dispatch"
             and run.get("head_branch") == MAIN_BRANCH)
     # test-ios.yml also runs for pull requests: watched as an E2E run, but
@@ -706,17 +806,20 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True, path=str(path))
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
+                      path=str(path), attempt_started_at=attempt_started)
     if on_main:
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True)
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
+                      attempt_started_at=attempt_started)
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
-        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path))
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
+                      attempt_started_at=attempt_started)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path))
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
@@ -792,13 +895,24 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             elif run_finished(jobs):
                 return "stop", "no job of the run asked for a persistent pool"
         elif not on_persistent and target.attempt > 1 and not target.full_rerun:
-            # A re-run of failed jobs: no `changes` job, no marker, and every
-            # job is created with the re-run. Follow it only if one asks for
-            # an owned pool; the first look that lists jobs decides.
+            # A re-run of failed jobs: no `changes` job, no marker. Follow it
+            # if a job asks for an owned pool. When it runs compile admission
+            # again, late-placement runs after it and may move the jobs after
+            # admission onto one, so its marker decides; otherwise the first
+            # look that lists jobs does.
+            late = next((job for job in jobs if job.get("name") == LATE_JOB
+                         and not carried(job, target.attempt_started_at)), None)
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a re-run job asked for a persistent pool")
-            elif jobs:
+            elif late is not None and late.get("status") == "completed":
+                if late.get("conclusion") != "success" or not read(
+                        lambda: api.has_artifact(target.run_id, late_marker_name(target)), sleep, log):
+                    return "stop", "late placement moved no job onto a persistent pool"
+                log("late placement moved jobs onto a persistent pool")
+                on_persistent = True
+            elif jobs and (run_finished(jobs) or late is None and not any(
+                    job.get("name") == ADMISSION_JOB and not carried(job, target.attempt_started_at) for job in jobs)):
                 return "stop", "no job of this attempt asked for a persistent pool"
         elif not on_persistent:
             if picker_finished(jobs, target.picker_job):
@@ -851,9 +965,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
                 owned = [job for job in jobs if job_pool(job)]
-                # A full re-run's shards exist only after its admission, so
-                # its watch goes on until the run finishes.
-                if (target.attempt > 1 and not target.full_rerun and owned
+                # A re-run that runs its own admission (a full one, or a re-run
+                # of a failed admission) makes its shards only after that
+                # admission, so its watch goes on until the run finishes.
+                own_admission = any(job.get("name") == ADMISSION_JOB
+                                    and not carried(job, target.attempt_started_at) for job in jobs)
+                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
@@ -870,6 +987,8 @@ def next_attempt(target: Target) -> str:
     following = target.attempt + 1
     if target.side:
         return f"attempt {following} takes the side lane's Blacksmith default"
+    if following <= LAST_OWNED_ATTEMPT and not target.e2e:
+        return f"attempt {following} goes back to the owned labels, where the sweeper watches it"
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
@@ -1002,8 +1121,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id, target.attempt + 1)
-    return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool, "
-            "or the light tier when CI_OWNED_LIGHT_RETRY is 1 and it is free")
+    if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
+        return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
+                "free now first, and the sweeper watches it")
+    return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
@@ -1029,7 +1150,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("POOL_OWNED") or "").strip() != "1":
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
     seconds = budget(env.get("RESCUE_SECONDS"))
-    light_retry = (env.get("OWNED_LIGHT_RETRY") or "").strip() == "1"
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
                       "nothing to watch")
@@ -1039,7 +1159,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("SWEEP") or "").strip() == "1":
         # One job for every marked run (sweep()); its per-run lines go to the log only.
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                         light_retry=light_retry, now=clock, log=lambda text: print(text, flush=True))
+                         now=clock, log=lambda text: print(text, flush=True))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -1064,16 +1184,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         target = dataclasses.replace(target, late=True)
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                             light_retry=light_retry, now=clock, sleep=sleep, log=log))
+                             now=clock, sleep=sleep, log=log))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")
         return 1
 
 
-def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None, light_retry: bool,
+def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None,
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
-           rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None) -> str:
+           rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
+           light_retry: bool = False) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
 
     The sweeper stops a watch by making `sleep` raise; a rescue paces itself
@@ -1103,41 +1224,33 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         queue_extra = QUEUE_ROUND_SECONDS
     log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"
         + (f": {seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
-    # A watch deadline for attempt 1, and a fresh one (capped by the job's
-    # timeout) for an attempt it re-ran and follows. A rescue may run past it,
-    # within the job's own timeout, so a cancel is never started without the
-    # time to settle and re-run.
+    # A rescue may run past the watch deadline, within the job's own timeout,
+    # so a cancel is never started without the time to settle and re-run.
     started = clock()
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
-    first_budget = seconds + queue_extra if target.attempt == 1 else seconds
+    # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
+    first_budget = seconds + queue_extra
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=seconds if target.attempt == 1 else None)
+                            log=log, deadline=deadline, floor_seconds=seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
         # An E2E run always keeps what passed (see the module docstring).
-        # A side-lane run too: its other jobs are on Blacksmith already.
         failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused")
         log(result)
-        # A re-run of failed jobs runs every job on Blacksmith (retry_runner, or
-        # a side lane's default), so there is nothing to follow. Only a stuck
-        # run's full re-run may take the light tier (CI_OWNED_LIGHT_RETRY),
-        # and that one is watched here.
-        if target.nightly or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
+        # Only an E2E full re-run picks a new runner in this watch. Other CI
+        # re-runs are resumed by the sweeper through owned_reruns().
+        if not target.e2e or not result.startswith("re-ran every job") or target.attempt + 1 > LAST_OWNED_ATTEMPT:
             return "done"
-        if failed_only or not light_retry:
-            return "done"
-        target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only, late=False)
-        # The followed attempt gets its own watch: a late rescue of attempt 1
-        # would otherwise leave it the tail of attempt 1's, ending before its
-        # owned jobs even queue. The job's timeout still caps watch plus grace.
+        full_rerun = True
+        target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=full_rerun, late=False)
         deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
             seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
         rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
@@ -1193,11 +1306,12 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most).
 
     A finished run is only worth a look when it failed after `since`: a
-    refusal nobody re-ran yet. `full_rerun` says attempt 2 re-ran the picker
-    (a stuck run's re-run under CI_OWNED_LIGHT_RETRY).
+    refusal nobody re-ran yet. `full_rerun` says the re-run ran the picker
+    again (a stuck run's re-run, or a person's full one), so its own markers
+    decide, the picker's and then late-placement's.
     """
     attempt = int(run.get("run_attempt") or 0)
-    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not person_rerun(run):
+    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
         if run.get("conclusion") != "failure":
@@ -1209,23 +1323,24 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     if isinstance(target, str):
         return target
     if attempt > 1:
-        # A re-run (a rescue, or a person): follow its owned jobs, if any.
-        return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun)
+        # A re-run (a rescue, the failure attribution, or a person): follow its owned jobs, if any.
+        return dataclasses.replace(target, attempt=attempt, full_rerun=full_rerun,
+                                   late=full_rerun and not (target.e2e or target.main or target.side))
     if late and not (target.e2e or target.main or target.side):
         return dataclasses.replace(target, late=True)
     return target
 
 
-def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None, light_retry: bool,
+def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None,
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
-          wait: Callable[[float], None] = time.sleep) -> dict[str, int]:
+          wait: Callable[[float], None] = time.sleep, light_retry: bool = False) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass. Returns outcome counts."""
     stopping = threading.Event()
     lock = threading.Lock()
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
-    rerun_seen: set[tuple[int, int]] = set()  # person re-runs, once per attempt (person_reruns())
+    rerun_seen: set[tuple[int, int]] = set()  # re-runs, once per attempt (owned_reruns())
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
@@ -1239,8 +1354,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         def say(text: str) -> None:
             log(f"[run {target.run_id}] {text}")
         try:
-            outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds, light_retry=light_retry,
-                             now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest)
+            outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds,
+                             now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest,
+                             light_retry=light_retry)
         except Stopping:
             outcome = "handed over"
         except (*READ_ERRORS, Aborted) as error:
@@ -1265,7 +1381,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             return
         rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
-        if light_retry and int(run.get("run_attempt") or 0) > 1:
+        if int(run.get("run_attempt") or 0) > 1:
             # A full re-run ran the picker again; a re-run of failed jobs kept attempt 1's.
             try:
                 jobs = read(lambda: client.jobs(run_id, int(run["run_attempt"])), wait, log)
@@ -1274,7 +1390,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
                 return
             picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
-            full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1 for job in jobs)
+            attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
+            full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
+                             and not carried(job, attempt_started) for job in jobs)
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
@@ -1296,9 +1414,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
-        # A person's re-run of failed jobs goes back to the minis with no marker of its own; one listing a tick.
+        # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
-            reruns = client.person_reruns(SWEEP_LISTING)
+            reruns = client.owned_reruns(SWEEP_LISTING)
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []

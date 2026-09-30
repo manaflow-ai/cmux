@@ -27,7 +27,7 @@ struct AgentHookDeliveryEvent: Sendable {
         "session-end",
     ]
 
-    private static let allowedHookDataEnvironmentKeys: Set<String> = [
+    private static let allowedHookDataEnvironmentKeys: Set<String> = Set([
         "PWD",
         "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
         AgentHookDeliveryPolicy.routeSnapshotEnvironmentKey,
@@ -38,14 +38,14 @@ struct AgentHookDeliveryEvent: Sendable {
         // Relay SessionStart resume binding; read only under relay origin.
         RelayAgentResumeContext.ancestorExecutablesEnvironmentKey,
         RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey,
-    ]
+    ]).union(SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys)
 
-    private static let optionalLaunchEnvironmentKeys: Set<String> = [
+    private static let optionalLaunchEnvironmentKeys: Set<String> = Set([
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         RelayAgentResumeContext.ancestorExecutablesEnvironmentKey,
         RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey,
-    ]
+    ]).union(SubrouterClaudeResumeRouting.hookCapturedEnvironmentKeys)
 
     let agent: String
     let subcommand: String

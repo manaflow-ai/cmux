@@ -425,10 +425,15 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let hasCompleteProcessGroups = processGroupIDs.allSatisfy { processGroupID in
             processesByPID[processGroupID]?.processGroupID == processGroupID
         }
+        let hasLiveBackgroundWork = !agentBackgroundWorkProcessIDs(
+            agentRootPIDs: boundedAgentRoots,
+            descendantProcessIDs: descendantProcessIDs
+        ).isEmpty
         return (
             observedPanelProcessIDs,
             terminationProcessIDs,
-            !hasCompleteAgentRoots ||
+            hasLiveBackgroundWork ||
+                !hasCompleteAgentRoots ||
                 !hasTerminalEvidence ||
                 !hasCompleteTerminationTTYEvidence ||
                 processGroupIDs.isEmpty ||

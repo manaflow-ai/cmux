@@ -121,6 +121,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Shared terminal sizing verbs are dispatched by the worker switch and
+        // hop to MainActor for the one store mutation (TerminalSharingStore).
+        "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
+        "terminal.size_counts.set", "terminal.participant.disconnect",
+        "terminal.participants.disconnect_others",
         // Same profile as set_font: UserDefaults reads/writes plus a push
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",
@@ -206,6 +211,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Window recording samples ScreenCaptureKit on a schedule for as long
+        // as the clip lasts. The sampling loop must never own the main actor:
+        // the window it is filming has to keep drawing.
+        "window.record.start",
+        "window.record.stop",
+        "window.record.status",
+        "window.record.note",
+        "window.record.list",
+        // A still runs the same ScreenCaptureKit capture once. The window being
+        // shot has to draw while the capture waits, so it stays off the main
+        // actor too.
+        "window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -240,6 +257,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.focus",
         "browser.type",
         "browser.fill",
+        "browser.set_input_files",
         "browser.press",
         "browser.keydown",
         "browser.keyup",

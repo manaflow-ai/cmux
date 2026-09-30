@@ -110,7 +110,7 @@ describe("support contact route", () => {
       mock: { calls: Array<[Record<string, unknown>]> };
     }).mock.calls;
     expect(resendCalls[0]?.[0]).toMatchObject({
-      to: ["founders@manaflow.com"],
+      to: ["founders@cmux.com"],
       replyTo: "ada@good.test",
       subject: "Support request (Bug report): ada@good.test",
     });

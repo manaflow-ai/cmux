@@ -67,10 +67,16 @@ impl SshCloudConnector {
             OsString::from("RequestTTY=no"),
             OsString::from("-o"),
             OsString::from("RemoteCommand=none"),
+            // This link never becomes a ControlMaster, so turning forwarding
+            // off can't reach an interactive session to the same host.
+            OsString::from("-o"),
+            OsString::from("ControlMaster=no"),
             OsString::from("-o"),
             OsString::from("ClearAllForwardings=yes"),
             OsString::from("-o"),
             OsString::from("ForwardAgent=no"),
+            OsString::from("-o"),
+            OsString::from("ForwardX11=no"),
             OsString::from("-o"),
             OsString::from("ServerAliveInterval=15"),
             OsString::from("-o"),
@@ -323,6 +329,31 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    /// The registration link never becomes a ControlMaster, so turning its
+    /// forwarding off cannot reach an interactive session.
+    #[test]
+    fn machine_agent_uses_hardened_ssh_argv() {
+        let connector = SshCloudConnector::new(SshOptions {
+            host: "cmux.cloud".into(),
+            user: None,
+            port: None,
+            identity_file: None,
+        })
+        .unwrap();
+        let args = connector.command_args();
+        for option in
+            ["ControlMaster=no", "ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes"]
+        {
+            let index = args
+                .iter()
+                .position(|argument| argument == option)
+                .unwrap_or_else(|| panic!("missing -o {option}"));
+            assert_eq!(args[index - 1], "-o");
+        }
+        let separator = args.iter().position(|argument| argument == "--").unwrap();
+        assert_eq!(args[separator + 1], "cmux.cloud");
     }
 
     #[test]

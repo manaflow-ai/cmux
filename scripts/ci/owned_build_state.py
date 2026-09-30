@@ -104,6 +104,10 @@ to one that does not, and when both the kept DerivedData and the kept seed
 would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
 250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
+When both recompile the app and no such download applies, the kept
+DerivedData stays, however many fewer inputs the kept seed changes: from
+2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a package interface
+change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
 
 `keep` also stamps MERGED_ONTO, the main commit the kept build merged onto,
 and `warm-keys` prints the main commits this Mac starts from cheaply, for the
@@ -285,14 +289,42 @@ def sweep_discarded(store: Path) -> None:
 # STORE/pr-builds/pr-<n> (a rename, no copy), and `check` for pull request n swaps it back in before
 # anything else reads the kept state. glaeda's hook reads the parked stamp when it ranks roots, and
 # `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
-# PR_SLOTS parked builds, each for PR_SLOT_HOURS. There is no free-disk floor: parked builds are the
+# PR_SLOTS parked builds. A parked build is reusable while the host's measured CI-job reuse distance
+# is below PR_SLOT_MAX_JOBS; without the job log, the slot count is the safe bound. There is no free-disk floor: parked builds are the
 # first thing given up when space runs out. `keep` that hits ENOSPC evicts every parked build on the
 # mini, oldest first, with the SwiftPM package builds no job holds (owned_spm_scratch.py evict), and
 # retries, and `evict-parked` does the same for parked builds for disk tooling (glaeda-disk).
 # A main build is never parked, so eviction never touches one.
 PR_BUILDS = "pr-builds"
 PR_SLOTS = 2
-PR_SLOT_HOURS = 6
+PR_SLOT_MAX_JOBS = int(os.environ.get("CMUX_PR_SLOT_MAX_JOBS", "80"))
+
+
+def parked_jobs_since(slot: Path) -> int | None:
+    """Count host CI jobs started since SLOT was parked; None when telemetry is unavailable."""
+    log = Path(os.environ.get("CMUX_JOB_LOG", Path.home() / "Library/Logs/glaeda-cmux-jobs.jsonl"))
+    try:
+        parked_at = slot.stat().st_mtime
+        count = 0
+        with log.open(encoding="utf-8", errors="replace") as file:
+            for line in file:
+                if '"started"' not in line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if event.get("event") == "started" and isinstance(event.get("at"), (int, float)) \
+                        and event["at"] >= parked_at:
+                    count += 1
+        return count
+    except OSError:
+        return None
+
+
+def parked_slot_usable(slot: Path) -> bool:
+    jobs = parked_jobs_since(slot)
+    return jobs is None or jobs < PR_SLOT_MAX_JOBS
 
 
 def pr_slot(store: Path, number: object) -> Path | None:
@@ -326,8 +358,7 @@ def evict_parked(store: Path, count: int | None = None) -> list[str]:
 
 
 def prune_pr_slots(store: Path, now: float | None = None) -> None:
-    """Drop parked builds past PR_SLOT_HOURS, then all but the newest PR_SLOTS."""
-    now = time.time() if now is None else now
+    """Drop parked builds past the measured reuse distance, then all but newest PR_SLOTS."""
     try:
         entries = list((store / PR_BUILDS).iterdir())
     except OSError:
@@ -356,7 +387,7 @@ def prune_pr_slots(store: Path, now: float | None = None) -> None:
             continue
     dated.sort(reverse=True)
     for index, (moment, path) in enumerate(dated):
-        if index >= PR_SLOTS or now - moment > PR_SLOT_HOURS * 3600:
+        if index >= PR_SLOTS or not parked_slot_usable(path):
             with contextlib.suppress(OSError, RuntimeError):
                 clear(path)
 
@@ -419,14 +450,11 @@ def mini_keep_lock(store: Path):
 
 
 def usable_slot(store: Path, number: object, fingerprint: str) -> Path | None:
-    """Pull request NUMBER's parked build beside STORE, when fresh and of FINGERPRINT."""
+    """Pull request NUMBER's parked build beside STORE, when within the reuse distance and fingerprinted."""
     slot = pr_slot(store, number)
     if slot is None or not (slot / DERIVED).is_dir():
         return None
-    try:
-        if time.time() - slot.stat().st_mtime > PR_SLOT_HOURS * 3600:
-            return None  # expired: neither published nor routed to
-    except OSError:
+    if not parked_slot_usable(slot):
         return None
     if not fingerprint or read_stamp(slot).get("fingerprint") != stamped(fingerprint):
         return None
@@ -458,14 +486,13 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
 
 
 def parked_stamps(store: Path, now: float | None = None) -> list[dict[str, object]]:
-    """The current (STATE_VERSION, under PR_SLOT_HOURS) stamps of the builds parked beside STORE, newest first."""
-    now = time.time() if now is None else now
+    """The current (STATE_VERSION, within the reuse distance) parked stamps, newest first."""
     try:
         dated = sorted(((path.stat().st_mtime, path) for path in (store / PR_BUILDS).iterdir()
                         if path.name.startswith("pr-") and (path / DERIVED).is_dir()), reverse=True)
     except OSError:
         return []
-    slots = [path for moment, path in dated if now - moment <= PR_SLOT_HOURS * 3600]
+    slots = [path for _moment, path in dated if parked_slot_usable(path)]
     found = []
     for slot in slots:
         stamp = read_stamp(slot)
@@ -1016,7 +1043,12 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
-        if seed_cost < kept_cost:
+        if seed_cost[0] and kept_cost[0]:
+            # Both recompile the whole app, so the seed's fewer changed inputs save nothing, and the kept
+            # build recompiles it faster: from 2026-09-27 17:45Z to 2026-09-28, 269 local-seed starts with a
+            # package interface change compiled in 515 s at the median, kept builds with one in 408 to 429 s.
+            result["reason"] = "the kept DerivedData and the seed this Mac keeps both recompile the app"
+        elif seed_cost < kept_cost:
             touch_kept_seed(key)
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
             best, local_distance = seed_cost, distance

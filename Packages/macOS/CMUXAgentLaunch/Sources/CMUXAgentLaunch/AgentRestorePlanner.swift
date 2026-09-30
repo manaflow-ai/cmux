@@ -68,6 +68,10 @@ public struct AgentRestorePlanner: Sendable {
             ambientEnvironment: ambientEnvironment
         )
         let routedClaudeResume = routedClaudeLaunch?.arguments
+        guard routedClaudeResume != nil ||
+            missingRoutedLauncher(for: request, ambientEnvironment: ambientEnvironment) == nil else {
+            return nil
+        }
         guard let plannedArguments = plannedArguments(
             for: request,
             kind: kind,
@@ -209,6 +213,18 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         guard !routedArguments.isEmpty else { return nil }
+        // Last, so launcher and wrapper routing never see the prompt. An argv that does not
+        // resume the session in the kind's own form keeps its plain resume.
+        if request.mode == .resumeAgent,
+           let prompt = normalized(request.continuationPrompt),
+           let checkpointID = normalized(request.checkpointID),
+           let prompted = AgentResumeContinuationPrompt(prompt: prompt).applying(
+               to: routedArguments,
+               kind: kind,
+               sessionID: checkpointID
+           ) {
+            routedArguments = prompted
+        }
 
         return AgentRestoreInvocation(
             arguments: routedArguments,
@@ -261,6 +277,32 @@ public struct AgentRestorePlanner: Sendable {
             ),
             unavailableExecutable: nil
         )
+    }
+
+    /// The launcher (`sr` or `subrouter`) a proven Subrouter Claude launch needs
+    /// for its resume, when it cannot be found on the restore PATH. `nil` when
+    /// the request is not a proven routed launch or its launcher resolves.
+    ///
+    /// - Parameters:
+    ///   - request: Structured restore data.
+    ///   - ambientEnvironment: The current CLI environment inherited by the child.
+    /// - Returns: The missing launcher program name, or `nil`.
+    public func missingRoutedLauncher(
+        for request: AgentRestoreRequest,
+        ambientEnvironment: [String: String]
+    ) -> String? {
+        guard normalizedKind(request.kind) == "claude",
+              request.mode == .resumeAgent,
+              let launch = request.launchCommand else {
+            return nil
+        }
+        let router = SubrouterClaudeResumeRouting()
+        guard router.provesRoutedLaunch(launcher: launch.launcher, environment: launch.environment),
+              let launcher = router.launcherExecutable(in: launch.environment),
+              !isResolvableOnRestorePath(launcher, ambientEnvironment: ambientEnvironment) else {
+            return nil
+        }
+        return launcher
     }
 
     private func isResolvableOnRestorePath(
@@ -437,6 +479,7 @@ public struct AgentRestorePlanner: Sendable {
             }
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.environmentKey)
             selected.removeValue(forKey: SubrouterClaudeResumeRouting.launchBoundEnvironmentKey)
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }

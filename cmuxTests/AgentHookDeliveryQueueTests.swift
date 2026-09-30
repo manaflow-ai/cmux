@@ -667,6 +667,26 @@ struct AgentHookDeliveryQueueTests {
         #expect(unsupportedEnvironment == nil)
     }
 
+    /// The routed launch's account pin rides the queued session-start hook to
+    /// the capture that records it; the ingress used to reject the event.
+    @Test("Queued Claude hooks carry the routed launch metadata")
+    func queuedClaudeHookCarriesRoutedLaunchMetadata() throws {
+        let environment = [
+            "CMUX_SURFACE_ID": "surface-a",
+            SubrouterClaudeResumeRouting.accountEnvironmentKey: "me@example.com",
+            SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+        ]
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "agent": "claude",
+            "subcommand": "session-start",
+            "payload": "{}",
+            "socket_path": "/tmp/cmux-test.sock",
+            "environment": environment,
+        ]))
+        #expect(event.environment == environment)
+    }
+
     @Test("Every agent shares generic lifecycle queue admission")
     func allAgentsShareLifecycleAdmission() throws {
         let agents = [
