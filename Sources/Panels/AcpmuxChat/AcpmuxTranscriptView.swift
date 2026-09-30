@@ -122,13 +122,22 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         if !estimatedRows.isEmpty { setNeedsFlush() }
     }
 
-    /// Measures up to `limit` estimated rows and corrects their heights, keeping the
-    /// viewport anchored.
-    private func refineEstimatedRows(limit: Int) {
+    /// Measures estimated rows for at most `budget` seconds and corrects their heights,
+    /// keeping the viewport anchored. Rows nearest the viewport go first.
+    private func refineEstimatedRows(budget: CFTimeInterval) {
         guard !estimatedRows.isEmpty else { return }
+        let deadline = CACurrentMediaTime() + budget
+        let visible = tableView.rows(in: scrollView.contentView.bounds)
+        let center = visible.location + visible.length / 2
+        let ordered = estimatedRows.sorted { abs($0 - center) < abs($1 - center) }
         var batch = IndexSet()
-        for index in estimatedRows.prefix(limit) where index < rows.count { batch.insert(index) }
-        estimatedRows.subtract(IndexSet(estimatedRows.prefix(limit)))
+        for index in ordered {
+            if index < rows.count { _ = layout(for: index) }
+            batch.insert(index)
+            if CACurrentMediaTime() >= deadline { break }
+        }
+        estimatedRows.subtract(batch)
+        batch = batch.filteredIndexSet { $0 < rows.count }
         measureWindow = 0..<rows.count
         let anchor = isPinnedToBottom ? nil : captureAnchor()
         isAdjustingScroll = true
@@ -177,9 +186,9 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
             flush()
         }
         if !estimatedRows.isEmpty {
-            // Refine offscreen estimates a batch per frame, smaller while the user drags.
-            // Small batches keep each frame's measuring well under a 120 Hz frame budget.
-            refineEstimatedRows(limit: inLiveResize ? 12 : 30)
+            // Refine offscreen estimates within a small time slice per frame, so the
+            // measuring never takes a 120 Hz frame (8.3 ms) from scrolling or resizing.
+            refineEstimatedRows(budget: 0.002)
         }
         if !needsFlush && estimatedRows.isEmpty { link.isPaused = true }
     }
