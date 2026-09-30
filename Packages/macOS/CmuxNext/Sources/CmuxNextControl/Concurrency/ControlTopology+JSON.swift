@@ -7,6 +7,7 @@ extension ControlTopology {
         [
             "loaded": .bool(isLoaded),
             "daemon_state": .string(daemonState),
+            "daemon_failure": daemonFailure.map { .string($0) } ?? .null,
             "focus": focus.json,
             "windows": .array(windows.map(\.json)),
             "workspace_groups": .array(workspaceGroups.map(\.json)),

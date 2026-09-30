@@ -57,14 +57,25 @@ public final class BrowserChromeView: NSView {
     private let density = DensityBinding()
     private lazy var extensionToolbar = ExtensionActionToolbar(slot: extensionSlot)
 
-    public static var toolbarHeight: CGFloat { BrowserMetrics.toolbarHeight }
+    public static var toolbarHeight: CGFloat { OmnibarStyle.toolbarHeight }
+
+    /// Omnibar editing boundaries. When set, the App owns focus: the chrome
+    /// only loads a committed URL and never moves focus itself. When nil,
+    /// commit and cancel return focus to the page.
+    public var onOmnibarEvent: ((OmnibarEvent) -> Void)?
+
+    /// Where finished page loads are recorded (omnibar history suggestions).
+    public var history: (any BrowserHistoryStore)?
+    private var recordedURL: URL?
+    private var recordedTitle: String?
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
-        backButton = ChromeIconButton(symbol: "chevron.left", label: Strings.back, action: nil, target: nil)
-        forwardButton = ChromeIconButton(symbol: "chevron.right", label: Strings.forward, action: nil, target: nil)
-        reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil)
+        // Helium/Chromium toolbar glyphs: plain arrows, not chevrons.
+        backButton = ChromeIconButton(symbol: "arrow.left", label: Strings.back, action: nil, target: nil, toolbar: true)
+        forwardButton = ChromeIconButton(symbol: "arrow.right", label: Strings.forward, action: nil, target: nil, toolbar: true)
+        reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil, toolbar: true)
         super.init(frame: .zero)
         wantsLayer = true
         buildLayout()
@@ -161,21 +172,21 @@ public final class BrowserChromeView: NSView {
         }
         density.update { [extensionSlot] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing
-            navigation.spacing = BrowserMetrics.buttonSpacing
+            navigation.spacing = OmnibarStyle.buttonSpacing
         }
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
-            density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { BrowserMetrics.toolbarInset },
+            density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { BrowserMetrics.itemSpacing },
+            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
             addressBar.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { BrowserMetrics.itemSpacing },
-            density.bind(extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -BrowserMetrics.toolbarInset },
+            density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
+            density.bind(extensionSlot.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
+            density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { BrowserMetrics.minimumAddressWidth },
 
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
@@ -222,12 +233,16 @@ public final class BrowserChromeView: NSView {
         forwardButton.action = #selector(goForward)
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
-        addressBar.onNavigate = { [weak self] url in
-            guard let self else { return }
-            self.tab.load(url)
-            self.tab.setFocused(true)
+        addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
+    }
+
+    private func omnibarEvent(_ event: OmnibarEvent) {
+        if case .didEndEditing(.commit(let url)) = event { tab.load(url) }
+        if let onOmnibarEvent { return onOmnibarEvent(event) }
+        switch event {
+        case .didEndEditing(.commit), .didEndEditing(.cancel): tab.setFocused(true)
+        case .didBeginEditing, .didEndEditing(.blur): break
         }
-        addressBar.onCancel = { [weak self] in self?.tab.setFocused(true) }
     }
 
     @objc private func goBack() { tab.goBack() }
@@ -270,6 +285,7 @@ public final class BrowserChromeView: NSView {
             reloadButton.setSymbol(loading ? "xmark" : "arrow.clockwise", label: loading ? Strings.stop : Strings.reload)
         }
         addressBar.update(url: state.url, security: state.security)
+        recordHistory(state)
         progressLine.set(progress: state.progress, visible: loading)
 
         if let error = state.loadError {
@@ -287,6 +303,18 @@ public final class BrowserChromeView: NSView {
 
         setToolbarHidden(state.isContentFullscreen)
         updateOcclusion()
+    }
+
+    private func recordHistory(_ state: BrowserTabState) {
+        guard let history, case .finished = state.phase, let url = state.url else { return }
+        if url != recordedURL {
+            recordedURL = url
+            recordedTitle = state.title
+            history.recordVisit(url: url, title: state.title, at: Date())
+        } else if let title = state.title, title != recordedTitle {
+            recordedTitle = title
+            history.updateTitle(title, for: url)
+        }
     }
 
     public override func layout() {
@@ -347,7 +375,7 @@ public final class BrowserChromeView: NSView {
     private func updateColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = Palette.contentBackground.cgColor
-            toolbar.layer?.backgroundColor = Palette.windowBackground.cgColor
+            toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
             separator.layer?.backgroundColor = Palette.separator.cgColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }

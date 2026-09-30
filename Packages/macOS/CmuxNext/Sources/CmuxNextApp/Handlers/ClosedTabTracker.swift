@@ -124,6 +124,7 @@ final class ClosedTabTracker {
                     let surface = try await restorer.spawn(spawn)
                     controller?.pendingSelectSurface = surface
                     controller.map { $0.apply($0.snapshot()) }
+                    controller?.workspace?.expectFocus(on: surface)
                     return nil
                 } catch {
                     logger.error("reopen-closed-tab failed: \(String(describing: error), privacy: .public)")

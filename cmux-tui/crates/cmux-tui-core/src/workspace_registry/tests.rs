@@ -4059,6 +4059,32 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
     assert_eq!(changes[0]["resource"], "terminal");
     assert_eq!(changes[1]["resource"], "tab");
     assert_eq!(changes[1]["id"], tab_id(1).as_str());
+    // Event-feed clients hold the pre-restart graph. The repair batch must
+    // restate the surviving sibling (its index and focus moved) and the
+    // screen whose layout lists the pane's tabs, or they stay stale until the
+    // next full projection.
+    let changes = changes.as_array().unwrap();
+    let upsert = |resource: &str, id: &str| {
+        changes
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .unwrap_or_else(|| panic!("repair batch restates {resource} {id}: {changes:?}"))
+    };
+    let sibling = upsert("tab", tab_id(2).as_str());
+    assert_eq!(sibling["value"]["index"], 0);
+    assert_eq!(sibling["value"]["focused"], true);
+    assert_eq!(sibling["value"]["pane_id"], pane_id(1).as_str());
+    let screen_id = topology.panes[0].screen_id.as_str();
+    let screen = upsert("screen", screen_id);
+    let leaf = &screen["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([tab_id(2).as_str()]));
+    assert_eq!(leaf["active_tab_id"], tab_id(2).as_str());
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }

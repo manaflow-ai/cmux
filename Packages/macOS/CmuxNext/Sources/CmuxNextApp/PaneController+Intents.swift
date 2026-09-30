@@ -218,11 +218,21 @@ extension PaneController {
         switch target {
         case .tab(let id, _):
             select(id)
-            return registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: id.rawValue))
+            let target = ActionTargetRef(kind: .tab, id: id.rawValue)
+            guard let tab = tab(id), tab.kind == .browser else {
+                return registry.makeContextMenu(for: .tab, target: target)
+            }
+            // A browser tab offers the engine it is not on.
+            let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
+            let entries = ContextMenuCatalog.entries(for: .tab).filter { $0 != .action(other) }
+            return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))
         case .emptyStrip:
-            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey))
+            let entries = ContextMenuCatalog.entries(for: .newTab) + [.separator] + ContextMenuCatalog.entries(for: .pane)
+            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)
+        case .newTabButton:
+            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey))
         }
     }
 }

@@ -30,6 +30,11 @@ enum CompatErrors {
 
     static let notConnected = ControlError(code: "unavailable", message: ControlStrings.text("control.error.daemonNotConnected", "cmux-tui daemon is not connected yet"))
 
+    /// The first connection missed its deadline; `reason` is the last failure.
+    static func daemonUnavailable(_ reason: String) -> ControlError {
+        ControlError(code: "unavailable", message: ControlStrings.format("control.error.daemonUnavailable", "cmux-tui daemon is unavailable: %@", reason))
+    }
+
     static func timeout(_ what: String, _ duration: Duration) -> ControlError {
         ControlError(code: "timeout", message: ControlStrings.format("control.error.timeout", "%1$@ did not finish within %2$@", what, "\(duration)"))
     }

@@ -1,82 +1,81 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The omnibox: a gray glass capsule that shows the compact URL, expands to
-/// the full URL on focus, and offers suggestions while typing.
+/// The omnibar, drawn after Helium's location bar (`OmnibarStyle`): a gray
+/// 8 pt pill with a page-info chip, the compact URL with the host at full
+/// strength, and on focus the full URL, all selected. While suggestions show,
+/// the bar turns into the top of a white card that continues as the dropdown.
+/// Editing rules live in `OmniboxEditModel`.
 public final class AddressBarView: NSView {
-    /// Called with the destination when the user submits.
-    public var onNavigate: ((URL) -> Void)?
-    /// Called when editing ends with Escape and focus should return to the page.
-    public var onCancel: (() -> Void)?
+    /// Editing began or ended. The chrome loads a committed URL; the App
+    /// decides where focus goes.
+    public var onEvent: ((OmnibarEvent) -> Void)?
 
     public var suggestionEngine: OmniboxSuggestionEngine
 
-    private let glass: NSGlassEffectView
-    private let density = DensityBinding()
-    private let focusOutline = NSView()
-    private let iconView = NSImageView()
+    private let pill = OmnibarPillView()
+    private let backdrop = OmnibarCardTopView()
+    private let chip = OmnibarChipView()
     private let field = AddressField()
     private let panel = OmniboxSuggestionPanel()
+    private let density = DensityBinding()
 
     private var url: URL?
     private var security: BrowserSecurityState = .none
-    private var typedText = ""
-    private var suggestions: [BrowserSuggestion] = []
-    private var selectedIndex: Int?
+    private(set) var model = OmniboxEditModel()
+    private var pendingDeletion = false
     private var suggestionTask: Task<Void, Never>?
+    private var isApplying = false
 
     public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.suggestionEngine = suggestionEngine
-        let content = NSView()
-        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.controlCornerRadius)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = Palette.textSecondary
-        iconView.imageScaling = .scaleProportionallyDown
-
-        field.setPlaceholder(Strings.addressPlaceholder)
+        field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.onFocus = { [weak self] in self?.beginEditing() }
-        field.setAccessibilityLabel(Strings.addressPlaceholder)
+        field.onPasteAndGo = { [weak self] in self?.pasteAndGo() }
+        field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
+        field.setAccessibilityLabel(Strings.omnibarPlaceholder)
 
-        focusOutline.translatesAutoresizingMaskIntoConstraints = false
-        focusOutline.wantsLayer = true
-        focusOutline.layer?.borderWidth = 1
-        focusOutline.alphaValue = 0
-
-        content.addSubview(iconView)
-        content.addSubview(field)
-        addSubview(glass)
-        addSubview(focusOutline)
+        for view in [backdrop, pill, chip, field] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+        }
+        backdrop.isHidden = true
+        addSubview(backdrop)
+        addSubview(pill)
+        addSubview(chip)
+        addSubview(field)
         NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            focusOutline.leadingAnchor.constraint(equalTo: leadingAnchor),
-            focusOutline.trailingAnchor.constraint(equalTo: trailingAnchor),
-            focusOutline.topAnchor.constraint(equalTo: topAnchor),
-            focusOutline.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pill.topAnchor.constraint(equalTo: topAnchor),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            density.bind(iconView.leadingAnchor.constraint(equalTo: content.leadingAnchor)) { BrowserMetrics.toolbarInset },
-            iconView.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            density.bind(iconView.widthAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
-            density.bind(iconView.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.glyphSize },
-            density.bind(field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor)) { BrowserMetrics.itemSpacing },
-            density.bind(field.trailingAnchor.constraint(equalTo: content.trailingAnchor)) { -BrowserMetrics.toolbarInset },
-            field.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -OmnibarStyle.cardSideOutset),
+            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: OmnibarStyle.cardSideOutset),
+            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
+            chip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            density.bind(chip.widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
+            density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
+
+            field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] index in self?.pick(index) }
         density.update { [unowned self] in
-            glass.cornerRadius = BrowserMetrics.controlCornerRadius
-            focusOutline.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
-            updateIcon()
+            field.font = OmnibarStyle.font
+            field.setPlaceholder(Strings.omnibarPlaceholder)
+            renderIdleText()
+            updateChrome()
         }
         density.start()
-        updateOutlineColor()
     }
 
     @available(*, unavailable)
@@ -84,127 +83,221 @@ public final class AddressBarView: NSView {
 
     // MARK: Public
 
-    public var isEditing: Bool { field.currentEditor() != nil }
+    /// True from focus until commit, cancel, or blur.
+    public var isEditing: Bool { model.isEditing }
 
-    /// Shows the page's URL. Ignored while the user is typing.
+    /// Shows the page's URL. While editing, untouched text follows it.
     public func update(url: URL?, security: BrowserSecurityState) {
+        guard url != self.url || security != self.security else { return }
         self.url = url
         self.security = security
-        guard !isEditing else { return }
-        field.stringValue = BrowserURLDisplay.displayText(for: url)
-        updateIcon()
+        if model.isEditing {
+            if !model.userHasEdited {
+                model.pageURLChanged(url)
+                apply()
+            }
+        } else {
+            renderIdleText()
+        }
+        updateChrome()
     }
 
-    /// Focuses the field and selects its text (Cmd-L).
+    /// Focuses the field with the full URL selected (Cmd-L). Focusing again
+    /// while editing selects everything again, as in Chrome.
     public func focus() {
+        if field.currentEditor() != nil {
+            if !model.isEditing { beginEditing() } else { field.currentEditor()?.selectAll(nil) }
+            return
+        }
         window?.makeFirstResponder(field)
-        field.currentEditor()?.selectAll(nil)
+    }
+
+    /// Verification hook (`BrowserDebugWindow`): focuses the field and types
+    /// `text` one character at a time through the same path as keystrokes.
+    func debugType(_ text: String) {
+        focus()
+        var typed = ""
+        for character in text {
+            typed.append(character)
+            field.stringValue = typed
+            textDidChange()
+        }
     }
 
     // MARK: Editing
 
     private func beginEditing() {
-        field.stringValue = BrowserURLDisplay.editingText(for: url)
-        field.currentEditor()?.selectAll(nil)
-        typedText = field.stringValue
-        updateIcon()
-        Motion.animate(duration: 0.12) { self.focusOutline.animator().alphaValue = 1 }
+        model.begin(url: url)
+        apply()
+        updateChrome()
+        onEvent?(.didBeginEditing)
     }
 
-    private func endEditing(restore: Bool) {
+    /// Ends editing and shows the compact URL. `reason` nil means the model
+    /// already ended without an event (a commit sends its own).
+    private func finishEditing(_ reason: OmnibarEndReason) {
+        guard model.isEditing else { return }
         suggestionTask?.cancel()
+        model.end()
         panel.dismiss()
-        suggestions = []
-        selectedIndex = nil
-        if restore {
-            field.stringValue = BrowserURLDisplay.displayText(for: url)
+        renderIdleText()
+        updateChrome()
+        onEvent?(.didEndEditing(reason))
+    }
+
+    /// Writes the model's text and selection into the field editor.
+    private func apply() {
+        let presentation = model.presentation
+        isApplying = true
+        defer { isApplying = false }
+        if field.stringValue != presentation.text { field.stringValue = presentation.text }
+        if let editor = field.currentEditor() {
+            let length = (presentation.text as NSString).length
+            let selection = NSIntersectionRange(presentation.selection, NSRange(location: 0, length: length))
+            editor.selectedRange = selection.location == NSNotFound ? NSRange(location: length, length: 0) : selection
+            if selection.length == 0 { editor.scrollRangeToVisible(selection) }
         }
-        updateIcon()
-        Motion.animate(duration: 0.12) { self.focusOutline.animator().alphaValue = 0 }
+        field.textColor = OmnibarStyle.textPrimary
+    }
+
+    /// The compact URL with the host at full strength and the rest dimmed.
+    private func renderIdleText() {
+        guard !model.isEditing else { return }
+        let text = BrowserURLDisplay.displayText(for: url)
+        let attributed = NSMutableAttributedString(string: text, attributes: [
+            .font: OmnibarStyle.font,
+            .foregroundColor: OmnibarStyle.textSecondary,
+        ])
+        let host = BrowserURLDisplay.hostRange(in: text, for: url) ?? NSRange(location: 0, length: (text as NSString).length)
+        attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+        field.attributedStringValue = attributed
     }
 
     private func textDidChange() {
-        typedText = field.stringValue
-        selectedIndex = nil
+        guard !isApplying else { return }
+        if !model.isEditing { model.begin(url: url); onEvent?(.didBeginEditing) }
+        let text = field.stringValue
+        let deletion = pendingDeletion || text.utf16.count < model.userText.utf16.count
+        pendingDeletion = false
+        model.userEdited(text, isDeletion: deletion)
+        if model.suggestions.isEmpty { panel.dismiss() }
+        updateChrome()
+        requestSuggestions(for: text)
+    }
+
+    private func requestSuggestions(for text: String) {
         suggestionTask?.cancel()
-        let text = typedText
         let engine = suggestionEngine
         suggestionTask = Task { [weak self] in
             let rows = await engine.suggestions(for: text)
-            guard !Task.isCancelled, let self, self.isEditing else { return }
-            self.suggestions = rows
-            self.selectedIndex = rows.isEmpty ? nil : 0
+            guard !Task.isCancelled, let self else { return }
+            guard self.model.received(rows, for: text) else { return }
+            self.apply()
             self.showPanel()
+            self.updateChrome()
         }
     }
 
     private func showPanel() {
-        guard !suggestions.isEmpty, let window else {
+        guard model.isPopupOpen, let window else {
             panel.dismiss()
             return
         }
-        panel.show(suggestions, selected: selectedIndex, below: self, in: window)
+        panel.show(model.suggestions, selected: model.selectedIndex, below: self, in: window)
     }
 
-    private func moveSelection(_ delta: Int) {
-        guard !suggestions.isEmpty else { return }
-        let next = ((selectedIndex ?? -1) + delta).clamped(to: 0...(suggestions.count - 1))
-        selectedIndex = next
-        let row = suggestions[next]
-        field.stringValue = next == 0 ? typedText : (row.kind == .search ? row.title : row.url.absoluteString)
-        field.currentEditor()?.moveToEndOfDocument(nil)
-        panel.select(next)
+    private func move(_ delta: Int) {
+        guard model.isPopupOpen else { return }
+        model.move(delta)
+        apply()
+        panel.select(model.selectedIndex)
+        updateChrome()
     }
 
     private func submit() {
-        let destination: URL?
-        if let selectedIndex, suggestions.indices.contains(selectedIndex) {
-            destination = suggestions[selectedIndex].url
-        } else {
-            destination = suggestionEngine.resolver.destination(for: field.stringValue)?.url
+        guard let destination = model.commitDestination(resolver: suggestionEngine.resolver) else {
+            NSSound.beep()
+            return
         }
-        guard let destination else { return }
         url = destination
-        endEditing(restore: true)
-        onNavigate?(destination)
+        finishEditing(.commit(destination))
     }
 
     private func pick(_ index: Int) {
-        selectedIndex = index
+        model.select(index)
         submit()
     }
 
-    private func updateIcon() {
-        let symbol: String
-        if isEditing || url == nil {
-            symbol = "magnifyingglass"
-        } else {
-            switch security {
-            case .secure: symbol = "lock.fill"
-            case .insecure: symbol = "exclamationmark.triangle"
-            case .local: symbol = "doc"
-            case .none: symbol = "globe"
+    private func cancel() {
+        switch model.escape() {
+        case .reverted:
+            suggestionTask?.cancel()
+            panel.dismiss()
+            apply()
+            updateChrome()
+        case .cancel:
+            finishEditing(.cancel)
+        }
+    }
+
+    // MARK: Paste and Go
+
+    private func pastedText() -> String? {
+        let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text?.isEmpty == false ? text : nil
+    }
+
+    private func pasteAndGoTitle() -> String? {
+        guard let text = pastedText(), let destination = suggestionEngine.resolver.destination(for: text) else { return nil }
+        if case .search = destination { return Strings.pasteAndSearch }
+        return Strings.pasteAndGo
+    }
+
+    private func pasteAndGo() {
+        guard let text = pastedText(), let destination = suggestionEngine.resolver.destination(for: text)?.url else { return }
+        if !model.isEditing { model.begin(url: url) }
+        url = destination
+        finishEditing(.commit(destination))
+    }
+
+    // MARK: Appearance
+
+    private func updateChrome() {
+        let popup = model.isEditing && model.isPopupOpen
+        pill.state = popup ? .card : (model.isEditing ? .editing : .idle)
+        backdrop.isHidden = !popup
+        chip.symbol = chipSymbol()
+        chip.setAccessibilityLabel(security == .insecure && !model.isEditing ? Strings.notSecure : nil)
+        chip.toolTip = security == .insecure && !model.isEditing ? Strings.notSecure : nil
+    }
+
+    private func chipSymbol() -> String {
+        if model.isEditing {
+            if let index = model.selectedIndex, model.suggestions.indices.contains(index) {
+                return model.suggestions[index].kind == .search ? "magnifyingglass" : "globe"
             }
+            return model.userHasEdited || url == nil ? "magnifyingglass" : securitySymbol
         }
-        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: BrowserMetrics.symbolPointSize - 1, weight: .semibold))
-        iconView.setAccessibilityLabel(security == .insecure && !isEditing ? Strings.notSecure : nil)
+        return url == nil || BrowserURLDisplay.displayText(for: url).isEmpty ? "magnifyingglass" : securitySymbol
     }
 
-    private func updateOutlineColor() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            focusOutline.layer?.borderColor = Palette.focusRing.withAlphaComponent(0.45).cgColor
+    private var securitySymbol: String {
+        switch security {
+        case .secure: "slider.horizontal.3"
+        case .insecure: "exclamationmark.triangle"
+        case .local: "doc"
+        case .none: "info.circle"
         }
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateOutlineColor()
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil { panel.dismiss() }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        renderIdleText()
     }
 }
 
@@ -214,30 +307,38 @@ extension AddressBarView: NSTextFieldDelegate {
     }
 
     public func controlTextDidEndEditing(_ notification: Notification) {
-        endEditing(restore: true)
+        finishEditing(.blur)
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.moveDown(_:)):
-            moveSelection(1)
+            guard model.isPopupOpen else { return false }
+            move(1)
             return true
         case #selector(NSResponder.moveUp(_:)):
-            moveSelection(-1)
+            guard model.isPopupOpen else { return false }
+            move(-1)
             return true
-        case #selector(NSResponder.insertNewline(_:)):
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertLineBreak(_:)):
             submit()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            if panel.isVisible {
-                field.stringValue = typedText
-                panel.dismiss()
-                suggestions = []
-                selectedIndex = nil
-            } else {
-                endEditing(restore: true)
-                onCancel?()
-            }
+            cancel()
+            return true
+        case #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)),
+             #selector(NSResponder.deleteWordBackward(_:)), #selector(NSResponder.deleteWordForward(_:)),
+             #selector(NSResponder.deleteToBeginningOfLine(_:)), #selector(NSResponder.deleteToEndOfLine(_:)):
+            pendingDeletion = true
+            return false
+        case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveToEndOfLine(_:)),
+             #selector(NSResponder.moveToEndOfDocument(_:)):
+            // Right arrow at an inline completion accepts it as typed text.
+            guard !model.inlineCompletion.isEmpty else { return false }
+            let accepted = model.userText + model.inlineCompletion
+            model.userEdited(accepted, isDeletion: true)
+            apply()
+            requestSuggestions(for: accepted)
             return true
         default:
             return false
@@ -245,14 +346,41 @@ extension AddressBarView: NSTextFieldDelegate {
     }
 }
 
-/// Text field that reports when it gains focus.
+/// The omnibar text field: a first click selects the whole URL (later
+/// clicks place the caret), and the edit menu offers Paste and Go.
 final class AddressField: ChromeTextField {
     var onFocus: (() -> Void)?
+    var onPasteAndGo: (() -> Void)?
+    var pasteAndGoTitle: (() -> String?)?
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { onFocus?() }
+        if accepted {
+            (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
+            onFocus?()
+        }
         return accepted
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Chrome: clicking an unfocused omnibox selects everything instead
+        // of placing the caret where the click landed.
+        guard currentEditor() == nil, event.clickCount == 1 else { return super.mouseDown(with: event) }
+        window?.makeFirstResponder(self)
+    }
+
+    /// The field editor's context menu (the field is its delegate).
+    @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        guard let title = pasteAndGoTitle?() else { return menu }
+        let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
+        item.target = self
+        let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
+        menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
+        return menu
+    }
+
+    @objc private func performPasteAndGo(_ sender: Any?) {
+        onPasteAndGo?()
     }
 }
 

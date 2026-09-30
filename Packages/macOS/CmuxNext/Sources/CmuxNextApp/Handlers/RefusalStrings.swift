@@ -24,6 +24,8 @@ nonisolated enum RefusalStrings {
         }
     }
 
+    static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
     static var directionUp: String { text("handlers.refusal.directionUp", "up") }

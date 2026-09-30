@@ -120,6 +120,11 @@ final class EmptySectionRowView: SidebarRowView {
         needsLayout = true
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
+
     override func updateLayer() {
         border.strokeColor = resolvedCGColor(Palette.separator.withAlphaComponent(0.25))
     }
@@ -129,6 +134,7 @@ final class EmptySectionRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let b = layoutBounds
+        border.contentsScale = window?.backingScaleFactor ?? 2
         border.frame = b
         border.path = CGPath(roundedRect: b.insetBy(dx: Metrics.dividerThickness, dy: Metrics.dividerThickness), cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
         CATransaction.commit()

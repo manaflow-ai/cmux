@@ -33,6 +33,20 @@ extension ActionCatalog {
                 targets: [.pane], cliName: "browser hard-reload-page", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "browser.openInChromium",
+                title: String(localized: "action.browser.openInChromium", defaultValue: "Open in Chromium", bundle: .module),
+                keywords: ["browser", "engine", "chrome", "chromium", "cef", "switch"],
+                category: .browser, symbol: "circle.circle", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.tab], cliName: "browser open-in-chromium"
+            ),
+            ActionDescriptor(
+                id: "browser.openInWebKit",
+                title: String(localized: "action.browser.openInWebKit", defaultValue: "Open in WebKit", bundle: .module),
+                keywords: ["browser", "engine", "safari", "webkit", "switch"],
+                category: .browser, symbol: "safari", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                targets: [.tab], cliName: "browser open-in-webkit"
+            ),
+            ActionDescriptor(
                 id: "focusBrowserAddressBar",
                 title: String(localized: "action.focusBrowserAddressBar", defaultValue: "Focus Address Bar", bundle: .module),
                 keywords: ["browser", "url", "omnibox"], defaultShortcut: Shortcut("l", modifiers: [.command]),

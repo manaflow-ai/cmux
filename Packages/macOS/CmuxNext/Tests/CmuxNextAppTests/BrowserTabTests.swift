@@ -79,6 +79,49 @@ struct BrowserTabTests {
         withExtendedLifetime((services, state)) {}
     }
 
+    /// The engine-specific entries: Chromium is disabled with its reason
+    /// when CEF is missing (menus and palette show it), never falls back to
+    /// WebKit when asked for explicitly, and opens a CEF tab when present.
+    @Test func chromiumEntryIsDisabledWithAReasonWhenCEFIsMissing() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let store = services.daemon.store
+        store.apply(snapshot: try Self.tree())
+        let recorder = Recorder()
+        let browserTabs = try #require(services.cache.browserTabs)
+        browserTabs.isAvailable = { true }
+        browserTabs.cefAvailable = { false }
+        browserTabs.cefUnavailableReason = { "no CEF here" }
+        browserTabs.create = { pane, url, engine in
+            recorder.created.append((pane, url, engine))
+            return SurfaceID(rawValue: 9)
+        }
+        let registry = services.registry
+        #expect(!registry.canPerform("openBrowser.chromium"))
+        #expect(registry.unavailableReason(for: "openBrowser.chromium") == "no CEF here")
+        #expect(registry.canPerform("openBrowser.webkit"))
+        let menu = registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "pane:3"))
+        let chromium = try #require(menu.items.first { $0.title == "New Chromium Tab" })
+        #expect(chromium.subtitle == "no CEF here")
+        #expect(menu.items.map(\.title) == ["New Terminal Tab", "New WebKit Tab", "New Chromium Tab"])
+
+        let pane = ActionTargetRef(kind: .pane, id: "pane:3")
+        let refusal = registry.capturingRefusal {
+            registry.perform("openBrowser", invocation: ActionInvocation(target: pane, arguments: ["engine": .string("cef")]))
+        }
+        #expect(refusal == "no CEF here")
+        registry.perform("openBrowser.webkit", invocation: ActionInvocation(target: pane))
+        await Self.settle { !recorder.created.isEmpty }
+        #expect(recorder.created.first?.2 == .webkit)
+
+        browserTabs.cefAvailable = { true }
+        browserTabs.cefUnavailableReason = { nil }
+        #expect(registry.canPerform("openBrowser.chromium"))
+        registry.perform("openBrowser.chromium", invocation: ActionInvocation(target: pane))
+        await Self.settle { recorder.created.count == 2 }
+        #expect(recorder.created.last?.2 == .cef)
+        withExtendedLifetime(services) {}
+    }
+
     @Test func cefIsChosenOnlyWhenRequestedAndAvailable() {
         let services = ActionBindingCoverageTests.boundServices()
         let browserTabs = services.cache.browserTabs!

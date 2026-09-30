@@ -50,7 +50,7 @@ public final class TerminalSurfaceView: NSView {
     /// Last grid reported to the owner, so a resize that keeps the same
     /// cell count does not generate a daemon `resize-surface`.
     private var reportedGrid: TerminalGridSize?
-    private var lastOcclusionVisible: Bool?
+    private(set) var lastOcclusionVisible: Bool?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     var trackingArea: NSTrackingArea?

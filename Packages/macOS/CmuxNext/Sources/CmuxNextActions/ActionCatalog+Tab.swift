@@ -18,6 +18,20 @@ extension ActionCatalog {
                 arguments: [CatalogArgument.urlString, CatalogArgument.engineChoice], targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
+                id: "openBrowser.webkit",
+                title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
+                keywords: ["tab", "web", "browser", "safari", "webkit", "create"],
+                category: .tab, symbol: "safari", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-webkit"
+            ),
+            ActionDescriptor(
+                id: "openBrowser.chromium",
+                title: String(localized: "action.openBrowser.chromium", defaultValue: "New Chromium Tab", bundle: .module),
+                keywords: ["tab", "web", "browser", "chrome", "chromium", "cef", "extensions", "create"],
+                category: .tab, symbol: "circle.circle", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.urlString], targets: [.tab], cliName: "tab new-chromium"
+            ),
+            ActionDescriptor(
                 id: "closeTab", title: String(localized: "action.closeTab", defaultValue: "Close Tab", bundle: .module),
                 keywords: ["tab", "remove"], defaultShortcut: Shortcut("w", modifiers: [.command]), category: .tab,
                 symbol: "xmark", surfaces: [.palette, .keyboard, .menu], targets: [.tab], cliName: "tab close",

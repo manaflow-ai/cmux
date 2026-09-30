@@ -18,6 +18,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
+    private var startupObservation: Task<Void, Never>?
+    /// Shown while the window has no workspace (first connect, or failure).
+    private(set) var connectingView: DaemonConnectingView?
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -58,6 +61,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier.teardown()
         workspaceObservation?.cancel()
         titleObservation?.cancel()
+        startupObservation?.cancel()
         content?.teardown()
         content = nil
         sidebar.teardown()
@@ -92,8 +96,37 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let local = machines.local.store
-        guard local.isLoaded, let workspace = local.workspaces.first else { return }
+        guard local.isLoaded, let workspace = local.workspaces.first else {
+            if content == nil { showConnecting() }
+            return
+        }
         show(workspace, on: machines.local)
+    }
+
+    /// Adopts a saved window record once the daemon has loaded: the window
+    /// opened at launch (connecting state) becomes the first restored one.
+    func adopt(_ record: WindowRecord, frame: NSRect?) {
+        state.adopt(id: record.id, workspaceID: record.workspaceKey?.rawValue, machineID: record.machine)
+        for (pane, tab) in record.selectedTabs { state.selection.select(tab, in: pane) }
+        sidebar.restore(width: record.sidebarWidth, collapsed: record.sidebarCollapsed)
+        if let frame { window?.setFrame(frame, display: true) }
+        showWorkspace(requested: state.workspaceID)
+    }
+
+    /// The connecting (or unavailable) state of the local daemon's first
+    /// connection, until a workspace can be shown.
+    private func showConnecting() {
+        let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        connectingView = view
+        root.show(view)
+        guard startupObservation == nil else { return }
+        let daemon = services.daemon
+        startupObservation = Task { [weak self, weak view] in
+            for await startup in Observations({ daemon.startup }) {
+                view?.apply(startup)
+                if self?.content != nil { return }
+            }
+        }
     }
 
     private func isWaiting(for machineID: String) -> Bool {
@@ -111,6 +144,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, focus: focus)
         content = controller
         root.show(controller.layoutView)
+        startupObservation?.cancel()
+        startupObservation = nil
+        connectingView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
             for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }

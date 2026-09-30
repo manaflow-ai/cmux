@@ -36,6 +36,8 @@ final class AppServices {
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
+    /// Blank-pane invariant, checked after each presentation settle.
+    let surfaceInvariant = SurfaceInvariantMonitor()
     /// Hook statuses shown in sidebar rows (`set_status`).
     let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -58,6 +60,8 @@ final class AppServices {
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
         cache.keyRouter = keyRouter
+        surfaceInvariant.services = self
+        cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)

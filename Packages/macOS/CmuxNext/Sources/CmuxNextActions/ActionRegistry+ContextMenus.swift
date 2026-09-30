@@ -4,13 +4,16 @@ extension ActionRegistry {
     /// Renders the declared right-click menu for `context`
     /// (`ContextMenuCatalog`). Actions that do not apply are hidden; unbound
     /// or disabled ones are shown disabled; runs of separators collapse.
-    /// Items pass `target` to the handler.
+    /// Items pass `target` to the handler. `implied` adds focus facts the
+    /// target itself establishes (a right-clicked browser tab is a browser
+    /// even while a terminal has focus).
     public func makeContextMenu(
         for context: ActionMenuContext,
         target: ActionTargetRef? = nil,
-        entries: [ContextMenuEntry]? = nil
+        entries: [ContextMenuEntry]? = nil,
+        implied: ActionContext = []
     ) -> NSMenu {
-        let effective = self.context.union(Self.impliedContext(for: context))
+        let effective = self.context.union(Self.impliedContext(for: context)).union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
         for item in menuItems(entries ?? ContextMenuCatalog.entries(for: context), target: target, context: effective) {
@@ -53,6 +56,12 @@ extension ActionRegistry {
                       let item = makeMenuItem(for: id)
                 else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
+                // Context menus are built per click, so a disabled entry can
+                // say why (Chromium in a build without CEF).
+                if let reason = unavailableReason(for: descriptor.id) {
+                    item.subtitle = reason
+                    item.toolTip = reason
+                }
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context)
