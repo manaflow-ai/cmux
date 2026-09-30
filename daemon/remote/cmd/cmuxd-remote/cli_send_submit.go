@@ -109,7 +109,7 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		key = "ctrl+enter"
 	}
 	minimumAttempts := 1
-	if key == "return" && sendScreenShowsSlashPopup(screen) {
+	if key != "tab" && sendScreenShowsSlashPopup(screen) {
 		minimumAttempts = 2
 	}
 
