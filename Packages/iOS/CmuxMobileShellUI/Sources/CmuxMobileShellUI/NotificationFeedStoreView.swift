@@ -32,9 +32,13 @@ struct NotificationFeedStoreView: View {
             updateFeedVisibility(isActive)
         }
         .onChange(of: isActive) { _, active in
+            if !active {
+                store.cancelPendingNotificationFeedOpen()
+            }
             updateFeedVisibility(active)
         }
         .onDisappear {
+            store.cancelPendingNotificationFeedOpen()
             updateFeedVisibility(false)
         }
     }
