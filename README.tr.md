@@ -367,7 +367,7 @@ cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmey
 
 ### Bir özellik isteğim var veya bir hata buldum?
 
-Bunu duymak istiyoruz. GitHub'da bir [issue](https://github.com/manaflow-ai/cmux/issues) veya [pull request](https://github.com/manaflow-ai/cmux/pulls) açın ya da bize [e-posta gönderin](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Bunu duymak istiyoruz. GitHub'da bir [issue](https://github.com/manaflow-ai/cmux/issues) veya [pull request](https://github.com/manaflow-ai/cmux/pulls) açın ya da bize [e-posta gönderin](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Yıldız Geçmişi
 
@@ -420,4 +420,4 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır. cmux sunucu yazılımı (`web/`, Cloudflare worker'ları ve [LICENSE](LICENSE) içinde listelenen relay servisleri) bunun yerine [Business Source License 1.1](web/LICENSE) kullanır: üretim dışı kullanım için okuyabilir, değiştirebilir ve çalıştırabilirsiniz; üretim kullanımı veya kendi sunucunuzda barındırma ticari lisans gerektirir.
 
-Kuruluşunuz GPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.
+Kuruluşunuz GPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@cmux.com](mailto:founders@cmux.com) ile iletişime geçin.

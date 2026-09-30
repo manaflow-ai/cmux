@@ -3571,13 +3571,14 @@ FAST_LINUX_GATE = ROOT / "scripts" / "ci" / "fast_linux_gate.py"
 def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", CONSUMER_GATE_STEP)
-    # It reads the job the caller names, once: no loop and no sleep.
+    # It reads the job the caller names without polling or sleeping. Pagination
+    # over the bounded Actions response is allowed so late jobs cannot be missed.
     assert 'GATE_JOB: "macOS admission gate"' in step
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
     assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
     script = FAST_LINUX_GATE.read_text(encoding="utf-8")
-    for polling in ("sleep", "while ", "for attempt", "range("):
-        assert polling not in script
+    assert "sleep" + "(" not in script
+    assert "time." not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
     # for the Mac results.
     assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
@@ -3642,11 +3643,19 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
+def run_consumer_gate(
+    jobs: object,
+    *,
+    status: int = 200,
+    step_name: str = CONSUMER_GATE_STEP,
+    next_page: object | None = None,
+) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
-    body = json.dumps(jobs).encode()
+    bodies = [json.dumps(jobs).encode()]
+    if next_page is not None:
+        bodies.append(json.dumps(next_page).encode())
     requests: list[str] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -3654,8 +3663,13 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
             requests.append(self.path)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            if next_page is not None and len(requests) == 1:
+                self.send_header(
+                    "Link",
+                    f'<http://127.0.0.1:{server.server_port}/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2>; rel="next"',
+                )
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(bodies[min(len(requests) - 1, len(bodies) - 1)])
 
         def log_message(self, *args: object) -> None:
             pass
@@ -3684,7 +3698,10 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
     finally:
         server.shutdown()
         server.server_close()
-    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    expected = ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    if next_page is not None:
+        expected.append("/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2")
+    assert requests == expected
     return result
 
 
@@ -3697,6 +3714,15 @@ def _gate_job(status: str, conclusion: object) -> dict:
 
 def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
     result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_follows_pagination_before_admitting() -> None:
+    result = run_consumer_gate(
+        {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]},
+        next_page={"jobs": [{"name": "macOS admission gate", "status": "completed", "conclusion": "failure"}]},
+    )
     assert result.returncode == 1
     assert "Not admitting macOS consumers" in result.stdout
 

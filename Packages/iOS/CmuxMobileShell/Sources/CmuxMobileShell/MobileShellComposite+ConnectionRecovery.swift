@@ -1450,30 +1450,6 @@ extension MobileShellComposite {
         abandonedDialCount < maximumAbandonedReconnectDials
     }
 
-    /// Tracks an abandoned dial until it resolves, so a persistently wedged
-    /// transport cannot accumulate an unbounded set of retained reconnect
-    /// tasks across automatic retries. On resolution, if the shell is still
-    /// signed in and disconnected, the automatic retry loop is re-armed
-    /// (covers the case where retries were paused at the ceiling).
-    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
-        guard let task else { return }
-        abandonedReconnectDialCount += 1
-        Task { @MainActor [weak self] in
-            _ = await task.value
-            guard let self else { return }
-            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
-            // Re-arm the retry loop directly through the coalesced recovery
-            // entry, NEVER by recording backoff: a backoff write here can land
-            // mid-manual-retry and re-block the dial the user just requested
-            // (manual retries clear backoff on entry). Skip when any attempt
-            // or scheduled retry is already active.
-            guard self.isSignedIn, self.connectionState != .connected,
-                  !self.connectionRecoveryOwner.isRedialingOrValidating,
-                  self.automaticReconnectRetryTask == nil else { return }
-            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
-        }
-    }
-
     /// The race result: `value` is nil when the deadline won, in which case
     /// `abandoned` is the still-running operation task so the caller can
     /// bound how many abandoned dials may exist at once and reclaim the slot

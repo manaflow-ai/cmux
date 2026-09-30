@@ -237,6 +237,22 @@ class SetupWait(unittest.TestCase):
 
 
 class Refusal(unittest.TestCase):
+    def test_missing_pinned_xcode_on_owned_runner_is_refused_even_after_helper_build(self):
+        steps = [
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Checkout", "conclusion": "success"},
+            {"name": "Build helper", "conclusion": "success"},
+            {"name": "Select helper Xcode", "conclusion": "failure"},
+        ]
+        failed = refused_job(seconds=rescue.REFUSAL_SECONDS + 500, steps=steps)
+        self.assertTrue(rescue.refused(failed))
+        self.assertEqual(rescue.assess([failed], now=START, budget_seconds=90).action, "refused")
+        steps[-1]["name"] = "Select Xcode"
+        self.assertTrue(rescue.refused(failed))
+        self.assertFalse(rescue.refused({**failed, "labels": [BLACKSMITH]}))
+        steps[-1]["name"] = "Build"
+        self.assertFalse(rescue.refused(failed))
+
     def test_what_counts_as_a_refusal(self):
         self.assertTrue(rescue.refused(refused_job()))
         self.assertTrue(rescue.refused(refused_job(steps=[])))
