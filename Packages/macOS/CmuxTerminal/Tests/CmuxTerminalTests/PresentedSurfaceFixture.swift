@@ -1,7 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
-import GhosttyRuntimeTestStubs
+import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -44,7 +44,7 @@ struct PresentedSurfaceFixture {
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),

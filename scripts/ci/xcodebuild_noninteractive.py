@@ -12,13 +12,21 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import BinaryIO
+
+# Running as a script puts this directory on sys.path. Tests load this module
+# through importlib, so mirror the other CI helpers' import path setup.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from ci_process_tree import terminate_pid  # noqa: E402
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 RESTART_BUDGET_EXIT_CODE = 123
+STARTUP_HANG_EXIT_CODE = 122
 # xcodebuild emits this when the XCTest app host exits unexpectedly, then
 # relaunches it and resumes the remaining tests. Resuming is unbounded: a host
 # that crashes on contact keeps the shard running until the job-level timeout.
@@ -37,6 +45,14 @@ SWIFT_TESTING_RUN_DONE_RE = re.compile(
     rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+# xcodebuild prints "Testing started" once it hands the run to testmanagerd,
+# then the first suite or case line once the test runner has connected. When
+# testmanagerd refuses xcodebuild's IDE channel, the app host launches and
+# waits forever while xcodebuild prints nothing, and xcodebuild itself only
+# gives up ("The test runner hung before establishing connection.") after about
+# 700s. The startup deadline bounds that silent gap instead.
+TESTING_STARTED_MARKER = b"Testing started"
+FIRST_TEST_RE = re.compile(rb"Test Suite '|Test Case '|Test run started\.")
 # The app host (cmux DEV) logs to the same PTY as xcodebuild. Its lines carry
 # an NSLog-style prefix: "2026-09-08 14:03:49.521479+0000 cmux DEV[13904:67193] ".
 # Background work (fleet polling, renderer wakeups) keeps emitting them while
@@ -279,6 +295,23 @@ def post_test_timeout_seconds() -> float | None:
     return seconds
 
 
+def startup_timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
 def heartbeat_seconds() -> float | None:
     raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS")
     if not raw:
@@ -297,35 +330,10 @@ def heartbeat_seconds() -> float | None:
 
 
 def terminate_child(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            finished, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if finished:
-            return
-        time.sleep(0.1)
-
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
+    # xcodebuild can detach the XCTest app host into a new process group. The
+    # shared helper snapshots parent links before signalling the group, so a
+    # cancellation cannot leave that host running after this PTY wrapper exits.
+    terminate_pid(pid)
 
 
 def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
@@ -360,6 +368,9 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    startup_timeout = startup_timeout_seconds()
+    startup_deadline: float | None = None
+    first_test_seen = False
     heartbeat = heartbeat_seconds()
     restarts_allowed = restart_budget()
     restarts_observed = 0
@@ -409,7 +420,9 @@ def main() -> int:
     # that to the whole xcodebuild process group so the test host cannot
     # outlive the wrapper and hold the batch's output pipe open.
     def forward_termination(signum: int, _frame: object) -> None:
-        message = f"Terminated by signal {signum}; stopping xcodebuild process group\n"
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        message = f"Terminated by signal {signum}; stopping xcodebuild process tree\n"
         write_child_output(message.encode(), log_file, stdout_fd)
         if log_file is not None:
             try:
@@ -425,6 +438,7 @@ def main() -> int:
     pending_line = bytearray()
     timed_out = False
     post_test_timed_out = False
+    startup_timed_out = False
     restart_budget_spent = False
     while True:
         select_timeout = None
@@ -438,6 +452,12 @@ def main() -> int:
             remaining = post_test_deadline - time.monotonic()
             if remaining <= 0:
                 post_test_timed_out = True
+                break
+            select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
+        if startup_deadline is not None:
+            remaining = startup_deadline - time.monotonic()
+            if remaining <= 0:
+                startup_timed_out = True
                 break
             select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
         if heartbeat_deadline is not None:
@@ -482,6 +502,12 @@ def main() -> int:
         if timeout and contains_test_progress(chunk, pending_line):
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
+        if startup_timeout and not first_test_seen:
+            if FIRST_TEST_RE.search(prompt_window):
+                first_test_seen = True
+                startup_deadline = None
+            elif startup_deadline is None and TESTING_STARTED_MARKER in prompt_window:
+                startup_deadline = time.monotonic() + startup_timeout
         if post_test_timeout:
             selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
             if selected_match and selected_tests_result is None:
@@ -534,6 +560,23 @@ def main() -> int:
             log_file.close()
         terminate_child(pid)
         return RESTART_BUDGET_EXIT_CODE
+
+    if startup_timed_out:
+        assert startup_timeout is not None
+        message = (
+            f"Startup hang: no test started within {startup_timeout:g}s of "
+            "\"Testing started\". The test runner never connected to the app "
+            "host, which means testmanagerd on this Mac refused or dropped "
+            "xcodebuild's channel. This is a runner fault, not a test verdict."
+        )
+        print(message, file=sys.stderr)
+        if log_file is not None:
+            log_file.write(f"{message}\n".encode())
+        sample_app_host(log_file, stdout_fd)
+        if log_file is not None:
+            log_file.close()
+        terminate_child(pid)
+        return STARTUP_HANG_EXIT_CODE
 
     if timed_out:
         assert timeout is not None

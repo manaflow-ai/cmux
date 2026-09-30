@@ -1,7 +1,8 @@
 internal import Foundation
 
 /// The system/misc domain (`system.identify`, `system.tree`, `auth.login`,
-/// `session.restore_previous`, `settings.open`, `feedback.open`,
+/// `session.restore_previous`, `session.import`, `session.export`,
+/// `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
 /// DEBUG-only `mobile.dev_stack_auth.configure`), lifted byte-faithfully from
@@ -30,6 +31,10 @@ extension ControlCommandCoordinator {
             return authLogin()
         case "session.restore_previous":
             return sessionRestorePrevious()
+        case "session.import":
+            return sessionImport(request.params)
+        case "session.export":
+            return sessionExport(request.params)
         case "settings.open":
             return settingsOpen(request.params)
         case "feedback.open":

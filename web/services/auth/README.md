@@ -19,10 +19,12 @@ and is deleted on sign-out. Account deletion is enforced on read instead: the
 snapshot path checks the deletion tombstone directly on every request, so a
 tombstone takes effect immediately rather than after the TTL.
 
-The TTL is the security parameter here. A user removed from a team keeps that
-team's device-registry access until their snapshot refreshes, because Stack
-sends no webhook we could use to invalidate it. Ten minutes bounds that at one
-Stack call per active user per ten minutes, under 7 a second fleet-wide.
+The TTL is the security parameter here. When a user is removed from a team,
+Stack's `team_membership.deleted` webhook (`app/api/webhooks/stack`, secret
+`STACK_WEBHOOK_SECRET`) deletes their snapshot and detaches their tunnels from
+the team's network. The TTL bounds exposure only when that delivery is missed
+or still retrying. Ten minutes costs one Stack call per active user per ten
+minutes, under 7 a second fleet-wide.
 
 ## Measuring it
 

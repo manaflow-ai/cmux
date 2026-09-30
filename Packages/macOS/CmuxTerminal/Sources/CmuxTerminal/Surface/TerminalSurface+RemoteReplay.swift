@@ -10,10 +10,25 @@ extension TerminalSurface {
     @MainActor
     public func processRemoteReplay(
         _ data: Data,
-        onApplied: @escaping @MainActor @Sendable () -> Void
+        onApplied: @escaping @MainActor @Sendable () -> Void,
+        onDiscarded: @escaping @MainActor @Sendable () -> Void = {}
     ) {
-        guard !data.isEmpty,
-              let surface = liveSurfaceForGhosttyAccess(reason: "remoteReplay") else {
+        guard !data.isEmpty else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteReplay") else {
+            // A completion is sound only while the entire replacement remains
+            // in the bounded pre-runtime buffer. If appending would evict its
+            // leading bytes, leave fidelity unconfirmed so the owner can
+            // refetch rather than claiming a truncated replay was applied.
+            if data.count <= maxPendingRemoteOutputBytes - pendingRemoteOutput.count {
+                pendingRemoteReplayCompletions.append(
+                    TerminalSurfacePendingRemoteReplayCompletion(
+                        applied: onApplied, discarded: onDiscarded
+                    )
+                )
+            } else {
+                discardPendingRemoteReplayCompletions()
+                onDiscarded()
+            }
             processRemoteOutput(data)
             return
         }

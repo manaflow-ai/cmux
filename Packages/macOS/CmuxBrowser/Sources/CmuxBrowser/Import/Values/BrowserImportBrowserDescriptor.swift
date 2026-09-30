@@ -212,6 +212,17 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             supportsDataOnlyDetection: true
         ),
         BrowserImportBrowserDescriptor(
+            id: "aside",
+            displayName: "Aside",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["at.studio.AsideBrowser"],
+            appNames: ["Aside.app"],
+            dataRootRelativePaths: ["Library/Application Support/Aside"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
             id: "perplexity-comet",
             displayName: "Perplexity Comet",
             family: .chromium,

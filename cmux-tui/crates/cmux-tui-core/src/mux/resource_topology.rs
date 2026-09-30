@@ -288,6 +288,8 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
+        // Read before the state lock: `surface_notifications` locks state.
+        let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -450,7 +452,32 @@ impl Mux {
             plan.workspace_ledger.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // Push the same coarse tree event a terminal-bearing create emits
+        // (`emit_committed_workspace_delta` in the legacy create path), so
+        // `subscribe` clients see the empty workspace now instead of when
+        // the next real change flushes an event.
+        let entity = crate::server::tree_entity_json(
+            &state,
+            &notifications,
+            TreeDeltaKind::WorkspaceAdded,
+            workspace_slot,
+        )
+        .expect("new empty workspace is present in tree snapshot");
         drop(state);
+        self.emit_committed_workspace_delta(
+            &registry,
+            TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace: workspace_slot,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: Some(index),
+                entity,
+                workspace_revision,
+            },
+            index > 0,
+        );
         drop(registry);
         self.publish_resource_event();
         Ok(commit)

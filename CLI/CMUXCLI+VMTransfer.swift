@@ -1,6 +1,7 @@
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import CryptoKit
+import Darwin
 import Foundation
 
 /// Cloud file transfer. Push streams through OpenSSH/SFTP over the app's
@@ -456,7 +457,7 @@ extension CMUXCLI {
         guard !isDirectory else {
             throw CLIError(message: "vm push --secret delivers one file; \(localPath) is a directory. Pack it first (tar czf), or push it without --secret if it holds nothing secret.")
         }
-        guard mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil else {
+        guard mode.range(of: "^[0-7]{3,4}\\z", options: .regularExpression) != nil else {
             throw CLIError(message: "--mode must be three or four octal digits such as 600 or 0644 (got '\(mode)')")
         }
         let data = try Data(contentsOf: localURL)
@@ -832,8 +833,26 @@ extension CMUXCLI {
             guard Date() < deadline else {
                 throw CLIError(message: "Timed out after \(timeoutSeconds)s waiting for \(vmID) (last status: \(status)). Re-run with --timeout <seconds> to wait longer.")
             }
-            Thread.sleep(forTimeInterval: 3)
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            if remainingSeconds > 0 {
+                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
+            }
         }
+    }
+
+    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
+    /// default so tests against a mock socket do not wait out the real cadence.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed >= 0.01,
+              parsed <= 3 else {
+            return 3
+        }
+        return parsed
     }
 
     // MARK: - transfer plumbing
@@ -1369,21 +1388,57 @@ extension CMUXCLI {
         }
     }
 
+    private struct ActiveVMRunCreateIdempotency {
+        let signature: String
+        let key: String
+    }
+
+    private struct VMRunCreateIdempotencyRecord: Codable {
+        let key: String
+        var createdAt: TimeInterval
+        var ownerPID: Int32
+        var uncertain: Bool
+    }
+
+    private struct VMRunCreateIdempotencyStore: Codable {
+        var records: [String: [VMRunCreateIdempotencyRecord]] = [:]
+    }
+
+    private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
+
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
+        let idempotency = try activeVMRunCreateIdempotency(memoryMb: memoryMb)
         var params: [String: Any] = [
             // Pool machines are shell boxes; the backend maps the kind to its image.
             "kind": VMMachineKind.base.rawValue,
             // Freestyle has no persistent-volume capability; keep pool creation usable.
-            // Fresh key per run: a failed create is simply retried by the next
-            // `vm run`, and the interactive `vm new` store stays untouched.
-            "idempotency_key": UUID().uuidString,
+            // The key survives an unknown response so a retry joins the same backend
+            // create instead of charging for a second pool machine.
+            "idempotency_key": idempotency.key,
         ]
         if let memoryMb { params["memory_mb"] = memoryMb }
-        let response = try client.sendV2(
-            method: "vm.create",
-            params: params,
-            responseTimeout: Self.vmCreateResponseTimeoutSeconds
-        )
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(
+                method: "vm.create",
+                params: params,
+                responseTimeout: Self.vmCreateResponseTimeoutSeconds
+            )
+        } catch {
+            // A structured response is definitive: the backend rejected this key,
+            // so retaining it would replay a permanent failure. A transport or
+            // malformed-response error is ambiguous because the create may have
+            // reached the backend; retain the key for the next invocation.
+            if let cliError = error as? CLIError,
+               cliError.vmBackendCode == "vm_create_in_progress" {
+                markVMRunCreateIdempotencyUncertain(idempotency)
+            } else if let cliError = error as? CLIError, cliError.isStructuredProtocolResponse {
+                clearVMRunCreateIdempotency(idempotency)
+            } else {
+                markVMRunCreateIdempotencyUncertain(idempotency)
+            }
+            throw error
+        }
         guard let id = response["id"] as? String, !id.isEmpty else {
             throw CLIError(message: "vm run: create returned no machine id")
         }
@@ -1402,6 +1457,10 @@ extension CMUXCLI {
             )
             throw CLIError(message: String(format: template, id))
         }
+        // The machine is now recoverable through the pool store. Clear the create
+        // key before cosmetic labeling/readiness work so a later invocation cannot
+        // replay a machine that is already recorded and reusable.
+        clearVMRunCreateIdempotency(idempotency)
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
         do {
@@ -1417,6 +1476,119 @@ extension CMUXCLI {
         return id
     }
 
+    private func activeVMRunCreateIdempotency(memoryMb: Int?) throws -> ActiveVMRunCreateIdempotency {
+        let url = Self.vmRunCreateIdempotencyStoreURL()
+        let lockURL = url.appendingPathExtension("lock")
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else {
+            throw CLIError(message: "vm run: could not open the create idempotency lock")
+        }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else {
+            throw CLIError(message: "vm run: could not lock the create idempotency store")
+        }
+        defer { _ = flock(lockFD, LOCK_UN) }
+
+        let signature = "kind=\(VMMachineKind.base.rawValue)\u{1f}memory=\(memoryMb.map(String.init) ?? "default")"
+        let now = Date().timeIntervalSince1970
+        var store = try Self.loadVMRunCreateIdempotencyStore(from: url)
+        store.records = store.records.mapValues { records in
+            records.filter { !$0.key.isEmpty && now - $0.createdAt < Self.vmRunCreateIdempotencyTTLSeconds }
+        }.filter { !$0.value.isEmpty }
+
+        if var reusable = store.records[signature]?.first(where: { $0.uncertain || !Self.processExists($0.ownerPID) }) {
+            reusable.createdAt = now
+            reusable.ownerPID = getpid()
+            reusable.uncertain = false
+            store.records[signature] = (store.records[signature] ?? []).map { record in
+                record.key == reusable.key ? reusable : record
+            }
+            try Self.saveVMRunCreateIdempotencyStore(store, to: url)
+            return ActiveVMRunCreateIdempotency(signature: signature, key: reusable.key)
+        }
+
+        let record = VMRunCreateIdempotencyRecord(
+            key: UUID().uuidString.lowercased(),
+            createdAt: now,
+            ownerPID: getpid(),
+            uncertain: false
+        )
+        store.records[signature, default: []].append(record)
+        try Self.saveVMRunCreateIdempotencyStore(store, to: url)
+        return ActiveVMRunCreateIdempotency(signature: signature, key: record.key)
+    }
+
+    private func markVMRunCreateIdempotencyUncertain(_ active: ActiveVMRunCreateIdempotency) {
+        Self.updateVMRunCreateIdempotency(active) { record in
+            record.uncertain = true
+            return true
+        }
+    }
+
+    private func clearVMRunCreateIdempotency(_ active: ActiveVMRunCreateIdempotency) {
+        Self.updateVMRunCreateIdempotency(active) { _ in false }
+    }
+
+    private static func updateVMRunCreateIdempotency(
+        _ active: ActiveVMRunCreateIdempotency,
+        _ mutate: (inout VMRunCreateIdempotencyRecord) -> Bool
+    ) {
+        let url = vmRunCreateIdempotencyStoreURL()
+        let lockURL = url.appendingPathExtension("lock")
+        let directory = url.deletingLastPathComponent()
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else { return }
+        let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else { return }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else { return }
+        defer { _ = flock(lockFD, LOCK_UN) }
+        guard var store = try? loadVMRunCreateIdempotencyStore(from: url) else { return }
+        guard var records = store.records[active.signature],
+              let index = records.firstIndex(where: { $0.key == active.key }) else { return }
+        if !mutate(&records[index]) {
+            records.remove(at: index)
+        }
+        if records.isEmpty {
+            store.records.removeValue(forKey: active.signature)
+        } else {
+            store.records[active.signature] = records
+        }
+        try? saveVMRunCreateIdempotencyStore(store, to: url)
+    }
+
+    private static func processExists(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return Darwin.kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    private static func vmRunCreateIdempotencyStoreURL() -> URL {
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-run-create-idempotency.json", isDirectory: false)
+    }
+
+    private static func loadVMRunCreateIdempotencyStore(from url: URL) throws -> VMRunCreateIdempotencyStore {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return VMRunCreateIdempotencyStore()
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(VMRunCreateIdempotencyStore.self, from: data)
+        } catch {
+            throw CLIError(message: "vm run: could not read the create idempotency store")
+        }
+    }
+
+    private static func saveVMRunCreateIdempotencyStore(_ store: VMRunCreateIdempotencyStore, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(store)
+        try data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
     /// `report` is either `"<sha256hex>  <path>"` (sha256sum) or a bare byte
     /// count (wc -c fallback).
     static func verifyTransferIntegrity(
@@ -1426,7 +1598,7 @@ extension CMUXCLI {
         subject: String
     ) throws {
         let firstToken = report.split(separator: " ").first.map(String.init) ?? ""
-        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil {
+        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil {
             guard firstToken == expectedDigest else {
                 throw CLIError(message: "Digest mismatch on \(subject) — expected \(expectedDigest), machine reports \(firstToken)")
             }
@@ -1500,7 +1672,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1524,6 +1696,9 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --focus, --no-focus
+                           Focus the opened pane, or open it in the background.
+                           \(openFocusDefaultHelp)
           --remote-workspace <ws>
                            Land the agent's terminal in this machine workspace
                            (a `ws_…` id from `vm tree`, e.g. one staged with
@@ -1693,6 +1868,7 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var focus: Bool?
         var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
@@ -1708,6 +1884,11 @@ extension CMUXCLI {
                 }
                 index += 1
                 return flags[index]
+            }
+            if let flag = try Self.openFocusFlag(in: flags, at: index, command: "vm agent") {
+                focus = flag.focus
+                index += flag.consumed
+                continue
             }
             switch arg {
             case "--agent": agent = try takeValue().lowercased()
@@ -1796,6 +1977,7 @@ extension CMUXCLI {
             "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
+            "focus": focus ?? Self.defaultFocusForUserOpen(),
         ]
         // --remote-workspace: land the agent's terminal in a staged machine
         // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
@@ -1803,7 +1985,21 @@ extension CMUXCLI {
         if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
             params["remote_workspace_id"] = remoteWorkspaceOption
         }
-        let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        // The pane opens in the caller's own workspace when run inside cmux, not in
+        // whichever workspace happens to be selected. The server rejects an unknown
+        // workspace before it creates anything, so a stale CMUX_WORKSPACE_ID (the tab
+        // moved or its workspace closed) retries once in the selected workspace.
+        var callerParams = params
+        if !noOpen,
+           let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+            callerParams["workspace_id"] = callerWorkspace
+        }
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "surface.new_terminal", params: callerParams, responseTimeout: 240)
+        } catch let error as CLIError where error.v2Code == "invalid_params" && callerParams["workspace_id"] != nil {
+            response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        }
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }

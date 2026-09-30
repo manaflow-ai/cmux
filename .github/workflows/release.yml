@@ -90,6 +90,9 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: build-ghostty-cli-helper
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
@@ -525,6 +528,16 @@ jobs:
           # work. Direct execution is isolated from the runner's Dock state.
           CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
             ./scripts/smoke-launch-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux.app"
+
+      - name: Smoke bundled CLI against the signed app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Launch-only smoke proves the process lives; this drives the shipped
+          # app through the CLI inside the same bundle (version, help, SSH
+          # daemon manifest, ping, capabilities, workspace create/list/close).
+          ./scripts/smoke-signed-app-cli.sh \
             "build-universal/Build/Products/Release/cmux.app"
 
       - name: Notarize app
