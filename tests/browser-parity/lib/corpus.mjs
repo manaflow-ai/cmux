@@ -11,8 +11,8 @@
 //   node tests/browser-parity/lib/corpus.mjs oracle [--only NAME]
 //     Serves the frozen pages and records, from Chrome, what the snapshot
 //     invariants compare against (fixtures/corpus/NAME.oracle.json):
-//     interactive elements in Playwright's AI snapshot, and text Chrome does
-//     not render.
+//     interactive elements in Playwright's AI snapshot that no overflow:hidden
+//     ancestor clips out, and text Chrome does not render.
 //
 // Sizes of Aside's snapshots of the same frozen pages live in
 // fixtures/corpus/aside-sizes.json (recorded once with `aside repl`).
@@ -236,9 +236,45 @@ function interactiveFromAiSnapshot(text) {
   for (const line of text.split("\n")) {
     const m = /^\s*- ([\w-]+)(?: "((?:[^"\\]|\\.)*)")?(.*)$/.exec(line);
     if (!m || !INTERACTIVE_ROLES.includes(m[1])) continue;
-    out.push({ role: m[1], name: m[2] ? JSON.parse(`"${m[2]}"`) : "" });
+    const ref = /\[ref=(\w+)\]/.exec(m[3]);
+    out.push({ role: m[1], name: m[2] ? JSON.parse(`"${m[2]}"`) : "", ref: ref && ref[1] });
   }
   return out;
+}
+
+// Runs in the page: whether an ancestor with overflow hidden or clip cuts
+// the element out entirely, following CSS containing blocks (an absolutely
+// positioned element escapes clippers below its positioned ancestor, a fixed
+// one all but those at or above a transformed ancestor). Chrome's AI
+// snapshot lists such elements; nobody can see them.
+function clippedOut(el) {
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  const clips = (v) => v === "hidden" || v === "clip";
+  let skip = null; // "positioned" | "transformed" while escaping
+  const own = getComputedStyle(el).position;
+  if (own === "absolute") skip = "positioned";
+  if (own === "fixed") skip = "transformed";
+  for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    const transformed = cs.transform !== "none" || cs.filter !== "none" || /paint|strict|content|layout/.test(cs.contain);
+    const positioned = cs.position !== "static" || transformed;
+    const escaping = (skip === "positioned" && !positioned) || (skip === "transformed" && !transformed);
+    if (!escaping) {
+      const x = clips(cs.overflowX) || /paint|strict|content/.test(cs.contain);
+      const y = clips(cs.overflowY) || /paint|strict|content/.test(cs.contain);
+      if (x || y) {
+        const b = a.getBoundingClientRect();
+        const left = b.left + a.clientLeft, top = b.top + a.clientTop;
+        const cut = (x && (r.right <= left + 0.5 || r.left >= left + a.clientWidth - 0.5)) || (y && (r.bottom <= top + 0.5 || r.top >= top + a.clientHeight - 0.5));
+        if (cut) return true;
+      }
+      skip = null;
+    }
+    if (cs.position === "absolute") skip = "positioned";
+    else if (cs.position === "fixed") skip = "transformed";
+  }
+  return false;
 }
 
 async function oracle(only) {
@@ -253,11 +289,14 @@ async function oracle(only) {
       await page.waitForTimeout(300);
       const ai = await page._snapshotForAI();
       const aiText = typeof ai === "string" ? ai : ai.full;
+      // _snapshotForAI inlines frames; parse the whole text once, and leave
+      // out what an overflow:hidden ancestor cuts off.
       const interactive = [];
-      for (const frame of page.frames()) {
-        // _snapshotForAI inlines frames; parse the whole text once.
-        if (frame !== page.mainFrame()) continue;
-        interactive.push(...interactiveFromAiSnapshot(aiText));
+      let clipped = 0;
+      for (const item of interactiveFromAiSnapshot(aiText)) {
+        const cut = item.ref ? await page.locator(`aria-ref=${item.ref}`).evaluate(clippedOut).catch(() => false) : false;
+        if (cut) clipped++;
+        else interactive.push({ role: item.role, name: item.name });
       }
       // Hidden text can still name an element (aria-labelledby a hidden
       // tooltip); Chrome prints such names, so they are not leaks.
@@ -266,9 +305,9 @@ async function oracle(only) {
       const hidden = [];
       for (const frame of page.frames()) hidden.push(...(await frame.evaluate(hiddenTexts).catch(() => [])));
       hidden.splice(0, hidden.length, ...hidden.filter((t) => !aiSquashed.includes(squash(t))));
-      const record = { url: entry.url, interactive, hidden, chromeAiSnapshotBytes: Buffer.byteLength(aiText) };
+      const record = { url: entry.url, interactive, clippedInteractive: clipped, hidden, chromeAiSnapshotBytes: Buffer.byteLength(aiText) };
       fs.writeFileSync(path.join(corpusDir, `${entry.name}.oracle.json`), JSON.stringify(record, null, 1) + "\n");
-      console.log(`${entry.name}: ${interactive.length} interactive, ${hidden.length} hidden texts`);
+      console.log(`${entry.name}: ${interactive.length} interactive, ${clipped} clipped out, ${hidden.length} hidden texts`);
       await page.close();
     }
   } finally {

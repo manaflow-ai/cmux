@@ -81,9 +81,11 @@ test("shape: a name that repeats the children keeps one copy", () => {
   assert.deepEqual(tree([{ role: "link", name: "Read more", ref: "e2", children: [{ role: "heading", name: "Read", level: 3, children: ["Read"] }, "more"] }]), ['- link "Read more" [ref=e2]']);
 });
 
-test("shape: combobox options print only on request or when expanded", () => {
+test("shape: a closed combobox lists its options inline, capped; one line each on request or when expanded", () => {
   const nodes = [{ role: "combobox", name: "Plan", ref: "e1", value: "Pro", options: [{ name: "Free" }, { name: "Pro", selected: true }] }];
-  assert.deepEqual(tree(nodes), ['- combobox "Plan" [ref=e1]: "Pro"']);
+  assert.deepEqual(tree(nodes), ['- combobox "Plan" [ref=e1] [options: Free, Pro]: "Pro"']);
+  const many = [{ role: "combobox", name: "Dept", ref: "e2", value: "All", options: Array.from({ length: 13 }, (_, i) => ({ name: `D${i}` })) }];
+  assert.deepEqual(tree(many), ['- combobox "Dept" [ref=e2] [options: D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, +3 more]: "All"']);
   assert.deepEqual(tree(nodes, { options: true }), ['- combobox "Plan" [ref=e1]: "Pro"', '  - option "Free"', '  - option "Pro" [selected]']);
   assert.equal(tree([{ ...nodes[0], expanded: true }]).length, 3);
 });
@@ -94,7 +96,22 @@ test("interactive: controls and their named ancestors; unnamed controls keep the
     { role: "generic", ref: "e3", act: 1, children: ["Clickable div"] },
     { role: "table", name: "Scores", children: [{ role: "row", children: [{ role: "cell", name: "Ada" }] }] },
   ];
-  assert.deepEqual(tree(nodes, { interactive: true }), ['- navigation "Main" [ref=e1]:', '  - link "Home" [ref=e2]', '- generic [ref=e3]: "Clickable div"']);
+  // Headings and landmarks stay as the page outline.
+  assert.deepEqual(tree(nodes, { interactive: true }), ['- main:', '  - heading "Title" [level=1]', '  - navigation "Main" [ref=e1]:', '    - link "Home" [ref=e2]', '- generic [ref=e3]: "Clickable div"']);
+});
+
+test("shape: punctuation-only text joins the texts around it or is dropped next to elements", () => {
+  const link = (n, r) => ({ role: "link", name: n, ref: r, act: 1 });
+  assert.deepEqual(tree([link("new", "e1"), "|", link("past", "e2"), "(", link("site.com", "e3"), ")", "10 points by", "|", "ada", "·"]),
+    ['- link "new" [ref=e1]', '- link "past" [ref=e2]', '- link "site.com" [ref=e3]', '- text: "10 points by | ada"']);
+});
+
+test("shape: a header row says so; a link with no name shows its URL", () => {
+  const cell = (role, t) => ({ role, children: [t] });
+  assert.deepEqual(tree([{ role: "table", children: [{ role: "row", children: [cell("columnheader", "User"), cell("columnheader", "Action")] }, { role: "row", children: [cell("cell", "Ada"), cell("cell", "Edit")] }] }]),
+    ['- table:', '  - row [header]: "User | Action"', '  - row: "Ada | Edit"']);
+  assert.deepEqual(tree([{ role: "link", name: "Logo", ref: "e1", url: "/logo", children: [{ role: "img", name: "Logo" }] }, { role: "link", ref: "e2", url: "/home" }, { role: "link", name: "Home", ref: "e3", url: "/home", children: ["Home"] }]),
+    ['- link "Logo" [ref=e1] [url=/logo]', '- link [ref=e2] [url=/home]', '- link "Home" [ref=e3]']);
 });
 
 test("diff: changes carry their unchanged ancestors as context", () => {
@@ -104,14 +121,20 @@ test("diff: changes carry their unchanged ancestors as context", () => {
     "  - main:",
     "    - list:",
     '+     - listitem: "Two"',
-    '-   - button "Save" [ref=e1]',
-    '+   - button "Save" [ref=e1] [disabled]',
+    '~   - button "Save" [ref=e1] [disabled]',
   ]);
   assert.deepEqual(diffLines(before, before), []);
   assert.deepEqual(diffLines([], ["- a"]), ["+ - a"]);
 });
 
-test("print choice: the diff prints when it is at least 30% shorter than the tree", () => {
+test("print choice: a small tree prints its diff when shorter; a large one needs 30%", () => {
+  const form = ['- heading "Sign up" [level=1]', '- textbox "Email" [ref=e1]', '- textbox "Name" [ref=e2]', '- checkbox "Accept terms" [ref=e3]',
+    '- combobox "Plan" [ref=e4] [options: Free, Pro, Team]: "Pro"', '- button "Create account" [ref=e5]', '- text: "Already have an account?"', '- link "Sign in" [ref=e6]'];
+  const filled = new Snapshot({ header: ["title: F", "url: http://f/"], body: form.map((l, i) => (i === 1 ? '- textbox "Email" [ref=e1] [focused]: "me@x.com"' : l)), previous: form });
+  assert.equal(filled.usesDiff, true);
+  const big = Array.from({ length: 120 }, (_, i) => `- button "Button number ${i}" [ref=e${i + 1}]`);
+  const most = big.map((l, i) => (i % 10 ? l + " [focused]" : l));
+  assert.equal(new Snapshot({ header: [], body: most, previous: big }).usesDiff, false);
   const body = Array.from({ length: 20 }, (_, i) => `- button "B${i}" [ref=e${i + 1}]`);
   const header = ["title: T", "url: http://h/"];
   const changed = body.map((l, i) => (i === 7 ? l + " [focused]" : l));

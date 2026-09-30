@@ -134,14 +134,6 @@
    "name": "commits by claude"
   },
   {
-   "role": "link",
-   "name": "#15506"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
    "role": "button",
    "name": "Open commit details"
   },
@@ -203,10 +195,6 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": ".github, (Directory)"
   },
   {
@@ -220,10 +208,6 @@
   {
    "role": "link",
    "name": "#13277"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -247,10 +231,6 @@
   },
   {
    "role": "link",
-   "name": "#…"
-  },
-  {
-   "role": "link",
    "name": "CLI, (Directory)"
   },
   {
@@ -259,23 +239,11 @@
   },
   {
    "role": "link",
-   "name": "#…"
-  },
-  {
-   "role": "link",
    "name": "KeyboardPinningLab, (Directory)"
   },
   {
    "role": "link",
    "name": "Keep the iOS terminal dock pinned during keyboard reversals ("
-  },
-  {
-   "role": "link",
-   "name": "#9836"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -331,10 +299,6 @@
   },
   {
    "role": "link",
-   "name": "…"
-  },
-  {
-   "role": "link",
    "name": "agent-chat, (Directory)"
   },
   {
@@ -343,19 +307,11 @@
   },
   {
    "role": "link",
-   "name": "#15330"
-  },
-  {
-   "role": "link",
    "name": "cmux-browser, (Directory)"
   },
   {
    "role": "link",
    "name": "#15231"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -415,10 +371,6 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "config, (Directory)"
   },
   {
@@ -467,10 +419,6 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "examples/cmux-pack-template, (Directory)"
   },
   {
@@ -487,23 +435,11 @@
   },
   {
    "role": "link",
-   "name": "#5735"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "ghostty, (Submodule)"
   },
   {
    "role": "link",
    "name": "#15146"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -531,10 +467,6 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "scripts, (Directory)"
   },
   {
@@ -551,14 +483,6 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "skills, (Directory)"
   },
   {
@@ -568,10 +492,6 @@
   {
    "role": "link",
    "name": "Install updates automatically at a quiet moment and resume agents ("
-  },
-  {
-   "role": "link",
-   "name": "#1…"
   },
   {
    "role": "link",
@@ -643,10 +563,6 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": ".gitattributes, (File)"
   },
   {
@@ -691,10 +607,6 @@
   },
   {
    "role": "link",
-   "name": "#13947"
-  },
-  {
-   "role": "link",
    "name": ".xcode-version, (File)"
   },
   {
@@ -724,14 +636,6 @@
   {
    "role": "link",
    "name": "CLA.md, (File)"
-  },
-  {
-   "role": "link",
-   "name": "#11430"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -779,14 +683,6 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "PR-10599-AUDIT.md, (File)"
   },
   {
@@ -807,27 +703,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.bs.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -839,27 +719,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.de.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -871,27 +735,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.fr.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -903,27 +751,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.ja.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -935,27 +767,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.ko.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -979,27 +795,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.pl.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1011,27 +811,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.ru.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1043,27 +827,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.tr.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1075,27 +843,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.vi.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1107,27 +859,11 @@
   },
   {
    "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "README.zh-TW.md, (File)"
   },
   {
    "role": "link",
    "name": "Use founders@cmux.com as the contact address everywhere ("
-  },
-  {
-   "role": "link",
-   "name": "#15219"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1152,10 +888,6 @@
   {
    "role": "link",
    "name": "#13275"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -1223,19 +955,11 @@
   },
   {
    "role": "link",
-   "name": ")"
-  },
-  {
-   "role": "link",
    "name": "cmux-helper.entitlements, (File)"
   },
   {
    "role": "link",
    "name": "Inside-out signing with per-binary entitlements to restore passkeys ("
-  },
-  {
-   "role": "link",
-   "name": "#…"
   },
   {
    "role": "link",
@@ -1260,10 +984,6 @@
   {
    "role": "link",
    "name": "#12777"
-  },
-  {
-   "role": "link",
-   "name": ")"
   },
   {
    "role": "link",
@@ -2058,6 +1778,7 @@
    "name": "Do not share my personal information"
   }
  ],
+ "clippedInteractive": 70,
  "hidden": [
   "AI CODE CREATION",
   "Write better code with AI",
