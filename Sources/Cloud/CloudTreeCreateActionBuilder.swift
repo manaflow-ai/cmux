@@ -16,7 +16,7 @@ enum CloudTreeCreateActionBuilder {
                     node.children.append(CloudTreeNode(id: "cloud-machines-section/new-workspace", kind: .createAction(.newWorkspaceOnResolvedMachine)))
                 }
             case .workspacesGroup(let machine)
-                where machine.cloudMachineID != nil && !node.children.contains(where: { $0.structureTag == "createAction" }):
+                where (machine.cloudMachineID != nil || machine.isDevice) && !node.children.contains(where: { $0.structureTag == "createAction" }):
                 node.children.append(CloudTreeNode(
                     id: "\(CloudTreeNodeBuilder.nodeID(workspacesGroup: machine))/new-workspace",
                     kind: .createAction(.newWorkspace(machine))

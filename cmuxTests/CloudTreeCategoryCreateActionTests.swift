@@ -91,6 +91,32 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
     }
 
+    @Test("Trusted My Device Workspaces categories end with New Workspace without adding New Device")
+    func deviceWorkspacesExposePersistentCreationAction() throws {
+        let instance = SurfaceDeviceInstanceID(deviceID: "22222222-2222-2222-2222-222222222222", tag: "default")
+        let info = SurfaceMachineInfo(
+            id: .device(instance), name: "Studio", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, remoteWorkspaces: [],
+            presence: SurfaceDevicePresence(
+                state: .online, lastSeenAt: nil, tag: "default",
+                bundleID: "com.cmuxterm.app", accountTrust: .sameAccount
+            )
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info], resources: [], projections: [])
+        let nodes = CloudTreeCreateActionBuilder.add(to: CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], source: .devices
+        ))
+        let device = try #require(nodes.first { if case .device = $0.kind { return true }; return false })
+        let workspaces = try #require(device.children.first { if case .workspacesGroup = $0.kind { return true }; return false })
+        let action = try #require(workspaces.children.last)
+        #expect(action.kind == .createAction(.newWorkspace(.device(instance))))
+        #expect(CloudTreeNodeBuilder.flattened(nodes).allSatisfy {
+            if case .createAction(.newCloudVM) = $0.kind { return false }
+            return true
+        })
+    }
+
     @Test("Category rows route through the existing Cloud VM and workspace action closures")
     func categoryActionsRouteToExistingFlows() throws {
         let fixture = Fixture()
