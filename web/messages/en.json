@@ -663,8 +663,7 @@
         "memberReadOnly": "Only team admins can change this plan.",
         "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
         "seatsUsed": "{members} of {seats} used",
-        "overSeat": "{team} has {members} members and {seats} paid seats. Joining still works; add seats to cover everyone.",
-        "addSeats": "Add seats"
+        "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own."
       },
       "teamList": {
         "heading": "Billing scopes",
@@ -1213,7 +1212,7 @@
         "featurePrioritySupport": "Priority support",
         "chooseFree": "Continue with Free",
         "chooseTeam": "Upgrade to Team (${price}/seat/month)",
-        "upgradeLater": "Seats are soft: you can invite more people than you pay for and add seats later.",
+        "upgradeLater": "Seats follow your member count: each member is billed, and the total updates when people join or leave.",
         "inviteTitle": "Invite people to {team}",
         "inviteDescription": "Optional. You can also invite people later from the team's Members page.",
         "inviteByEmail": "Invite by email",
@@ -1330,8 +1329,6 @@
         "revoke": "Revoke",
         "linksTitle": "Invite links",
         "linksDescription": "A reusable link anyone can use to join as a member.",
-        "seatNudge": "{used} people are members or invited, but the plan has {seats} seats. Invitations still work; add {over, plural, one {# seat} other {# seats}} to cover everyone.",
-        "seatNudgeAction": "Manage seats",
         "actions": {
           "makeAdmin": "Make admin",
           "makeMember": "Make member",
