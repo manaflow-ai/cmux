@@ -110,7 +110,7 @@ extension TerminalController {
             ? await MainActor.run {
                 AppDelegate.shared?.preferredMainWindowContextForWorkspaceCreation(
                     debugSource: "agent.fan-out"
-                )?.tabManager.map(CloudWorkspaceCreationHost.init(manager:))
+                )?.tabManager.map { CloudWorkspaceCreationHost(manager: $0) }
             }
             : nil
         let destination: SurfaceDestination?
