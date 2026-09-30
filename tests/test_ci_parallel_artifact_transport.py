@@ -97,6 +97,14 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn('"github-parallel" if parallel_hit else', script)
         self.assertIn('echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -', script)
 
+    def test_restore_does_not_wait_on_a_busy_canonical_root(self):
+        script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
+        self.assertIn('"$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 0', script)
+        self.assertIn('CMUX_CI_ROOT_LOCK_SKIPPED=true', script)
+        self.assertIn('running tests from this job\'s DerivedData', script)
+        self.assertIn('skipped canonical source alias until root-independent file paths land', script)
+        self.assertIn('"canonical_root_lock_skipped": os.environ.get("CMUX_CI_ROOT_LOCK_SKIPPED") == "true"', script)
+
     def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
         # cli-product-tests restores the same compiled product without layers,
         # so it must keep the same fast sources, route check and cache finalize.
