@@ -109,8 +109,8 @@ extension CloudTreeNodeBuilder {
                     kind: .placeholder(
                         machine: .cloud("cloud-machines-section"),
                         CloudTreePlaceholder(
-                            text: String(localized: "machines.empty.title", defaultValue: "No machines yet"),
-                            style: .dimmed
+                            text: String(localized: "machines.empty.create", defaultValue: "New Machine"),
+                            style: .createMachine
                         )
                     )
                 )]

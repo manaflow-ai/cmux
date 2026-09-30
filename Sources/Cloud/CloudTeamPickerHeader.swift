@@ -4,13 +4,10 @@ import SwiftUI
 /// Team scope and machine actions share the Cloud header. Fleet status keeps its
 /// own row so it cannot squeeze the active team's name out of a narrow sidebar;
 /// the status view owns that row, so an idle fleet adds no gap under the toolbar.
-struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
+struct CloudTeamPickerHeader<Status: View>: View {
     let accountFlow: HostAccountFlow?
     let presentation: CloudTeamPickerPresentation?
     let chromeBackgroundColor: NSColor
-    let onNewMachine: () -> Void
-    /// The `⋯` menu: refresh, Cloud Agent launchers and other rare actions.
-    @ViewBuilder let overflowMenu: () -> OverflowMenu
     @ViewBuilder let status: () -> Status
     @State private var panePresentation = CloudTeamPickerPresentation()
 
@@ -35,13 +32,6 @@ struct CloudTeamPickerHeader<OverflowMenu: View, Status: View>: View {
                     }
                     .accessibilityIdentifier("CloudTeamInviteButton")
                 }
-                MachinesChromeIconButton(
-                    symbolName: "plus",
-                    accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                    isBusy: false,
-                    action: onNewMachine
-                )
-                overflowMenu()
             }
             .rightSidebarChromeBar()
             .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
