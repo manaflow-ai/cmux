@@ -3,8 +3,14 @@
 //
 // The Swift side never includes this header: it resolves these functions with
 // dlsym after it dlopens the shim on the first CEF tab, and mirrors the types
-// in CEFShimLibrary.swift. Bump CMUX_CEF_SHIM_ABI on any change and update
-// both sides together.
+// in CEFShimLibrary.swift. Update both sides together.
+//
+// ABI identity: the SHA-256 of this file's bytes. build-cef-shim.sh compiles
+// it into the shim (cmux_shim_abi_id), and CmuxNextBrowser bundles this file
+// as a resource and hashes it (CEFShimABI). Any edit here changes the
+// identity on both sides, so there is no number to bump and two parallel
+// changes can never merge into the same identity. This file lives in the
+// Swift target because SwiftPM resources must be inside the target.
 //
 // Threading: everything except the schedule callback runs on the main thread,
 // which is the CEF UI thread (external message pump).
@@ -18,8 +24,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define CMUX_CEF_SHIM_ABI 5
 
 #define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
 
@@ -71,7 +75,8 @@ typedef void (*cmux_shim_event_fn)(void* ctx,
 typedef int (*cmux_shim_key_fn)(void* ctx, int browser_id, void* ns_event);
 
 
-CMUX_SHIM_EXPORT int cmux_shim_abi_version(void);
+// SHA-256 (64 lowercase hex digits) of this header as the shim was built.
+CMUX_SHIM_EXPORT const char* cmux_shim_abi_id(void);
 
 // Loads the framework (dlopen) and binds the fork API. Returns 1 on success;
 // on failure writes a message into err.

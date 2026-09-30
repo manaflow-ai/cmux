@@ -171,8 +171,12 @@ using namespace cmux_shim;
 
 extern "C" {
 
-int cmux_shim_abi_version(void) {
-  return CMUX_CEF_SHIM_ABI;
+#ifndef CMUX_CEF_SHIM_ABI_ID
+#error "build-cef-shim.sh defines CMUX_CEF_SHIM_ABI_ID (SHA-256 of cmux_cef_shim.h)"
+#endif
+
+const char* cmux_shim_abi_id(void) {
+  return CMUX_CEF_SHIM_ABI_ID;
 }
 
 int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {

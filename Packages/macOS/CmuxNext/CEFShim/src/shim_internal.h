@@ -10,7 +10,7 @@
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_request_context.h"
-#include "../include/cmux_cef_shim.h"
+#include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
 
 namespace cmux_shim {
 

@@ -175,7 +175,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = ProcessInfo.processInfo.systemUptime - Self.launchUptime
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(CEFShimABI.expected ?? "missing"), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             let reason = "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")

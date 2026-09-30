@@ -3,15 +3,14 @@ import Foundation
 
 /// The C ABI of `libcmux_cef_shim.dylib`, resolved with `dlsym`.
 ///
-/// Mirrors `Packages/macOS/CmuxNext/CEFShim/include/cmux_cef_shim.h`. The shim
+/// Mirrors `Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h`; the shim must
+/// have the same ABI identity (`CEFShimABI`). The shim
 /// is loaded only when the first CEF tab is created, so a session without CEF
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
 /// Immutable C function pointers: safe to hand from the loading thread to the
 /// main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
-    static let abiVersion: Int32 = 5
-
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     typealias EventFn = @convention(c) (
         UnsafeMutableRawPointer?, Int32, Int32, Int32, Int64, Int64,
@@ -19,7 +18,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     ) -> Void
     typealias KeyFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Int32
 
-    let abiVersionFn: @convention(c) () -> Int32
+    let abiIDFn: @convention(c) () -> UnsafePointer<CChar>?
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
     let forkAPIVersion: @convention(c) () -> Int32
     let prepareApplication: @convention(c) () -> Int32
@@ -83,7 +82,15 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     enum LoadError: Error, Equatable {
         case open(String)
         case missingSymbol(String)
-        case abiMismatch(expected: Int32, found: Int32)
+        /// Identities are SHA-256 hex strings of the header (`CEFShimABI`).
+        case abiMismatch(expected: String, found: String)
+    }
+
+    /// Checks the shim's identity against the header this code was built with.
+    static func checkABI(expected: String?, found: String?) throws(LoadError) {
+        guard let expected, let found, expected == found else {
+            throw .abiMismatch(expected: expected ?? "missing", found: found ?? "missing")
+        }
     }
 
     /// Opens the shim at `url` and resolves every symbol.
@@ -92,16 +99,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
             throw .open(String(cString: dlerror()))
         }
         let resolver = Resolver(handle: handle)
-        do {
-            let library = try CEFShimLibrary(resolver)
-            let found = library.abiVersionFn()
-            guard found == abiVersion else { throw LoadError.abiMismatch(expected: abiVersion, found: found) }
-            return library
-        } catch let error as LoadError {
-            throw error
-        } catch {
-            throw .missingSymbol(String(describing: error))
-        }
+        let library = try CEFShimLibrary(resolver)
+        try checkABI(expected: CEFShimABI.expected, found: library.abiIDFn().map { String(cString: $0) })
+        return library
     }
 
     private struct Resolver {
@@ -114,7 +114,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     }
 
     private init(_ r: Resolver) throws(LoadError) {
-        abiVersionFn = try r("cmux_shim_abi_version")
+        abiIDFn = try r("cmux_shim_abi_id")
         load = try r("cmux_shim_load")
         forkAPIVersion = try r("cmux_shim_fork_api_version")
         prepareApplication = try r("cmux_shim_prepare_application")

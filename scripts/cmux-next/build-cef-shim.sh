@@ -15,6 +15,11 @@ OUT_DIR="${2:?usage: build-cef-shim.sh <cef_dir> <out_dir>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SHIM_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/CEFShim"
+# The public header lives in the Swift target (it is also a SwiftPM resource
+# there). Its SHA-256 is the ABI identity on both sides; see the header.
+SHIM_HEADER_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
+SHIM_HEADER="$SHIM_HEADER_DIR/cmux_cef_shim.h"
+ABI_ID="$(shasum -a 256 "$SHIM_HEADER" | awk '{print $1}')"
 ARCH="${CMUX_CEF_ARCH:-arm64}"
 MIN_OS="${CMUX_CEF_MIN_OS:-26.0}"
 
@@ -24,6 +29,7 @@ key="$(
   {
     cat "$CEF_DIR/CMUX-ARTIFACT.json" 2>/dev/null || cat "$CEF_DIR/archive.json"
     find "$SHIM_DIR" -type f \( -name '*.h' -o -name '*.mm' \) -print0 | sort -z | xargs -0 shasum -a 256
+    echo "abi $ABI_ID"
     shasum -a 256 "${BASH_SOURCE[0]}"
     "$CXX" --version | head -n 1
     echo "$ARCH $MIN_OS"
@@ -61,7 +67,7 @@ jobs="$(sysctl -n hw.ncpu)"
 libtool -static -no_warning_for_no_symbols -o "$OUT_DIR/libcef_dll_wrapper.a" "$OUT_DIR"/obj/wrapper/*.o
 
 for src in "$SHIM_DIR"/src/*.mm; do
-  "$CXX" "${common[@]}" -I"$SHIM_DIR" -c "$src" -o "$OUT_DIR/obj/shim/$(basename "$src").o"
+  "$CXX" "${common[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$OUT_DIR/obj/shim/$(basename "$src").o"
 done
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -dynamiclib \
@@ -78,4 +84,4 @@ done
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$stamp"
-echo "==> CEF shim ready"
+echo "==> CEF shim ready (abi ${ABI_ID:0:12})"

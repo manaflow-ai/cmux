@@ -244,6 +244,9 @@ let package = Package(
         .target(
             name: "CmuxNextBrowser",
             dependencies: ["CmuxNextDesign"],
+            // The CEF shim's C header: its SHA-256 is the shim ABI identity
+            // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
+            resources: [.copy("CEF/Shim/cmux_cef_shim.h")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
