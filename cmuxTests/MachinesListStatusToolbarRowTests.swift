@@ -192,3 +192,70 @@ struct MachinesListStatusToolbarRowTests {
         return true
     }
 }
+
+@MainActor
+@Suite("The Cloud toolbar can dismiss tree errors")
+struct MachinesCloudStatusTests {
+    @Test("A tree error offers a persistent dismissal action")
+    func treeErrorOffersDismissal() throws {
+        let dismissed = ActionLog()
+        let hosted = Self.host(treeError: "Unsupported: Browsers on another Mac can’t be opened here yet.") {
+            dismissed.error = $0
+        }
+        let button = try #require(
+            Self.element("CloudBannerDismissButton", in: hosted),
+            "tree errors need a close affordance"
+        )
+        try #require(Self.press(button), "tree error close affordance exposes no press action")
+        #expect(dismissed.error == "Unsupported: Browsers on another Mac can’t be opened here yet.")
+    }
+
+    @MainActor
+    private final class ActionLog {
+        var error: String?
+    }
+
+    private struct Hosted {
+        let window: NSWindow
+        let view: NSView
+    }
+
+    private static func host(
+        treeError: String,
+        onDismissTreeError: @escaping (String) -> Void
+    ) -> Hosted {
+        let view = NSHostingView(
+            rootView: MachinesCloudStatus(
+                activeOperation: nil,
+                listStatus: nil,
+                listError: nil,
+                treeError: treeError,
+                onDismissStale: { _ in },
+                onDismissTreeError: onDismissTreeError,
+                performListStatusAction: { _ in }
+            )
+            .environment(\.accessibilityEnabled, true)
+        )
+        view.frame = NSRect(x: 0, y: 0, width: 420, height: 28)
+        let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        return Hosted(window: window, view: view)
+    }
+
+    private static func element(_ identifier: String, in hosted: Hosted) -> NSObject? {
+        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: hosted.view)
+    }
+
+    private static func press(_ element: NSObject) -> Bool {
+        let modern = NSSelectorFromString("accessibilityPerformPress")
+        if element.responds(to: modern) {
+            _ = element.perform(modern)
+            return true
+        }
+        let legacy = NSSelectorFromString("accessibilityPerformAction:")
+        guard element.responds(to: legacy) else { return false }
+        _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
+        return true
+    }
+}
