@@ -195,10 +195,11 @@ extension CMUXCLI {
 
     /// The provider whose HUD this command starts, or nil when it is not a HUD command.
     ///
-    /// A shim-owned pane (`CMUX_<PROVIDER>_CMUX_BIN`, `CMUX_AGENT_LAUNCH_KIND`) is
-    /// authoritative because the launcher recorded it; otherwise the command text
-    /// has to name the provider. Provider words match on boundaries so `prompt`
-    /// cannot be read as `omp`.
+    /// A command that names the provider is the positive signature. A shim-owned
+    /// pane (`CMUX_<PROVIDER>_CMUX_BIN`, `CMUX_AGENT_LAUNCH_KIND`) is trusted only for
+    /// the `hud --watch` form the providers actually run, so `echo hud` inside an OMP
+    /// shell is not mistaken for a HUD launch. Provider words match on boundaries so
+    /// `prompt` cannot be read as `omp`.
     func tmuxHudProviderForCommand(_ commandTokens: [String]) -> TmuxCompatHudProvider? {
         let commandText = commandTokens.joined(separator: " ")
         let lowered = commandText.lowercased()
@@ -206,15 +207,28 @@ extension CMUXCLI {
             return nil
         }
 
-        let environment = ProcessInfo.processInfo.environment
         for provider in TmuxCompatHudProvider.allCases
-        where environment[provider.shimBinaryEnvironmentKey] != nil
-            || environment["CMUX_AGENT_LAUNCH_KIND"] == provider.rawValue {
+        where provider.commandWords.contains(where: { tmuxCommandTextContainsWord(lowered, word: $0) }) {
+            return provider
+        }
+
+        // The watch flag is matched literally: `--watch` is one token, so a word
+        // boundary around "watch" would never match it.
+        guard lowered.contains("--watch") else {
+            return nil
+        }
+
+        // `CMUX_AGENT_LAUNCH_KIND` is the more specific signal: a launcher records it
+        // for the process it started, while a shim binary path can be inherited from an
+        // outer provider's shell.
+        let environment = ProcessInfo.processInfo.environment
+        if let launchKind = environment["CMUX_AGENT_LAUNCH_KIND"],
+           let provider = TmuxCompatHudProvider(rawValue: launchKind.lowercased()) {
             return provider
         }
 
         for provider in TmuxCompatHudProvider.allCases
-        where provider.commandWords.contains(where: { tmuxCommandTextContainsWord(lowered, word: $0) }) {
+        where environment[provider.shimBinaryEnvironmentKey] != nil {
             return provider
         }
 

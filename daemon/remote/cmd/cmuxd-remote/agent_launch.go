@@ -163,7 +163,7 @@ func runOMPRelay(socketPath string, args []string, refreshAddr func() string) in
 	ompPath := findExecutableInPath("omp", originalPath, shimDir)
 	if ompPath == "" {
 		fmt.Fprintf(os.Stderr, "cmux omp: omp not found in PATH\n"+
-			"Install it first:\n  npm install -g oh-my-pi\n")
+			"Install it first:\n  bun install -g @oh-my-pi/pi-coding-agent\n")
 		return 1
 	}
 

@@ -345,7 +345,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
-            tmuxStartCommand: "oh-my-codex hud"
+            tmuxStartCommand: "oh-my-codex hud --watch"
         ))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
@@ -357,15 +357,18 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
-        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud  ") == "oh-my-codex hud")
+        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud --watch  ") == "oh-my-codex hud --watch")
         #expect(service.restorableTmuxStartCommand("omx run") == nil)
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
-        #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
-        #expect(service.restorableTmuxStartCommand("  oh-my-pi hud  ") == "oh-my-pi hud")
+        // The providers run the HUD as a watch loop; without it the command is not a HUD launch.
+        #expect(service.restorableTmuxStartCommand("omx hud") == nil)
+        #expect(service.restorableTmuxStartCommand("  oh-my-pi hud --watch  ") == "oh-my-pi hud --watch")
         #expect(service.restorableTmuxStartCommand("omp run") == nil)
-        #expect(service.restorableTmuxStartCommand("omp hud") == "omp hud")
+        #expect(service.restorableTmuxStartCommand("omp hud") == nil)
         // "prompt" must not be misread as an OMP command via substring matching.
         #expect(service.restorableTmuxStartCommand("prompt hud") == nil)
+        // A quoted mention is not a HUD launch, so its side effects must not replay on restore.
+        #expect(service.restorableTmuxStartCommand("echo \"omp hud\"") == nil)
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")

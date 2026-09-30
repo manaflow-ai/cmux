@@ -19362,7 +19362,7 @@ struct CMUXCLI {
               - prepends a private tmux shim to PATH
               - forwards all remaining arguments to omp
 
-            Install: npm install -g oh-my-pi
+            Install: bun install -g @oh-my-pi/pi-coding-agent
 
             Examples:
               cmux omp
@@ -26900,7 +26900,7 @@ struct CMUXCLI {
         }
 
         guard let ompExecutablePath = resolveOMPExecutable(searchPath: launcherEnvironment["PATH"]) else {
-            throw CLIError(message: "omp is not installed. Install it first:\n  npm install -g oh-my-pi\n\nThen run: cmux omp")
+            throw CLIError(message: "omp is not installed. Install it first:\n  bun install -g @oh-my-pi/pi-coding-agent\n\nThen run: cmux omp")
         }
         launcherEnvironment["PATH"] = providerExecutableSearchPath(
             searchPath: launcherEnvironment["PATH"],
@@ -26944,7 +26944,7 @@ struct CMUXCLI {
         let code = cliExecFailureErrno {
             execv(launchPath, &argv)
         }
-        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  npm install -g oh-my-pi")
+        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  bun install -g @oh-my-pi/pi-coding-agent")
     }
 
     // MARK: - cmux omc (Oh My Claude Code)
