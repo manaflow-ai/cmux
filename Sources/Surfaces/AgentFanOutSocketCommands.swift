@@ -49,6 +49,10 @@ extension TerminalController {
         return AgentFanOutOperation.digest(argv: argv, identity: identity)
     }
 
+    private nonisolated static func fanOutChildCorrelationKey(operationID: String, index: Int) -> String {
+        "cmux-agent-fan-out-\(AgentFanOutOperation.digest(argv: [operationID, String(index)]))"
+    }
+
     /// `vm.agent_fan_out` records the operation before creating child
     /// workspaces. A duplicate operation id returns the recorded operation
     /// without touching the provider.
@@ -75,7 +79,10 @@ extension TerminalController {
                           existing.requestedCount == count else {
                         throw FanOutSocketError.conflictingOperation
                     }
-                    return existing.foundationObject
+                    let reconciled = try await Self.reconcileStartingFanOutChildren(
+                        existing, machineID: machineID, agent: agent, argv: argv, params: params
+                    )
+                    return reconciled.foundationObject
                 }
                 return try await Self.createFanOutOperation(
                     operationID: requestedOperationID, machineID: machineID, scope: scope,
@@ -137,7 +144,13 @@ extension TerminalController {
             id: generatedID, machineID: machineID, scope: scope,
             remoteWorkspaceID: explicitWorkspace ?? "", agent: agent, argvDigest: digest,
             requestedCount: count, createdAt: now, updatedAt: now, state: .creating,
-            children: (0..<count).map { AgentFanOutChild(index: $0, terminalID: nil, state: .starting, exitCode: nil, errorCode: nil, startedAt: nil, endedAt: nil) }
+            children: (0..<count).map {
+                AgentFanOutChild(
+                    index: $0,
+                    creationCorrelationKey: Self.fanOutChildCorrelationKey(operationID: generatedID, index: $0),
+                    terminalID: nil, state: .starting, exitCode: nil, errorCode: nil, startedAt: nil, endedAt: nil
+                )
+            }
         )
         // Reserve the id before the first remote mutation. Concurrent retries
         // observe this record and cannot create a second child set.
@@ -176,9 +189,18 @@ extension TerminalController {
                 try await AgentFanOutOperationStore.shared.update(operation)
                 stage = "terminal_create_failed"
                 guard await Self.currentFanOutScope() == scope else { throw FanOutSocketError.unauthenticated }
+                let correlationKey = operation.children[index].creationCorrelationKey
+                    ?? Self.fanOutChildCorrelationKey(operationID: generatedID, index: index)
+                operation.children[index].creationCorrelationKey = correlationKey
+                let request = await MainActor.run {
+                    CloudTerminalCreationRequest(
+                        correlationKey: correlationKey, remoteWorkspaceID: workspace.id,
+                        commandOverride: argv, restoring: true
+                    )
+                }
                 let terminal = try await provider.createTerminal(
                     command: argv, cwd: Self.fanOutString(params["cwd"]), name: childName,
-                    remoteWorkspaceID: workspace.id, onExit: "keep"
+                    remoteWorkspaceID: workspace.id, onExit: "keep", request: request
                 )
                 operation.children[index].terminalID = terminal.id.key
                 operation.children[index].state = .running
@@ -307,11 +329,54 @@ extension TerminalController {
         operation.recomputeState()
         return operation
     }
+
+    /// A terminal mutation can commit remotely just before the local ledger
+    /// write fails. On a retry, resolve each durable child identity first so a
+    /// committed receipt is adopted instead of creating a second terminal.
+    private nonisolated static func reconcileStartingFanOutChildren(
+        _ operation: AgentFanOutOperation, machineID: String, agent: String,
+        argv: [String], params: [String: Any]
+    ) async throws -> AgentFanOutOperation {
+        var operation = operation
+        guard operation.children.contains(where: {
+            $0.state == .starting && $0.creationCorrelationKey != nil && $0.remoteWorkspaceID != nil
+        }) else { return operation }
+        let provider = try await cloudTuiProvider(machineID: machineID, catalog: await SurfaceCatalog.shared)
+        let namePrefix = fanOutString(params["name_prefix"]) ?? "\(agent) fan-out"
+        for index in operation.children.indices where operation.children[index].state == .starting {
+            guard let workspaceID = operation.children[index].remoteWorkspaceID,
+                  let correlationKey = operation.children[index].creationCorrelationKey else { continue }
+            let childName = "\(namePrefix) [\(index + 1)/\(operation.requestedCount)]"
+            do {
+                let request = await MainActor.run {
+                    CloudTerminalCreationRequest(
+                        correlationKey: correlationKey, remoteWorkspaceID: workspaceID,
+                        commandOverride: argv, restoring: true
+                    )
+                }
+                let terminal = try await provider.createTerminal(
+                    command: argv, cwd: fanOutString(params["cwd"]), name: childName,
+                    remoteWorkspaceID: workspaceID, onExit: "keep", request: request
+                )
+                operation.children[index].terminalID = terminal.id.key
+                operation.children[index].state = .running
+                operation.children[index].startedAt = operation.children[index].startedAt ?? Date()
+                operation.recomputeState()
+                // A transient write failure leaves the child starting; the
+                // same correlation key will reconcile it on the next retry.
+                try? await AgentFanOutOperationStore.shared.update(operation)
+            } catch {
+                // Pending or unavailable daemon work must remain retryable.
+                continue
+            }
+        }
+        return (try? await AgentFanOutOperationStore.shared.operation(id: operation.id)) ?? operation
+    }
 }
 
 private enum FanOutSocketError: LocalizedError {
     case conflictingOperation, machineUnavailable, destinationRequired, operationNotFound, unauthenticated
-    var errorDescription: String {
+    var errorDescription: String? {
         switch self {
         case .conflictingOperation: return "operation_id already names a different fan-out request"
         case .machineUnavailable: return "Cloud machine is unavailable"

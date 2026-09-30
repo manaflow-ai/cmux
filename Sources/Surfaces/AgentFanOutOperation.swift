@@ -23,6 +23,10 @@ enum AgentFanOutChildState: String, Codable {
 
 struct AgentFanOutChild: Codable, Equatable {
     let index: Int
+    /// Stable daemon correlation identity for this child's terminal creation.
+    /// It lets a retry adopt a committed receipt when the local ledger write
+    /// raced the remote mutation.
+    var creationCorrelationKey: String?
     /// Each default fan-out child gets its own remote workspace so the local
     /// sidebar can project it as an independently visible workspace. Older
     /// ledgers omit this field and continue to decode safely.
@@ -40,6 +44,7 @@ struct AgentFanOutChild: Codable, Equatable {
 
     init(
         index: Int,
+        creationCorrelationKey: String? = nil,
         remoteWorkspaceID: String? = nil,
         localWorkspaceID: String? = nil,
         projectionErrorCode: String? = nil,
@@ -51,6 +56,7 @@ struct AgentFanOutChild: Codable, Equatable {
         endedAt: Date?
     ) {
         self.index = index
+        self.creationCorrelationKey = creationCorrelationKey
         self.remoteWorkspaceID = remoteWorkspaceID
         self.localWorkspaceID = localWorkspaceID
         self.projectionErrorCode = projectionErrorCode
@@ -70,8 +76,8 @@ struct AgentFanOutChild: Codable, Equatable {
         if let terminalID { result["terminal_id"] = terminalID }
         if let exitCode { result["exit_code"] = exitCode }
         if let errorCode { result["error_code"] = errorCode }
-        if let startedAt { result["started_at"] = ISO8601DateFormatter().string(from: startedAt) }
-        if let endedAt { result["ended_at"] = ISO8601DateFormatter().string(from: endedAt) }
+        if let startedAt { result["started_at"] = startedAt.formatted(.iso8601) }
+        if let endedAt { result["ended_at"] = endedAt.formatted(.iso8601) }
         return result
     }
 }
@@ -246,6 +252,9 @@ actor AgentFanOutOperationStore {
             merged.children = incoming.children.map { candidate in
                 guard let current = previous.children.first(where: { $0.index == candidate.index }) else { return candidate }
                 var candidate = candidate
+                if candidate.creationCorrelationKey == nil {
+                    candidate.creationCorrelationKey = current.creationCorrelationKey
+                }
                 let carriesProjectionUpdate = candidate.localWorkspaceID != nil
                 if candidate.remoteWorkspaceID == nil {
                     candidate.remoteWorkspaceID = current.remoteWorkspaceID
@@ -286,6 +295,9 @@ actor AgentFanOutOperationStore {
                 return candidate
             }
             merged.recomputeState(now: max(incoming.updatedAt, previous.updatedAt))
+            var unchanged = merged
+            unchanged.updatedAt = previous.updatedAt
+            if unchanged == previous { return }
         }
         operations[incoming.id] = merged
         do {

@@ -1810,10 +1810,11 @@ extension CMUXCLI {
         guard let argv = Self.vmAgentArgv(agent: agent, args: agentArgs) else {
             throw CLIError(message: Self.vmAgentUsage)
         }
-        let fanOutCount = fanOutOption.flatMap(Int.init) ?? 1
-        if fanOutOption != nil, !(1...32).contains(fanOutCount) {
+        let parsedFanOut = fanOutOption.flatMap(Int.init)
+        if fanOutOption != nil, !(parsedFanOut.map { (1...32).contains($0) } ?? false) {
             throw CLIError(message: "vm agent: --fan-out must be an integer from 1 through 32")
         }
+        let fanOutCount = parsedFanOut ?? 1
         if operationIDOption != nil, fanOutCount == 1 {
             throw CLIError(message: "vm agent: --operation-id belongs to --fan-out greater than 1")
         }

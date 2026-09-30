@@ -22,7 +22,7 @@ extension CmuxTuiSurfaceProvider {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, onExit: onExit, request: CloudTerminalCreationRequest())
     }
 
-    private func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         let lifecycle = lifecycleGeneration
         try validateTerminalMutationLifecycle(lifecycle)
         return try await terminalMutationQueue.run {
