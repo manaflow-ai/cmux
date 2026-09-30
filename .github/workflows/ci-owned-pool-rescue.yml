@@ -161,6 +161,4 @@ jobs:
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
           LATE_PLACEMENT: ${{ inputs.late }}
-          # 1: a stuck run's full re-run may take the light pool; watch it.
-          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/owned_pool_rescue.py
