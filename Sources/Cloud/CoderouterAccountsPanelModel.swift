@@ -131,6 +131,7 @@ final class CoderouterAccountsPanelModel {
             self.loadUsage = loadUsage
         }
 
+        @MainActor
         init() {
             let coderouter = CoderouterClient.shared
             let aiAccounts = AIAccountsClient.shared
@@ -202,7 +203,7 @@ final class CoderouterAccountsPanelModel {
     }
 
     private let operations: Operations
-    private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private struct Scope: Equatable {
         let teamID: String
@@ -223,8 +224,8 @@ final class CoderouterAccountsPanelModel {
     private(set) var failedSources: Set<FailedSource> = []
     private(set) var isMutating = false
 
-    init(operations: Operations = Operations()) {
-        self.operations = operations
+    init(operations: Operations? = nil) {
+        self.operations = operations ?? Operations()
     }
 
     deinit {
@@ -352,42 +353,39 @@ final class CoderouterAccountsPanelModel {
     }
 
     private func fetch(teamID: String, generation: UInt64) async {
-        var fetchedClaude: [ClaudeAccount] = []
-        var fetchedNative: [NativeAccount] = []
-        var fetchedShared: [SharedAccount] = []
-        var fetchedUsage: TeamMachineUsage?
         var failures = Set<FailedSource>()
-
-        do {
-            fetchedClaude = try Self.decodeClaudeAccounts(try await operations.listClaude(teamID))
-        } catch {
-            failures.insert(.claude)
-        }
-        guard !Task.isCancelled else { return }
-        do {
-            fetchedNative = try Self.decodeNativeAccounts(try await operations.listNative(teamID))
-        } catch {
-            failures.insert(.native)
-        }
-        guard !Task.isCancelled else { return }
-        do {
-            fetchedShared = try Self.decodeSharedAccounts(try await operations.listShared(teamID))
-        } catch {
-            failures.insert(.shared)
-        }
-        guard !Task.isCancelled else { return }
-        do {
-            fetchedUsage = try await operations.loadUsage(teamID)
-        } catch {
-            failures.insert(.usage)
-        }
+        async let claude = Self.fetchClaude(operations, teamID: teamID)
+        async let native = Self.fetchNative(operations, teamID: teamID)
+        async let shared = Self.fetchShared(operations, teamID: teamID)
+        async let usage = Self.fetchUsage(operations, teamID: teamID)
+        let (fetchedClaude, fetchedNative, fetchedShared, fetchedUsage) = await (claude, native, shared, usage)
+        if fetchedClaude == nil { failures.insert(.claude) }
+        if fetchedNative == nil { failures.insert(.native) }
+        if fetchedShared == nil { failures.insert(.shared) }
+        if fetchedUsage == nil { failures.insert(.usage) }
         guard !Task.isCancelled, self.generation == generation, self.teamID == teamID else { return }
-        accounts = fetchedClaude.map(Account.claude) + fetchedNative.map(Account.native) + fetchedShared.map(Account.shared)
+        accounts = (fetchedClaude ?? []).map(Account.claude) + (fetchedNative ?? []).map(Account.native) + (fetchedShared ?? []).map(Account.shared)
         usage = fetchedUsage
         usageSummary = fetchedUsage.map(Self.makeUsageSummary)
         failedSources = failures
         let accountFailures = failures.intersection([.claude, .native, .shared])
         state = accountFailures.count == 3 ? .failed : .loaded
+    }
+
+    private static func fetchClaude(_ operations: Operations, teamID: String) async -> [ClaudeAccount]? {
+        try? Self.decodeClaudeAccounts(try await operations.listClaude(teamID))
+    }
+
+    private static func fetchNative(_ operations: Operations, teamID: String) async -> [NativeAccount]? {
+        try? Self.decodeNativeAccounts(try await operations.listNative(teamID))
+    }
+
+    private static func fetchShared(_ operations: Operations, teamID: String) async -> [SharedAccount]? {
+        try? Self.decodeSharedAccounts(try await operations.listShared(teamID))
+    }
+
+    private static func fetchUsage(_ operations: Operations, teamID: String) async -> TeamMachineUsage? {
+        try? await operations.loadUsage(teamID)
     }
 
     private static func normalizedTeamID(_ teamID: String?) -> String? {

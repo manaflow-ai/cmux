@@ -34,7 +34,7 @@ extension MachinesPanelView {
                     teamID: accountFlow?.confirmedTeamID,
                     chromeBackgroundColor: chromeBackgroundColor
                 )
-                .frame(height: 270)
+                .frame(maxHeight: 270)
             }
         }
     }

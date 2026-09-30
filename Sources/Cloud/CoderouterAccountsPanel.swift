@@ -33,6 +33,7 @@ struct CoderouterAccountsPanel: View {
                     accountsSection
                 }
                 .padding(.bottom, 8)
+                .frame(height: 238)
                 }
             }
         }

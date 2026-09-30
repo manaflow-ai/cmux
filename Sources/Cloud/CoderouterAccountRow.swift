@@ -68,10 +68,13 @@ struct CoderouterAccountRow: View {
 
     func nativeRow(_ account: CoderouterAccountsPanelModel.NativeAccount) -> some View {
         let cooling = account.cooldownUntil.map { $0 > Date() } ?? false
-        let needsRepair = account.state == "broken" || account.state == "expired" || account.usageError != nil
+        let needsRepair = account.state == "broken" || account.state == "expired"
+        let needsAttention = account.usageError != nil
         let refreshing = account.state == "refreshing"
         let status = needsRepair
             ? String(localized: "coderouter.sidebar.status.needsRepair", defaultValue: "Needs repair")
+            : needsAttention
+                ? String(localized: "coderouter.sidebar.status.unhealthy", defaultValue: "Needs attention")
             : refreshing
                 ? String(localized: "coderouter.sidebar.status.refreshing", defaultValue: "Refreshing")
             : cooling
@@ -86,7 +89,7 @@ struct CoderouterAccountRow: View {
                 .filter { !$0.isEmpty }
                 .joined(separator: " · "),
             status: status,
-            statusColor: needsRepair || refreshing || cooling ? .orange : .green,
+            statusColor: needsRepair || needsAttention || refreshing || cooling ? .orange : .green,
             dimmed: needsRepair,
             menu: {
                 Button(String(localized: "coderouter.sidebar.remove.action", defaultValue: "Remove"), role: .destructive) {
