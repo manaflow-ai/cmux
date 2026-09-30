@@ -2887,6 +2887,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ]
         )
         XCTAssertEqual(valueSession?.destination, "example.com")
+        XCTAssertEqual(valueSession?.configFile, "/tmp/et.conf")
+        let valueSCP = valueSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(valueSCP.contains("-F"))
+        XCTAssertTrue(valueSCP.contains("/tmp/et.conf"))
 
         let noConfigSession = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2898,6 +2905,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ]
         )
         XCTAssertEqual(noConfigSession?.destination, "example.com")
+        XCTAssertEqual(noConfigSession?.configFile, "/dev/null")
+        let noConfigSCP = noConfigSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(noConfigSCP.contains("-F"))
+        XCTAssertTrue(noConfigSCP.contains("/dev/null"))
     }
 
     func testRejectsValuesAttachedToEternalTerminalNoArgumentOptions() {
