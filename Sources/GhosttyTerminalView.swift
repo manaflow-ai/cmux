@@ -3829,6 +3829,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var terminalPointerGesture = TerminalPointerGestureState()
     var codexActionCommandHovering = false
     private var pressedCodexActionCommand: CodexActionCommand?
+    private var codexActionCacheSurfaceID: UUID?
     private var codexActionCacheRuntimeGeneration: UInt64 = .max
     private var codexActionCacheFrameSequence: UInt64 = .max
     private var codexActionCacheIsLiveCodexPanel = false

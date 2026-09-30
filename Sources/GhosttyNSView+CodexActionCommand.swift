@@ -4,8 +4,7 @@ import GhosttyKit
 
 extension GhosttyNSView {
     private func codexActionCell(at point: NSPoint, surface: ghostty_surface_t) -> (TerminalPanel, CodexActionCommand)? {
-        guard let terminalSurface, let panel = codexActionPanel(),
-              refreshCodexActionCache(for: panel), bounds.contains(point) else { return nil }
+        guard let terminalSurface, let panel = codexActionPanel(), bounds.contains(point) else { return nil }
         var metrics = ghostty_surface_grid_metrics_s()
         var scrollbar = ghostty_surface_scrollbar_s()
         guard ghostty_surface_grid_metrics(surface, &metrics), ghostty_surface_scrollbar(surface, &scrollbar), metrics.rows > 0, metrics.columns > 0,
@@ -25,7 +24,8 @@ extension GhosttyNSView {
         let row = Int((gridRect.maxY - point.y) / cellHeight)
         guard row == Int(metrics.rows) - 1 else { return nil }
         let column = Int((point.x - gridRect.minX) / cellWidth)
-        guard let renderedRows = codexActionCacheRows,
+        guard refreshCodexActionCache(for: panel),
+              let renderedRows = codexActionCacheRows,
               row < renderedRows.count,
               let command = CodexActionCommandDetector().command(
                   in: renderedRows[row],
@@ -48,12 +48,15 @@ extension GhosttyNSView {
 
     private func refreshCodexActionCache(for panel: TerminalPanel) -> Bool {
         guard let terminalSurface else { return false }
+        let surfaceID = terminalSurface.id
         let runtimeGeneration = terminalSurface.runtimeSurfaceGeneration
         let frameSequence = renderedFrameSequence
-        if runtimeGeneration == codexActionCacheRuntimeGeneration,
+        if surfaceID == codexActionCacheSurfaceID,
+           runtimeGeneration == codexActionCacheRuntimeGeneration,
            frameSequence == codexActionCacheFrameSequence {
             return codexActionCacheIsLiveCodexPanel
         }
+        codexActionCacheSurfaceID = surfaceID
         codexActionCacheRuntimeGeneration = runtimeGeneration
         codexActionCacheFrameSequence = frameSequence
         codexActionCacheIsLiveCodexPanel = isLiveCodexPanel(panel)
