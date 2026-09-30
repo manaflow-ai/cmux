@@ -1,0 +1,44 @@
+import Foundation
+import Testing
+@testable import CmuxNextDaemon
+
+/// The off-main buffer between the daemon's event stream and the main actor.
+@MainActor @Suite struct EventInboxTests {
+    /// Regression: while the main actor is busy (or a resync holds the
+    /// inbox for up to the 10 s snapshot deadline) a delta storm grew the
+    /// inbox without bound (architecture.md 5a: no unbounded buffers).
+    /// Past the cap the inbox now collapses into one overflow marker, which
+    /// the store answers with a single snapshot, keeping lifecycle events
+    /// and transaction echoes.
+    @Test func stormCollapsesIntoOneResyncAndKeepsEchoesAndLifecycle() throws {
+        let tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        let store = DaemonStore()
+        store.apply(snapshot: tree)
+        store.applyOptimistic(.renameTab(surface: 3, name: "mine"), transaction: "tx-early")
+        let inbox = EventInbox()
+        var sequence: UInt64 = 0
+        func push(_ event: DaemonEvent) {
+            sequence += 1
+            _ = inbox.append(DaemonEventEnvelope(sequence: sequence, event: event))
+        }
+        push(.treeChanged(transaction: "tx-early"))
+        for index in 0..<10_000 { push(.titleChanged(surface: 3, title: "t\(index)")) }
+        push(.disconnected(reason: "eof"))
+        for index in 0..<10_000 { push(.titleChanged(surface: 3, title: "u\(index)")) }
+
+        let batch = inbox.take()
+        #expect(batch.count < 64)
+        #expect(batch.contains { if case .disconnected = $0.event { true } else { false } })
+        #expect(batch.contains { if case .overflow = $0.event { true } else { false } })
+        #expect(store.apply(batch: batch) == .resync)
+        #expect(!store.hasPendingPatches)
+        #expect(inbox.take().isEmpty)
+    }
+
+    @Test func belowTheCapEveryEventIsKeptInOrder() {
+        let inbox = EventInbox()
+        #expect(inbox.append(DaemonEventEnvelope(sequence: 1, event: .titleChanged(surface: 3, title: "a"))))
+        #expect(!inbox.append(DaemonEventEnvelope(sequence: 2, event: .titleChanged(surface: 3, title: "b"))))
+        #expect(inbox.take().map(\.sequence) == [1, 2])
+    }
+}
