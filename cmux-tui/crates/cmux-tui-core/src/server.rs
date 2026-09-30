@@ -95,6 +95,7 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod browser_profiles;
+mod launch_snapshot;
 mod personal;
 mod terminal_create;
 mod terminal_resources;
