@@ -28,7 +28,7 @@ async function settlesWithin<T>(ms: number, operation: Promise<T>): Promise<"set
 }
 
 describe("team member removal under the admin lock", () => {
-  dbTest("an admin removal and a self-leave finish with a single pool connection", async () => {
+  dbTest("an admin removal finishes with a single pool connection", async () => {
     await closeCloudDbForTests();
     process.env.CMUX_DB_POOL_MAX = "1";
     const stack = standardTeam();

@@ -71,8 +71,15 @@ export type TeamInviteStore = {
    * Drop a departing member's redemptions of the team's links. The spent uses
    * stay counted, so rejoining through a link claims a new use.
    */
-  forgetLinkRedemptions(stackTeamId: string, userId: string): Promise<void>;
+  forgetLinkRedemptions(stackTeamId: string, userId: string, db?: TeamLockDb): Promise<void>;
 };
+
+/**
+ * The transaction that holds a team's admin lock. Work done under the lock
+ * must use it: production pools one connection, so asking the pool for a
+ * second one while the lock holds the first waits forever.
+ */
+export type TeamLockDb = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 class ClaimUnavailable extends Error {
   override readonly name = "ClaimUnavailable";
@@ -249,8 +256,8 @@ export const databaseTeamInviteStore: TeamInviteStore = {
     });
   },
 
-  async forgetLinkRedemptions(stackTeamId, userId) {
-    const db = cloudDb();
+  async forgetLinkRedemptions(stackTeamId, userId, lockDb) {
+    const db = lockDb ?? cloudDb();
     await db
       .delete(teamInviteLinkRedemptions)
       .where(and(
@@ -267,9 +274,9 @@ export const databaseTeamInviteStore: TeamInviteStore = {
  * Serialize admin-count changes for one team. Two admins demoting each other
  * at once would otherwise both pass the last-admin check and leave none.
  */
-export async function withTeamAdminLock<T>(stackTeamId: string, operation: () => Promise<T>): Promise<T> {
+export async function withTeamAdminLock<T>(stackTeamId: string, operation: (db: TeamLockDb) => Promise<T>): Promise<T> {
   return cloudDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`team-admin:${stackTeamId}`}, 0))`);
-    return operation();
+    return operation(tx);
   });
 }
