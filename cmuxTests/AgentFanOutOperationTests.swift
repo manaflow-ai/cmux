@@ -66,6 +66,22 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(operation.foundationObject["operation_id"] as? String, "f_test")
     }
 
+    func testNonZeroChildExitIsPartialFailure() {
+        let now = Date(timeIntervalSince1970: 1)
+        var operation = AgentFanOutOperation(
+            id: "f_test", machineID: "vm", scope: "scope", remoteWorkspaceID: "ws",
+            agent: "codex", argvDigest: "digest", requestedCount: 2,
+            createdAt: now, updatedAt: now, state: .running,
+            children: [
+                AgentFanOutChild(index: 0, terminalID: "term_1", state: .exited, exitCode: 0, errorCode: nil, startedAt: now, endedAt: now),
+                AgentFanOutChild(index: 1, terminalID: "term_2", state: .failed, exitCode: 2, errorCode: "agent_exit_nonzero", startedAt: now, endedAt: now),
+            ]
+        )
+        operation.recomputeState(now: now)
+        XCTAssertEqual(operation.state, .partial)
+        XCTAssertEqual(operation.settledCount, 2)
+    }
+
     func testOperationStoreMergesStaleUpdatesWithoutLosingTerminalReceipt() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-fan-out-merge-\(UUID().uuidString)", isDirectory: true)

@@ -161,7 +161,15 @@ extension TerminalController {
                     name: childName, remoteWorkspaceID: remoteWorkspace.id,
                     destination: destination, focus: focus
                 )
-                operation.children[index].terminalID = Self.fanOutString(response["terminal_id"])
+                guard let terminalID = Self.fanOutString(response["terminal_id"]) else {
+                    operation.children[index].state = .failed
+                    operation.children[index].errorCode = "terminal_id_missing"
+                    operation.children[index].endedAt = Date()
+                    operation.recomputeState()
+                    try await AgentFanOutOperationStore.shared.update(operation)
+                    continue
+                }
+                operation.children[index].terminalID = terminalID
                 operation.children[index].state = .running
                 operation.children[index].startedAt = Date()
             } catch {
