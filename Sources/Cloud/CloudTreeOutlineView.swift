@@ -268,7 +268,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
         }
-
         /// Applies a snapshot immediately after a destination accepted a drop.
         /// AppKit's source session may send `endedAt` later, but the destination
         /// is complete and the user should see the new order now.
@@ -276,7 +275,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
-
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -357,7 +355,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             body()
             isUpdatingProgrammatically = false
         }
-
         // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -462,8 +459,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
-        /// group rows toggle. Creation is never an open side effect: the hover
-        /// "+" and the context menu own it (an expired machine still prompts,
+        /// group rows toggle. Persistent create rows use this same open path;
+        /// the hover "+" and context menu remain alternate entrypoints (an expired machine still prompts,
         /// and the asleep placeholder still wakes, because those rows advertise
         /// exactly that).
         func open(_ node: CloudTreeNode) {
@@ -478,6 +475,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 toggle(node)
             case .devicesEmpty:
                 break
+            case .createAction(let action):
+                action.perform(nodeActions)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
                 // CLI transcript); a running one has nothing to say beyond its row.
@@ -762,6 +761,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .createAction: return []
             }
         }
 

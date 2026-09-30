@@ -214,7 +214,14 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
     case "plan": {
       const closed = closeStreaming(blocks);
-      const existingIndex = closed.findIndex((block) => block.kind === "plan");
+      let currentTurnStart = 0;
+      for (let index = closed.length - 1; index >= 0; index -= 1) {
+        if (closed[index]?.kind === "user") {
+          currentTurnStart = index + 1;
+          break;
+        }
+      }
+      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
       const plan = { kind: "plan" as const, entries: evt.entries };
       if (existingIndex < 0) return [...closed, plan];
       return closed.reduce<Block[]>((next, block, index) => {
