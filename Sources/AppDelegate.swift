@@ -7928,6 +7928,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @discardableResult
+    func selectCustomSidebarInRightPanel(name: String) -> Bool {
+        if case .ok = applyRightSidebarRemoteCommand(.setCustomSidebar(name: name, focus: true)) {
+            return true
+        }
+        return false
+    }
+
     /// Opens My Devices in the selected main window and scopes its reveal request
     /// to that window so another mounted Machines panel cannot consume it first.
     @MainActor

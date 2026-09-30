@@ -6,16 +6,16 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews"
 TEMPLATES = {
-    "workspaces": ("Workspaces", "left"),
-    "agents-board": ("Agents Board", "left"),
-    "panel-sessions": ("Panel Sessions", "right"),
-    "panel-subagents": ("Panel Subagents", "right"),
-    "btop-agents": ("btop Agents", "left"),
-    "panel-todo": ("Panel Todo", "right"),
+    "workspaces": ("Workspaces", "left", ["Frontend", "Docs", "Ops", "Scratch", "Ideas"]),
+    "agents-board": ("Agents Board", "left", ["Needs review", "In progress", "Blocked", "Done", "Waiting"]),
+    "panel-sessions": ("Panel Sessions", "right", ["Current workspace", "All workspaces", "Search", "Recent", "Pinned"]),
+    "panel-subagents": ("Panel Subagents", "right", ["Claude Code", "Codex", "Gemini", "Idle", "Running"]),
+    "btop-agents": ("btop Agents", "left", ["CPU 24%", "Memory 3.1G", "Running 4", "Waiting 2", "Finished 8"]),
+    "panel-todo": ("Panel Todo", "right", ["Ship gallery", "Add screenshots", "Review PR", "Update docs", "Publish"]),
 }
 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
 small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-for slug, (title, placement) in TEMPLATES.items():
+for slug, (title, placement, rows) in TEMPLATES.items():
     for theme, palette in {
         "dark": ((24, 27, 34), (34, 39, 49), (235, 240, 248), (151, 163, 180), (47, 54, 67), (215, 221, 231)),
         "light": ((246, 247, 249), (255, 255, 255), (28, 32, 40), (91, 99, 112), (235, 238, 243), (48, 55, 66)),
@@ -30,5 +30,5 @@ for slug, (title, placement) in TEMPLATES.items():
             y = 124 + row * 38
             draw.rounded_rectangle((48, y, 592, y + 24), radius=6, fill=row_color)
             draw.ellipse((60, y + 7, 68, y + 15), fill=(76, 158, 235) if row == 0 else (106, 117, 134))
-            draw.text((82, y + 4), ["cmux", "Build", "Review", "Agents", "Todo"][row], fill=row_text, font=small)
+            draw.text((82, y + 4), rows[row], fill=row_text, font=small)
         image.save(OUT / f"{slug}-{theme}.png", optimize=True)

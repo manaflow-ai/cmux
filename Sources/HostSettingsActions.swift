@@ -356,9 +356,20 @@ final class HostSettingsActions: SettingsHostActions {
             CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
             customSidebarPreview = nil
             UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-            CmuxExtensionSidebarSelection.setProviderId(
-                CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-            )
+            if template.descriptor.kind == .right {
+                if AppDelegate.shared?.selectCustomSidebarInRightPanel(name: name) != true {
+                    // A settings window can outlive the main window. Keep the
+                    // new file usable through the left-sidebar picker if the
+                    // right-panel host is unavailable.
+                    CmuxExtensionSidebarSelection.setProviderId(
+                        CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                    )
+                }
+            } else {
+                CmuxExtensionSidebarSelection.setProviderId(
+                    CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                )
+            }
             NotificationCenter.default.post(
                 name: .customSidebarReloadRequested,
                 object: nil,
