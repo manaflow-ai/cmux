@@ -18,7 +18,7 @@ public struct SystemWindowCyclingShortcut: Equatable, Sendable {
 
     public init(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         self.keyCode = keyCode
-        self.modifierFlags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        self.modifierFlags = Self.normalized(modifierFlags)
     }
 
     /// Reads the binding from an `AppleSymbolicHotKeys` dictionary.
@@ -47,19 +47,34 @@ public struct SystemWindowCyclingShortcut: Equatable, Sendable {
         )
     }
 
+    /// The system domain that stores keyboard shortcuts from System Settings.
+    /// Reads go through cfprefsd, so edits in System Settings show up without
+    /// restarting cmux.
+    nonisolated(unsafe) private static let symbolicHotKeysDefaults = UserDefaults(
+        suiteName: "com.apple.symbolichotkeys"
+    )
+
     /// The binding currently configured in System Settings.
-    public static func current(
-        defaults: UserDefaults? = UserDefaults(suiteName: "com.apple.symbolichotkeys")
-    ) -> SystemWindowCyclingShortcut? {
+    public static func current() -> SystemWindowCyclingShortcut? {
+        current(defaults: symbolicHotKeysDefaults)
+    }
+
+    static func current(defaults: UserDefaults?) -> SystemWindowCyclingShortcut? {
         resolve(symbolicHotKeys: defaults?.dictionary(forKey: "AppleSymbolicHotKeys"))
     }
 
     /// Whether the event is this shortcut, forward or with Shift for backward.
     public func matches(keyCode eventKeyCode: UInt16, modifierFlags eventFlags: NSEvent.ModifierFlags) -> Bool {
         guard eventKeyCode == keyCode else { return false }
-        let flags = eventFlags
+        let flags = Self.normalized(eventFlags)
+        return flags == modifierFlags || flags == modifierFlags.union(.shift)
+    }
+
+    /// Drops flags that describe the key rather than the chord, so a binding
+    /// stored with the fn bit (an F-key remap) still matches its key press.
+    private static func normalized(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        return flags == modifierFlags || flags == modifierFlags.union(.shift)
     }
 }

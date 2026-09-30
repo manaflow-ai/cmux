@@ -66,6 +66,12 @@ struct SystemWindowCyclingShortcutTests {
         #expect(!shortcut.matches(keyCode: 50, modifierFlags: [.command]))
     }
 
+    @Test func bindingStoredWithFunctionFlagMatchesItsKey() {
+        let shortcut = SystemWindowCyclingShortcut(keyCode: 97, modifierFlags: [.command, .function])
+        #expect(shortcut.matches(keyCode: 97, modifierFlags: [.command, .function]))
+        #expect(shortcut.matches(keyCode: 97, modifierFlags: [.command]))
+    }
+
     // Regression: on ISO keyboards the window-cycling key is the section key
     // (keyCode 10). cmux used to route it to the main menu and then to the
     // terminal, which consumed it before AppKit could cycle windows.
