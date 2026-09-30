@@ -35,6 +35,7 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
     var url: String
     /// Chromium profile directory (the request context's cache path).
     var profilePath: String
+    var persistentProfile = true
 }
 
 /// `cef_window_open_disposition_t` (`include/internal/cef_types.h`).

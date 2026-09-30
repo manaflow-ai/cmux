@@ -13,7 +13,8 @@ public final class SiteSettingsRegistry {
     private let makePersistence: (BrowserProfileID) -> any SitePermissionPersistence
     private var stores: [BrowserProfileID: SitePermissionStore] = [:]
 
-    public init(persistence: @escaping (BrowserProfileID) -> any SitePermissionPersistence) {
+    public init(persistence: @escaping (BrowserProfileID) -> any SitePermissionPersistence,
+                offTheRecord: OffTheRecordProfiles = .shared) {
         makePersistence = persistence
     }
 

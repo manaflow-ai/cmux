@@ -58,13 +58,35 @@ import Testing
     }
 
     /// "Open Link in Incognito Window", Cmd-Shift-N, windows.create({incognito})
-    /// open nothing: a normal tab would keep the history the user wanted
-    /// to keep out.
-    @Test func incognitoIsRefused() {
+    /// open nothing in Chromium: cmux opens a cmux incognito window (or a
+    /// tab of the source's incognito window). A normal tab would keep the
+    /// history the user wanted to keep out.
+    @Test func incognitoRequestsOpenACmuxIncognitoWindow() {
         #expect(CEFWindowPolicy.decide(request(.offTheRecord, .offTheRecord), candidates: [candidate(1, lastShown: true)])
-            == .refuse(.offTheRecord))
+            == .openOffTheRecord(url: "https://chromewebstore.google.com/"))
         #expect(CEFWindowPolicy.decide(request(.tab, .offTheRecord), candidates: [candidate(1, lastShown: true)])
-            == .refuse(.offTheRecord))
+            == .openOffTheRecord(url: "https://chromewebstore.google.com/"))
+    }
+
+    /// A page in an incognito window opens its tabs and popups in its own
+    /// off-the-record Chromium window, never in a normal one.
+    @Test func anIncognitoPageStaysInItsOwnStore() {
+        let otr = "cmux-otr:0B1C"
+        let decision = CEFWindowPolicy.decide(
+            request(.tab, source: 7, profile: otr),
+            candidates: [candidate(1, lastShown: true), candidate(2, source: true, profile: otr)]
+        )
+        #expect(decision == .insert(anchor: 2, disposition: .foregroundTab))
+    }
+
+    /// A request from a store cmux cannot name (Chromium reports an
+    /// off-the-record profile by its parent's path) never becomes a normal
+    /// tab: it could carry an incognito page's URL into the normal profile.
+    @Test func aRequestFromAnUnknownStoreIsRefusedNotOpenedAsANormalTab() {
+        var unknown = request(.window, .newWindow, profile: "/p/Default")
+        unknown.persistentProfile = false
+        #expect(CEFWindowPolicy.decide(unknown, candidates: [candidate(1, lastShown: true)]) == .refuse(.noWindow))
+        #expect(CEFWindowPolicy.decide(unknown, candidates: []) == .refuse(.noWindow))
     }
 
     /// A tab can only join a Chromium window of its own profile; with none,

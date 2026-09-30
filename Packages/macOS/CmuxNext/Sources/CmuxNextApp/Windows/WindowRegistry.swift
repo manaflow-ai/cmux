@@ -50,6 +50,7 @@ struct WindowRegistry: Equatable, Sendable {
         var emptied: [String] = []
         /// Workspaces whose owner changed, by new owner.
         var moved: [String: [String]] = [:]
+        var discarded: [String] = []
 
         var isEmpty: Bool { emptied.isEmpty && moved.isEmpty }
     }
@@ -58,6 +59,12 @@ struct WindowRegistry: Equatable, Sendable {
     private(set) var windows: [Window] = []
     /// Window ids, most recently active first.
     private(set) var recency: [String] = []
+    private(set) var incognito: Set<String> = []
+    private(set) var discarding: Set<String> = []
+
+    func isIncognito(_ windowID: String) -> Bool { false }
+    func crossesIncognito(_ workspaceIDs: [String], to id: String) -> Bool { false }
+    mutating func markIncognito(_ id: String) {}
 
     init(windows: [Window] = []) {
         self.windows = windows

@@ -8,6 +8,7 @@ nonisolated enum CEFWindowDecision: Equatable, Sendable {
     /// No Chromium window of that profile exists: Chromium opens nothing
     /// and cmux opens `url` in a new tab of its own.
     case openInNewTab(url: String, disposition: BrowserNewTabDisposition)
+    case openOffTheRecord(url: String)
     /// Chromium opens nothing, and cmux tells the user why.
     case refuse(CEFWindowRefusal)
 }
@@ -16,6 +17,7 @@ nonisolated enum CEFWindowRefusal: Equatable, Sendable {
     /// Incognito: cmux has no Chromium incognito window, and a normal tab
     /// would store the history and cookies the user wanted to keep out.
     case offTheRecord
+    case noWindow
 }
 
 nonisolated enum CEFWindowPolicy {

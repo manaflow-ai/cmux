@@ -44,5 +44,11 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         return root.appending(path: "Profile-" + profile.rawValue.uuidString + "-m-" + machineKey)
     }
 
+    public func contextKey(for profile: BrowserProfileID, machineKey: String?, offTheRecord: Bool) -> String {
+        cachePath(for: profile, machineKey: machineKey).path
+    }
+
+    public func isPersistentProfilePath(_ path: String) -> Bool { true }
+
     public var logFile: URL { root.appending(path: "cef.log") }
 }

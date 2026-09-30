@@ -68,6 +68,8 @@ extension CEFRuntime {
                 Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition) }
             }
             return 0
+        case .openOffTheRecord:
+            return 0
         case .refuse(let refusal):
             refused(refusal, source: request.sourceBrowser)
             return 0
@@ -116,6 +118,8 @@ extension CEFRuntime {
         case .offTheRecord:
             let tab = tabsByBrowser[source] ?? lastShownHost?.visibleTab
             tab?.emit(.notice(Strings.incognitoUnavailable))
+        case .noWindow:
+            break
         }
     }
 

@@ -6,8 +6,13 @@ public protocol WebsiteDataStoreFactory {
     /// A persistent store identified by `identifier`. WebKit keeps cookies,
     /// caches, and storage for it in a directory keyed by that UUID.
     func makeStore(identifier: UUID) -> WKWebsiteDataStore
+    func makeNonPersistentStore() -> WKWebsiteDataStore
     /// Deletes every piece of data WebKit holds for `identifier`.
     func removeStore(identifier: UUID) async throws
+}
+
+public extension WebsiteDataStoreFactory {
+    func makeNonPersistentStore() -> WKWebsiteDataStore { .nonPersistent() }
 }
 
 /// The real factory: `WKWebsiteDataStore(forIdentifier:)`.
@@ -33,7 +38,8 @@ public final class WebKitProfileStore {
     private let factory: any WebsiteDataStoreFactory
     private var stores: [BrowserProfileID: WKWebsiteDataStore] = [:]
 
-    public init(factory: any WebsiteDataStoreFactory = SystemWebsiteDataStoreFactory()) {
+    public init(factory: any WebsiteDataStoreFactory = SystemWebsiteDataStoreFactory(),
+                offTheRecord: OffTheRecordProfiles = .shared) {
         self.factory = factory
     }
 
