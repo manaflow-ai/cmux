@@ -134,6 +134,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "unread-pane-ring", title: String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), synonyms: "Unread Pane Ring notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), synonyms: "Pane Flash notifications.paneFlash flash blink highlight pane notification pulse"),
             .init(section: .app, id: "pane-flash-double-blink", title: String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), synonyms: "Double Blink notifications.paneFlashDoubleBlink pane flash blink twice pulse"),
+            .init(section: .app, id: "pane-flash-theme-color", title: String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"), synonyms: "Use Theme Foreground notifications.paneFlashThemeColor pane flash terminal theme foreground"),
             .init(
                 section: .app,
                 id: "agent-permission-prompt",

@@ -226,17 +226,18 @@ struct PaneAttentionColorTests {
         let color = WorkspaceAttentionColor(
             configuredHex: nil,
             accent: accent,
-            themeForeground: NSColor(hex: "#CDD6F4")
+            themeForeground: NSColor(hex: "#CDD6F4"),
+            useThemeForeground: true
         )
         #expect(color.flashNSColor.hexString() == "#CDD6F4")
-        #expect(color.flashNSColor.alphaComponent == WorkspaceAttentionColor.themeForegroundFlashAlpha)
+        #expect(color.flashNSColor.alphaComponent == 1)
         // Unread rings keep the accent.
         #expect(color.nsColor.hexString() == accent.dynamicNSColor.hexString())
     }
 
     @Test
     func configuredHexOverridesThemeForegroundForFlash() {
-        let color = WorkspaceAttentionColor(configuredHex: "#ff69b4", themeForeground: .white)
+        let color = WorkspaceAttentionColor(configuredHex: "#ff69b4", themeForeground: .white, useThemeForeground: true)
         #expect(color.flashNSColor.hexString() == "#FF69B4")
         #expect(color.flashNSColor.alphaComponent == 1)
     }
