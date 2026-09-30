@@ -116,12 +116,12 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         self.assertTrue(script.is_file())
         self.assertIn("/tmp/.testbox", script.read_text(encoding="utf-8"))
 
-    def test_always_on_guard_uses_runner_python_without_setup_action(self) -> None:
+    def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
         steps = document["jobs"]["guard"]["steps"]
         self.assertFalse(
             any("actions/setup-python" in str(step.get("uses", "")) for step in steps),
-            "the always-on guard must not download setup-python on every PR",
+            "the diagnostic guard must not download setup-python",
         )
         prepare = next(step for step in steps if step.get("name") == "Prepare guard Python")
         self.assertIn("python3 -m venv", prepare["run"])
