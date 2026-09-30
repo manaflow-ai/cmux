@@ -3573,7 +3573,7 @@ final class SocketClient {
         let environment = ProcessInfo.processInfo.environment
         if let relayID = trimmedEnvValue(environment["CMUX_RELAY_ID"]),
            let relayTokenHex = trimmedEnvValue(environment["CMUX_RELAY_TOKEN"]),
-           let relayToken = hexData(from: relayTokenHex) {
+           let relayToken = RemoteRelayAuthentication.hexData(from: relayTokenHex) {
             return RelayCredentials(relayID: relayID, relayToken: relayToken)
         }
 
@@ -3583,35 +3583,11 @@ final class SocketClient {
               let authObject = try? JSONSerialization.jsonObject(with: authData) as? [String: Any],
               let relayID = trimmedEnvValue(authObject["relay_id"] as? String),
               let relayTokenHex = trimmedEnvValue(authObject["relay_token"] as? String),
-              let relayToken = hexData(from: relayTokenHex) else {
+              let relayToken = RemoteRelayAuthentication.hexData(from: relayTokenHex) else {
             throw CLIError(message: "Missing relay auth metadata for \(endpoint.host):\(endpoint.port)")
         }
 
         return RelayCredentials(relayID: relayID, relayToken: relayToken)
-    }
-
-    private static func hexData(from string: String) -> Data? {
-        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty,
-              normalized.count.isMultiple(of: 2) else {
-            return nil
-        }
-
-        var data = Data(capacity: normalized.count / 2)
-        var cursor = normalized.startIndex
-        while cursor < normalized.endIndex {
-            let next = normalized.index(cursor, offsetBy: 2)
-            guard let byte = UInt8(normalized[cursor..<next], radix: 16) else {
-                return nil
-            }
-            data.append(byte)
-            cursor = next
-        }
-        return data
-    }
-
-    private static func hexString(from data: Data) -> String {
-        data.map { String(format: "%02x", $0) }.joined()
     }
 
     private func connectToRelay(
@@ -3734,47 +3710,41 @@ final class SocketClient {
         responseTimeout: TimeInterval,
         deadline: Date
     ) throws {
-        let challengeLine = try readLine(
-            responseTimeout: responseTimeout,
-            deadline: deadline
+        let handshake = RemoteRelayClientHandshake(
+            relayID: credentials.relayID,
+            relayToken: credentials.relayToken
         )
-        guard let challengeData = challengeLine.data(using: .utf8),
-              let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
-              (challenge["protocol"] as? String) == "cmux-relay-auth",
-              let version = challenge["version"] as? Int,
-              let relayID = challenge["relay_id"] as? String,
-              relayID == credentials.relayID,
-              let nonce = challenge["nonce"] as? String,
-              !nonce.isEmpty else {
-            throw CLIError(message: "Invalid relay authentication challenge")
+        do {
+            try handshake.perform(
+                readLine: {
+                    try readLine(responseTimeout: responseTimeout, deadline: deadline)
+                },
+                writeLine: { line in
+                    try configureSocketWriteSafety(remainingSocketTimeout(
+                        responseTimeout: responseTimeout,
+                        deadline: deadline
+                    ))
+                    try writeAllNonBlocking(
+                        line,
+                        deadline: deadline,
+                        timeoutMessage: "Relay command timed out",
+                        failureMessage: "Failed to write to relay socket"
+                    )
+                }
+            )
+        } catch let failure as RemoteRelayClientHandshake.Failure {
+            throw CLIError(message: Self.relayHandshakeFailureMessage(failure))
         }
+    }
 
-        let authMessage = Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
-        let key = SymmetricKey(data: credentials.relayToken)
-        let mac = Data(HMAC<SHA256>.authenticationCode(for: authMessage, using: key))
-        let authPayload = try JSONSerialization.data(withJSONObject: [
-            "relay_id": relayID,
-            "mac": Self.hexString(from: mac),
-        ])
-        try configureSocketWriteSafety(remainingSocketTimeout(
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        ))
-        try writeAllNonBlocking(
-            authPayload + Data([0x0A]),
-            deadline: deadline,
-            timeoutMessage: "Relay command timed out",
-            failureMessage: "Failed to write to relay socket"
-        )
-
-        let authResponseLine = try readLine(
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        )
-        guard let authResponseData = authResponseLine.data(using: .utf8),
-              let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
-              (authResponse["ok"] as? Bool) == true else {
-            throw CLIError(message: "Relay authentication failed")
+    private static func relayHandshakeFailureMessage(
+        _ failure: RemoteRelayClientHandshake.Failure
+    ) -> String {
+        switch failure {
+        case .invalidChallenge:
+            return "Invalid relay authentication challenge"
+        case .rejected:
+            return "Relay authentication failed"
         }
     }
 

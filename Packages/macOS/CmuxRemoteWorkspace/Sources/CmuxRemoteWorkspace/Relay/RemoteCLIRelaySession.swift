@@ -227,9 +227,13 @@ extension RemoteCLIRelayServer {
                 return
             }
 
-            let message = Self.authMessage(relayID: relayID, nonce: challengeNonce, version: challengeVersion)
-            let expectedMAC = Self.authMAC(token: relayToken, message: message)
-            guard Self.constantTimeEqual(receivedMAC, expectedMAC) else {
+            let expectedMAC = RemoteRelayAuthentication.clientMAC(
+                token: relayToken,
+                relayID: relayID,
+                nonce: challengeNonce,
+                version: challengeVersion
+            )
+            guard RemoteRelayAuthentication.constantTimeEqual(receivedMAC, expectedMAC) else {
                 sendFailureAndClose()
                 return
             }
@@ -245,14 +249,14 @@ extension RemoteCLIRelayServer {
                     sendFailureAndClose()
                     return
                 }
-                let proof = Self.relayProofMAC(
+                let proof = RemoteRelayAuthentication.relayProofMAC(
                     token: relayToken,
                     relayID: relayID,
                     clientNonce: clientNonce,
                     serverNonce: challengeNonce,
                     version: challengeVersion
                 )
-                success["relay_mac"] = proof.map { String(format: "%02x", $0) }.joined()
+                success["relay_mac"] = RemoteRelayAuthentication.hexString(from: proof)
             }
 
             guard admitAuthenticated() else {
@@ -434,27 +438,6 @@ extension RemoteCLIRelayServer {
             onClose()
         }
 
-        private static func authMessage(relayID: String, nonce: String, version: Int) -> Data {
-            Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
-        }
-
-        /// The relay's proof of the token, returned to clients that send a
-        /// nonce. The leading label keeps it distinct from every client MAC,
-        /// whose message starts with `relay_id=`, so neither can be reflected
-        /// as the other.
-        static func relayProofMAC(
-            token: Data,
-            relayID: String,
-            clientNonce: String,
-            serverNonce: String,
-            version: Int
-        ) -> Data {
-            let message = Data(
-                "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=\(serverNonce)\nversion=\(version)".utf8
-            )
-            return authMAC(token: token, message: message)
-        }
-
         /// Accepts 16 to 64 bytes of lowercase hex.
         private static func isValidClientNonce(_ nonce: String) -> Bool {
             guard (32...128).contains(nonce.utf8.count),
@@ -471,27 +454,8 @@ extension RemoteCLIRelayServer {
             return Data(code)
         }
 
-        private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
-            guard lhs.count == rhs.count else { return false }
-            var diff: UInt8 = 0
-            for index in lhs.indices {
-                diff |= lhs[index] ^ rhs[index]
-            }
-            return diff == 0
-        }
-
         static func hexData(from string: String) -> Data? {
-            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard normalized.count.isMultiple(of: 2), !normalized.isEmpty else { return nil }
-            var data = Data(capacity: normalized.count / 2)
-            var cursor = normalized.startIndex
-            while cursor < normalized.endIndex {
-                let next = normalized.index(cursor, offsetBy: 2)
-                guard let byte = UInt8(normalized[cursor..<next], radix: 16) else { return nil }
-                data.append(byte)
-                cursor = next
-            }
-            return data
+            RemoteRelayAuthentication.hexData(from: string)
         }
 
         private static func randomHex(byteCount: Int) -> String? {
