@@ -74,6 +74,12 @@ public struct ControlWindowInfo: Sendable, Hashable {
     public var isKey: Bool
     public var isVisible: Bool
     public var focusedPaneID: String?
+    /// Kept off screen: a saved window none of whose workspaces a machine
+    /// reports yet, or a Cloud window waiting for its machine.
+    public var isHidden = false
+    /// The workspaces the window's sidebar shows now (its current room,
+    /// reported by a machine); nil means all of `workspaceIDs`.
+    public var visibleWorkspaceIDs: [String]?
 
     public init(id: String, workspaceID: String?, workspaceIDs: [String] = [], isKey: Bool, isVisible: Bool, focusedPaneID: String?) {
         self.id = id
