@@ -13,16 +13,17 @@ private final class SilentLink: FrameLink {
     /// queue all wait for a display-link tick. A link that stops firing
     /// (displays asleep, the link's screen unplugged) froze daemon updates
     /// and made every mutating CLI request time out.
-    @Test func workStillRunsWhenTheLinkNeverFires() async throws {
+    @Test func workStillRunsWhenTheLinkNeverFires() async {
         let link = SilentLink()
-        let scheduler = DisplayLinkFrameScheduler(makeLink: { _ in link })
-        var ran = false
-        scheduler.scheduleFrame { ran = true }
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !ran, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(ran)
+        let clock = ManualClock()
+        let scheduler = DisplayLinkFrameScheduler(clock: clock, makeLink: { _ in link })
+        let (ran, signal) = AsyncStream.makeStream(of: Void.self)
+        scheduler.scheduleFrame { signal.yield() }
+        // The stall deadline is armed; no frame comes; its time passes.
+        await clock.sleepers()
+        clock.advance(by: DisplayLinkFrameScheduler.stallTimeout)
+        var iterator = ran.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
     }
 
     @Test func aTickRunsPendingWorkAndPausesTheLink() async throws {
@@ -39,21 +40,22 @@ private final class SilentLink: FrameLink {
 }
 
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerStallTests {
-    @Test func repeatedStallsRebuildTheLink() async throws {
+    @Test func repeatedStallsRebuildTheLink() async {
         var links: [SilentLinkBox] = []
-        let scheduler = DisplayLinkFrameScheduler(makeLink: { _ in
+        let clock = ManualClock()
+        let scheduler = DisplayLinkFrameScheduler(clock: clock, makeLink: { _ in
             let box = SilentLinkBox()
             links.append(box)
             return box
         })
-        for _ in 0..<DisplayLinkFrameScheduler.stallsBeforeRebuild {
-            var ran = false
-            scheduler.scheduleFrame { ran = true }
-            while !ran { try await Task.sleep(for: .milliseconds(10)) }
+        let (ran, signal) = AsyncStream.makeStream(of: Void.self)
+        var iterator = ran.makeAsyncIterator()
+        for _ in 0...DisplayLinkFrameScheduler.stallsBeforeRebuild {
+            scheduler.scheduleFrame { signal.yield() }
+            await clock.sleepers()
+            clock.advance(by: DisplayLinkFrameScheduler.stallTimeout)
+            _ = await iterator.next()
         }
-        var ranAgain = false
-        scheduler.scheduleFrame { ranAgain = true }
-        while !ranAgain { try await Task.sleep(for: .milliseconds(10)) }
         #expect(links.count == 2)
         #expect(links.first?.invalidated == true)
     }

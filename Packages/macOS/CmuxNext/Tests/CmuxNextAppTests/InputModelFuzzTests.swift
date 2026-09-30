@@ -39,16 +39,22 @@ struct InputModelFuzzTests {
         #expect(world.violations.isEmpty, "\(world.violations)")
     }
 
-    /// The shrinker keeps the failure and drops everything else.
-    @Test func shrinkerFindsTheMinimalSequence() {
-        let noise: [FuzzAction] = [.frame, .type, .clickSidebar(window: 0, field: false), .frame]
-        let actions = noise + [.openGroupEditor(window: 0)] + noise
-        let config = InputFuzzer.Config(windows: 1, reportsRemoval: false)
-        guard let (violation, _) = InputFuzzer.run(actions, config: config) else {
-            // The group editor reports its overlay: nothing to shrink.
-            return
-        }
-        let minimal = InputFuzzer.shrink(actions, config: config, invariant: violation.invariant)
-        #expect(minimal.count <= 2)
+    /// With a planted bug (a closed sheet that never reports it), a run
+    /// buried in noise fails, and the shrinker keeps exactly the two
+    /// actions that cause it, in order.
+    @Test func shrinkerFindsTheMinimalSequence() throws {
+        let noise: [FuzzAction] = [.frame, .type, .clickSidebar(window: 0, field: false), .clickPane(window: 0, pane: 1), .frame,
+                                   .cmdL(window: 0), .escape(window: 0)]
+        let actions = noise + [.openSheet(window: 0)] + noise + [.closeSheet(window: 0)] + noise
+        let faulty = InputFuzzer.Config(windows: 1, reportsRemoval: false, fault: .sheetCloseUnreported)
+        #expect(InputFuzzer.run(actions, config: InputFuzzer.Config(windows: 1, reportsRemoval: false)) == nil,
+                "the same run without the fault is clean")
+        let (violation, index) = try #require(InputFuzzer.run(actions, config: faulty))
+        // The window keeps a sheet overlay AppKit no longer has: the world
+        // check catches it (W3/W6, whichever it checks first).
+        #expect([.overlaysMatch, .ghosttyMatches].contains(violation.invariant), "\(violation)")
+        #expect(index == noise.count * 2 + 1, "it fails at the close")
+        let minimal = InputFuzzer.shrink(actions, config: faulty, invariant: violation.invariant)
+        #expect(minimal == [.openSheet(window: 0), .closeSheet(window: 0)])
     }
 }

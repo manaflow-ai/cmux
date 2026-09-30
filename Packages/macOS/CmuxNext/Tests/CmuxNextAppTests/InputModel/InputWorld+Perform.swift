@@ -164,7 +164,7 @@ extension InputWorld {
             let window = window(w)
             guard window.hasSheet else { return }
             window.hasSheet = false
-            window.focus.send(.overlayClosed(.sheet))
+            if fault != .sheetCloseUnreported { window.focus.send(.overlayClosed(.sheet)) }
             if key == .sheet(window.index) { setKey(.window(window.index)) }
         case .openGroupEditor(let w):
             let window = window(w)

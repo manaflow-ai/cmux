@@ -11,6 +11,8 @@ enum InputFuzzer {
     struct Config: Hashable, CustomStringConvertible {
         var windows: Int
         var reportsRemoval: Bool
+        /// A bug planted in the world model (tests of the fuzzer itself).
+        var fault: InputWorld.Fault?
 
         var description: String { "windows: \(windows), reportsRemoval: \(reportsRemoval)" }
     }
@@ -43,6 +45,7 @@ enum InputFuzzer {
     /// the index of the action that caused it.
     static func run(_ actions: [FuzzAction], config: Config) -> (violation: InputViolation, index: Int)? {
         let world = InputWorld(windows: config.windows, reportsRemoval: config.reportsRemoval)
+        world.fault = config.fault
         if let first = world.violations.first { return (first, -1) }
         for (index, action) in actions.enumerated() {
             world.perform(action)

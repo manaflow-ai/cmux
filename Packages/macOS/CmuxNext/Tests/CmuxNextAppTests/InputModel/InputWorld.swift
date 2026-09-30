@@ -103,6 +103,15 @@ final class InputWorld {
         var typedLost = 0
     }
 
+    /// A bug planted on purpose, so tests can prove the fuzzer and the
+    /// shrinker catch one.
+    enum Fault: Hashable {
+        /// A closed sheet never reports `overlayClosed(.sheet)`.
+        case sheetCloseUnreported
+    }
+
+    var fault: Fault?
+
     init(windows count: Int, reportsRemoval: Bool) {
         self.reportsRemoval = reportsRemoval
         workspaces["w1"] = [DPane(id: "p1", tabs: [DTab(id: "t1", kind: .terminal), DTab(id: "t2", kind: .browser)]),
