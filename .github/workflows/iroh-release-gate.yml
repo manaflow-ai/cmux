@@ -249,7 +249,7 @@ jobs:
   simulator-e2e:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
-    environment: ${{ inputs.environment == 'production' && 'release' || 'ios-e2e' }}
+    environment: ${{ inputs.environment == 'production' && 'release' || '' }}
     # Production Stack credentials: only this run's own revision, never a
     # requested ref (the ref input may name any commit).
     if: ${{ !cancelled() && needs.resolve-ref.outputs.sha == github.sha }}
