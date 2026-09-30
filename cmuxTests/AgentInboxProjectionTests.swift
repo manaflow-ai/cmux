@@ -109,4 +109,59 @@ struct AgentInboxProjectionTests {
         #expect(AgentInboxProjection.filtered(items, query: "planner").count == 1)
         #expect(AgentInboxProjection.filtered(items, query: "missing").isEmpty)
     }
+
+    @Test("openAgentInbox resolves each workstream id once")
+    func openAgentInboxDeduplicatesWorkstreamIDsBeforeResolving() {
+        let now = Date(timeIntervalSince1970: 30_000)
+        let workstreamID = "claude-duplicate-session"
+        let assistant = WorkstreamItem(
+            workstreamId: workstreamID,
+            source: .claude,
+            kind: .assistantMessage,
+            createdAt: now,
+            payload: .assistantMessage(text: "First reply")
+        )
+        let stop = WorkstreamItem(
+            workstreamId: workstreamID,
+            source: .claude,
+            kind: .stop,
+            createdAt: now.addingTimeInterval(1),
+            payload: .stop(reason: "completed")
+        )
+
+        #expect(
+            AgentInboxProjection.uniqueWorkstreamIDs(from: [assistant, stop]) == [workstreamID]
+        )
+    }
+
+    @Test("agent inbox replies append a validated agent message")
+    func replyPathAppendsToAgentMessageStore() throws {
+        let store = AgentMessageStore(
+            fileURL: nil,
+            now: { Date(timeIntervalSince1970: 31_000) },
+            makeId: { "reply-1" }
+        )
+        let target = AgentInboxReplyTarget.agentMessage(
+            surfaceId: "agent-surface",
+            workspaceId: "agent-workspace",
+            replyTo: "incoming-1"
+        )
+
+        let sent = try AgentInboxReplySender.send(
+            body: "I checked the change.",
+            senderName: "you",
+            target: target,
+            workstreamTarget: nil,
+            store: store
+        )
+
+        #expect(sent.id == "reply-1")
+        #expect(sent.senderName == "you")
+        #expect(sent.recipientSurfaceId == "agent-surface")
+        #expect(sent.recipientWorkspaceId == "agent-workspace")
+        #expect(sent.body == "I checked the change.")
+        #expect(sent.inReplyTo == "incoming-1")
+        #expect(store.messages() == [sent])
+    }
+
 }
