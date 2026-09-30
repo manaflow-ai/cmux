@@ -17,12 +17,12 @@ enum CompatBrowserMethods {
         "browser.get.title": .async({ call in try await stateField(call, "title") }),
         "browser.eval": .async(eval),
         "browser.snapshot": .async(snapshot),
-        "browser.click": .async({ call in try await action(call, CompatBrowserScripts.click) }),
-        "browser.fill": .async({ call in try await action(call, CompatBrowserScripts.fill) }),
-        "browser.type": .async({ call in try await action(call, CompatBrowserScripts.type) }),
-        "browser.focus": .async({ call in try await action(call, CompatBrowserScripts.focus) }),
-        "browser.get.text": .async({ call in try await action(call, CompatBrowserScripts.text) }),
-        "browser.get.value": .async({ call in try await action(call, CompatBrowserScripts.value) }),
+        "browser.click": .async({ call in try await action(call, BrowserPageScripts.click) }),
+        "browser.fill": .async({ call in try await action(call, BrowserPageScripts.fill) }),
+        "browser.type": .async({ call in try await action(call, BrowserPageScripts.type) }),
+        "browser.focus": .async({ call in try await action(call, BrowserPageScripts.focus) }),
+        "browser.get.text": .async({ call in try await action(call, BrowserPageScripts.text) }),
+        "browser.get.value": .async({ call in try await action(call, BrowserPageScripts.value) }),
     ]
 
     static func browserSurface(_ call: CompatCall) async throws -> (CompatWorld, CompatWorld.Surface, CompatTarget) {
@@ -76,7 +76,7 @@ enum CompatBrowserMethods {
         let value: JSON
         do {
             // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-            value = try await run(call, surface, .evaluate(CompatBrowserScripts.jsonSafe(script)))
+            value = try await run(call, surface, .evaluate(BrowserPageScripts.jsonSafe(script)))
         } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
             value = try await run(call, surface, .evaluate(script))  // statements, not an expression
         }
@@ -88,7 +88,7 @@ enum CompatBrowserMethods {
     static func snapshot(_ call: CompatCall) async throws -> JSON {
         let (world, surface, target) = try await browserSurface(call)
         let depth = call.int("max_depth") ?? call.int("maxDepth") ?? 12
-        let script = CompatBrowserScripts.snapshot(selector: call.string("selector"), maxDepth: depth,
+        let script = BrowserPageScripts.snapshot(selector: call.string("selector"), maxDepth: depth,
                                                    interactiveOnly: call.bool("interactive") == true)
         let value = try await run(call, surface, .evaluate(script))["value"] ?? .null
         var result = base(world, surface, target)

@@ -4,7 +4,7 @@ import Foundation
 /// JSON-compatible object; element actions return `{error}` when the
 /// selector or ref matches nothing. `snapshot` tags elements with
 /// `data-cmux-ref="eN"` so later actions can address `eN` / `@eN`.
-enum CompatBrowserScripts {
+enum BrowserPageScripts {
     static func literal(_ text: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: [text], options: [.fragmentsAllowed])) ?? Data("[\"\"]".utf8)
         let array = String(decoding: data, as: UTF8.self)

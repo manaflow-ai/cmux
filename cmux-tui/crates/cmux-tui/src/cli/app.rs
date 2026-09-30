@@ -36,6 +36,12 @@ pub(super) enum AppCommand {
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
+    if scope == "browser"
+        && let Some(target) = args.get(1)
+        && (target == "page" || target.starts_with("tab_"))
+    {
+        return parse_page(target, &args[2..]).map(Some);
+    }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
@@ -124,6 +130,72 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
+}
+
+/// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
+/// app hosts (`page` is the focused tab). A daemon browser (`browser_…`) is
+/// the mux grammar's.
+fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    let usage = || UsageError::new(messages.browser_page_usage);
+    let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
+    let mut params = Map::new();
+    if target != "page" {
+        params.insert("tab".into(), json!(target));
+    }
+    let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
+    let method = match (verb.as_str(), words.as_slice()) {
+        ("navigate" | "goto" | "open", [url]) => {
+            params.insert("url".into(), json!(url));
+            "browser.page.navigate"
+        }
+        ("back", []) => "browser.page.back",
+        ("forward", []) => "browser.page.forward",
+        ("reload", []) => "browser.page.reload",
+        ("state" | "url" | "title", []) => "browser.page.state",
+        ("eval", [script]) => {
+            params.insert("script".into(), json!(script));
+            "browser.page.eval"
+        }
+        ("snapshot", _) => {
+            let options = Options::parse(rest, &["selector", "max-depth"], &["interactive"])?;
+            if let Some(selector) = options.value("selector") {
+                params.insert("selector".into(), json!(selector));
+            }
+            if let Some(depth) = options.value("max-depth") {
+                let depth: u32 = depth.parse().map_err(|_| usage())?;
+                params.insert("max_depth".into(), json!(depth));
+            }
+            if options.flag("interactive") {
+                params.insert("interactive".into(), json!(true));
+            }
+            "browser.page.snapshot"
+        }
+        ("click" | "focus" | "text" | "value", [selector]) => {
+            params.insert("selector".into(), json!(selector));
+            match verb.as_str() {
+                "click" => "browser.page.click",
+                "focus" => "browser.page.focus",
+                "text" => "browser.page.text",
+                _ => "browser.page.value",
+            }
+        }
+        ("fill" | "type", [selector, text]) => {
+            params.insert("selector".into(), json!(selector));
+            params.insert("text".into(), json!(text));
+            if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
+        }
+        _ => return Err(usage()),
+    };
+    if verb != "snapshot" && words.len() != rest.len() {
+        return Err(usage());
+    }
+    Ok(AppCommand::Call {
+        method,
+        params: Value::Object(params),
+        timeout: READ_TIMEOUT,
+        pick: None,
+    })
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--wait`,
@@ -457,6 +529,33 @@ mod tests {
                 "args": { "title": "Build", "keep_case": "true" },
             })
         );
+    }
+
+    #[test]
+    fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
+        let (method, params) = call(
+            parse(&args(&["browser", "tab_01ab", "navigate", "https://cmux.com"]))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(method, "browser.page.navigate");
+        assert_eq!(params, json!({ "tab": "tab_01ab", "url": "https://cmux.com" }));
+        let (method, params) =
+            call(parse(&args(&["browser", "page", "fill", "#q", "hello"])).unwrap().unwrap());
+        assert_eq!(method, "browser.page.fill");
+        assert_eq!(params, json!({ "selector": "#q", "text": "hello" }));
+        let (method, params) = call(
+            parse(&args(&["browser", "page", "snapshot", "--interactive", "--max-depth", "4"]))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(method, "browser.page.snapshot");
+        assert_eq!(params, json!({ "interactive": true, "max_depth": 4 }));
+        assert_eq!(
+            parse(&args(&["browser", "browser_01ab", "navigate", "--url", "x"])).unwrap(),
+            None
+        );
+        assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
     }
 
     #[test]

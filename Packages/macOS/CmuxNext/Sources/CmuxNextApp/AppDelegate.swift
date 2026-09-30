@@ -111,7 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
-                if let router = control.service?.router { installCompat(on: router) }
+                if let router = control.service?.router {
+                    installCompat(on: router)
+                    BrowserPageService(engine: services.compat!).install(on: router)
+                }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")

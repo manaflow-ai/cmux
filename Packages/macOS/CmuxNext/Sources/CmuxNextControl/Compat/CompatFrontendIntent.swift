@@ -22,11 +22,6 @@ public enum CompatFrontendIntent: Sendable, Hashable {
     case checkTabMove(fromWorkspaceID: String, toWorkspaceID: String)
 }
 
-public enum CompatBrowserOperation: Sendable, Hashable {
-    case navigate(String)
-    case back, forward, reload
-    /// Result: `{"url": …, "title": …}`.
-    case state
-    /// Result: `{"value": <JSON>}`.
-    case evaluate(String)
-}
+/// The compat layer drives pages through the same operations as
+/// `browser.page.*` (Browser/BrowserPageEngine.swift).
+public typealias CompatBrowserOperation = BrowserPageOperation

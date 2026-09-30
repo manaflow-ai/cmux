@@ -18995,6 +18995,57 @@
           }
         }
       }
+    },
+    "control.error.pageTabNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tab %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ がありません"
+          }
+        }
+      }
+    },
+    "control.error.pageTabAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More than one tab starts with %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で始まるタブが複数あります"
+          }
+        }
+      }
+    },
+    "control.error.pageTabNotAppBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab %@ is not a browser tab of this app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ はこのアプリのブラウザタブではありません"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
