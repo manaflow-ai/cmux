@@ -7,7 +7,7 @@ public import Observation
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -51,6 +51,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var pendingFocus = false
+    /// The renderer ended while the tab was hidden: reload when shown
+    /// (Chrome reloads a crashed background tab when it is selected).
+    @ObservationIgnored var reloadWhenShown = false
     @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
     @ObservationIgnored var nextFindID: Int32 = 1
     @ObservationIgnored var faviconTask: Task<Void, Never>?
@@ -112,6 +115,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         host.present(self, in: view)
         view.layoutContent()
+        if reloadWhenShown {
+            reloadWhenShown = false
+            if state.processExit != nil { reload() }
+        }
+    }
+
+    /// The renderer ended (crash, kill, out of memory, launch failure). The
+    /// pane shows the sad tab; a hidden tab reloads when it is shown.
+    func rendererTerminated(_ exit: BrowserProcessExit) {
+        guard !isClosed else { return }
+        machine.apply(.processExited(exit))
+        reloadWhenShown = host.visibleTab !== self
+        findContinuation?.resume(returning: .none)
+        findContinuation = nil
+        runtime.recordRendererExit(exit, tab: self)
     }
 
     func contentDidDisappear() {
@@ -151,7 +169,31 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func goForward() { browserID.map { runtime.shim?.goForward($0) } }
 
     public func reload() {
-        if let browserID { runtime.shim?.reload(browserID) } else if let url = pendingURL ?? state.url { load(url) }
+        reloadWhenShown = false
+        guard let browserID else {
+            if let url = pendingURL ?? state.url { load(url) }
+            return
+        }
+        guard state.processExit != nil, let url = state.url else {
+            runtime.shim?.reload(browserID)
+            return
+        }
+        // The sad tab clears now, not when the new renderer's first callback
+        // arrives. Loading the shown URL (Chromium turns a load of the
+        // current entry's URL into a reload, so history is kept) also covers
+        // a crash before the load committed.
+        let id = makeNavigationID()
+        navigation = id
+        machine.apply(.started(id, url: url))
+        runtime.shim?.loadURL(browserID, url.absoluteString)
+    }
+
+    /// Answers "Page unresponsive": wait restarts Chromium's hang timer,
+    /// terminate ends the renderer (the sad tab follows).
+    public func answerUnresponsivePage(terminate: Bool) {
+        guard state.isUnresponsive else { return }
+        if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }
+        if !terminate { machine.apply(.unresponsiveChanged(false)) }
     }
 
     public func stop() {

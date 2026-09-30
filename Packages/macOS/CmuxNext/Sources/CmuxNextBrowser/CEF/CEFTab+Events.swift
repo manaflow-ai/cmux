@@ -57,6 +57,12 @@ extension CEFTab {
             ))
         case .closeRequested:
             emit(.close)
+        case .renderTerminated(_, let status, let code, _):
+            rendererTerminated(.cef(status: status, code: code))
+        case .renderUnresponsive:
+            machine.apply(.unresponsiveChanged(true))
+        case .renderResponsive:
+            machine.apply(.unresponsiveChanged(false))
         default:
             break
         }

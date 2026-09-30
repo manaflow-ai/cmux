@@ -105,15 +105,9 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.failed(id, BrowserLoadError(error)))
     }
 
+    /// WebKit gives no reason; the sad tab says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        let id = allocateNavigationID()
-        apply(.started(id, url: state.url))
-        apply(.failed(id, BrowserLoadError(
-            domain: "cmux.browser",
-            code: 1,
-            message: Strings.webContentProcessTerminated,
-            failingURL: state.url
-        )))
+        apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
     /// Cmd-click opens in the background, Cmd-Shift-click in the foreground,

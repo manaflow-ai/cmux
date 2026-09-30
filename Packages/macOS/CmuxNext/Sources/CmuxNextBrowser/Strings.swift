@@ -82,9 +82,6 @@ nonisolated enum Strings {
     static var cefUnavailable: String {
         String(localized: "browser.engine.cefUnavailable", defaultValue: "The Chromium engine is not available in this build.", bundle: .module)
     }
-    static var webContentProcessTerminated: String {
-        String(localized: "browser.error.processTerminated", defaultValue: "This page stopped responding. Reload to try again.", bundle: .module)
-    }
     static var loadFailedTitle: String {
         String(localized: "browser.error.loadFailed", defaultValue: "Can’t open this page", bundle: .module)
     }

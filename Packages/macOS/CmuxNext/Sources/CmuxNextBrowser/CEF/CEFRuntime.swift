@@ -54,6 +54,10 @@ final class CEFRuntime {
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
+    /// Recent renderer and helper process failures (`debug.crashes`).
+    let crashLog = BrowserCrashLog()
+    /// Watches helper exits (GPU, utility, extension renderers) from start.
+    var childMonitor: CEFChildProcessMonitor?
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -177,6 +181,7 @@ final class CEFRuntime {
             let started = clock.now
             try initialize(library, environment: environment)
             state = .ready
+            startChildMonitor()
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started

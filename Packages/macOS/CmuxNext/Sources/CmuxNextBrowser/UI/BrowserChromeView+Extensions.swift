@@ -11,6 +11,11 @@ extension BrowserChromeView {
         public static let reload = "browser.toolbar.reload"
         public static let omnibar = "browser.toolbar.omnibar"
         public static let extensionsButton = "browser.extensions.button"
+        public static let pageGone = "browser.page.gone"
+        public static let pageGoneReload = "browser.page.gone.reload"
+        public static let pageUnresponsive = "browser.page.unresponsive"
+        public static let pageUnresponsiveWait = "browser.page.unresponsive.wait"
+        public static let pageUnresponsiveExit = "browser.page.unresponsive.exit"
         public static func extensionAction(_ id: String) -> String { "browser.extension.action.\(id)" }
     }
 

@@ -76,6 +76,9 @@ public final class CEFEngine: BrowserEngine {
         return store
     }
 
+    /// Recent renderer and helper process failures (`debug.crashes`).
+    public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 

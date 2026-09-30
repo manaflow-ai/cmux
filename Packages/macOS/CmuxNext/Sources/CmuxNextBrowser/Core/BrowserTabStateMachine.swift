@@ -141,10 +141,13 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.security = security
 
         case .processExited(let exit):
+            // Keeps the URL even when the load had not committed, so Reload
+            // opens what the user asked for.
             state.processExit = exit
             state.isUnresponsive = false
-            if state.isLoading { endWithoutError() }
-            if case .failed = state.phase { state.phase = committedURL == nil ? .idle : .finished }
+            state.progress = 0
+            state.activeNavigation = nil
+            if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
 
         case .unresponsiveChanged(let unresponsive):
             guard state.processExit == nil else { return }

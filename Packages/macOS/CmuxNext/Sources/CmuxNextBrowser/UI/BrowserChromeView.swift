@@ -50,7 +50,7 @@ public final class BrowserChromeView: NSView {
     private let contentContainer = NSView()
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
-    private let errorView = LoadErrorView()
+    private let pageStatus = PageStatusViews()
     private var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false
@@ -161,7 +161,7 @@ public final class BrowserChromeView: NSView {
     // MARK: Layout
 
     private func buildLayout() {
-        for view in [toolbar, separator, contentContainer, progressLine, findBar, promptBar, errorView] as [NSView] {
+        for view in [toolbar, separator, contentContainer, progressLine, findBar, promptBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         toolbar.wantsLayer = true
@@ -188,7 +188,7 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         addSubview(progressLine)
-        addSubview(errorView)
+        pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
 
@@ -237,11 +237,6 @@ public final class BrowserChromeView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            errorView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            errorView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            errorView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            errorView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-
             density.bind(findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             density.bind(findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor)) { -BrowserMetrics.overlayInset },
             density.bind(findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
@@ -254,8 +249,6 @@ public final class BrowserChromeView: NSView {
         findBar.isHidden = true
         findBar.onClose = { [weak self] in self?.hideFindBar() }
         promptBar.isHidden = true
-        errorView.isHidden = true
-        errorView.onRetry = { [weak self] in self?.tab.reload() }
         density.start()
         updateColors()
     }
@@ -325,11 +318,7 @@ public final class BrowserChromeView: NSView {
         recordHistory(state)
         progressLine.set(progress: state.progress, visible: loading)
 
-        if let error = state.loadError {
-            errorView.show(error)
-        } else if !errorView.isHidden {
-            errorView.isHidden = true
-        }
+        pageStatus.render(state)
 
         if let prompt = tab.pendingPrompts.first {
             promptBar.show(prompt)
@@ -353,9 +342,8 @@ public final class BrowserChromeView: NSView {
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
         let content = tab.contentView
-        let rects = [findBar, promptBar, errorView as NSView]
-            .filter { !$0.isHidden && $0.superview != nil }
-            .map { convert($0.frame, to: content) }
+        let bars = ([findBar, promptBar] as [NSView]).filter { !$0.isHidden && $0.superview != nil }
+        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: content) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 
