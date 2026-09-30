@@ -280,7 +280,8 @@ public struct VMSummary: Sendable {
         freeAccessExpiresAt: Int64? = nil,
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
-        cmuxTuiContract: String? = nil
+        cmuxTuiContract: String? = nil,
+        createdBy: VMCreator? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -296,6 +297,7 @@ public struct VMSummary: Sendable {
         self.addressIPv4 = addressIPv4
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
+        self.createdBy = createdBy
     }
 
     public let id: String
@@ -310,6 +312,9 @@ public struct VMSummary: Sendable {
     public var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     public var displayName: String?
+    /// Who made this machine (`GET /api/vm` → `createdBy`). Nil when the
+    /// control plane does not send one. Display only; see ``VMCreator``.
+    public var createdBy: VMCreator?
     /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
     /// machine's life and unique among the owner's live machines. Nil on
     /// machines created before the backend assigned names.
@@ -772,6 +777,10 @@ public struct VMCloudSession: Sendable {
     public let title: String?
     public let kind: String
     public let status: String
+    /// Lifetime attaches for this session, not the number of clients attached
+    /// now. The control plane only ever adds to it, so it never returns to
+    /// zero. Socket clients receive it as `attachment_count`; do not present it
+    /// as a live viewer count.
     public let attachmentCount: Int
     public let effectiveCols: Int?
     public let effectiveRows: Int?
@@ -1154,6 +1163,7 @@ public actor VMClient {
                     summary.displayName = label
                 }
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.createdBy = VMCreator(vmResponse: dict)
                 summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
                 if let address = dict["address"] as? [String: Any] {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1583,6 +1593,14 @@ public actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // `create` has one caller today, the `vm.create` socket method, so
+            // this is what `cmux vm new --json` prints. The sidebar does not
+            // read it: the panel only ever assigns a whole `listPage()` result,
+            // so a created machine shows its author on the next list refresh
+            // and not before. Decoded here anyway because the field is in the
+            // response and a client that did merge this into the row it already
+            // listed would otherwise blank the author out.
+            summary.createdBy = VMCreator(vmResponse: obj)
             // The create receipt names the new machine's private address and
             // attach contract, so the app can register and dial it without a
             // fleet re-read or an attach request (see createdMachineAttach).
@@ -1664,6 +1682,11 @@ public actor VMClient {
                 summary.displayName = label
             }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // Same as the create site: `status(id:)`'s one caller is the
+            // `vm.status` socket method, so this feeds `cmux vm status --json`.
+            // The panel's per-machine refresh goes through `SurfaceCatalog`,
+            // not through here.
+            summary.createdBy = VMCreator(vmResponse: obj)
             if let address = obj["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1973,7 +1996,7 @@ public actor VMClient {
         var tokens: [String] = []
         for entry in raw {
             let token = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard token.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
+            guard token.range(of: "^[a-z0-9-]{1,64}\\z", options: .regularExpression) != nil,
                   seen.insert(token).inserted else { continue }
             tokens.append(token)
             if tokens.count == 16 { break }

@@ -153,7 +153,7 @@ extension RemoteSessionCoordinator {
         guard !trimmed.isEmpty,
               trimmed != ".",
               trimmed != "..",
-              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}\\z", options: .regularExpression) != nil else {
             return nil
         }
         return trimmed

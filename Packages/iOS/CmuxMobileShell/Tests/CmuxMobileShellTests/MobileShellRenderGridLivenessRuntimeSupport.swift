@@ -30,10 +30,21 @@ struct LivenessTestRuntime: MobileSyncRuntime {
     var reconnectAttemptDeadlineNanoseconds: UInt64 = 30 * 1_000_000_000
     /// Virtual reconnect-deadline clock; `nil` uses real time.
     var reconnectDeadlineGate: ReconnectDeadlineGate?
+    var macDialDeadlineNanoseconds: UInt64 = 8 * 1_000_000_000
+    /// Virtual per-Mac dial-deadline clock; `nil` uses real time.
+    var macDialDeadlineGate: ReconnectDeadlineGate?
 
     func sleepUntilReconnectAttemptDeadline(nanoseconds: UInt64) async throws {
         if let reconnectDeadlineGate {
             try await reconnectDeadlineGate.sleep()
+        } else {
+            try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
+        }
+    }
+
+    func sleepUntilMacDialDeadline(nanoseconds: UInt64) async throws {
+        if let macDialDeadlineGate {
+            try await macDialDeadlineGate.sleep()
         } else {
             try await RPCTaskTimeout.continuousClockSleep(nanoseconds: nanoseconds)
         }
@@ -47,11 +58,15 @@ struct LivenessTestRuntime: MobileSyncRuntime {
 final class ReconnectDeadlineGate: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var armed = 0
 
     var pendingCount: Int { lock.withLock { pending.count } }
+    /// Deadlines ever armed, including settled and expired ones.
+    var armedCount: Int { lock.withLock { armed } }
 
     func sleep() async throws {
         let id = UUID()
+        lock.withLock { armed += 1 }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let alreadyCancelled = lock.withLock { () -> Bool in

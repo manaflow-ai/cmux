@@ -25,6 +25,11 @@
       "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
       "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
     },
+    "recreateRequired": {
+      "title": "Bu makineyi yeniden oluşturun",
+      "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
+      "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -134,7 +139,9 @@
     "backToBlog": "Bloga dön",
     "readTheDocs": "Belgeleri Oku",
     "viewChangelog": "Değişiklik Günlüğünü Görüntüle",
-    "otherPlatforms": "Diğer platformlar"
+    "otherPlatforms": "Diğer platformlar",
+    "copyCode": "Kodu kopyala",
+    "copied": "Kopyalandı"
   },
   "nav": {
     "docs": "Belgeler",
@@ -1357,6 +1364,7 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "tabBarVisibility": "Bir bölmenin sekme çubuğunu ne zaman çizeceğini belirler. \"always\", tek sekmesi olan bir bölmede bile çizer; \"multiple-tabs\", bölmede tek sekme varken gizler ve ikinci sekme açılır açılmaz çizer. Minimal mod (app.minimalMode) her zaman çizer, çünkü orada en üstteki bölmenin sekme çubuğu aynı zamanda pencerenin başlık çubuğudur.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
           "globalFontMagnification": "cmux'un kendi çizdiği her şey için yüzde cinsinden yakınlaştırma: terminal metni, sekme başlıkları, kenar çubukları, Settings, katmanlar ve pencere çerçevesi. Tarayıcı yüzeylerindeki web sayfaları kendi boyutlarını korur."
         },
@@ -1366,8 +1374,8 @@
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalin her fare tekerleği veya trackpad kaydırma olayında ne kadar ilerleyeceğini ölçekler. 1'in üzerindeki değerler kaydırmayı hızlandırır, 1'in altındaki değerler yavaşlatır.",
-          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
-          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
+          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak gösterir.",
+          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
           "soundWhenFocused": "Bildirimi gönderen bölme zaten odaktayken bile bildirim sesini çal. Varsayılan olarak kapalıdır; odaktaki bölme yalnızca halkasını ve parlamasını gösterir.",
@@ -1395,6 +1403,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Her çalışma alanını tek satırda göster: başlığın önündeki tek bir renkli simge ajan, okunmamış ve pull request durumunu gösterir; ajan durum satırlarının (örneğin Çalışıyor veya Girdi gerekiyor), dal ve dizin satırının ve pull request satırlarının yerini alır, ayrıntılar simgenin ipucuna taşınır. Diğer durum girdileri kendi satırlarını korur.",
+          "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
@@ -1531,7 +1541,6 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z).",
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
@@ -1859,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS Uygulaması",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Genel Bakış",
@@ -1873,7 +1882,11 @@
       "automationSection": "Otomasyon",
       "remoteSection": "Uzaktan Erişim",
       "customizeSection": "Özelleştirme ve Yönetim",
-      "basicsSection": "Temel Bilgiler"
+      "basicsSection": "Temel Bilgiler",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Genel Bakış",
+      "coderouterAgents": "Aracılar ve Modeller",
+      "coderouterCli": "CLI ve Sorun Giderme"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2018,11 +2031,10 @@
       "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux beta TextBox girişini yapılandırın.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux TextBox girişini yapılandırın.",
       "intro": "TextBox, istemleri terminale göndermeden önce yazmak için cmux'un zengin terminal giriş yüzeyidir.",
-      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir.",
       "defaultsTitle": "Varsayılanlar",
       "defaultsDesc": "TextBox ayarları Settings > TextBox içindedir:",
       "showSetting": "Show TextBox on New Terminals yeni çalışma alanlarını, terminal sekmelerini ve terminal bölmelerini TextBox görünür halde açar ve odağı terminalde tutar.",
@@ -2071,7 +2083,7 @@
       "data3": "Telefonunuzu Mac'inize bağlamak için eşleştirme ve cihaz meta verileri.",
       "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
       "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
-      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
+      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@cmux.com</link> ile iletişime geçin."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -2193,7 +2205,8 @@
       "guestDesc": "Bir makinenin içinde cmux komutu o makinenin oturumunu kontrol eder. tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url ve self komutlarını destekler. cmux self sahibi, makineyi ve diğer makinelerinizi gösterir. cmux vm verb peer, bir makinenin içinden diğer makinelerinizi kontrol eder.",
       "guestHostOnly": "Oturum açma, AI hesabı yükleme ve new, delete, checkpoint, fork, resize, pause, domains, open ve vpn gibi makine yaşam döngüsü komutları yalnızca Mac'inizde çalışır.",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux iOS uygulaması Cloud makinelerini yönetmez. Başlatılmakta olan bir makine yer tutucu bir kart olarak görünür."
+      "iosDesc": "cmux iOS uygulaması Cloud makinelerini yönetmez. Başlatılmakta olan bir makine yer tutucu bir kart olarak görünür.",
+      "coderouterLink": "CodeRouter belgeleri: desteklenen hesaplar, paylaşım ve kullanım"
     },
     "cloudNetworking": {
       "title": "Cloud Dosyaları ve Ağ",
@@ -2258,7 +2271,8 @@
       "accountsTitle": "AI hesapları ve model yönlendirme",
       "accountsDesc": "Ekibiniz için aracı hesapları yükleyin ve model yönlendirmesini kontrol edin.",
       "preflightTitle": "Betik kontrol listesi",
-      "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir."
+      "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir.",
+      "coderouterLink": "Tam CodeRouter komut referansı"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Güvenliği ve Sorun Giderme",
@@ -2315,6 +2329,177 @@
       "fixTransferDisabled": "Yönetilen bir ilke dosya aktarımını kapatıyor. Yöneticinize başvurun.",
       "supportTitle": "Yardım alın",
       "supportDesc": "Bir oluşturma işlemi başarısız olursa bildirimdeki Copy Error'ı kullanın ve destekle iletişime geçtiğinizde hatayı, varsa izleme kimliğiyle birlikte ekleyin."
+    },
+    "ui": {
+      "onThisPage": "Bu sayfada",
+      "copyPage": "Sayfayı kopyala",
+      "copyPageDesc": "Sayfayı LLM'ler için Markdown olarak kopyala",
+      "copied": "Kopyalandı",
+      "pageActions": "Diğer sayfa işlemleri",
+      "openInChatGPT": "ChatGPT'de aç",
+      "openInClaude": "Claude'da aç",
+      "openInDesc": "Bu sayfa hakkında soru sor",
+      "askPrompt": "{url} adresini oku ki onun hakkında soru sorabileyim.",
+      "previous": "Önceki",
+      "next": "Sonraki",
+      "helpful": "Bu sayfa yardımcı oldu mu?",
+      "yes": "Evet",
+      "no": "Hayır",
+      "thanks": "Geri bildiriminiz için teşekkürler.",
+      "raiseIssue": "Sorun bildir",
+      "openNavigation": "Gezinmeyi aç",
+      "closeNavigation": "Gezinmeyi kapat",
+      "searchShortcut": "Belgelerde ara (⌘K)",
+      "navigation": "Belgeler"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter model yönlendirme",
+      "metaDescription": "CodeRouter; Codex, Claude Code, OpenCode ve Pi isteklerini ekibinizin AI abonelikleri ve API anahtarlarına dağıtır, sınırda hesap değiştirir.",
+      "intro": "CodeRouter, cmux'un arkasındaki model yönlendiricisidir. Kodlama aracılarınız isteklerini CodeRouter'a gönderir, o da her isteği ekibinizin eklediği bir aboneliğe veya API anahtarına iletir. Bir hesap hız sınırına takıldığında, reddedildiğinde veya erişilemez olduğunda CodeRouter işi başka bir hesaba taşır ve aracılar çalışmaya devam eder.",
+      "whyTitle": "Neden kullanmalı",
+      "whyPool": "Birden fazla ChatGPT, Claude ve OpenCode Go aboneliğini ve API anahtarını bir araya getirin ve ekibinizle paylaşın.",
+      "whyFailover": "Bir hesap kullanım sınırına ulaştığında aracının çalışmaya devam etmesini sağlayın.",
+      "whyCloud": "cmux Cloud makinelerine, makinede kimlik bilgisi saklamadan model erişimi verin.",
+      "whyUsage": "Token kullanımını hesap, API anahtarı ve Cloud makinesi bazında görün.",
+      "accountsTitle": "Desteklenen hesaplar",
+      "accountsDesc": "Her hesap, sağlayıcısının API'sini konuşan aracılara hizmet verir. Codex ve Pi tek bir hesap havuzunu paylaşır; Claude Code ayrı bir Claude hesapları havuzu kullanır.",
+      "accountColumn": "Hesap",
+      "servesColumn": "Hizmet verdiği",
+      "addColumn": "Nasıl eklenir",
+      "accountChatgpt": "ChatGPT aboneliği (kişisel veya ekip çalışma alanı)",
+      "accountOpenAiKey": "OpenAI API anahtarı",
+      "accountOpenRouterKey": "OpenRouter API anahtarı",
+      "accountOpencodeGo": "OpenCode Go aboneliği",
+      "accountClaudeSubscription": "Claude Max veya Pro (Claude Code kurulum token'ı)",
+      "accountAnthropicKey": "Anthropic API anahtarı",
+      "accountBedrock": "Amazon Bedrock kimlik bilgileri",
+      "addDashboard": "CodeRouter paneli",
+      "accountsDashboard": "CodeRouter paneli API anahtarları, Claude token'ları ve Bedrock kimlik bilgileri de ekleyebilir. Her hesabı durumu, bekleme süresi ve etkin oturumlarıyla listeler:",
+      "routingTitle": "Yönlendirme nasıl çalışır",
+      "routingSticky": "Her aracı oturumu, hesap sağlıklı olduğu sürece tek bir hesapta kalır; bu da sağlayıcının istem önbelleğini sıcak tutar. Yeni bir oturum, en az etkin oturuma sahip hesaba gider.",
+      "routingFailover": "Bir sağlayıcı hız sınırı döndürdüğünde, bir kimlik bilgisini reddettiğinde veya yanıt vermediğinde CodeRouter o hesabı bekleme süresine alır ve isteği başka bir hesapta yeniden dener. Yalnızca aracınıza herhangi bir model çıktısı ulaşmadan önce yeniden dener, bu nedenle akışı başlamış bir yanıt asla iki kez gönderilmez.",
+      "routingProvider": "Sağlayıcı isteğini CodeRouter'ın barındırılan hizmeti yapar. Bu nedenle sağlayıcı trafiği Mac'inizden veya Cloud makinenizden değil, CodeRouter'dan gelir.",
+      "quickstartTitle": "Mac'te hızlı başlangıç",
+      "stepInstall": "CodeRouter CLI'ı kurun. Hem coderouter hem cr olarak kurulur. İlk seferde kurmayı öneren cmux cr komutunu da çalıştırabilirsiniz.",
+      "stepLogin": "cmux hesabınızla oturum açın. cr login tarayıcınızı açar; gösterdiği kodu onaylayın.",
+      "stepAdd": "Bir abonelik ekleyin. cr add bir sağlayıcı menüsü açar, cr add codex ise tarayıcınızda ChatGPT'de oturum açar.",
+      "stepRun": "cr codex, cr opencode veya cr pi ile bir aracıyı CodeRouter üzerinden çalıştırın. Aracı adından sonraki bağımsız değişkenler aracıya iletilir.",
+      "cloudTitle": "cmux Cloud makinelerinde",
+      "cloudDesc": "Her Cloud makinesi oluşturulduğunda CodeRouter'a bağlanır. Makinedeki Claude Code, Codex, OpenCode ve Pi, oturum açma ve kurulum gerekmeden ekibinizin hesaplarını kullanır.",
+      "cloudLink": "Aracıların Cloud makinelerinde nasıl yapılandırıldığı",
+      "teamsTitle": "Ekipler ve paylaşım",
+      "teamsScope": "Hesaplar, oturum açtığınız ekibe aittir. cr org list ekiplerinizi gösterir, cr org switch ise cr'ın kullandığı ekibi değiştirir. cmux coderouter komutları --team '<id>' alır.",
+      "teamsPrivate": "Yeni bir hesap, onu ekleyen kişiye özeldir. Panelde \"Ekiple paylaş\" hesabı her üyenin ve ekibin Cloud makinelerinin kullanımına açar, \"Özel yap\" ise bunu geri alır.",
+      "teamsPersonal": "Kişisel ekibinizde özel hesaplarınız kendi Cloud makinelerinize de hizmet verir. Bir kuruluşun Cloud makineleri yalnızca paylaşılan hesapları kullanır, bu nedenle bir makinenin hesabı kullanmasını beklemeden önce hesabı paylaşın.",
+      "teamsManage": "Her ekip üyesi ekibin paylaşılan hesaplarını ekleyebilir, yeniden adlandırabilir, devre dışı bırakabilir, aktarabilir ve kaldırabilir. cr transfer, onayınızdan sonra bir hesabı başka bir ekibe taşır.",
+      "usageTitle": "Kullanım ve sınırlar",
+      "usageLimits": "Her sağlayıcı, isteğe hizmet veren hesabı o hesabın kendi planı ve sınırlarına göre ölçer. CodeRouter işi hesaplara dağıtır ancak tek bir hesabın sınırını artırmaz.",
+      "usageCr": "cr her aboneliğin kota durumunu gösterir. 30 saniyede bir yenilemek için --watch, betikler için --json ekleyin.",
+      "usageMachines": "cmux coderouter machines, her Cloud makinesi için 30 günlük token kullanımını ve API eşdeğeri değeri gösterir. Bir makinenin içinde cmux coderouter usage, o makinenin kullanımını güne, çalışma alanına, aracıya ve modele göre ayırır.",
+      "usageEstimate": "API eşdeğeri değer, herkese açık liste fiyatlarına göre bir tahmindir. Bir fatura değildir.",
+      "privacyTitle": "Kimlik bilgileri ve gizlilik",
+      "privStored": "Sağlayıcı kimlik bilgileri saklanmadan önce şifrelenir. Hiçbir CodeRouter API'si veya panel görünümü saklanan bir kimlik bilgisini döndürmez; hesaplar yalnızca bir etiket, bir e-posta veya maskelenmiş bir anahtar gösterir.",
+      "privArgv": "cr add ve cmux coderouter claude add, bir sağlayıcı kimlik bilgisini asla komut bağımsız değişkeni olarak almaz, çünkü orada kabuk geçmişine düşer. Kimlik bilgisini bir ortam değişkeninden, standart girdiden veya gizli bir istemden okurlar.",
+      "privLocal": "cr add codex ve cr add opencode, tarayıcınızda sağlayıcıyla oturum açar. cr codex, CodeRouter ayarlarını Codex'e yalnızca o çalıştırma için iletir ve normal Codex oturumunuzu ve yapılandırmanızı değiştirmez.",
+      "privCloud": "Cloud makineleri kimlik bilgisi tutmaz. Makinedeki aracılar, herkese açık bir yer tutucu anahtarı özel bir CodeRouter adresine gönderir ve makinenin ağ kenarı, o makineye bağlı imzalı bir kimlik bilgisi ekler. CodeRouter bu kimlik bilgisini başka herhangi bir makineden gelirse reddeder ve makine silindiğinde iptal eder.",
+      "privRequestId": "Her CodeRouter yanıtı, isteği tanımlayan bir x-coderouter-request-id başlığı taşır.",
+      "nextTitle": "Sonraki adımlar",
+      "nextAgents": "Aracılar ve modeller: her aracıyı Mac'te ve Cloud makinelerinde kurun",
+      "nextCli": "CLI ve sorun giderme: tüm komutlar ve yaygın hatalar",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter Aracıları ve Modelleri",
+      "metaTitle": "CodeRouter Aracıları ve Modelleri",
+      "metaDescription": "Claude Code, Codex, OpenCode ve Pi'yi Mac'te ve cmux Cloud makinelerinde CodeRouter üzerinden çalıştırın ve her aracının hangi modeli kullanacağını seçin.",
+      "intro": "Bu sayfa her aracının Mac'inizde ve bir cmux Cloud makinesinde CodeRouter'a nasıl ulaştığını ve her aracının nasıl model seçtiğini gösterir.",
+      "agentColumn": "Aracı",
+      "macColumn": "Mac'inizde",
+      "cloudColumn": "Bir Cloud makinesinde",
+      "automatic": "Otomatik",
+      "experimental": "(deneysel)",
+      "claudeMacCell": "CodeRouter API anahtarı",
+      "macTitle": "Mac'inizde",
+      "macDesc": "cr, zaten kurduğunuz aracıyı başlatır ve o çalıştırma için CodeRouter'a yönlendirir. Aracı PATH'inizde olmalıdır. Aracı adından sonraki her şey değiştirilmeden iletilir.",
+      "codexDesc": "cr codex, Codex'i bir CodeRouter model sağlayıcısıyla çalıştırır. exec, review ve resume gibi alt komutlar aynı şekilde çalışır. cr naked, CodeRouter'ı atlayarak düz Codex'i çalıştırır.",
+      "opencodeDesc": "cr opencode, ekibinizin OpenCode Go hesaplarının modellerini yükler ve --model geçmezseniz ilkini kullanır. --model değeri bu modellerden biri olmalıdır; başka herhangi bir sağlayıcı için düz opencode çalıştırın.",
+      "piDesc": "cr pi, Pi'ye Codex ile aynı modellere sahip bir coderouter sağlayıcısı ekler ve --model geçmezseniz ilk modeli kullanır. Sağlayıcı sabittir, bu nedenle --provider reddedilir. Pi desteği deneyseldir.",
+      "claudeTitle": "Claude Code ve diğer API istemcileri",
+      "claudeDesc": "cr'ın Claude Code başlatıcısı yoktur. Mac'inizdeki Claude Code'u veya Anthropic Messages API ya da OpenAI Responses API konuşan herhangi bir aracı yönlendirmek için bir CodeRouter API anahtarı oluşturun ve aracı coderouter.dev'e yönlendirin.",
+      "apiKeyCreate": "CodeRouter panelinin API anahtarları bölümünde bir anahtar oluşturun. Anahtar crk_ ile başlar ve yalnızca bir kez gösterilir. Anahtar oluşturmak veya iptal etmek için o ekipte API anahtarlarını yönetme izni gerekir; bu izin kişisel ekibinizde her zaman vardır:",
+      "apiKeyScope": "Bir kuruluşun API anahtarı yalnızca ekibin paylaşılan hesaplarını kullanır. Kişisel ekibinizdeki bir anahtar özel hesaplarınızı da kullanabilir. CodeRouter, Chat Completions'a değil OpenAI Responses API'ye hizmet verir.",
+      "apiKeyLogin": "Tarayıcı açamayan bir makinede cr login --api-key, cr'da bir anahtarla oturum açar; CODEROUTER_API_KEY ise tek bir komut için anahtar sağlar. Bir anahtarı panelden iptal edin veya onu kullanan makinede cr logout çalıştırın.",
+      "cloudTitle": "cmux Cloud makinelerinde",
+      "cloudDesc": "Cloud makineleri kurulum gerektirmez. Makinenin ortamı OPENAI_BASE_URL ve ANTHROPIC_BASE_URL değerlerini özel bir CodeRouter adresine yönlendirir ve cmux, bir kabuk veya aracı ilk kez başladığında her aracının yapılandırmasını yazar:",
+      "cloudClaude": "Claude Code, ANTHROPIC_BASE_URL'i ve yer tutucu bir ANTHROPIC_API_KEY'i ortamdan okur. İlk çalıştırma istemleri zaten yanıtlanmıştır.",
+      "cloudCodex": "Codex, ~/.codex/config.toml içinde bir cmux model sağlayıcısı alır.",
+      "cloudPi": "Pi, ~/.pi/agent/models.json içinde bir sağlayıcı geçersiz kılması alır.",
+      "cloudOpencode": "OpenCode ilk başladığında sağlayıcı listesini CodeRouter'dan indirir ve ~/.config/opencode/opencode.json dosyasına kaydeder.",
+      "cloudYours": "cmux her dosyayı yalnızca eksik olduğunda yazar, bu nedenle düzenlemeleriniz korunur. Zaten başka bir model sağlayıcısını belirten bir Codex yapılandırmasına dokunulmaz.",
+      "cloudRun": "Aracıları her zamanki gibi çalıştırın. cmux coderouter agent, yalın bir istemi aracının tek seferlik biçimine dönüştürür; makinenin içinde geçerli terminalde çalışır, Mac'inizde ise cmux vm agent gibi aracıyı belirttiğiniz makinede başlatır.",
+      "cloudAccounts": "Cloud makineleri, sahibi olan ekibin hesaplarını kullanır. Bir aracı kullanılabilir hesap olmadığını bildirirse bir hesap ekleyin veya mevcut bir hesabı o ekiple paylaşın.",
+      "modelsTitle": "Modeller",
+      "modelsCodex": "Codex ve Pi, CodeRouter'ın seçtiği hesabın /v1/models adresinde sunulan model kataloğunu kullanır, bu nedenle Codex'in model seçicisi hesaplarınızın kullanabildiklerini gösterir. Codex'in -m bayrağıyla veya /model komutuyla bir model seçin. Bir OpenRouter anahtarı için CodeRouter, yalın bir OpenAI model kimliğini openai/'<model>' olarak gönderir.",
+      "modelsOpencode": "OpenCode, ekibin OpenCode Go hesaplarının modellerini listeler.",
+      "modelsClaude": "Claude Code, --model veya /model ile seçtiğiniz modeli gönderir ve CodeRouter bunu seçilen hesaba iletir. Abonelik ve API anahtarı hesapları, Anthropic'in o hesap için izin verdiği modellere hizmet verir.",
+      "modelsBedrock": "Bedrock hesapları, yerleşik bir tabloyla Claude model kimliklerini Bedrock model kimliklerine çevirir; Bedrock kimlikleri değiştirilmeden geçer. Eşlemesi olmayan bir model not_found_error döndürür. Başka bir modeli eşlemek için hesabı --model ile ekleyin:",
+      "modelsList": "Bir Cloud makinesinin içinde cmux coderouter models, Codex model kataloğunu JSON olarak yazdırır."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI ve Sorun Giderme",
+      "metaTitle": "CodeRouter CLI ve Sorun Giderme",
+      "metaDescription": "cr CLI ve cmux coderouter komutları, bir cmux Cloud makinesinin içinde neyin çalıştığı ve yaygın CodeRouter hatalarının çözümleri.",
+      "intro": "CodeRouter'ın iki komut kümesi vardır. coderouter olarak da kurulan cr, oturumunuzu açar, abonelikleri yönetir ve aracıları başlatır. cmux coderouter, oturum açılmış cmux uygulaması üzerinden ekibin Claude hesaplarını ve Cloud makinesi kullanımını yönetir ve diğer tüm fiilleri cr'a iletir.",
+      "installTitle": "Kurulum ve oturum açma",
+      "installDesc": "Yükleyici, sağlama toplamı doğrulanmış bir ikili dosyayı ~/.coderouter/bin dizinine indirir, cr'ı ona bağlar ve bu dizini kabuğunuzun PATH'ine ekler. Güncellemek için yeniden çalıştırın. arm64 ve x64 üzerinde macOS ve Linux'u destekler. Aynı CLI npm ve PyPI'da yayımlanır.",
+      "loginDesc": "cr login tarayıcınızı açar ve bir yedek bağlantı yazdırır. Yerel tarayıcı yoksa --device-auth kullanıp bağlantıyı başka bir cihazda açın veya bir kod ya da sihirli bağlantı yapıştırmak için cr login --code kullanın.",
+      "crTitle": "cr",
+      "crDesc": "Komut verilmezse cr hesaplarınızı ve kullanımlarını gösterir. Aracı yönlendirmesi her zaman açıktır: düz codex, opencode ve pi, CodeRouter olmadan çalışmaya devam eder.",
+      "crAddCodex": "Kişisel ve ekip ChatGPT çalışma alanları aynı e-postayı paylaşabilir. Her çalışma alanı için cr add codex komutunu bir kez çalıştırın ve çalışma alanını tarayıcıda seçin; CodeRouter bunları ayrı hesaplar olarak tutar.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Bu fiiller, çalışır durumda ve oturum açılmış olması gereken cmux uygulaması üzerinden çalışır (cmux auth login). Makinece okunabilir çıktı için --json, seçili ekip dışında bir ekibi hedeflemek için --team '<id>' ekleyin.",
+      "claudeAddDesc": "claude add oauth-token, CLAUDE_CODE_OAUTH_TOKEN veya --stdin okur. İkisi de yoksa terminalde claude setup-token çalıştırır ve o komutun yazdırdığı token'ı okur. claude add api-key, ANTHROPIC_API_KEY, --stdin veya gizli bir istem okur. claude add bedrock, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY ve isteğe bağlı AWS_SESSION_TOKEN değerlerini okur ve bölgeyi --region, AWS_REGION veya AWS_DEFAULT_REGION'dan alır.",
+      "accountSelector": "Bir '<account>', hesabın kimliği, etiketi veya maskelenmiş tanımlayıcısı olabilir. disable, siz yeniden etkinleştirene kadar bir hesabı rotasyondan çıkarır.",
+      "passthroughDesc": "Diğer tüm cmux coderouter fiilleri ve her cmux cr komutu cr'ı değiştirmeden çalıştırır. cr eksik olduğunda cmux yükleyiciyi çalıştırmayı önerir. cmux kendi ortam değişkenlerini veya oturumunu cr'a iletmez.",
+      "guestTitle": "Bir Cloud makinesinin içinde",
+      "guestDesc": "Her Cloud makinesinin, oturum açma gerektirmeyen CodeRouter fiillerine sahip kendi cmux'u vardır. Hesap yönetimi Mac'inizde kalır, bu nedenle claude, login ve logout bir makinenin içinde reddedilir.",
+      "troubleTitle": "Sorun Giderme",
+      "troubleDesc": "İlk sütundaki mesajlar aracının, cr'ın veya cmux'un yazdırdıklarıdır.",
+      "symptomColumn": "Mesaj veya sorun",
+      "fixColumn": "Çözüm",
+      "errSignIn": "Sign in with `cr login` and retry. (Ayrıca: Missing coderouter route token.)",
+      "fixSignIn": "cr login çalıştırın. Bir API istemcisi için anahtarın ayarlı olduğunu ve crk_ ile başladığını kontrol edin.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "cr login komutunu yeniden çalıştırın. İptal edilen bir API anahtarı hemen çalışmayı durdurur; yeni bir tane oluşturun.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Her hesabın durumunu görmek için cr çalıştırın. cr add ile bir hesap ekleyin veya bekleme süresinin bitmesini bekleyin. Bir kuruluşun Cloud makineleri için hesabı ekiple paylaşın.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "cr add claude veya cmux coderouter claude add ile bir hesap ekleyin. Bir kuruluşun Cloud makineleri için hesabı ekiple paylaşın.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Bekleme süresinden sonra yeniden deneyin, devre dışı bir hesabı cmux coderouter claude enable ile etkinleştirin veya başka bir hesap ekleyin.",
+      "errBedrockModel": "Bir Bedrock hesabından not_found_error",
+      "fixBedrockModel": "Modelin Bedrock eşlemesi yok. Hesabı kaldırın ve --model '<claude-id>=<bedrock-id>' ile yeniden ekleyin.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Hesabı kaldırın ve --region ile veya AWS_REGION ayarlıyken yeniden ekleyin.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Yükleyiciyi çalıştırın veya cmux cr kurmayı önerdiğinde y yanıtını verin.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (veya OpenCode, veya Pi).",
+      "fixAgentMissing": "Aracıyı kurun. cr, PATH'inizde bulduğu kopyayı başlatır.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "codex komutunuz cr'ı gösteriyor. Gerçek Codex yürütülebilir dosyasını PATH'inizde en başa koyun.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "OpenCode Go hesaplarınızdan bir model seçin veya başka bir sağlayıcı için düz opencode çalıştırın.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "Makine OpenCode sağlayıcı listesini indiremedi. Bir dakika bekleyin ve OpenCode'u yeniden başlatın.",
+      "errEdge": "CodeRouter: TLS edge unreachable, veya route rejected, bir makinenin içinde cmux auth status çıktısında.",
+      "fixEdge": "Makine CodeRouter'a ulaşamıyor veya CodeRouter makinenin kimlik bilgisini reddetti. Biraz sonra yeniden deneyin. Sorun sürerse makine adı ve cmux auth status --json çıktısıyla destek ekibine başvurun.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter veya hesap deposu kısa süreliğine kullanılamıyor. Yeniden deneyin; hata sürerse istek kimliğiyle bildirin.",
+      "diagnoseTitle": "Tanılama",
+      "diagnoseDesc": "cr doctor, cr'da oturum açılıp açılmadığını ve hangi CodeRouter uç noktalarını kullandığını yazdırır. cmux coderouter status, cmux oturumunu, seçili ekibi ve o ekibin Claude hesaplarını gösterir.",
+      "supportTitle": "Yardım alın",
+      "supportDesc": "Başarısız bir isteği bildirirken x-coderouter-request-id yanıt başlığının değerini ekleyin. Bu değer, o isteği CodeRouter kayıtlarında tanımlar."
     }
   },
   "legal": {
@@ -4320,7 +4505,7 @@
         "description": "Hataları bildirin, özellik isteklerinizi herkese açık şekilde iletin."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "E-postayı mı tercih ediyorsunuz? Doğrudan bize yazın."
       }
     },
@@ -4342,8 +4527,8 @@
       "privacy": "E-posta adresinizi yalnızca destek talebinize yanıt vermek için kullanırız. İletişim bilgilerini satmayız.",
       "submit": "Mesaj gönder",
       "submitting": "Gönderiliyor…",
-      "success": "Teşekkürler. Mesajınızı aldık; founders@manaflow.com adresinden e-postanıza yanıt vereceğiz.",
-      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@manaflow.com adresine e-posta gönderin."
+      "success": "Teşekkürler. Mesajınızı aldık; founders@cmux.com adresinden e-postanıza yanıt vereceğiz.",
+      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@cmux.com adresine e-posta gönderin."
     }
   },
   "emails": {
@@ -4382,7 +4567,10 @@
     "emailUnavailable": "e-posta kullanılamıyor",
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
-    "switchAccountButton": "Farklı bir hesap kullan"
+    "switchAccountButton": "Farklı bir hesap kullan",
+    "signedOutTitle": "coderouter'ı yetkilendirmek için giriş yapın",
+    "signedOutBody": "Bir komut satırı uygulaması giriş yapmanızı bekliyor. Bu terminalin bağlantısını tamamlamak için cmux hesabınızla giriş yapın. Bu isteği siz başlatmadıysanız bu sayfayı kapatın.",
+    "signInButton": "Giriş yap"
   },
   "MobileRelease106": {
     "title": "1.0.6 sürümündeki yenilikler",

@@ -312,7 +312,7 @@ struct SurfaceCatalogTests {
             SurfaceResourceGroup(title: "remote", placements: placements, remoteWorkspaceID: workspace.id),
             title: "remote", focus: false,
             host: .init(
-                create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
+                create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
                 optimistic: .init(
                     reserve: { _, _, _ in Issue.record("Device terminals cannot use Cloud VM reservations"); return nil },
                     attach: { _, _, _ in Issue.record("Device terminals must attach through their own provider") }
@@ -1184,7 +1184,7 @@ struct SurfaceCatalogTests {
         var closedStarters: [(UUID, UUID)] = []
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title in created.append(title); return (newWorkspace, starter) },
+            create: { title, _ in created.append(title); return (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { panel, workspace in closedStarters.append((panel, workspace)) }
         )
@@ -1214,7 +1214,7 @@ struct SurfaceCatalogTests {
         let starter = UUID(), newWorkspace = live.id()
         var closedStarters = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in closedStarters += 1 }
         )
@@ -1246,7 +1246,7 @@ struct SurfaceCatalogTests {
         )
         let workspace = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (workspace, nil) },
+            create: { _, _ in (workspace, nil) },
             paneLookup: { _, panel in panel.uuidString },
             closeStarter: { _, _ in }
         )
@@ -1438,7 +1438,7 @@ extension SurfaceCatalogTests {
         var attachedBeforeAllReserved = false
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { _, _ in closedStarters += 1 },
             optimistic: SurfaceCatalog.OptimisticPaneHost(
@@ -1498,7 +1498,7 @@ extension SurfaceCatalogTests {
         let newWorkspace = live.id()
         var reservations = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, nil) },
+            create: { _, _ in (newWorkspace, nil) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in },
             optimistic: SurfaceCatalog.OptimisticPaneHost(

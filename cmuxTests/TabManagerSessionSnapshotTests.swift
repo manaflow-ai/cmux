@@ -2834,6 +2834,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             startupCommand.contains("CMUX_SSH_ATTEMPT_ID"),
             startupCommand
         )
+        XCTAssertTrue(
+            startupCommand.contains(
+                "cmux_restore_begin_attempt\ncmux_restore_launch_status=$?"
+            ),
+            "Restore must invoke lifecycle registration before checking its status: \(startupCommand)"
+        )
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ordinary-restore-\(UUID().uuidString)", isDirectory: true)

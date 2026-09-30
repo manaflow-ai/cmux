@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { runAgentProbes } from "./dogfood-probes.mjs";
 import {
   loadTargetEnv,
   optionValue,
@@ -98,6 +99,34 @@ function expectStatus(response, statuses, what) {
     throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 400)}`);
   }
   return response.json;
+}
+
+function providerStatusFromVm(response) {
+  const json = response.json;
+  if (!json || typeof json !== "object") return undefined;
+  for (const key of ["providerStatus", "provider_status", "providerObservedStatus", "provider_observed_status"]) {
+    if (Object.hasOwn(json, key)) return json[key];
+  }
+  return undefined;
+}
+
+async function pauseStatusSeries(vmId, pauseReturnedAt) {
+  const series = [];
+  for (const targetMs of [1_000, 5_000, 15_000]) {
+    const waitMs = targetMs - (performance.now() - pauseReturnedAt);
+    if (waitMs > 0) await sleep(waitMs);
+    const observedAt = Math.round(performance.now() - pauseReturnedAt);
+    const response = await api("GET", `/api/vm/${encodeURIComponent(vmId)}`)
+      .catch((error) => ({ status: 0, json: null, text: error.message }));
+    const sample = {
+      atMs: observedAt,
+      status: response.json?.status ?? `http ${response.status}`,
+    };
+    const providerStatus = providerStatusFromVm(response);
+    if (providerStatus !== undefined) sample.providerStatus = providerStatus;
+    series.push(sample);
+  }
+  return series;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -266,7 +295,7 @@ async function saveScreen(localSocket, terminal, name) {
 async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   const result = await runTui(
     ["--socket", localSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
-    timeoutMs + 10_000,
+    timeoutMs,
   );
   if (result.code !== 0) throw new Error(`screen wait for /${pattern}/ failed (${result.code}): ${result.stderr.slice(-400)}`);
   // A timeout is a normal result with matched false and exit status 0.
@@ -511,8 +540,8 @@ try {
 
   // The shell computes the suffix, so the echoed command line never matches.
   const marker = `dogfood-${randomBytes(4).toString("hex")}`;
-  const typeLine = async (terminal, line) => {
-    const write = await runTui(["--socket", localSocket, "terminal", terminal, "write", "--text", `${line}\n`]);
+  const typeLine = async (terminal, line, timeoutMs = 30_000) => {
+    const write = await runTui(["--socket", localSocket, "terminal", terminal, "write", "--text", `${line}\n`], timeoutMs);
     if (write.code !== 0) throw new Error(`terminal write failed (${write.code}): ${write.stderr.slice(-400)}`);
   };
   const terminal = await timed("firstPrompt", async () => {
@@ -538,11 +567,27 @@ try {
     if (value === "missing") note(`${name} is not on PATH in the VM`);
   }
 
+  Object.assign(result, await runAgentProbes({
+    localSocket, terminal, marker, runTui, typeLine, waitForScreen, timed, note,
+  }));
+
   if (!skipSleep) {
     const beforePause = link.mark();
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
     });
+    // Read the control plane before any terminal traffic can wake the machine.
+    result.statusAfterPauseSeries = await pauseStatusSeries(vmId, performance.now());
+    result.statusAfterPause = result.statusAfterPauseSeries.at(-1)?.status ?? "unknown";
+    // Is the machine asleep? Whether the terminal still runs commands within
+    // 5 s of pause returning.
+    const liveDeadline = Date.now() + 5_000;
+    await typeLine(terminal, `echo ${marker}-$((2+2))`).catch((error) => note(`terminal write while paused failed: ${error.message.slice(0, 120)}`));
+    const liveWindowMs = liveDeadline - Date.now();
+    if (liveWindowMs <= 0) note("terminal write while paused took over 5 s");
+    result.terminalLiveWhilePaused = liveWindowMs > 0
+      && await waitForScreen(localSocket, terminal, `${marker}-4`, liveWindowMs).then(() => true, () => false);
+    if (result.terminalLiveWhilePaused) note("the terminal still ran a command after pause returned");
     // How the headless client reports a sleeping machine.
     const lostAfter = await link.waitFor((event) => event.event === "connection-snapshot" && event.connection?.state !== "connected", 60_000, "non-connected snapshot after pause", beforePause)
       .then((event) => event.connection.state)
@@ -562,6 +607,11 @@ try {
       await typeLine(terminal, `echo ${marker}-$((1+2))`);
       await waitForScreen(localSocket, terminal, `${marker}-3`, 30_000);
     });
+    // Was the line typed while paused kept and run after waking, or lost?
+    if (!result.terminalLiveWhilePaused) {
+      result.pausedKeystrokesRanAfterResume = await waitForScreen(localSocket, terminal, `${marker}-4`, 1_000)
+        .then(() => true, () => false);
+    }
     await saveScreen(localSocket, terminal, "02-after-resume");
   }
 
@@ -590,7 +640,14 @@ try {
     if (still) note(`deleted VM still listed with status ${still.status}`);
   });
 
-  const output = summary({ ok: true, ...result });
+  const failedProbes = ["agentHooks", "agentStatusWorking", "agentStatusIdle", "notifyReachesHost"]
+    .filter((name) => !result[name].ok);
+  const output = summary({
+    ok: failedProbes.length === 0,
+    ...(failedProbes.length > 0 ? { stage: failedProbes[0], error: `failed probes: ${failedProbes.join(", ")}` } : {}),
+    ...result,
+  });
+  if (failedProbes.length > 0) process.exitCode = 1;
   console.log(JSON.stringify(output, null, 2));
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
 } catch (error) {
