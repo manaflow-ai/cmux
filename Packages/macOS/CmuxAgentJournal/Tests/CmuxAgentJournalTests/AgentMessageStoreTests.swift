@@ -159,14 +159,17 @@ struct AgentMessageStoreTests {
         let url = temporaryFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = AgentMessageStore(fileURL: url)
-        var last: AgentMessage?
         for index in 0...AgentMessageStore.compactionThreshold {
-            last = try store.append(draft(body: "message \(index)"))
+            _ = try store.append(draft(body: "message \(index)"))
         }
+        let oldest = store.messages(limit: .max).suffix(502).map(\.id)
+        _ = store.markRead(ids: Array(oldest))
+        let last = try store.append(draft(body: "last"))
         let reopened = AgentMessageStore(fileURL: url)
         let all = reopened.messages(limit: .max)
         #expect(all.count == AgentMessageStore.retainedMessageCount)
-        #expect(all.first?.id == last?.id)
+        #expect(all.first?.id == last.id)
+        #expect(all.last?.body == "message 502")
         let again = AgentMessageStore(fileURL: url)
         #expect(again.messages(limit: .max).count == AgentMessageStore.retainedMessageCount)
     }

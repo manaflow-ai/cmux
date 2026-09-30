@@ -41,7 +41,7 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
         current = { id: `turn-${groups.length}-message-${block.id}`, activity: [], done: false };
         pendingAssistantIndex = null;
       }
-      current.messages = [...(current.messages ?? []), block];
+      (current.messages ??= []).push(block);
       continue;
     }
     if (!current) {

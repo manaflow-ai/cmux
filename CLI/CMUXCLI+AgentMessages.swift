@@ -184,14 +184,20 @@ extension CMUXCLI {
         if let state { params["state"] = state }
         if let limit {
             guard let value = Int(limit) else {
-                throw CLIError(message: "Invalid --limit value: \(limit)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.agentMessage.invalidLimit", defaultValue: "Invalid --limit value: %@"),
+                    limit
+                ))
             }
             params["limit"] = value
         }
         let payload = try client.sendV2(method: "agent.message.list", params: params)
         let messages = payload["messages"] as? [[String: Any]] ?? []
         if markRead {
-            let ids = messages.compactMap { $0["id"] as? String }
+            let ids = messages.compactMap { message -> String? in
+                guard message["state"] as? String == "delivered" else { return nil }
+                return message["id"] as? String
+            }
             if !ids.isEmpty {
                 _ = try client.sendV2(method: "agent.message.mark_read", params: ["ids": ids])
             }
@@ -274,8 +280,9 @@ extension CMUXCLI {
 
     /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
     /// this surface every ``agentInboxPollInterval``; when one is waiting it
-    /// claims it, writes it to stderr and exits 2, which wakes Claude with the
-    /// text as a system reminder. The prompt box, and any draft in it, is
+    /// renders the queued messages to stderr and exits 2, which wakes Claude
+    /// with the text as a system reminder. The messages stay queued until the
+    /// prompt hook acknowledges them. The prompt box, and any draft in it, is
     /// never touched.
     ///
     /// Each check uses a new connection that is closed right after, so an
@@ -319,6 +326,7 @@ extension CMUXCLI {
                         surfaceId: surfaceId,
                         via: "claude.wake",
                         markDeliveredRead: false,
+                        deferDelivery: true,
                         client: client
                     )
                     if !text.isEmpty {
@@ -344,6 +352,7 @@ extension CMUXCLI {
         surfaceId: String,
         via: String,
         markDeliveredRead: Bool,
+        deferDelivery: Bool = false,
         client: SocketClient
     ) -> String {
         guard let payload = try? client.sendV2(
@@ -352,6 +361,7 @@ extension CMUXCLI {
                 "surface_id": surfaceId,
                 "via": via,
                 "mark_delivered_read": markDeliveredRead,
+                "defer_delivery": deferDelivery,
             ],
             responseTimeout: 3
         ) else { return "" }

@@ -578916,6 +578916,20 @@
         }
       }
     },
+    "cli.agentMessage.invalidLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Invalid --limit value: %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قيمة --limit غير صالحة: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ungültiger Wert für --limit: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Valor no válido para --limit: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Valeur --limit invalide : %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "--limit の値が無効です: %@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "--limit 값이 잘못되었습니다: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "--limit 值无效：%@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "--limit 值無效：%@"}}
+      }
+    },
     "cli.agentMessage.queued": {
       "extractionState": "manual",
       "localizations": {
@@ -588518,6 +588532,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "필터 지우기"
+          }
+        }
+      }
+    },
+    "cli.help.agents.inbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <target>] [--state <state>] [--mark-read]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <Ziel>] [--state <Status>] [--mark-read]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <cible>] [--state <état>] [--mark-read]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <الهدف>] [--state <الحالة>] [--mark-read]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <objetivo>] [--state <estado>] [--mark-read]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <目標>] [--state <狀態>] [--mark-read]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <目标>] [--state <状态>] [--mark-read]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <대상>] [--state <상태>] [--mark-read]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent inbox [--surface <対象>] [--state <状態>] [--mark-read]"
+          }
+        }
+      }
+    },
+    "cli.help.agents.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <target> [--from <name>] <text|->"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <Ziel> [--from <Name>] <Text|->"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <cible> [--from <nom>] <texte|->"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <الهدف> [--from <الاسم>] <النص|->"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <objetivo> [--from <nombre>] <texto|->"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <目標> [--from <名稱>] <文字|->"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <目标> [--from <名称>] <文本|->"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <대상> [--from <이름>] <텍스트|->"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message <対象> [--from <名前>] <テキスト|->"
+          }
+        }
+      }
+    },
+    "cli.help.agents.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <id> [--from <name>] <text|->"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <ID> [--from <Name>] <Text|->"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <ID> [--from <nom>] <texte|->"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <المعرّف> [--from <الاسم>] <النص|->"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <id> [--from <nombre>] <texto|->"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <識別碼> [--from <名稱>] <文字|->"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <标识> [--from <名称>] <文本|->"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <ID> [--from <이름>] <텍스트|->"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent message --reply-to <ID> [--from <名前>] <テキスト|->"
           }
         }
       }

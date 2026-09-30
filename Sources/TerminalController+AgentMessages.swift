@@ -259,7 +259,7 @@ extension TerminalController {
             }
             states = Set(parsed)
         }
-        let limit = min(max((params["limit"] as? Int) ?? 50, 1), 1_000)
+        let limit = min(max((params["limit"] as? Int) ?? 50, 1), AgentMessageStore.retainedMessageCount)
         let messages = AgentMessageCenter.store.messages(surfaceId: surfaceId, states: states, limit: limit)
         return .ok(["messages": messages.map(AgentMessageCenter.payload)])
     }
@@ -272,10 +272,19 @@ extension TerminalController {
         }
         let store = AgentMessageCenter.store
         if params["mark_delivered_read"] as? Bool == true {
-            store.markDeliveredRead(recipientSurfaceId: surfaceId)
+            store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
         }
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
-        let messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
+        let messages: [AgentMessage]
+        if params["defer_delivery"] as? Bool == true {
+            messages = Array(store.messages(
+                surfaceId: surfaceId,
+                states: [.queued],
+                limit: .max
+            ).reversed())
+        } else {
+            messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
+        }
         return .ok([
             "messages": messages.map(AgentMessageCenter.payload),
             "text": messages.agentPromptText,
@@ -288,12 +297,13 @@ extension TerminalController {
         if let id = Self.agentMessageTrimmed(params["id"]) {
             ids.append(id)
         }
+        let surfaceRead: [AgentMessage]
         if let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) {
-            ids += store.messages(surfaceId: surfaceId, states: [.queued, .delivered], limit: 1_000)
-                .filter { $0.recipientSurfaceId == surfaceId }
-                .map(\.id)
+            surfaceRead = store.markDeliveredRead(recipientSurfaceId: surfaceId)
+        } else {
+            surfaceRead = []
         }
-        let read = store.markRead(ids: ids)
+        let read = store.markRead(ids: ids) + surfaceRead
         return .ok(["read": read.map(\.id)])
     }
 
@@ -319,7 +329,7 @@ extension TerminalController {
             return .ok(["status": "superseded"])
         case .current(let queued):
             if register, params["mark_delivered_read"] as? Bool == true {
-                store.markDeliveredRead(recipientSurfaceId: surfaceId)
+                store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
             }
             let held: Bool
             if queued > 0 {

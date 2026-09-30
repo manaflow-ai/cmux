@@ -44,7 +44,7 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 
 - Bodies are text only: control characters other than newline and tab are rejected, so no escape sequence can ride along. The limit is 32 KiB.
 - Sender names are one line of at most 64 characters. The name is chosen by the sender. The sender surface is recorded separately from the sending CLI's environment.
-- Messages are kept per cmux install, the newest 2,000.
+- Messages are kept per cmux install, retaining all queued and delivered messages plus the newest 2,000 read messages.
 - Remote workspaces (`cmux ssh`) and Cloud VMs can't send or receive yet.
 
 ## Socket API
@@ -53,7 +53,7 @@ The terminal's chat view (Open terminal as chat) shows each delivered message as
 | --- | --- | --- |
 | `agent.message.send` | `target` or `reply_to`, `body`, optional `from`, `thread_id`, `sender_surface_id`, `sender_workspace_id` | The stored message, plus `recipient_surface_ref`, `recipient_workspace_ref`, `recipient_workspace_title`, `recipient_has_agent` |
 | `agent.message.list` | optional `surface` (target), `state` (string or array), `limit` | `messages`, newest first |
-| `agent.message.claim` | `surface_id`, `via`, optional `mark_delivered_read` | `messages` handed over and marked delivered, and the rendered `text` |
+| `agent.message.claim` | `surface_id`, `via`, optional `mark_delivered_read` and `defer_delivery` | `messages` handed over and marked delivered, and the rendered `text`; deferred wakes leave messages queued until a prompt hook claims them |
 | `agent.message.mark_read` | `ids`, `id` or `surface_id` | `read`: the ids marked read |
 | `agent.message.poll` | `surface_id`, `poller_key`, optional `register` and `mark_delivered_read` | `status`: `current` (with `queued` and `held`) or `superseded`. Claims nothing. |
 

@@ -1773,13 +1773,23 @@ export CMUX_CLAUDE_PID=$$
 # Headless (`-p`/`--print`) runs share the pane's surface with any interactive
 # session there, so the agent message hooks skip them.
 export CMUX_CLAUDE_HEADLESS=0
+cmux_claude_skip_next=false
 for cmux_claude_arg in "$@"; do
+    if [[ "$cmux_claude_skip_next" == true ]]; then
+        cmux_claude_skip_next=false
+        continue
+    fi
     case "$cmux_claude_arg" in
         --) break ;;
         -p|--print|--print=*) export CMUX_CLAUDE_HEADLESS=1; break ;;
+        -*)
+            if [[ "$cmux_claude_arg" != *=* ]] && claude_option_consumes_value "$cmux_claude_arg"; then
+                cmux_claude_skip_next=true
+            fi
+            ;;
     esac
 done
-unset cmux_claude_arg
+unset cmux_claude_arg cmux_claude_skip_next
 # A parent session's hook spool belongs to that session; this launch starts its own below.
 unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then

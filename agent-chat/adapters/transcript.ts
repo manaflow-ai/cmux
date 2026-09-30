@@ -7,6 +7,7 @@ import { open, stat } from "node:fs/promises";
 import type { Adapter, AgentEvent, OptionValue, SessionCtx } from "../types";
 import { cmuxRpc, type CmuxRpcResult } from "../cmux-rpc";
 import { tryParse, truncate } from "./lines";
+import type { QueuedAgentMessage } from "../agent-messages";
 
 export type TranscriptAgent = "claude" | "codex";
 
@@ -43,23 +44,15 @@ export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpc
   }
 }
 
-/** A cmux agent message waiting for this terminal's agent to take it. */
-export interface QueuedAgentMessage {
-  id: string;
-  from: string;
-  body: string;
-}
-
-/**
- * The terminal's queued agent messages, oldest first. Undefined when the app
+/** The terminal's queued agent messages, oldest first. Undefined when the app
  * could not be read, so the view keeps what it last showed.
  */
 export async function queuedTranscriptMessages(sess: SessionCtx): Promise<QueuedAgentMessage[] | undefined> {
   const surfaceId = transcriptTarget(sess)?.surfaceId;
   if (!surfaceId) return [];
-  // The list is newest first; the limit is high enough that the oldest (the
-  // next to be delivered) are not cut off.
-  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 200 });
+  // The journal retains at most 2,000 messages. Request the whole retained
+  // window so the oldest queued message is not cut off by the newest-first list.
+  const res = await rpc("agent.message.list", { surface: surfaceId, state: "queued", limit: 2_000 });
   const messages = res.ok ? (res.result as { messages?: unknown })?.messages : undefined;
   if (!Array.isArray(messages)) return undefined;
   return messages

@@ -18,7 +18,7 @@ extension Array where Element == AgentMessage {
         for (index, message) in enumerated() {
             var lines: [String] = []
             let position = total > 1 ? " (\(index + 1) of \(total))" : ""
-            lines.append("[cmux agent message\(position)] from \(message.senderName)")
+            lines.append("[cmux agent message\(position)] from sender name: <sender>\(message.senderName)</sender>")
             lines.append("Message id: \(message.id)")
             if let inReplyTo = message.inReplyTo {
                 lines.append("In reply to: \(inReplyTo)")

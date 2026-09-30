@@ -31,8 +31,9 @@ public enum AgentMessagePollOutcome: Sendable, Equatable {
 ///
 /// Storage is an append-only JSON Lines file: one record per new message and
 /// one per state change. The file is replayed on open and rewritten with only
-/// the newest ``retainedMessageCount`` messages when it grows past
-/// ``compactionThreshold``. Records that fail to decode are skipped, so a torn
+/// the newest ``retainedMessageCount`` read messages and all undelivered
+/// messages when it grows past ``compactionThreshold``. Records that fail to
+/// decode are skipped, so a torn
 /// final line after a crash loses at most that record.
 ///
 /// Concurrency: callers are socket handlers on arbitrary threads, so every
@@ -75,6 +76,7 @@ public final class AgentMessageStore: @unchecked Sendable {
     private let lock = NSLock()
     private var messagesById: [String: AgentMessage] = [:]
     private var order: [String] = []
+    private var recordsSinceCompaction = 0
     /// The poller that owns each recipient surface's inbox. In memory only:
     /// after a restart the first poller to check in adopts the surface.
     private var pollerBySurface: [String: String] = [:]
@@ -128,7 +130,10 @@ public final class AgentMessageStore: @unchecked Sendable {
             }
             messagesById[id] = message
             order.append(id)
-            if let fileURL, order.count > Self.compactionThreshold {
+            recordsSinceCompaction += 1
+            if let fileURL,
+               order.count > Self.compactionThreshold,
+               recordsSinceCompaction >= Self.compactionThreshold {
                 compact(to: fileURL)
             }
             return message
@@ -157,10 +162,24 @@ public final class AgentMessageStore: @unchecked Sendable {
         return advance(where: { wanted.contains($0.id) }, to: .read, via: nil)
     }
 
-    /// Marks the recipient's delivered messages read. Called when the
-    /// recipient finishes a turn after delivery.
+    /// Marks the recipient's queued and delivered messages read. Called when
+    /// the recipient or a human confirms the inbox contents.
     @discardableResult
     public func markDeliveredRead(recipientSurfaceId: String) -> [AgentMessage] {
+        advance(
+            where: {
+                $0.recipientSurfaceId == recipientSurfaceId
+                    && ($0.state == .queued || $0.state == .delivered)
+            },
+            to: .read,
+            via: nil
+        )
+    }
+
+    /// Marks only messages that were already delivered read. Hook delivery
+    /// uses this before claiming newly queued messages.
+    @discardableResult
+    public func markPreviouslyDeliveredRead(recipientSurfaceId: String) -> [AgentMessage] {
         advance(
             where: { $0.recipientSurfaceId == recipientSurfaceId && $0.state == .delivered },
             to: .read,
@@ -250,8 +269,15 @@ public final class AgentMessageStore: @unchecked Sendable {
             // State records are best effort: if one is lost, a restart
             // replays the message in its earlier state, so a delivered
             // message can be delivered again but none is dropped.
-            try? appendRecord(Record(kind: .state, id: id, state: state, at: at, via: via))
+            if (try? appendRecord(Record(kind: .state, id: id, state: state, at: at, via: via))) != nil {
+                recordsSinceCompaction += 1
+            }
             changed.append(message)
+        }
+        if let fileURL,
+           order.count > Self.compactionThreshold,
+           recordsSinceCompaction >= Self.compactionThreshold {
+            compact(to: fileURL)
         }
         lock.unlock()
         for message in changed {
@@ -346,22 +372,41 @@ public final class AgentMessageStore: @unchecked Sendable {
         }
     }
 
-    /// Rewrites the file with the newest retained messages in their current
-    /// state. Runs during init, before the store is shared.
+    /// Rewrites the file with the newest retained read messages and every
+    /// queued or delivered message in their current state. The in-memory
+    /// state changes only after the atomic file write succeeds.
     private func compact(to fileURL: URL) {
-        let dropped = order.prefix(order.count - Self.retainedMessageCount)
-        for id in dropped {
-            messagesById.removeValue(forKey: id)
+        let excess = max(order.count - Self.retainedMessageCount, 0)
+        guard excess > 0 else {
+            recordsSinceCompaction = 0
+            return
         }
-        order.removeFirst(dropped.count)
-        var data = Data()
+        var remaining = excess
+        var kept: [String] = []
+        kept.reserveCapacity(order.count)
         for id in order {
+            if remaining > 0, let message = messagesById[id], message.state == .read {
+                remaining -= 1
+                continue
+            }
+            kept.append(id)
+        }
+        var data = Data()
+        for id in kept {
             guard let message = messagesById[id],
-                  let line = try? Self.encoder.encode(Record(kind: .message, message: message)) else { continue }
+                  let line = try? Self.encoder.encode(Record(kind: .message, message: message)) else {
+                return
+            }
             data.append(line)
             data.append(0x0A)
         }
-        try? data.write(to: fileURL, options: .atomic)
+        guard (try? data.write(to: fileURL, options: .atomic)) != nil else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        let keptIDs = Set(kept)
+        for id in order where !keptIDs.contains(id) {
+            messagesById.removeValue(forKey: id)
+        }
+        order = kept
+        recordsSinceCompaction = 0
     }
 }
