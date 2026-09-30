@@ -127,6 +127,8 @@ struct CloudMachineSleepGateTests {
             if case .retryLater = error {
                 Issue.record("A non-paused machine was rejected by the paused machine gate")
             }
+        } catch {
+            // The gate did not fire. The fake route/client is intentionally incomplete.
         }
     }
 }
