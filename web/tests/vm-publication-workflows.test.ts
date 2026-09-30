@@ -299,7 +299,7 @@ describe("Cloud VM publication workflows", () => {
       )));
       expect(result._tag).toBe("Left");
       if (result._tag === "Left") {
-        expect(result.left).toMatchObject({ _tag: "PublicationInputError", field: "port" });
+        expect(result.left).toMatchObject({ _tag: "PublicationInputError", reason: "reserved_port", field: "port" });
       }
     }
     expect(repositoryCalled).toBeFalse();
