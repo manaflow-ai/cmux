@@ -16,6 +16,44 @@ import Testing
 /// parsing, chunked base64 framing, and digest verification exactly as an agent
 /// would hit them.
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMRemoveRejectsTrailingArgumentsBeforeDestroying() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-rm-args")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "rm", "brave-otter", "unexpected"],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, "trailing arguments must fail closed")
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains(#""method":"vm.destroy""#) },
+            "a malformed destructive command must not reach the Cloud socket"
+        )
+    }
+
     /// Thread-safe byte accumulator for chunks arriving on mock-server threads.
     final class VMTransferMockState: @unchecked Sendable {
         private let lock = NSLock()
