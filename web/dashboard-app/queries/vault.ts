@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import type { TranscriptMessage } from "@/services/vault/transcript";
 import { isRefusal } from "../lib/refusal";
 import { dashboardClient, rpc } from "../lib/rpc";
@@ -26,6 +26,8 @@ export function vaultSessionsQuery(filter: VaultSessionsFilter) {
     input: (cursor: string | null) => ({ q: filter.q, cursor }),
     initialPageParam: filter.cursor,
     getNextPageParam: (page): string | null => page.nextCursor ?? null,
+    // A new search keeps the current rows on screen until its first page arrives.
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -25,6 +25,11 @@ export function createDashboardRouter(input: {
     // Queries own freshness; the router always asks the cache.
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+    // A load faster than pendingMs keeps the previous page on screen; a
+    // slower one shows the route's skeleton for at least pendingMinMs, so a
+    // skeleton never flashes.
+    defaultPendingMs: 300,
+    defaultPendingMinMs: 400,
     defaultPendingComponent: () => <DashboardSkeleton />,
     defaultErrorComponent: DashboardRouteError,
     defaultNotFoundComponent: DashboardNotFound,

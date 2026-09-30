@@ -1,5 +1,6 @@
 import { createRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
 import { z } from "zod";
+import { DashboardSkeleton } from "../components/dashboard-skeleton";
 import { isRefusal } from "../lib/refusal";
 import type { DashboardSessionResponse } from "../lib/session-types";
 import {
@@ -47,6 +48,7 @@ export const vaultSessionsRoute = createRoute({
   beforeLoad: requireVault,
   // Only the first visit waits on the list: the screen owns later filter
   // changes so typing never suspends the search box.
+  pendingComponent: () => <DashboardSkeleton variant="rows" />,
   loader: ({ context, location }) => {
     const search = sessionsSearch.parse(location.search);
     return context.queryClient

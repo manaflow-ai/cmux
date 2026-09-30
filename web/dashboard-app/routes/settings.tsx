@@ -1,4 +1,5 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import {
   settingsApiKeysQuery,
   settingsNotificationsQuery,
@@ -9,6 +10,9 @@ import {
 import { shellRoute } from "./root";
 
 const pages = () => import("../screens/settings/settings-pages");
+
+/** The settings layout (header and navigation) stays; only the section waits. */
+const sectionPending = () => <DashboardSectionSkeleton variant="rows" />;
 
 /**
  * Wait for a page's reads before it renders. `prefetchQuery` never throws, so
@@ -30,12 +34,14 @@ const settingsRoute = createRoute({
 
 const profileRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/",
   component: lazyRouteComponent(pages, "SettingsProfilePage"),
 });
 
 const authRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/auth",
   loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery), queryClient.prefetchQuery(settingsOAuthProvidersQuery)),
   component: lazyRouteComponent(pages, "SettingsAuthPage"),
@@ -43,6 +49,7 @@ const authRoute = createRoute({
 
 const notificationsRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/notifications",
   loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsNotificationsQuery)),
   component: lazyRouteComponent(pages, "SettingsNotificationsPage"),
@@ -50,6 +57,7 @@ const notificationsRoute = createRoute({
 
 const sessionsRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/sessions",
   loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsSessionsQuery)),
   component: lazyRouteComponent(pages, "SettingsSessionsPage"),
@@ -57,6 +65,7 @@ const sessionsRoute = createRoute({
 
 const apiKeysRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/api-keys",
   loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery), queryClient.prefetchQuery(settingsApiKeysQuery)),
   component: lazyRouteComponent(pages, "SettingsApiKeysPage"),
@@ -64,6 +73,7 @@ const apiKeysRoute = createRoute({
 
 const accountRoute = createRoute({
   getParentRoute: () => settingsRoute,
+  pendingComponent: sectionPending,
   path: "/account",
   loader: ({ context: { queryClient } }) => settled(queryClient.prefetchQuery(settingsOverviewQuery)),
   component: lazyRouteComponent(pages, "SettingsAccountPage"),
