@@ -772,8 +772,29 @@ public final class CloudSystemVPNController {
     }
 
     private func persistPendingBrowserTunnelRevocations() async {
+        var revocationsByScope: [String: Set<CloudSystemVPNPendingRevocation>] = [:]
         for tunnel in pendingBrowserTunnelRevocations {
-            await persistPendingBrowserTunnelRevocation(tunnel)
+            var revocations: Set<CloudSystemVPNPendingRevocation>
+            if let loaded = revocationsByScope[tunnel.scope] {
+                revocations = loaded
+            } else {
+                revocations = await pendingRevocationStore.load(scope: tunnel.scope)
+            }
+            let pending = CloudSystemVPNPendingRevocation(
+                deviceFingerprint: tunnel.deviceFingerprint,
+                teamID: normalizedTeamID(tunnel.teamID ?? tunnel.credentials?.teamID)
+            )
+            if let existing = revocations.first(where: {
+                $0.deviceFingerprint == pending.deviceFingerprint
+                    && normalizedTeamID($0.teamID) == pending.teamID
+            }) {
+                revocations.remove(existing)
+            }
+            revocations.insert(pending)
+            revocationsByScope[tunnel.scope] = revocations
+        }
+        for (scope, revocations) in revocationsByScope {
+            await pendingRevocationStore.save(revocations, scope: scope)
         }
     }
 
