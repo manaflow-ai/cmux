@@ -304,7 +304,7 @@ async function startServer(): Promise<AppServer> {
   let initTimedOut = false;
   const initTimer = setTimeout(() => {
     initTimedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, 30_000);
   try {
     await request("initialize", {
@@ -312,6 +312,11 @@ async function startServer(): Promise<AppServer> {
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
   } catch (err) {
+    // This server has not been published to shared. Reap it before allowing
+    // another startup; even a rejected initialize can leave the child alive.
+    clearTimeout(initTimer);
+    if (proc.exitCode === null && !proc.killed) proc.kill("SIGKILL");
+    await proc.exited;
     throw initTimedOut ? new Error("codex app-server did not initialize within 30s") : err;
   } finally {
     clearTimeout(initTimer);

@@ -7,7 +7,7 @@ const directory = mkdtempSync(join(import.meta.dir, ".codex-initialize-"));
 const originalSpawn = Bun.spawn;
 // Select a real disposable child by absolute path. Do not depend on PATH
 // lookup, which could resolve the installed Codex binary on a contributor Mac.
-Bun.spawn = ((command: string[], options: Bun.SpawnOptions<"pipe", "pipe", "pipe">) => {
+Bun.spawn = ((command: string[], options: Bun.SpawnOptions.SpawnOptions<"pipe", "pipe", "pipe">) => {
   assert.deepEqual(command, ["codex", "app-server"]);
   return originalSpawn([process.execPath, join(import.meta.dir, "fake-codex-initialize.ts")], {
     ...options,
@@ -34,7 +34,7 @@ try {
   for (let attempt = 1; attempt <= 2; attempt++) {
     // Concurrent callers must share the same failed startup, and a later retry
     // must get a new startup rather than a cached rejected promise.
-    const results = await Promise.allSettled([codexAdapter.listOptions(), codexAdapter.listOptions()]);
+    const results = await Promise.allSettled([codexAdapter.listOptions(directory), codexAdapter.listOptions(directory)]);
     for (const result of results) {
       assert.equal(result.status, "rejected");
       if (result.status === "rejected") assert.match(String(result.reason), /fixture initialization rejected/);
@@ -47,18 +47,18 @@ try {
   }
 
   writeFileSync(join(directory, "mode"), "hang");
-  await assert.rejects(codexAdapter.listOptions(), /codex app-server did not initialize within 30s/);
+  await assert.rejects(codexAdapter.listOptions(directory), /codex app-server did not initialize within 30s/);
   assert.equal(processes().length, 3);
   assert.ok(processes().every((child) => !alive(child.pid)), "timed-out initialization must reap its uncooperative child");
 
   writeFileSync(join(directory, "mode"), "accept");
-  const options = await codexAdapter.listOptions();
+  const options = await codexAdapter.listOptions(directory);
   assert.ok(options.find((option) => option.id === "model")?.choices?.some((choice) => choice.value === "fixture-model"));
   const children = processes();
   assert.equal(children.length, 4, "a later successful retry must create exactly one replacement server");
   assert.equal(children[3]!.mode, "accept");
   assert.equal(alive(children[3]!.pid), true, "successful initialization must keep its server running");
-  await codexAdapter.listOptions();
+  await codexAdapter.listOptions(directory);
   assert.equal(processes().length, 4, "a successfully initialized server should be reused");
   console.log("Codex initialization rejection/timeout cleanup, single-flight and successful retry: OK");
 } finally {
