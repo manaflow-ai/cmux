@@ -144,10 +144,12 @@ function geminiDefaultModel(): string | undefined {
   return agentModelCatalog.provider("gemini")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "gemini-3.1-pro-preview");
 }
 
-export const PROVIDERS: ProviderDef[] = [
+const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
   { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
+  // Cursor's installer makes `agent` primary and `cursor-agent` a legacy symlink; keep the repo-standard spelling here.
+  { id: "cursor-agent", label: "Cursor Agent", adapter: "acp", cmd: ["cursor-agent", "acp"], installCommand: "curl https://cursor.com/install -fsS | bash" },
   { id: "goose", label: "Goose", adapter: "acp", cmd: ["goose", "acp"], installCommand: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash" },
   { id: "pi", label: "pi", adapter: "pi", cmd: ["pi"], installCommand: "npm i -g @mariozechner/pi" },
   {
@@ -162,6 +164,7 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+/** Read-only registry access for tests; production code keeps the mutable array private. */
 export function providerDefinitionsForTest(): readonly ProviderDef[] {
   return PROVIDERS;
 }
