@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 
 export type VmTimingStage =
   | "auth"
+  | "connection_init"
   | "request_parse"
+  | "admission"
   | "entitlements"
   | "begin_create"
   | "begin_base_open"
