@@ -36,13 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.daemon.start(launch: environment.launch)
         cloudContext = services.startCloud()
         services.updater.start()
+        // Before the first window opens (restoreWhenLoaded opens one at once).
+        services.windows.onPresent = { [weak services] controller in
+            services?.crashRecovery.showRestartNotice(on: controller.window)
+        }
         services.windows.restoreWhenLoaded()
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
-        services.windows.onPresent = { [weak services] controller in
-            services?.crashRecovery.showRestartNotice(on: controller.window)
-        }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
