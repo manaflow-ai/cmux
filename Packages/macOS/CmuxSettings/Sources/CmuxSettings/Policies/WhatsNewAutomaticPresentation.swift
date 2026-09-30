@@ -22,6 +22,41 @@ public struct WhatsNewAutomaticPresentation: Sendable {
 
     public init() {}
 
+    /// What a launch does once its catalog load has returned.
+    public enum LaunchOutcome: Equatable, Sendable {
+        /// Do nothing at all.
+        case suppress
+        /// Set the quiet indicator on the sidebar help button.
+        case indicate
+        /// Open the recap as a sheet on a main terminal window.
+        case presentSheet
+    }
+
+    /// Resolves what a launch does after its catalog load, against the values
+    /// the user or another code path may have changed while it was in flight.
+    ///
+    /// `decide` runs before the load, which takes as long as a network fetch,
+    /// so both of its inputs can be stale by the time the catalog arrives.
+    ///
+    /// - Parameters:
+    ///   - decidedToPresent: Whether `decide` authorized a presentation for
+    ///     this launch rather than only the quiet indicator.
+    ///   - liveMode: The `app.whatsNew` setting as it reads now.
+    ///   - announcedVersion: The seen record `decide` read.
+    ///   - liveAnnouncedVersion: The seen record as it reads now. It differs
+    ///     when an on-demand open landed first and consumed this version's one
+    ///     announcement.
+    public static func launchOutcome(
+        decidedToPresent: Bool,
+        liveMode: WhatsNewPresentationMode,
+        announcedVersion: String?,
+        liveAnnouncedVersion: String?
+    ) -> LaunchOutcome {
+        guard liveMode != .off else { return .suppress }
+        return liveMode == .sheet ? .presentSheet : .indicate
+    }
+
+
     /// The launch decision.
     ///
     /// - Parameters:

@@ -12,12 +12,27 @@ import Testing
 @MainActor
 @Suite("What's New launch mode", .serialized)
 struct WhatsNewCenterLaunchModeTests {
-    @Test(arguments: [WhatsNewPresentationMode.sheet, .quiet])
+    // The wait below is unbounded on purpose only in the sense that the
+    // loader controls it. A time limit keeps setup drift that stops the load
+    // from ever starting from consuming the shard's whole budget.
+    @Test(.timeLimit(.minutes(1)), arguments: [WhatsNewPresentationMode.sheet, .quiet])
     func switchingOffDuringCatalogLoadSuppressesTheAnnouncement(startingMode: WhatsNewPresentationMode) async throws {
         let suite = "WhatsNewCenterLaunchModeTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("0.64.24", forKey: WhatsNewCenter.lastSeenReleaseDefaultsKey)
+        // A regression that presents would otherwise leave a modal sheet on a
+        // main terminal window in the shared app host, which times out every
+        // later test in the shard instead of failing this one.
+        defer {
+            for window in NSApp.windows where window.identifier?.rawValue == "cmux.whatsNew" {
+                if let parent = window.sheetParent {
+                    parent.endSheet(window)
+                } else {
+                    window.close()
+                }
+            }
+        }
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         settings.set(startingMode, for: AppCatalogSection().whatsNew)
 

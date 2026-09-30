@@ -110,4 +110,75 @@ struct WhatsNewAutomaticPresentationTests {
         defaults.set("loud", forKey: "whatsNewPresentationMode")
         #expect(client.value(for: key) == .quiet)
     }
+
+    // MARK: - After the catalog load
+
+    /// `decide` runs before the catalog fetch, so the setting it read can be
+    /// stale by the time the catalog arrives. The reread only ever narrows
+    /// that decision.
+    @Test func switchingOffDuringTheLoadSuppressesTheLaunch() {
+        for decided in [true, false] {
+            #expect(WhatsNewAutomaticPresentation.launchOutcome(
+                decidedToPresent: decided,
+                liveMode: .off,
+                announcedVersion: "0.64.25",
+                liveAnnouncedVersion: "0.64.25"
+            ) == .suppress)
+        }
+    }
+
+    /// The setting promises the recap opens once after the first launch of a
+    /// new version. A launch that decided on the quiet indicator therefore
+    /// keeps the indicator even if the user picks Show Once while the catalog
+    /// is loading; that choice takes effect on the next launch.
+    @Test func aQuietLaunchDoesNotEscalateToASheet() {
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: false,
+            liveMode: .sheet,
+            announcedVersion: "0.64.25",
+            liveAnnouncedVersion: "0.64.25"
+        ) == .indicate)
+    }
+
+    @Test func aLaunchThatDecidedToPresentStillPresents() {
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: true,
+            liveMode: .sheet,
+            announcedVersion: "0.64.25",
+            liveAnnouncedVersion: "0.64.25"
+        ) == .presentSheet)
+        // Switched from Show Once to the indicator mid-load.
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: true,
+            liveMode: .quiet,
+            announcedVersion: "0.64.25",
+            liveAnnouncedVersion: "0.64.25"
+        ) == .indicate)
+    }
+
+    /// An on-demand open that starts during the launch load records the
+    /// version as seen when it finishes, which consumes this version's one
+    /// announcement. The launch path must not announce it a second time on
+    /// content the user has already dismissed.
+    @Test func aConcurrentOpenThatRecordedTheVersionSuppressesTheLaunch() {
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: true,
+            liveMode: .sheet,
+            announcedVersion: "0.64.25",
+            liveAnnouncedVersion: "0.64.26"
+        ) == .suppress)
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: false,
+            liveMode: .quiet,
+            announcedVersion: nil,
+            liveAnnouncedVersion: "0.64.26"
+        ) == .suppress)
+        // Nothing recorded before or after: no concurrent open happened.
+        #expect(WhatsNewAutomaticPresentation.launchOutcome(
+            decidedToPresent: true,
+            liveMode: .sheet,
+            announcedVersion: nil,
+            liveAnnouncedVersion: nil
+        ) == .presentSheet)
+    }
 }
