@@ -51,45 +51,25 @@ public struct GitHubReferenceAttributedStringLinkifier: Sendable {
             guard !isCodeBlock(run.presentationIntent) else { continue }
 
             let text = String(attributed[run.range].characters)
+            // Measured from the start each time rather than accumulated run
+            // lengths. Run boundaries are not promised to fall on grapheme
+            // cluster boundaries, and one that does not would make the running
+            // total drift for every run after it. Blocks reaching here are
+            // capped at 4 KB and the result is memoized, so the quadratic walk
+            // costs less than the class of bug it removes.
+            let runStart = whole.distance(from: whole.startIndex, to: run.range.lowerBound)
 
             for hit in scanner.hits(in: text, repositorySlug: repositorySlug) {
-                // The scanner measures inside the run extracted as its own
-                // String, which is not the whole value's index space: a run
-                // boundary is not promised to fall on a grapheme cluster
-                // boundary, so the two can disagree about how many Characters a
-                // span holds. The hit is walked back into the whole value once,
-                // here, and everything after this point is measured there.
-                // Bounding the walk by the run means a disagreement drops the
-                // link rather than moving it onto the wrong words.
-                let leading = text.distance(from: text.startIndex, to: hit.range.lowerBound)
-                let matched = text.distance(from: hit.range.lowerBound, to: hit.range.upperBound)
-                guard
-                    let start = whole.index(
-                        run.range.lowerBound,
-                        offsetBy: leading,
-                        limitedBy: run.range.upperBound
-                    ),
-                    let end = whole.index(
-                        start,
-                        offsetBy: matched,
-                        limitedBy: run.range.upperBound
-                    )
-                else { continue }
-                guard
-                    !isTruncated(
-                        hit: hit,
-                        at: start..<end,
-                        of: attributed,
-                        repositorySlug: repositorySlug
-                    )
-                else { continue }
-                found.append(
-                    (
-                        whole.distance(from: whole.startIndex, to: start),
-                        whole.distance(from: start, to: end),
-                        hit.reference.url
-                    )
-                )
+                // A reference the parser split across runs, such as
+                // `owner/repo#84**7**`, reaches here as the truncated `#84`.
+                // Linking that points at a different issue than the one the
+                // reader sees, which is worse than not linking at all, so a hit
+                // touching a run edge with more text pressed against it is
+                // dropped.
+                guard !isTruncated(hit: hit, in: text, run: run, of: attributed) else { continue }
+                let offset = text.distance(from: text.startIndex, to: hit.range.lowerBound)
+                let length = text.distance(from: hit.range.lowerBound, to: hit.range.upperBound)
+                found.append((runStart + offset, length, hit.reference.url))
             }
         }
 
@@ -101,11 +81,14 @@ public struct GitHubReferenceAttributedStringLinkifier: Sendable {
         var linked = attributed
         let total = linked.characters.count
         for hit in found {
-            // Both numbers were measured over the whole value's characters and
-            // `linked` still holds those same characters, so this stays in
-            // range. `index(_:offsetByCharacters:)` traps rather than returning
-            // nil if it ever did not, and this runs on the main actor during a
-            // sidebar render, so the bound is checked instead of assumed.
+            // The two measurements above are taken in different index spaces
+            // (one over the whole value, one over a run extracted as a String),
+            // and they can disagree if a run boundary ever lands inside a
+            // grapheme cluster. `index(_:offsetByCharacters:)` traps rather than
+            // returning nil when that pushes it past the end, and this runs on
+            // the main actor during a sidebar render, so the bound is checked
+            // instead of assumed. Dropping the link is the right failure: the
+            // text still renders, it just is not clickable.
             guard hit.offset >= 0, hit.length > 0, hit.offset + hit.length <= total else { continue }
             let start = linked.index(linked.startIndex, offsetByCharacters: hit.offset)
             let end = linked.index(start, offsetByCharacters: hit.length)
@@ -123,47 +106,28 @@ public struct GitHubReferenceAttributedStringLinkifier: Sendable {
         }
     }
 
-    /// Whether the parser cut this reference out of a longer token.
+    /// Whether a hit runs up against a run edge that more text continues past.
     ///
-    /// The scanner reads one run at a time, so a style change inside a reference
-    /// hands it a fragment that parses on its own: `owner/repo#84**7**` arrives
-    /// as `owner/repo#84`, which resolves to a different issue than the one on
-    /// screen.
-    ///
-    /// Asking whether text is pressed against the run's edge cannot tell that
-    /// apart from ordinary punctuation. `**owner/repo#847**.` also has a
-    /// non-whitespace character on the far side of the edge and is not cut at
-    /// all, and a token whose trailing punctuation the detector trims, as in
-    /// `owner/repo#84.**7**`, does not reach the edge even though it is cut.
-    ///
-    /// So the question is put to the text the reader sees. Take the whole
-    /// whitespace-delimited token the hit sits in, across every run it spans,
-    /// and scan that: a reference that survived styling resolves to the same
-    /// thing, and one the parser cut resolves to something else or to nothing.
+    /// The scanner works on one run's text in isolation, so it cannot see that
+    /// the token it matched was cut off by a style change. A reference ending at
+    /// the run's last character with a non-whitespace character immediately
+    /// after it in the full text was longer than what was matched.
     private func isTruncated(
         hit: GitHubReferenceTextScanner.Hit,
-        at range: Range<AttributedString.Index>,
-        of attributed: AttributedString,
-        repositorySlug: String?
+        in text: String,
+        run: AttributedString.Runs.Run,
+        of attributed: AttributedString
     ) -> Bool {
-        let characters = attributed.characters
-        var start = range.lowerBound
-        while start > characters.startIndex {
-            let previous = characters.index(before: start)
-            guard !characters[previous].isWhitespace else { break }
-            start = previous
+        if hit.range.lowerBound == text.startIndex,
+           run.range.lowerBound > attributed.startIndex {
+            let before = attributed.characters.index(before: run.range.lowerBound)
+            if !attributed.characters[before].isWhitespace { return true }
         }
-        var end = range.upperBound
-        while end < characters.endIndex, !characters[end].isWhitespace {
-            end = characters.index(after: end)
-        }
-
-        let token = String(characters[start..<end])
-        // One token holds at most one hit, since the scanner splits on the
-        // whitespace this token has none of.
-        guard let rescanned = scanner.hits(in: token, repositorySlug: repositorySlug).first else {
+        if hit.range.upperBound == text.endIndex,
+           run.range.upperBound < attributed.endIndex,
+           !attributed.characters[run.range.upperBound].isWhitespace {
             return true
         }
-        return rescanned.reference != hit.reference
+        return false
     }
 }
