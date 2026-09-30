@@ -1,0 +1,8 @@
+import "../shared/styles.css";
+import "../acpmux/styles.css";
+import "./styles.css";
+import { mountPreview } from "./PreviewApp";
+
+document.documentElement.lang = "en";
+document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session-preview";
+mountPreview();

@@ -1,0 +1,9 @@
+# Acpmux React pane
+
+The Swift `AcpmuxChatSessionModel` is the source of truth. The web view receives a versioned `snapshot` message and sends action messages back to Swift. Protocol version 1 carries row snapshots keyed by `row.id` and `row.version`, session state and list, permission requests, queued prompts, model/mode/effort catalog, and `canLoadOlder`. Actions are data: `chat.send`, `chat.cancel`, `chat.permission`, `chat.model`, `chat.mode`, `chat.effort`, `chat.select`, `chat.new`, and `chat.history`.
+
+Rows are measured before paint with [Pretext](https://github.com/chenglou/pretext) using the named `Helvetica Neue` font. Prepared markdown blocks are cached by row id, content version, and text. Layout stores exact tops and heights in typed arrays and finds the visible range with binary search. React mounts only that range; row components are memoized by id and content version, so a streaming update replaces one row.
+
+User customization files live in `~/.config/cmux/agent-pane/`: `theme.css`, `layout.json`, and `registry.js`. Registry components must provide a static `measure(row, width)` function returning a Pretext-based height. Components without it use post-mount measurement and scroll anchoring. `registry.js` can register or replace message, tool, edited-files, permission, and composer-chip components; Swift watches the files and replays them to the page.
+
+The virtualized DOM cannot provide selection or find across rows that are unmounted. The v1 pane keeps cmux find in Swift, where the full transcript exists; a future bridge action can scroll to a row id and briefly mount it. The preview harness is the iteration path: `cd webviews && bun run preview:dev` for Vite hot reload, or `bun run preview:build`, which writes static files to `webviews/dist/acpmux-agent-session-preview/`.

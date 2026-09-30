@@ -32,8 +32,22 @@ public protocol AcpmuxSessionAPI: Sendable {
     func harnessCatalog() async throws -> AcpmuxHarnessCatalog
     /// `session/set_model`.
     func setModel(sessionId: String, modelId: String) async throws
+    /// `session/set_mode`, when the harness exposes ACP modes.
+    func setMode(sessionId: String, modeId: String) async throws
+    /// `session/set_config_option`, used for reasoning effort and similar options.
+    func setConfigOption(sessionId: String, configId: String, value: JSONValue) async throws
     /// Closes the connection.
     func close() async
+}
+
+public extension AcpmuxSessionAPI {
+    func setMode(sessionId _: String, modeId _: String) async throws {
+        throw JSONRPCError(code: -32601, message: "session/set_mode is unavailable")
+    }
+
+    func setConfigOption(sessionId _: String, configId _: String, value _: JSONValue) async throws {
+        throw JSONRPCError(code: -32601, message: "session/set_config_option is unavailable")
+    }
 }
 
 /// ``AcpmuxSessionAPI`` over a live ``JSONRPCClient``.
@@ -140,6 +154,18 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
 
     public func setModel(sessionId: String, modelId: String) async throws {
         _ = try await client.request("session/set_model", params: ["sessionId": sessionId, "modelId": modelId])
+    }
+
+    public func setMode(sessionId: String, modeId: String) async throws {
+        _ = try await client.request("session/set_mode", params: ["sessionId": sessionId, "modeId": modeId])
+    }
+
+    public func setConfigOption(sessionId: String, configId: String, value: JSONValue) async throws {
+        _ = try await client.request("session/set_config_option", params: JSONValue.object([
+            "sessionId": .string(sessionId),
+            "configId": .string(configId),
+            "value": value,
+        ]))
     }
 
     public func close() async {

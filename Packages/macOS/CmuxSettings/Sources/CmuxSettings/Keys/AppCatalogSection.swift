@@ -3,6 +3,11 @@ import Foundation
 
 /// Settings under the dotted-id prefix `app.*` — user-facing app behavior.
 public struct AppCatalogSection: SettingCatalogSection {
+    /// Renderer used for newly opened acpmux agent-session panes.
+    public let agentSessionRenderer = JSONKey<String>(
+        id: "agentSession.renderer",
+        defaultValue: "native"
+    )
     public let appearance = DefaultsKey<AppearanceMode>(
         id: "app.appearance",
         defaultValue: .system,

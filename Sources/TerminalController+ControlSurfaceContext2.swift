@@ -353,7 +353,7 @@ extension TerminalController {
         let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
 
         var providerID: AgentSessionProviderID = .codex
-        var rendererKind: AgentSessionRendererKind = .react
+        var rendererKind: AgentSessionRendererKind = .configured()
         if panelType == .agentSession {
             if let providerRaw = inputs.providerRaw {
                 switch v2NormalizedToken(providerRaw) {
@@ -365,6 +365,8 @@ extension TerminalController {
             }
             if let rendererRaw = inputs.rendererRaw {
                 switch v2NormalizedToken(rendererRaw) {
+                case "native": rendererKind = .native
+                case "typescript", "ts": rendererKind = .typescript
                 case "react": rendererKind = .react
                 case "solid": rendererKind = .solid
                 default: return .invalidRenderer(rawValue: rendererRaw)
