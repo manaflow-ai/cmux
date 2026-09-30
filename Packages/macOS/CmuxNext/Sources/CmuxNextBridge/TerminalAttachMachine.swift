@@ -65,10 +65,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
 
     public enum Effect: Hashable, Sendable {
         /// Open a new attachment at `size`; report `.opened` or `.openFailed`.
+        /// An open is never abandoned mid-handshake: when the machine moved
+        /// on, the link it returns is detached at once, with its lease, so
+        /// the daemon frees the view attachment explicitly.
         case open(attempt: Int, size: CellSize)
-        /// Abandon the in-flight open (its link, if any, is still detached
-        /// through `.opened` → `.detach`).
-        case cancelOpen(attempt: Int)
         case send(Link, Data)
         /// Passive grid report on `link`.
         case resize(Link, CellSize)
@@ -238,10 +238,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .live(let link):
             return terminate(detaching: link)
         case .attaching(let pending), .reattaching(let pending):
-            guard let link = pending.link else {
-                return [.cancelOpen(attempt: pending.attempt)] + terminate(detaching: nil)
-            }
-            return terminate(detaching: link)
+            // An open still in flight is detached when it completes (`opened`).
+            return terminate(detaching: pending.link)
         }
     }
 

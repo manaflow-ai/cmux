@@ -47,8 +47,6 @@ struct TerminalAttachReducerStressTests {
                 case .open(let attempt, let size):
                     #expect(inFlight[attempt] == nil)
                     inFlight[attempt] = size
-                case .cancelOpen(let attempt):
-                    #expect(inFlight[attempt] != nil)
                 case .send(let link, let data):
                     #expect(links[link]?.replayed == true, "input before the replay")
                     #expect(links[link]?.detached == 0, "input to a detached link")

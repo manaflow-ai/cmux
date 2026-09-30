@@ -51,18 +51,21 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let queue: TerminalStepQueue
     private let opener: Opener
     private let onFailure: @Sendable (any Error) -> Void
+    private let onReattach: @Sendable (Int) -> Void
 
     public init(
         initialSize: CellSize,
         visible: Bool = true,
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
-        onFailure: @escaping @Sendable (any Error) -> Void = { _ in }
+        onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
+        onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in }
     ) {
         core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure
+        self.onReattach = onReattach
     }
 
     deinit {
@@ -124,13 +127,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private func apply(_ effect: Machine.Effect) {
         switch effect {
         case .open(let attempt, let size):
+            if attempt > 1 { onReattach(attempt) }
             core.withLock { core in
                 core.tasks[attempt] = Task.detached(priority: .userInitiated) { [owner = Owner(self), opener] in
                     await Self.run(owner: owner, opener: opener, attempt: attempt, size: size)
                 }
             }
-        case .cancelOpen(let attempt):
-            core.withLock { $0.tasks[attempt] }?.cancel()
         case .send(let ref, let data): ref.link.sendInput(data)
         case .resize(let ref, let size): ref.link.sendResize(size)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)

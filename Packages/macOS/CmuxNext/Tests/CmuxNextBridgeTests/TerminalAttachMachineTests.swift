@@ -173,13 +173,13 @@ struct TerminalAttachMachineTests {
         #expect(machine.reduce(.openFailed(attempt: 1)) == [])
     }
 
-    // T5: closing during the attach cancels it and frees everything.
-    @Test func closeWhileOpeningCancelsAndDetachesTheLateLink() {
+    // T5: closing during the attach frees everything, including a late link.
+    @Test func closeWhileOpeningDetachesTheLateLink() {
         var machine = Machine(initialSize: Self.initial)
         _ = machine.reduce(.start)
         _ = machine.reduce(.resize(Self.wide))
-        #expect(machine.reduce(.close) == [.cancelOpen(attempt: 1), .finish])
-        // The open completes anyway: its link is detached, never claimed.
+        #expect(machine.reduce(.close) == [.finish])
+        // The open completes: its link is detached with its lease, never claimed.
         #expect(machine.reduce(.opened(9, attempt: 1)) == [.detach(9)])
         #expect(machine.reduce(.replayDelivered(9)) == [])
         #expect(machine.reduce(.resize(Self.narrow)) == [])
@@ -194,10 +194,10 @@ struct TerminalAttachMachineTests {
         #expect(machine.reduce(.close) == [])
     }
 
-    @Test func closeWhileReattachingCancelsTheNewOpen() {
+    @Test func closeWhileReattachingDetachesTheNewLinkWhenItOpens() {
         var machine = live()
         _ = machine.reduce(.ended(7, .overflow))
-        #expect(machine.reduce(.close) == [.cancelOpen(attempt: 2), .finish])
+        #expect(machine.reduce(.close) == [.finish])
         #expect(machine.reduce(.opened(8, attempt: 2)) == [.detach(8)])
     }
 

@@ -19,7 +19,8 @@ import os
 ///   sizes before parsing it. A daemon `resized` is only a grid change.
 /// - `overflow` (this view fell behind, the daemon's 8 MiB limit) detaches
 ///   the old link and reattaches for a fresh replay.
-/// - Closing during an attach cancels it and detaches whatever it opened.
+/// - Closing during an attach ends the view at once and detaches the link
+///   the attach returns, with its lease, as soon as it completes.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
 ///   after the view stops resizing.
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -43,6 +44,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
+            },
+            onReattach: { attempt in
+                logger.info("terminal \(surface) fell behind; reattaching for a fresh replay (open \(attempt))")
             }
         )
         self.driver = driver
