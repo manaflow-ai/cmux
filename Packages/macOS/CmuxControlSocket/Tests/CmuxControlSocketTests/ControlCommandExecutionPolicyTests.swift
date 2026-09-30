@@ -48,6 +48,8 @@ struct ControlCommandExecutionPolicyTests {
             "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.mark_read", "agent.message.poll",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -80,7 +82,12 @@ struct ControlCommandExecutionPolicyTests {
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
-        for method in ["agent.restore.admit", "agent.restore.release"] {
+        for method in [
+            "agent.restore.admit", "agent.restore.release",
+            "agent.hibernate", "agent.wake",
+            "agent.message.send", "agent.message.list", "agent.message.claim",
+            "agent.message.mark_read", "agent.message.poll",
+        ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
                     == .socketWorker(mainThreadCallable: false),
@@ -216,6 +223,7 @@ struct ControlCommandExecutionPolicyTests {
         // that formatting inline on the main thread, which is exactly the
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.input_state") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }

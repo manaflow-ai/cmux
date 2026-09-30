@@ -42,6 +42,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    final class VMRunCreateAttemptState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var keys: [String] = []
+
+        func record(key: String?) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            if let key { keys.append(key) }
+            return keys.count
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return keys
+        }
+    }
+
     private func vmExecOKResponse(id: String, stdout: String) -> String {
         v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": stdout, "stderr": ""])
     }
@@ -378,6 +396,88 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
         let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
         XCTAssertEqual(pool?["machines"] as? [String], ["fresh-1"], "membership must be persisted, not inferred from the label")
+    }
+
+    func testVMRunReusesCreateKeyAfterLostCreateResponse() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-run-create-retry")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let attempts = VMRunCreateAttemptState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "vm.list":
+                return self.v2Response(id: id, ok: true, result: ["vms": []])
+            case "vm.create":
+                let params = request["params"] as? [String: Any] ?? [:]
+                let key = params["idempotency_key"] as? String
+                let attempt = attempts.record(key: key)
+                if attempt == 1 {
+                    // The backend accepted this request, but the response is
+                    // truncated in transit, leaving the outcome unknown.
+                    return ""
+                }
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "provider": "freestyle", "status": "running", "image": "cmuxd-ws:tooling-20260509f"])
+            case "vm.rename":
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "displayName": "agent-pool"])
+            case "vm.status":
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "provider": "freestyle", "status": "running"])
+            case "vm.exec":
+                return self.vmExecOKResponse(id: id, stdout: "recovered\n")
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = isolatedHome.path
+
+        let first = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertNotEqual(first.status, 0, "the lost response must surface as a retryable failure")
+
+        let second = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, "the retry should recover the accepted create: stderr=\(second.stderr)")
+        XCTAssertEqual(second.stdout, "recovered\n")
+        let keys = attempts.snapshot()
+        XCTAssertEqual(keys.count, 2, "one create attempt should be retried with the same key")
+        guard keys.count == 2 else { return }
+        XCTAssertEqual(keys[0], keys[1], "a lost response must not create a second paid machine")
+
+        let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
+        let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
+        XCTAssertEqual(pool?["machines"] as? [String], ["recovered-1"])
     }
 
     /// Two routers provisioning at the same moment must both end up in the pool
@@ -1176,7 +1276,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 struct CloudSCPIntegrationTests {
     @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
+        let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [script.path, cli]

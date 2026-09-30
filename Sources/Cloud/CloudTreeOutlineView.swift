@@ -723,7 +723,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         let title = if row.remoteView == nil {
                             String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
                         } else {
-                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                            String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")
                         }
                         items.append(item(title) { [nodeActions] in
                             nodeActions.renameTerminal(row.resource, row.remoteView)
@@ -738,7 +738,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     isLocal: row.resource.machine.isLocal,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: row.remoteView
-                )
+                ) + renameRemoteViewMenuItems(resource: row.resource, remoteView: row.remoteView)
             case .display(let resource, let openIn, let remoteView):
                 return resourceMenuItems(
                     resource,
@@ -746,7 +746,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: remoteView
-                )
+                ) + renameRemoteViewMenuItems(resource: resource, remoteView: remoteView)
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
                     resource,
@@ -772,6 +772,26 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .createAction: return []
             }
+        }
+
+        /// The rename verb for a row whose whole identity is one daemon tab: a
+        /// display or a browser. Empty when the row has no tab, which is the
+        /// local case and the not-yet-placed case. Terminals do not come
+        /// through here because a terminal row can stand for several tabs and
+        /// needs the all-views wording.
+        private func renameRemoteViewMenuItems(
+            resource: SurfaceResource,
+            remoteView: SurfaceRemoteView?
+        ) -> [NSMenuItem] {
+            guard CloudTreeOutlineView.canRenameRemoteView(resource: resource, remoteView: remoteView),
+                  let remoteView
+            else { return [] }
+            return [
+                .separator(),
+                item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameRemoteView(resource, remoteView)
+                },
+            ]
         }
 
         /// The verbs every surface row shares: open (reusing an open pane), open as a

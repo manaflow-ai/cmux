@@ -57,6 +57,19 @@ struct TerminalSizingText {
         }
     }
 
+    /// The title menu item that opens the size sheet.
+    static func connectedDevices() -> String {
+        L10n.string("mobile.terminal.sizing.connectedDevices", defaultValue: "Connected Devices…")
+    }
+
+    /// The Connected Devices… subtitle: "2 others", or "Only this device".
+    static func otherDevices(_ count: Int) -> String {
+        guard count > 0 else {
+            return L10n.string("mobile.terminal.sizing.otherDevices.none", defaultValue: "Only this device")
+        }
+        return L10n.string("mobile.terminal.sizing.otherDevices", defaultValue: "\(count) others")
+    }
+
     /// "scaled", appended when the grid is drawn smaller to fit this phone.
     static func scaled() -> String {
         L10n.string("mobile.terminal.sizing.scaled", defaultValue: "scaled")
@@ -228,6 +241,19 @@ struct TerminalSizingText {
 
     static func disconnect() -> String {
         L10n.string("mobile.terminal.sizing.sheet.disconnect", defaultValue: "Disconnect")
+    }
+
+    /// "Disconnect Lawrence's MacBook Pro?"
+    static func disconnectMacTitle(_ mac: MobileTerminalSizingOwnerLabel) -> String {
+        let name = owner(mac)
+        return L10n.string("mobile.terminal.sizing.sheet.disconnectMac.title", defaultValue: "Disconnect \(name)?")
+    }
+
+    static func disconnectMacMessage() -> String {
+        L10n.string(
+            "mobile.terminal.sizing.sheet.disconnectMac.message",
+            defaultValue: "That Mac stops showing this terminal until someone reattaches it there. The terminal keeps running, and this iPhone stays connected."
+        )
     }
 
     static func disconnectOthers() -> String {
