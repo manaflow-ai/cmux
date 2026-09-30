@@ -125,7 +125,12 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
+The submodule pinned by this branch is `c318e7825`, the 133;P prompt and
+wrap padding fix (section 16, manaflow-ai/ghostty#247) on top of
+`e1b8bf5f4`. Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c318e78253762d8c6eb7e117d5929b79a562a444-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `3c97a9cf83e4d052e3fa589542210e96f61994b51589e11c1c527f74239d1540`, pinned in
+`scripts/ghosttykit-checksums.txt`. The previous pin was `e1b8bf5f4`, the OSC 133;A prompt
 line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
 corrects the styled blank row test. Artifact
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
@@ -2047,6 +2052,27 @@ tend to conflict together during rebases.
   - Any upstream change to the `fresh_line_new_prompt` handler or to
     semantic-prompt reflow should keep a prompt at column 0 of its own
     logical line.
+
+### 16) Primary 133;P prompts and wrap padding
+
+- Commits:
+  - `f1906ae5a` (test: a 133;P primary prompt after a padded partial line must stay on its own line)
+  - `1975783f4` (terminal: start a 133;P primary prompt on its own logical line)
+  - `33620abfb` (terminal: drop the padding that forced a wrap before a prompt)
+  - `c318e7825` (test: narrow to a width that still fits the cursor)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/Screen.zig`
+- Summary:
+  - Ghostty's bash integration marks a ble.sh prompt with `133;P;k=i`, not
+    `133;A`. An explicit primary prompt start at column 0 of a soft-wrap
+    continuation row now breaks that wrap too.
+  - Breaking the wrap also clears the trailing unstyled spaces on the row
+    above. They were padding that forced the wrap, and as text they reflowed
+    into blank rows where a shell redraw could land.
+- Conflict notes:
+  - Keep `cursorBreakWrapIntoRow` limited to primary prompts: continuation
+    and right prompts must keep their wrap.
 
 The current cmux pin is the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
