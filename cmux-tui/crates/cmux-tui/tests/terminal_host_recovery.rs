@@ -3610,6 +3610,43 @@ fn tree_terminal_ids(socket: &Path) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// A close replies once its commit is durable. It never waits for the host's
+/// termination receipt: that receipt travels behind the terminal's output on
+/// the host stream, and waiting for it inline held the reply (and the
+/// terminal's runtime lock) for the full two-second control timeout whenever
+/// the stream was slow, which made 100 sequential closes take over 15 s.
+#[test]
+fn close_terminal_replies_without_waiting_for_the_host_termination_receipt() {
+    let mut harness = RecoveryHarness::start_unstarted("close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let (terminal_id, incarnation) = run_cat_workspace(&harness.socket, 1, "close-ack-late");
+    wait_for_host_records(&harness.host_root(), 1);
+
+    let started = Instant::now();
+    let closed = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "close-terminal",
+            "terminal_id": &terminal_id,
+            "terminal_incarnation": &incarnation,
+        }),
+    );
+    let replied_in = started.elapsed();
+    assert_eq!(closed["terminal_id"].as_str(), Some(terminal_id.as_str()), "{closed}");
+    // The control timeout the old inline wait spent is two seconds; the
+    // reply itself needs one durable commit.
+    assert!(
+        replied_in < Duration::from_secs(2),
+        "close-terminal waited {replied_in:?} for the host's termination receipt"
+    );
+    assert!(!tree_terminal_ids(&harness.socket).contains(&terminal_id));
+    wait_for_no_host_records(&harness.host_root());
+}
+
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
 #[test]
