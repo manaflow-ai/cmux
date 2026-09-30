@@ -11,17 +11,14 @@ public nonisolated struct BrowserMachineStore: Hashable, Sendable {
     public var machineKey: String
     /// Shown in the badge and error pages (`build-box`).
     public var machineName: String
-    /// The proxy on 127.0.0.1 and this store's route credential.
+    /// The machine's proxy listener on 127.0.0.1. It accepts only this app
+    /// and its Chromium helpers, so no credential is needed.
     public var proxyPort: UInt16
-    public var username: String
-    public var password: String
 
-    public init(machineKey: String, machineName: String, proxyPort: UInt16, username: String, password: String) {
+    public init(machineKey: String, machineName: String, proxyPort: UInt16) {
         self.machineKey = machineKey
         self.machineName = machineName
         self.proxyPort = proxyPort
-        self.username = username
-        self.password = password
     }
 }
 

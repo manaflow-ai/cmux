@@ -7,11 +7,16 @@ import os
 /// The in-process HTTP proxy that remote-localhost browser stores use
 /// (plans/cmux-next/remote-localhost.md section 5).
 ///
-/// It listens on a random 127.0.0.1 port and accepts only requests that
-/// carry one of its routes' credentials: each machine gets a random user
-/// name, and every route shares one per-launch secret. Chromium answers the
-/// proxy challenge through the shim (`GetAuthCredentials`), so a page never
-/// sees the credentials, and another local user or process gets `407`.
+/// Each machine gets its own listener on a random 127.0.0.1 port
+/// (`listen(for:route:)`), which is the port its Chromium store's proxy
+/// setting names. A connection there is accepted only from this process or
+/// its children (`PeerProcess`: the Chromium helpers), because Chrome-style
+/// CEF never asks the embedder for proxy credentials. Requests must be in
+/// proxy form (CONNECT or absolute URL), which a page cannot produce.
+///
+/// `start` opens one more listener for clients that authenticate with a
+/// route credential instead (a random user name per machine, one per-launch
+/// secret); anything else gets `407`.
 ///
 /// Loopback destinations open a tunnel to the route's machine. Every other
 /// destination connects directly from this Mac, and a connection whose peer
@@ -50,7 +55,12 @@ public final class RemoteLocalhostProxy: Sendable {
         var routes: [String: Route] = [:]
         /// User name by machine key (stable for the launch).
         var usernames: [String: String] = [:]
+        /// Per-machine listeners, by machine key, and their routes by port.
+        var machineListeners: [String: (listener: NWListener, port: UInt16)] = [:]
+        var routesByPort: [UInt16: Route] = [:]
         var stats = Stats()
+        /// Recent outcomes, newest last (`debug.remote-localhost`).
+        var events: [String] = []
     }
 
     private let state = Mutex(State())
@@ -69,9 +79,59 @@ public final class RemoteLocalhostProxy: Sendable {
 
     public var stats: Stats { state.withLock(\.stats) }
 
-    /// Binds 127.0.0.1 on a random port (idempotent) and returns it.
+    /// The last 32 connection outcomes (no credentials, no payload).
+    public var recentEvents: [String] { state.withLock(\.events) }
+
+    func note(_ event: String) {
+        state.withLock { state in
+            state.events.append(event)
+            if state.events.count > 32 { state.events.removeFirst(state.events.count - 32) }
+        }
+    }
+
+    /// Binds the credential listener on a random 127.0.0.1 port
+    /// (idempotent) and returns it.
     public func start() async throws(StartError) -> UInt16 {
         if let port { return port }
+        let (listener, port) = try await bind(route: nil)
+        state.withLock { state in
+            state.listener = listener
+            state.port = port
+        }
+        logger.info("remote-localhost proxy on 127.0.0.1:\(port)")
+        return port
+    }
+
+    /// The port of `machine`'s own listener, bound on first use; the
+    /// route's opener is replaced on every call.
+    public func listen(for machine: String, route: Route) async throws(StartError) -> UInt16 {
+        let existing: UInt16? = state.withLock { state in
+            guard let port = state.machineListeners[machine]?.port else { return nil }
+            state.routesByPort[port] = route
+            return port
+        }
+        if let existing { return existing }
+        let (listener, port) = try await bind(route: route)
+        let winner: UInt16 = state.withLock { state in
+            if let port = state.machineListeners[machine]?.port { return port }
+            state.machineListeners[machine] = (listener, port)
+            state.routesByPort[port] = route
+            return port
+        }
+        if winner != port { listener.cancel() }
+        logger.info("remote-localhost proxy for \(route.machineName, privacy: .public) on 127.0.0.1:\(winner)")
+        return winner
+    }
+
+    /// Machine listener ports by machine key (`debug.remote-localhost`).
+    public var machinePorts: [String: UInt16] { state.withLock { $0.machineListeners.mapValues(\.port) } }
+
+    /// The route of a machine listener's port, nil for the credential listener.
+    func route(forListenerPort port: UInt16) -> Route? {
+        state.withLock { $0.routesByPort[port] }
+    }
+
+    private func bind(route: Route?) async throws(StartError) -> (NWListener, UInt16) {
         let parameters = NWParameters.tcp
         parameters.acceptLocalOnly = true
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
@@ -81,12 +141,13 @@ public final class RemoteLocalhostProxy: Sendable {
         } catch {
             throw .listener(String(describing: error))
         }
-        listener.newConnectionHandler = { [weak self] connection in
-            guard let self else {
+        let machine = route != nil
+        listener.newConnectionHandler = { [weak self, weak listener] connection in
+            guard let self, let port = listener?.port?.rawValue else {
                 connection.cancel()
                 return
             }
-            self.accept(connection)
+            self.accept(connection, localPort: port, machineListener: machine)
         }
         let result: Result<UInt16, StartError> = await withCheckedContinuation { continuation in
             let resumed = Mutex(false)
@@ -105,12 +166,7 @@ public final class RemoteLocalhostProxy: Sendable {
         }
         switch result {
         case .success(let port):
-            state.withLock { state in
-                state.listener = listener
-                state.port = port
-            }
-            logger.info("remote-localhost proxy on 127.0.0.1:\(port)")
-            return port
+            return (listener, port)
         case .failure(let error):
             listener.cancel()
             throw error
@@ -137,19 +193,21 @@ public final class RemoteLocalhostProxy: Sendable {
     }
 
     public func stop() {
-        let listener: NWListener? = state.withLock { state in
+        let listeners: [NWListener] = state.withLock { state in
             defer {
                 state.listener = nil
                 state.port = nil
+                state.machineListeners.removeAll()
+                state.routesByPort.removeAll()
             }
-            return state.listener
+            return [state.listener].compactMap(\.self) + state.machineListeners.values.map(\.listener)
         }
-        listener?.cancel()
+        for listener in listeners { listener.cancel() }
     }
 
     // MARK: Connections
 
-    private func accept(_ connection: NWConnection) {
+    private func accept(_ connection: NWConnection, localPort: UInt16, machineListener: Bool) {
         let admitted = state.withLock { state -> Bool in
             guard state.stats.open < Self.maxConnections else { return false }
             state.stats.open += 1
@@ -160,7 +218,7 @@ public final class RemoteLocalhostProxy: Sendable {
             connection.cancel()
             return
         }
-        ProxyConnection(client: connection, proxy: self).start()
+        ProxyConnection(client: connection, proxy: self, localPort: localPort, machineListener: machineListener).start()
     }
 
     func connectionEnded() {

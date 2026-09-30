@@ -12,11 +12,22 @@ final class ProxyConnection: Sendable {
 
     private let client: NWConnection
     private let proxy: RemoteLocalhostProxy
+    private let localPort: UInt16
+    private let machineListener: Bool
     private let deadline = DemandTimer(owner: "RemoteLocalhostProxy.head")
 
-    init(client: NWConnection, proxy: RemoteLocalhostProxy) {
+    init(client: NWConnection, proxy: RemoteLocalhostProxy, localPort: UInt16, machineListener: Bool) {
         self.client = client
         self.proxy = proxy
+        self.localPort = localPort
+        self.machineListener = machineListener
+    }
+
+    /// A machine listener's route when the peer is this app or its helpers.
+    private func trustedRoute() -> RemoteLocalhostProxy.Route? {
+        guard machineListener, case .hostPort(_, let peer) = client.endpoint,
+              PeerProcess.isTrusted(peerPort: peer.rawValue, localPort: localPort) else { return nil }
+        return proxy.route(forListenerPort: localPort)
     }
 
     func start() {
@@ -37,8 +48,9 @@ final class ProxyConnection: Sendable {
             return
         }
         deadline.cancel()
-        guard let route = proxy.route(forAuthorization: head.proxyAuthorization) else {
+        guard let route = trustedRoute() ?? proxy.route(forAuthorization: head.proxyAuthorization) else {
             proxy.count(\.unauthorized)
+            proxy.note("407 \(head.kind == .connect ? "CONNECT" : head.method) \(head.host):\(head.port) credential=\(head.proxyAuthorization == nil ? "none" : "wrong")")
             try? await client.sendAll(ProxyResponses.authenticationRequired)
             return
         }
@@ -79,11 +91,13 @@ final class ProxyConnection: Sendable {
             tunnel = try await route.opener.openTunnel(host: head.host, port: head.port)
         } catch {
             proxy.count(\.failures)
+            proxy.note("tunnel \(head.host):\(head.port) failed: \(error)")
             let page = ProxyErrorPage(host: head.host, port: head.port, machine: route.machineName, failure: error)
             try? await client.sendAll(head.kind == .forward ? page.response() : ProxyResponses.status(502, "Bad Gateway"))
             return
         }
         proxy.count(\.tunnels)
+        proxy.note("tunnel \(head.host):\(head.port) to \(route.machineName)")
         do {
             switch head.kind {
             case .connect:
@@ -160,6 +174,7 @@ final class ProxyConnection: Sendable {
         // page served by the remote machine cannot reach this Mac.
         if case .hostPort(let host, _)? = upstream.currentPath?.remoteEndpoint, Self.isLocalOnly(host) {
             proxy.count(\.refusedLocal)
+            proxy.note("refused \(head.host):\(head.port): resolves to this Mac")
             proxy.logger.info("remote-localhost refused \(head.host, privacy: .public): resolves to this Mac")
             try? await client.sendAll(ProxyResponses.status(403, "Forbidden"))
             return

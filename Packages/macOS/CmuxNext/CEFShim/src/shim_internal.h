@@ -93,9 +93,6 @@ CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_pat
 
 // Remote localhost (shim_proxy.mm). UI thread unless noted.
 void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& cache_path);
-// Any thread: the proxy credentials of cache_path's context for host:port.
-bool ContextProxyCredentials(const std::string& cache_path, const std::string& host, int port, std::string* username,
-                             std::string* password);
 bool IsLoopbackHost(const std::string& host);
 // True when a main-frame navigation of browser_id to url breaks its guard.
 bool NavigationViolatesGuard(int browser_id, const std::string& url);

@@ -104,20 +104,6 @@ class Client : public CefClient,
     return true;
   }
 
-  // IO thread. Answers only the app's own proxy of this browser's context.
-  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString&, bool isProxy, const CefString& host,
-                          int port, const CefString&, const CefString&, CefRefPtr<CefAuthCallback> callback) override {
-    if (!isProxy || !browser) return false;
-    CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
-    if (!context) return false;
-    std::string username, password;
-    if (!ContextProxyCredentials(context->GetCachePath().ToString(), host.ToString(), port, &username, &password)) {
-      return false;
-    }
-    callback->Continue(username, password);
-    return true;
-  }
-
   // MARK: Renderer process failures
 
   // The host shows its own "sad tab" in the pane and reloads from it; Chrome

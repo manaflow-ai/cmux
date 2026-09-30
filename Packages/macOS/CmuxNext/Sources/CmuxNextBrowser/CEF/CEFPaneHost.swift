@@ -115,7 +115,7 @@ final class CEFPaneHost {
             // A remote-localhost store: its context must use the proxy before
             // its first request, or localhost would reach this Mac.
             if let store = tab.machineStore,
-               shim.setContextProxy(cachePath.path, Int32(store.proxyPort), store.username, store.password) != 1
+               shim.setContextProxy(cachePath.path, Int32(store.proxyPort)) != 1
                 || shim.contextProxyState(cachePath.path) < 0 {
                 tab.creationFailed()
                 return

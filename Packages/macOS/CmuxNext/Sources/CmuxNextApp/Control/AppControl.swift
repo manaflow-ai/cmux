@@ -91,6 +91,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCEF.report(services))
             },
+            // Remote localhost proxy: port, counters, recent outcomes.
+            .mainActor("debug.remote-localhost") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(services.remoteLocalhost.report())
+            },
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }

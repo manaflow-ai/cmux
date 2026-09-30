@@ -7,51 +7,6 @@ import Foundation
 import Observation
 import os
 
-/// Which localhost a browser tab sees (plans/cmux-next/remote-localhost.md).
-enum RemoteLocalhostRoute: Equatable {
-    /// The tab's machine is this Mac.
-    case thisMac
-    /// The tab's machine is `machine`, and its localhost is forwarded.
-    case machine(String)
-    /// The tab's machine is `machine`, but localhost is this Mac: the badge
-    /// says so and names why.
-    case thisMacInstead(String, RemoteLocalhostFallback)
-
-    /// The remote machine's name, nil for this Mac.
-    var machineName: String? {
-        switch self {
-        case .thisMac: nil
-        case .machine(let name), .thisMacInstead(let name, _): name
-        }
-    }
-}
-
-/// Which store a Chromium page of a tab uses (remote-localhost.md section 3).
-enum RemoteLocalhostStorePlan: Equatable {
-    /// The browser profile's own store, with this navigation guard.
-    case profile(BrowserNavigationGuard)
-    /// The derived store (profile x machine) behind the proxy.
-    case derived
-
-    /// A remote machine's loopback URL gets the derived store; any other URL
-    /// of a remote tab stays in the profile's store and may not navigate to
-    /// loopback. Tabs of this Mac, and remote tabs whose localhost is this Mac
-    /// on purpose (update, turned off, WebKit), are unrestricted.
-    static func plan(route: RemoteLocalhostRoute, url: URL?) -> RemoteLocalhostStorePlan {
-        guard case .machine = route else { return .profile(.none) }
-        return url.map(LoopbackHost.isLoopback(url:)) == true ? .derived : .profile(.noLoopback)
-    }
-}
-
-enum RemoteLocalhostFallback: Equatable {
-    /// The machine's cmux-tui lacks `loopback-forward-v1`.
-    case updateMachine
-    /// `browser.remoteLocalhost` (or the workspace override) is off.
-    case turnedOff
-    /// WebKit tabs do not forward yet (stage 4).
-    case webKit
-}
-
 /// Remote localhost for browser tabs: decides each tab's route and store,
 /// owns the in-process proxy and one forwarding connection per machine.
 /// Nothing starts until a tab of a remote machine needs it.
@@ -60,7 +15,6 @@ final class RemoteLocalhostService {
     private let machines: MachineRegistry
     private let proxy = RemoteLocalhostProxy()
     private var clients: [ObjectIdentifier: LoopbackForwardClient] = [:]
-    private var starting: Task<UInt16?, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
     var setting: RemoteLocalhostSetting = .fallback
@@ -120,7 +74,12 @@ final class RemoteLocalhostService {
     func configuration(for tab: TabModel, url: URL?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration? {
         var configuration = base
         let route = route(for: tab, engine: .cef)
-        switch RemoteLocalhostStorePlan.plan(route: route, url: url) {
+        let plan = RemoteLocalhostStorePlan.plan(route: route, url: url)
+        if case .thisMac = route {} else {
+            plans[tab.id] = "\(plan) \(url?.host(percentEncoded: false) ?? "-")"
+            if plans.count > 256 { plans.removeAll() }
+        }
+        switch plan {
         case .profile(let guardMode):
             configuration.navigationGuard = guardMode
             return configuration
@@ -129,13 +88,17 @@ final class RemoteLocalhostService {
         }
         guard case .machine(let name) = route else { return configuration }
         let daemon = machines.daemon(forTab: tab)
-        let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID
-        guard let port = await proxyPort(), let registryID else { return nil }
+        guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
         let key = Self.machineKey(registryID: registryID)
         let opener = DaemonLoopbackOpener(client: daemon.isLocal ? debugClient(registryID) : client(for: daemon))
-        let credential = proxy.credential(for: key, route: .init(machineName: name, opener: opener))
-        configuration.machineStore = BrowserMachineStore(machineKey: key, machineName: name, proxyPort: port,
-                                                         username: credential.username, password: credential.password)
+        let port: UInt16
+        do {
+            port = try await proxy.listen(for: key, route: .init(machineName: name, opener: opener))
+        } catch {
+            logger.error("remote-localhost proxy for \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        configuration.machineStore = BrowserMachineStore(machineKey: key, machineName: name, proxyPort: port)
         configuration.navigationGuard = .loopbackOnly
         return configuration
     }
@@ -197,6 +160,9 @@ final class RemoteLocalhostService {
     }
 
     private var debugClients: [String: LoopbackForwardClient] = [:]
+    /// The last store plan per tab id (`debug.remote-localhost`), bounded by
+    /// the number of Chromium pages created this session.
+    private var plans: [String: String] = [:]
 
     private func debugClient(_ socket: String) -> LoopbackForwardClient {
         if let client = debugClients[socket] { return client }
@@ -205,38 +171,23 @@ final class RemoteLocalhostService {
         return client
     }
 
-    private func proxyPort() async -> UInt16? {
-        if let port = proxy.port { return port }
-        if let starting { return await starting.value }
-        let proxy = proxy, logger = logger
-        let task = Task<UInt16?, Never> {
-            do {
-                return try await proxy.start()
-            } catch {
-                logger.error("remote-localhost proxy failed to start: \(String(describing: error), privacy: .public)")
-                return nil
-            }
-        }
-        starting = task
-        defer { starting = nil }
-        return await task.value
-    }
-
-    /// Counters and open streams (`debug.remote-localhost`).
-    func diagnostics() async -> [String: Any] {
-        var streams = 0
-        for client in clients.values { streams += await client.openStreamCount }
+    /// Proxy port, counters and recent outcomes (`debug.remote-localhost`).
+    func report() -> CmuxNextSettings.JSONValue {
+        typealias JSONValue = CmuxNextSettings.JSONValue
         let stats = proxy.stats
-        return [
-            "port": proxy.port.map(Int.init) as Any,
-            "enabled": setting.enabled,
-            "machines": clients.count,
-            "open_streams": streams,
-            "proxy": [
-                "accepted": stats.accepted, "unauthorized": stats.unauthorized, "tunnels": stats.tunnels,
-                "direct": stats.direct, "refused_local": stats.refusedLocal, "failures": stats.failures, "open": stats.open,
-            ],
+        let counters: [String: Int] = [
+            "accepted": stats.accepted, "unauthorized": stats.unauthorized, "tunnels": stats.tunnels,
+            "direct": stats.direct, "refused_local": stats.refusedLocal, "failures": stats.failures, "open": stats.open,
         ]
+        return .object([
+            "ports": .object(proxy.machinePorts.mapValues { .number(Double($0)) }),
+            "enabled": .bool(setting.enabled),
+            "machines": .number(Double(clients.count + debugClients.count)),
+            "debug_socket": debugSocket.map(JSONValue.string) ?? .null,
+            "proxy": .object(counters.mapValues { .number(Double($0)) }),
+            "recent": .array(proxy.recentEvents.map(JSONValue.string)),
+            "plans": .object(plans.mapValues(JSONValue.string)),
+        ])
     }
 
     func shutdown() async {

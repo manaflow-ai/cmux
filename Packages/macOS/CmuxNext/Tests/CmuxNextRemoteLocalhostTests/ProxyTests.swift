@@ -68,6 +68,39 @@ import Testing
         #expect(try await RawClient.exchange(port: port, Data(connect.utf8)).hasPrefix("HTTP/1.1 502 "))
     }
 
+    @Test func aMachineListenerTrustsThisProcessWithoutACredential() async throws {
+        let server = try await TestServer.start(mode: .echo)
+        defer { server.stop() }
+        let proxy = RemoteLocalhostProxy()
+        defer { proxy.stop() }
+        let port = try await proxy.listen(for: "m", route: .init(machineName: "build-box", opener: TCPOpener()))
+        #expect(try await proxy.listen(for: "m", route: .init(machineName: "build-box", opener: TCPOpener())) == port)
+        // The test process is "this app": no Proxy-Authorization needed.
+        let reply = try await RawClient.exchange(port: port, Data("CONNECT localhost:\(server.port) HTTP/1.1\r\n\r\n".utf8),
+                                                 then: Data("hello".utf8), until: "hello")
+        #expect(reply.hasPrefix("HTTP/1.1 200 Connection Established\r\n\r\n"))
+        #expect(reply.hasSuffix("hello"))
+        // A page cannot send proxy form; origin form is refused.
+        let direct = try await RawClient.exchange(port: port, Data("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".utf8))
+        #expect(direct.hasPrefix("HTTP/1.1 400 "))
+    }
+
+    @Test func peerProcessesAreMatchedBySocketOwner() async throws {
+        let proxy = RemoteLocalhostProxy()
+        defer { proxy.stop() }
+        let port = try await proxy.listen(for: "m", route: .init(machineName: "build-box", opener: FailingOpener(.refused)))
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        defer { connection.cancel() }
+        #expect(await connection.ready(on: DispatchQueue(label: "test.peer")))
+        guard case .hostPort(_, let local)? = connection.currentPath?.localEndpoint else {
+            Issue.record("no local endpoint")
+            return
+        }
+        #expect(PeerProcess.isTrusted(peerPort: local.rawValue, localPort: port))
+        #expect(!PeerProcess.isTrusted(peerPort: local.rawValue, localPort: port, candidates: [1]), "launchd does not own it")
+        #expect(!PeerProcess.isTrusted(peerPort: local.rawValue &+ 1, localPort: port))
+    }
+
     @Test func directDestinationsThatResolveToThisMacAreRefused() async throws {
         let server = try await TestServer.start(mode: .echo)
         defer { server.stop() }

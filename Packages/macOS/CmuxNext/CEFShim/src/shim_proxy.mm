@@ -18,13 +18,11 @@ namespace {
 
 struct ContextProxy {
   int port = 0;
-  std::string username;
-  std::string password;
   // 0 none, 1 pending, 2 applied, -1 failed.
   int state = 0;
 };
 
-// Read on the IO thread (GetAuthCredentials), written on the UI thread.
+// Written on the UI thread; read from the host's calls (UI thread).
 std::mutex& proxy_mutex() {
   static std::mutex mutex;
   return mutex;
@@ -153,31 +151,19 @@ void ApplyContextProxy(CefRefPtr<CefRequestContext> context, const std::string& 
   if (it != proxies().end()) it->second.state = ok ? 2 : -1;
 }
 
-bool ContextProxyCredentials(const std::string& cache_path, const std::string& host, int port, std::string* username,
-                             std::string* password) {
-  std::lock_guard<std::mutex> lock(proxy_mutex());
-  auto it = proxies().find(cache_path);
-  if (it == proxies().end() || it->second.port != port || (host != "127.0.0.1" && host != "localhost")) return false;
-  *username = it->second.username;
-  *password = it->second.password;
-  return true;
-}
-
 }  // namespace cmux_shim
 
 using namespace cmux_shim;
 
 extern "C" {
 
-int cmux_shim_set_context_proxy(const char* profile_cache_path, int port, const char* username, const char* password) {
-  if (!profile_cache_path || !*profile_cache_path || port <= 0 || port > 65535 || !username || !password) return 0;
+int cmux_shim_set_context_proxy(const char* profile_cache_path, int port) {
+  if (!profile_cache_path || !*profile_cache_path || port <= 0 || port > 65535) return 0;
   std::string path = profile_cache_path;
   {
     std::lock_guard<std::mutex> lock(proxy_mutex());
     ContextProxy& proxy = proxies()[path];
     proxy.port = port;
-    proxy.username = username;
-    proxy.password = password;
     proxy.state = 1;
   }
   // A context created earlier this launch gets it now; a new one gets it

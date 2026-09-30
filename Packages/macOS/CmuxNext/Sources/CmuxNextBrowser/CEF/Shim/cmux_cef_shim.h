@@ -304,10 +304,9 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int
 // Remote localhost (plans/cmux-next/remote-localhost.md). Call before the
 // first window with profile_cache_path each launch: that request context
 // sends every request (loopback included) to the app's proxy at
-// 127.0.0.1:port and answers the proxy's challenge (and only it) with
-// username/password. Returns 1 when stored.
-CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port, const char* username,
-                                                 const char* password);
+// 127.0.0.1:port, which accepts only this app's processes. Returns 1 when
+// stored.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port);
 // 2 applied to the request context, 1 pending (not initialized yet),
 // 0 none, -1 Chromium refused the preference.
 CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);

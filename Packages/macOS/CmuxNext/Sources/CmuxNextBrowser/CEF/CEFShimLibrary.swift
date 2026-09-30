@@ -114,7 +114,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
 
     // Remote localhost (plans/cmux-next/remote-localhost.md).
-    let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
 

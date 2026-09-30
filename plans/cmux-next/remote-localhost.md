@@ -117,15 +117,26 @@ bottleneck for dev-server traffic.
 ## 5. App transport (stage 2)
 
 Chromium's network service runs in a helper process, so bytes must leave it
-through a proxy. Chromium has no Unix-socket proxy on macOS, so the proxy is a
-**127.0.0.1 listener on a random port inside the app process**, with a
-**per-launch secret**:
+through a proxy. Chromium has no Unix-socket proxy on macOS, so the proxy is
+**one 127.0.0.1 listener per machine on a random port inside the app
+process**, authenticated by **the peer process**:
 
-- One listener; each derived store gets its own random user name (the route to
-  one machine) and the launch secret as password. The shim answers Chromium's
-  proxy authentication (`GetAuthCredentials`, `isProxy`) with them, only for
-  the app's own proxy host and port. Other local users and processes get
-  `407`. A page cannot set `Proxy-Authorization` (a forbidden header).
+- The derived store's proxy setting names its machine's listener, so the
+  port is the route. A connection is accepted only when the kernel reports
+  that this app's process or one of its child processes (the Chromium
+  helpers) owns the peer socket (`PeerProcess`, libproc). Other users' and
+  other apps' processes are refused.
+- Why not proxy credentials: Chrome-style CEF never calls
+  `CefRequestHandler::GetAuthCredentials` for a proxy challenge (verified live
+  on 2026-09-30: every request arrived without `Proxy-Authorization` and the
+  handler never ran), so a per-launch secret cannot reach Chromium without a
+  fork patch. The proxy keeps a credential listener (`start`, a random user
+  name per machine plus a per-launch secret) for clients that can answer a
+  challenge, such as WebKit's `ProxyConfiguration` later.
+- A page in any store cannot use a machine listener directly: its own fetch
+  to `127.0.0.1:<port>` arrives in origin form, which the proxy refuses (only
+  `CONNECT` and absolute-form requests are proxied), and fetch cannot send
+  `CONNECT`.
 - The derived request context sets `proxy = {mode: fixed_servers, server:
   http://127.0.0.1:<port>, bypass_list: "<-loopback>"}`, so Chromium sends
   loopback destinations to the proxy too (it bypasses them by default) and
@@ -146,8 +157,8 @@ through a proxy. Chromium has no Unix-socket proxy on macOS, so the proxy is a
 
 A CEF fork hook (a network interceptor or a custom URLLoaderFactory for these
 hosts) would remove the listener. It is not needed for correctness with the
-secret and the guard, costs a fork patch per Chromium upgrade, and is recorded
-as a follow-up for the fork owner.
+peer-process check and the guard, costs a fork patch per Chromium upgrade, and
+is recorded as a follow-up for the fork owner.
 
 ## 6. UI (stage 3)
 
@@ -189,16 +200,15 @@ controls. The remote side can never open a stream toward this Mac.
   the client opts in and can be turned off per machine.
 - **Local-state exposure.** The remote learns only what a browser sends to a
   localhost origin in the derived store: no cookies of other stores, no app
-  state, no proxy secret (the proxy strips `Proxy-Authorization`). The proxy
-  secret never leaves the app process and the CEF network helper.
+  state (the proxy strips `Proxy-Authorization` and other proxy fields).
 - **Buggy client.** The daemon refuses non-loopback targets, DNS names other
   than `localhost`, denied ports, oversized frames and window violations,
   whatever the client sends.
-- **Malicious page.** It cannot choose the machine (section 1), cannot set proxy
-  credentials, cannot use DNS rebinding to reach either loopback, and cannot
-  read another machine's localhost storage.
+- **Malicious page.** It cannot choose the machine (section 1), cannot speak
+  proxy form to a machine listener, cannot use DNS rebinding to reach either
+  loopback, and cannot read another machine's localhost storage.
 - **Tabs of different machines** use different stores and different proxy
-  routes; a route user name maps to exactly one machine.
+  routes; a machine listener port maps to exactly one machine.
 
 ## 9. Code, verification and open items
 
@@ -207,9 +217,13 @@ controls. The remote side can never open a stream toward this Mac.
 | Daemon channel | `cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs` (+ `_tests.rs`), lanes in `cmux-remote/src/mux_lanes.rs`, config in `cmux-tui/src/config.rs` |
 | Daemon client | `CmuxNextDaemon/Loopback/` (`LoopbackForwardClient`, `LoopbackStream`) |
 | Proxy | `CmuxNextRemoteLocalhost` (`RemoteLocalhostProxy`, `ProxyConnection`, `LoopbackHost`) |
-| Chromium | shim `CEFShim/src/shim_proxy.mm` (context proxy, `GetAuthCredentials`, navigation guard), `BrowserMachineStore`, `CEFProfileStorage.cachePath(for:machineKey:)` |
+| Chromium | shim `CEFShim/src/shim_proxy.mm` (context proxy, navigation guard), `BrowserMachineStore`, `CEFProfileStorage.cachePath(for:machineKey:)` |
 | App | `CmuxNextApp/RemoteLocalhost/` (route, store plan, badges), `TabContentCache.reroute` |
 | Settings | `browser.remoteLocalhost`, `browser.remoteLocalhostWorkspaces` (`CmuxNextSettings/RemoteLocalhostSetting.swift`) |
+
+`debug.remote-localhost` on the app socket reports the machine listener
+ports, counters, the last 32 proxy outcomes and the store plan of each
+remote tab.
 
 Verification harness: `RemoteLocalhostLiveTests` (skipped unless
 `CMUX_RL_LIVE_SOCKET` names a cmux-tui socket) runs a node script through the
@@ -223,12 +237,14 @@ second daemon without a Cloud machine.
 Open items:
 - The first request of a new derived store: the shim sets the proxy
   preference in `OnRequestContextInitialized`, before CEF creates the store's
-  first browser. If Chromium ever created the network context before that, the
-  first request could go direct; the navigation guard does not cover it. A fork
-  hook (proxy config at context creation) would close this for certain.
-- Proxy authentication without a browser (a service worker's first request
-  before any page authenticated) gets no credentials from `GetAuthCredentials`.
-  Chromium reuses the credentials a page already answered for the same store.
+  first browser, and Chromium persists it in the store's `Preferences`. In
+  the live check the very first request of a new store reached the proxy. If
+  Chromium ever created the network context before the preference, the first
+  request could go direct; a fork hook (proxy config at context creation)
+  would close this for certain.
+- Peer-process trust means any process this app spawns (a terminal shell is
+  a child of the daemon, not of the app, so it is not trusted) could use a
+  machine listener. Only Chromium and WebKit helpers are app children today.
 - WebKit (section 7).
 - Deleting a browser profile must also delete its derived stores.
 - Cloud machines get `loopback-forward-v1` only after their image's cmux-tui is
