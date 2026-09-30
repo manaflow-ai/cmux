@@ -27,6 +27,10 @@ final class TerminalAgentKeyHintPointerState {
     var toolTipTag: NSView.ToolTipTag?
     /// Tooltip owners are not retained by AppKit.
     var toolTipText: NSString?
+    /// Reused at-rest marker overlays, one per detected span.
+    var restMarkerViews: [GhosttyFlashOverlayView] = []
+    var restViewport: TerminalAgentKeyHintViewportState?
+    var restRowsHash: UInt64?
 
     init(
         delay: TimeInterval = NSEvent.doubleClickInterval,

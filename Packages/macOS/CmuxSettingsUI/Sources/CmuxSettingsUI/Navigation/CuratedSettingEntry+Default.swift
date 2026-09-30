@@ -219,6 +219,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["agentActions.keyHints"],
                 synonyms: "agentActions.keyHints agent actions key hints clickable keys shortcuts ctrl+o expand shift+tab cycle esc interrupt click press claude code codex opencode"
             ),
+            .init(
+                section: .terminal,
+                id: "agent-key-hint-rest-style",
+                title: String(localized: "settings.agentActions.keyHintRestStyle", defaultValue: "Agent Key Hint At-Rest Marker"),
+                detailText: String(localized: "settings.agentActions.keyHintRestStyle.subtitle", defaultValue: "Choose how clickable hints are marked before you point at them. None keeps hover-only behavior."),
+                paths: ["agentActions.keyHintRestStyle"],
+                synonyms: "agentActions.keyHintRestStyle key hints rest marker dotted underline none hover"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,

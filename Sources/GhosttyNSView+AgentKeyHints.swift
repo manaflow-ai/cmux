@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -213,6 +214,7 @@ extension GhosttyNSView {
     /// changes or the viewport under a shown hint changed. Does nothing while
     /// the setting is off or the pane runs no agent.
     func updateAgentKeyHintHover(at point: NSPoint) {
+        updateAgentKeyHintRestMarkers()
         guard TerminalPanel.agentKeyHintsEnabled, let cell = agentKeyHintCell(at: point) else {
             clearAgentKeyHintHover()
             return
@@ -273,6 +275,104 @@ extension GhosttyNSView {
                 needsCommand: ghostty_surface_mouse_captured(surface)
             )
         )
+    }
+
+    /// Paints calm markers for clickable spans in the live region. The
+    /// viewport and row hash gate keeps this off the typing path and avoids
+    /// rebuilding overlays when Ghostty re-renders identical content.
+    func updateAgentKeyHintRestMarkers() {
+        let state = agentKeyHintPointer
+        let style = AgentActionsCatalogSection().keyHintRestStyle.value(in: .standard)
+        guard TerminalPanel.agentKeyHintsEnabled,
+              style != .none,
+              isVisibleInUI,
+              let surface = terminalSurface?.surface,
+              let panel = agentKeyHintPanel(),
+              let agent = panel.agentKeyHintAgent,
+              let viewport = agentKeyHintViewportState(surface),
+              let firstRow = viewport.liveRegion.firstRow else {
+            hideAgentKeyHintRestMarkers()
+            return
+        }
+        let lastRow = min(viewport.rows - 1, viewport.cursorRow! + 1)
+        let rows = (firstRow...lastRow).compactMap { row -> (row: Int, text: String)? in
+            guard let text = terminalSurface?.readText(region: .viewportRow(row, columns: viewport.columns)) else { return nil }
+            return (row, text)
+        }
+        var hash: UInt64 = 1469598103934665603
+        for row in rows {
+            hash ^= UInt64(row.row)
+            hash &*= 1099511628211
+            for byte in row.text.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1099511628211
+            }
+        }
+        guard state.restViewport != viewport || state.restRowsHash != hash else { return }
+        state.restViewport = viewport
+        state.restRowsHash = hash
+        let spanStyle: AgentKeyHintRestSpanStyle = style == .dotted ? .dotted : .underline
+        let spans = agentKeyHintRestSpans(
+            rows: rows,
+            agent: agent,
+            viewportAtBottom: viewport.liveRegion.firstRow != nil,
+            cursorRow: viewport.cursorRow,
+            style: spanStyle
+        )
+        guard let geometry = agentKeyHintGeometry() else { return }
+        for (index, span) in spans.enumerated() {
+            let view: GhosttyFlashOverlayView
+            if index < state.restMarkerViews.count {
+                view = state.restMarkerViews[index]
+            } else {
+                view = GhosttyFlashOverlayView(frame: .zero)
+                view.wantsLayer = true
+                addSubview(view, positioned: .above, relativeTo: nil)
+                state.restMarkerViews.append(view)
+            }
+            let x = geometry.xInset + CGFloat(span.columns.lowerBound) * geometry.cellWidth
+            let y = bounds.height - geometry.yInset - CGFloat(span.row + 1) * geometry.cellHeight + 1
+            view.frame = NSRect(x: x, y: y, width: CGFloat(span.columns.count) * geometry.cellWidth, height: 2)
+            configureAgentKeyHintRestMarker(view, style: span.style)
+            view.isHidden = false
+        }
+        for view in state.restMarkerViews.dropFirst(spans.count) { view.isHidden = true }
+    }
+
+    private func configureAgentKeyHintRestMarker(
+        _ view: GhosttyFlashOverlayView,
+        style: AgentKeyHintRestSpanStyle
+    ) {
+        let tint = NSColor.linkColor.withAlphaComponent(style == .dotted ? 0.42 : 0.28)
+        guard style == .dotted else {
+            view.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+            view.layer?.backgroundColor = tint.cgColor
+            return
+        }
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        let line: CAShapeLayer
+        if let existing = view.layer?.sublayers?.first as? CAShapeLayer {
+            line = existing
+        } else {
+            line = CAShapeLayer()
+            view.layer?.addSublayer(line)
+        }
+        line.frame = view.bounds
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 0.5))
+        path.addLine(to: CGPoint(x: view.bounds.width, y: 0.5))
+        line.path = path
+        line.strokeColor = tint.cgColor
+        line.fillColor = NSColor.clear.cgColor
+        line.lineWidth = 1
+        line.lineDashPattern = [1, 2]
+    }
+
+    private func hideAgentKeyHintRestMarkers() {
+        let state = agentKeyHintPointer
+        state.restViewport = nil
+        state.restRowsHash = nil
+        for view in state.restMarkerViews { view.isHidden = true }
     }
 
     /// Hides any hint hover and cancels an unreleased press. A completed click

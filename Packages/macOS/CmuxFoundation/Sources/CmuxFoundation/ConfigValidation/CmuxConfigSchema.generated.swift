@@ -1549,8 +1549,14 @@ enum CmuxEmbeddedConfigSchema {
         },
         "keyHints": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Make key hints that Claude Code, Codex, or OpenCode prints in a terminal, like `ctrl+o to expand`, clickable. A click sends those keys to the agent; when the agent has captured the mouse, Command-click instead. Keys that quit or signal (ctrl+c, ctrl+d, ctrl+z) are never clickable."
+        },
+        "keyHintRestStyle": {
+          "type": "string",
+          "enum": ["dotted", "underline", "none"],
+          "default": "dotted",
+          "description": "At-rest marker style for clickable agent hints. Dotted is calm, underline is stronger, and none keeps hover-only behavior."
         }
       }
     },

@@ -7337,6 +7337,76 @@
           }
         }
       }
+    },
+    "settings.agentActions.keyHintRestStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Key Hint At-Rest Marker"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Marker für Agenten-Key-Hinweise"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Marqueur au repos des touches d’agent"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "علامة تلميح مفتاح الوكيل الساكن"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Marcador en reposo de las teclas del agente"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理按鍵提示靜止標記"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理按键提示静止标记"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 키 힌트 대기 마커"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントキーヒント待機マーカー"}}
+      }
+    },
+    "settings.agentActions.keyHintRestStyle.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choose how clickable hints are marked before you point at them. None keeps hover-only behavior."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wähle, wie klickbare Hinweise markiert werden, bevor du darauf zeigst. Keine Markierung behält das Verhalten nur beim Überfahren bei."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisissez le marquage des indications cliquables avant de les survoler. Aucun conserve le comportement au survol uniquement."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اختر كيفية تمييز التلميحات القابلة للنقر قبل الإشارة إليها. يحافظ خيار بلا علامة على السلوك عند التمرير فقط."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elige cómo marcar las indicaciones clicables antes de señalarlas. Ninguno mantiene el comportamiento solo al pasar el cursor."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇指向提示前要如何標記可點擊提示。選擇無標記可維持僅在指向時顯示的行為。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择指向提示前如何标记可点击提示。选择无标记可保持仅悬停时显示的行为。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "가리키기 전에 클릭 가능한 힌트를 표시할 방법을 선택합니다. 없음은 마우스를 올릴 때만 표시합니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ポイントする前にクリック可能なヒントを示す方法を選びます。「なし」はホバー時のみ表示します。"}}
+      }
+    },
+    "settings.agentActions.keyHintRestStyle.dotted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dotted"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gepunktet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pointillé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "منقط"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Punteado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "點線"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "点线"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "점선"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "点線"}}
+      }
+    },
+    "settings.agentActions.keyHintRestStyle.underline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Underline"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Unterstrichen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Souligné"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تحته خط"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Subrayado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "底線"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "下划线"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "밑줄"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "下線"}}
+      }
+    },
+    "settings.agentActions.keyHintRestStyle.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "None"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Keine"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucun"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "بلا"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ninguno"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "なし"}}
+      }
     }
   },
   "version": "1.0"

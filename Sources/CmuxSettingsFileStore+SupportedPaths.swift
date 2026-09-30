@@ -68,6 +68,7 @@ extension CmuxSettingsFileStore {
         "terminal.uploadCommands",
         "agentActions.turnControl",
         "agentActions.keyHints",
+        "agentActions.keyHintRestStyle",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

@@ -17,8 +17,15 @@ public struct AgentActionsCatalogSection: SettingCatalogSection {
     /// to the agent. Off by default while the hints are dogfooded.
     public let keyHints = DefaultsKey<Bool>(
         id: "agentActions.keyHints",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "agentActionsKeyHintsEnabled"
+    )
+
+    /// At-rest marker style for detected clickable hints.
+    public let keyHintRestStyle = DefaultsKey<AgentKeyHintRestStyle>(
+        id: "agentActions.keyHintRestStyle",
+        defaultValue: .dotted,
+        userDefaultsKey: "agentActionsKeyHintRestStyle"
     )
 
     public init() {}

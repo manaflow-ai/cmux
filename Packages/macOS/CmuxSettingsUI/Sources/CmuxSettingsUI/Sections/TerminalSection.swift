@@ -30,6 +30,7 @@ public struct TerminalSection: View {
     @State private var passwordInputDots: DefaultsValueModel<Bool>
     @State private var agentTurnControl: DefaultsValueModel<Bool>
     @State private var agentKeyHints: DefaultsValueModel<Bool>
+    @State private var agentKeyHintRestStyle: DefaultsValueModel<AgentKeyHintRestStyle>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -64,6 +65,7 @@ public struct TerminalSection: View {
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
         _agentTurnControl = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.turnControl))
         _agentKeyHints = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.keyHints))
+        _agentKeyHintRestStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentActions.keyHintRestStyle))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -107,6 +109,7 @@ public struct TerminalSection: View {
             passwordInputDots,
             agentTurnControl,
             agentKeyHints,
+            agentKeyHintRestStyle,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -275,6 +278,22 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             TerminalThemeSettingsRows(hostActions: hostActions)
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("agentActions.keyHintRestStyle"),
+                String(localized: "settings.agentActions.keyHintRestStyle", defaultValue: "Agent Key Hint At-Rest Marker"),
+                subtitle: String(localized: "settings.agentActions.keyHintRestStyle.subtitle", defaultValue: "Choose how clickable hints are marked before you point at them. None keeps hover-only behavior."),
+                controlWidth: 150
+            ) {
+                Picker("", selection: Binding(get: { agentKeyHintRestStyle.current }, set: { agentKeyHintRestStyle.set($0) })) {
+                    Text(String(localized: "settings.agentActions.keyHintRestStyle.dotted", defaultValue: "Dotted")).tag(AgentKeyHintRestStyle.dotted)
+                    Text(String(localized: "settings.agentActions.keyHintRestStyle.underline", defaultValue: "Underline")).tag(AgentKeyHintRestStyle.underline)
+                    Text(String(localized: "settings.agentActions.keyHintRestStyle.none", defaultValue: "None")).tag(AgentKeyHintRestStyle.none)
+                }
+                .labelsHidden()
+                .frame(width: 140)
+                .accessibilityIdentifier("SettingsAgentActionsKeyHintRestStylePicker")
+            }
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,

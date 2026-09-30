@@ -5324,6 +5324,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // The final deferred snapshot rejects a real grid change. Merely being
         // asked to lay out again must not drop a completed click.
         clearAgentKeyHintHover()
+        updateAgentKeyHintRestMarkers()
         // A portal-owned view is sized by the portal's commit; only a view
         // that AppKit lays out directly publishes its own bounds.
         _ = commitOwnBounds()

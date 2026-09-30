@@ -139,8 +139,9 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().agentActions.turnControl.defaultValue)
     }
 
-    @Test func agentKeyHintsDefaultOff() {
-        #expect(!SettingCatalog().agentActions.keyHints.defaultValue)
+    @Test func agentKeyHintsDefaultOn() {
+        #expect(SettingCatalog().agentActions.keyHints.defaultValue)
+        #expect(SettingCatalog().agentActions.keyHintRestStyle.defaultValue == .dotted)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

@@ -215,6 +215,13 @@ enum AppSettingsFileMapping {
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
         .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
+
+    static let stringSettings: [SettingsFileStringMapping] = [
+        .init(
+            jsonKey: "keyHintRestStyle",
+            defaultsKey: agentActions.keyHintRestStyle.userDefaultsKey
+        ),
+    ]
 }
 
 enum NotificationSettingsFileMapping {

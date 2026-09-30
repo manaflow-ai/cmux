@@ -183,7 +183,8 @@ Clickable agent actions, one toggle per category.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `agentActions.turnControl` | boolean | `false` | Show a Stop button over a terminal while Claude Code or Codex is working on a turn. Clicking it sends Escape, the agent's own interrupt key, and marks the turn stopped. |
-| `agentActions.keyHints` | boolean | `false` | Make key hints that Claude Code, Codex, or OpenCode prints in a terminal, like `ctrl+o to expand`, clickable. A click sends those keys to the agent; when the agent has captured the mouse, Command-click instead. Keys that quit or signal (ctrl+c, ctrl+d, ctrl+z) are never clickable. |
+| `agentActions.keyHints` | boolean | `true` | Make key hints that Claude Code, Codex, or OpenCode prints in a terminal, like `ctrl+o to expand`, clickable. A click sends those keys to the agent; when the agent has captured the mouse, Command-click instead. Keys that quit or signal (ctrl+c, ctrl+d, ctrl+z) are never clickable. |
+| `agentActions.keyHintRestStyle` | string (`dotted`, `underline`, `none`) | `dotted` | Marker shown at rest on clickable hints in live agent rows. `none` keeps the hover-only behavior. |
 
 ## browser
 

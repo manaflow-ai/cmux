@@ -15,6 +15,13 @@ struct TerminalAgentKeyHintTests {
     private let expandLine = "  ⎿  … +53 lines (ctrl+o to expand)"
 
     @Test
+    func keyHintsAreLiveByDefault() {
+        setting.removeValue(in: .standard)
+        #expect(setting.value(in: .standard))
+        #expect(AgentActionsCatalogSection().keyHintRestStyle.value(in: .standard) == .dotted)
+    }
+
+    @Test
     func clickOnAHintInAnAgentPaneSendsItsKey() throws {
         let fixture = try makeWorkspaceFixture()
         defer { closeWindow(fixture.windowID) }
