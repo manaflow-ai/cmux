@@ -52,6 +52,8 @@ export const STRESS = {
   "text-2m": { path: "/stress/stress.html?kind=text&n=2000000" },
   "select-5k": { path: "/stress/stress.html?kind=select&n=5000" },
   "virtual-100k": { path: "/stress/stress.html?kind=virtual&n=100000" },
+  // Three nested frames of alternating origins and a srcdoc frame.
+  "nested-frames": { path: "/nest-top.html", settle: 1000 },
 };
 export const CORPUS = ["wikipedia", "hackernews", "github", "mdn", "mdn-iframe", "npr", "bbc", "books", "vercel"];
 export const LIVE = {

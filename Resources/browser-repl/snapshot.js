@@ -927,10 +927,23 @@
       }
     };
     collect(r.nodes);
+    // All iframes of this frame resolve to their frames in one driver call
+    // (frame.contentFrames); a driver without it answers per iframe.
+    const handles = iframes.map((n) => n.frame).filter(Boolean);
+    let batch = null;
+    if (handles.length && page._batchContentFrames !== false) {
+      try {
+        const found = await limit(() => withDeadline(page, frame._session.call("frame.contentFrames", { targetId: page._targetId, frameId: frame._id || undefined, elements: handles }), options._frameTimeout));
+        batch = new Map(handles.map((h, i) => [h, found[i] && found[i].frameId ? page._frameFor(found[i].frameId, frame) : null]));
+      } catch (e) {
+        if (e && e.code === "unsupported") page._batchContentFrames = false;
+      }
+    }
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {
-        child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
+        if (batch) child = batch.get(node.frame) || null;
+        else child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
         if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };

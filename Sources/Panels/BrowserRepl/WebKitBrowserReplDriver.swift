@@ -128,6 +128,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "frame.evaluate": return try await evaluate(params)
         case "frame.ownerBox": return try await ownerBox(params)
         case "frame.contentFrame": return try await contentFrame(params)
+        case "frame.contentFrames": return try await contentFrames(params)
         case "input.mouse": return try await mouse(params)
         case "input.key": return try await key(params)
         case "input.insertText": return try await insertText(params)
@@ -984,6 +985,47 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             return nil
         }
         return ["frameId": child.frameID]
+    }
+
+    /// The child frames of many `<iframe>` handles of one frame, in one
+    /// call: one evaluation maps every handle to its index in
+    /// `window.frames`, and one tree read (shared with concurrent callers)
+    /// maps indexes to frames. A page of 300 iframes needed 300 calls.
+    /// Returns one `{ frameId }` or `null` per handle, in order.
+    @MainActor
+    private func contentFrames(_ params: [String: Any]) async throws -> Any? {
+        let panel = try panel(params)
+        let frame = try await frame(panel, params)
+        let elements = params["elements"] as? [String] ?? []
+        if elements.isEmpty { return [Any]() }
+        let body = Self.evaluationBody(
+            source: """
+            (...els) => {
+              const index = new Map();
+              for (let i = 0; i < window.frames.length; i++) index.set(window.frames[i], i);
+              return els.map((el) => {
+                const w = el && el.contentWindow;
+                return w && index.has(w) ? index.get(w) : -1;
+              });
+            }
+            """,
+            requiresAgent: true,
+            elementsExpression: "__handles.map((h) => { try { return __agent.element(h); } catch { return null; } })"
+        )
+        let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: elements)
+        guard let text = (raw as? BrowserReplRawJSON)?.text,
+              let data = text.data(using: .utf8),
+              let indexes = (try? JSONSerialization.jsonObject(with: data)) as? [NSNumber] else {
+            return elements.map { _ in NSNull() }
+        }
+        let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+        let parentID = frame.info == nil ? frames.first?.frameID : frame.frameID
+        var childAt: [Int: String] = [:]
+        for child in frames where child.parentFrameID == parentID { childAt[child.indexInParent] = child.frameID }
+        return indexes.map { number -> Any in
+            guard let id = childAt[number.intValue] else { return NSNull() }
+            return ["frameId": id]
+        }
     }
 
     // MARK: - Input
