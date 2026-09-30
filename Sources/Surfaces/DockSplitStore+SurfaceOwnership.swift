@@ -14,17 +14,22 @@ extension DockSplitStore {
         return surfaceOwnershipPolicy.rejection(for: nil) == nil
     }
 
-    func surfaceDropRejection(_ transfer: PaneDragTransfer, source: PaneTransferSourceResolver.Source) -> SurfaceTransferRejection? {
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source,
+        policy: SurfaceOwnershipPolicy? = nil
+    ) -> SurfaceTransferRejection? {
+        let ownershipPolicy = policy ?? surfaceOwnershipPolicy
         switch source {
         case .surfaceResources(let group):
-            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: ownershipPolicy)
         case .surface:
-            guard transfer.isFromCurrentProcess else { return surfaceOwnershipPolicy.rejection(for: nil) }
+            guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
             // A Dock surface split or reordered within this Dock stays on its machine.
             if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
-            return surfaceOwnershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            return ownershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
-            return surfaceOwnershipPolicy.rejection(for: .local)
+            return ownershipPolicy.rejection(for: .local)
         }
     }
 

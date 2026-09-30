@@ -26,7 +26,10 @@ struct CloudSurfaceMoveOwnershipTests {
         let tab = try #require(dock.surfaceId(forPanelId: panel))
         let processID = Int32(ProcessInfo.processInfo.processIdentifier)
         let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id, sourceProcessId: processID)
-        #expect(dock.surfaceDropRejection(transfer, source: .surface) == nil)
+        let policy = SurfaceOwnershipPolicy(cloudMachine: .cloud("cloud-a"))
+        #expect(dock.surfaceDropRejection(transfer, source: .surface, policy: policy) == nil)
+        let unmappedTransfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: pane.id, sourceProcessId: processID)
+        #expect(dock.surfaceDropRejection(unmappedTransfer, source: .surface, policy: policy) == .cloudMachineMismatch)
         #expect(dock.machineOwningSurface(panel) == .local)
     }
 
