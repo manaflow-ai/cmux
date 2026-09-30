@@ -253,6 +253,9 @@ def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
             run.quit_app()
         run.launch(warm_daemon=daemon == "warm")
         metrics["launch.key_echo_ms"] = run.key_echo_ms()
+        # CMUX_NEXT_NO_ACTIVATE=1: the launch must never become the active app.
+        focus = run.result("debug.focus")
+        metrics["launch.stole_focus"] = int(bool(focus.get("app_active")) or focus.get("key_window") is not None)
         run.wait_launch_settled()
         timings = run.result("debug.timings")
         launch = timings.get("launch_ms_since_process_start", {})
