@@ -161,21 +161,21 @@ export function Chat() {
           <aside className="transcript-guide" role="region" aria-labelledby="transcript-guide-title">
             <div className="transcript-guide-heading">
               <div>
-                <h2 id="transcript-guide-title">Terminal chat</h2>
-                <p>This view follows the agent already running in your terminal.</p>
+                <h2 id="transcript-guide-title">{agentChatText("transcriptGuideTitle")}</h2>
+                <p>{agentChatText("transcriptGuideDescription")}</p>
               </div>
               {transcriptGuideSeen ? (
-                <button className="transcript-guide-close" type="button" aria-label="Close terminal chat guide" onClick={() => setTranscriptGuideOpen(false)}>×</button>
+                <button className="transcript-guide-close" type="button" aria-label={agentChatText("closeTranscriptGuide")} onClick={() => setTranscriptGuideOpen(false)}>×</button>
               ) : null}
             </div>
             <ul>
-              <li>Your local Claude or Codex login, settings, and approval mode continue to apply.</li>
-              <li>Send normal prompts here; approvals, questions, and pickers stay in the terminal.</li>
-              <li>When the agent needs input, choose <strong>Answer in terminal</strong> to jump there.</li>
+              <li>{agentChatText("transcriptGuideLogin")}</li>
+              <li>{agentChatText("transcriptGuidePrompts")}</li>
+              <li>{agentChatText("transcriptGuideInput")} <strong>{agentChatText("answerInTerminal")}</strong>.</li>
             </ul>
             <div className="transcript-guide-actions">
-              <button type="button" onClick={focusTerminal}>Open terminal</button>
-              <button type="button" onClick={dismissTranscriptGuide}>Got it</button>
+              <button type="button" onClick={focusTerminal}>{agentChatText("openTerminal")}</button>
+              <button type="button" onClick={dismissTranscriptGuide}>{agentChatText("gotIt")}</button>
             </div>
           </aside>
         ) : null}
@@ -232,7 +232,7 @@ export function Chat() {
                 <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
               </span>
               <div className="transcript-actions">
-                <button className="transcript-help" type="button" aria-expanded={showTranscriptGuide} onClick={() => setTranscriptGuideOpen((open) => !open)}>Guide</button>
+                <button className="transcript-help" type="button" aria-expanded={showTranscriptGuide} onClick={() => setTranscriptGuideOpen((open) => !open)}>{agentChatText("transcriptGuideButton")}</button>
                 {chatActions}
               </div>
             </div>

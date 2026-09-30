@@ -22,6 +22,15 @@ const keys: AgentChatTextKey[] = [
   "transcriptViewRunning",
   "transcriptViewIdle",
   "answerInTerminal",
+  "transcriptGuideTitle",
+  "transcriptGuideDescription",
+  "transcriptGuideLogin",
+  "transcriptGuidePrompts",
+  "transcriptGuideInput",
+  "openTerminal",
+  "gotIt",
+  "closeTranscriptGuide",
+  "transcriptGuideButton",
 ];
 const english = agentChatCopyForLocale("en");
 
