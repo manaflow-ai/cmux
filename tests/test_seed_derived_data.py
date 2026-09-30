@@ -867,6 +867,7 @@ def evaluate(expression, context):
 def github_context(event_name, ref="refs/heads/main", **variables):
     return {
         "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
+        "env": {"CI_OWNED_HEAD_REPOS": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
         "vars": {
             "MACOS_RUNNER_PR": "pool-pr",
             "MACOS_RUNNER_15": "pool-15-paid",
@@ -874,7 +875,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
             **variables,
         },
-        "inputs": {"cache_backend": "default"},
+        "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
         "steps": {},
     }
 
