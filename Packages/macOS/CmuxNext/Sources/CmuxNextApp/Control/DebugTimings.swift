@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
+import enum CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
+import Synchronization
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
@@ -14,7 +16,8 @@ import os
 enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
-    private static var launchMarks: [(name: String, ms: Double)] = []
+    /// Launch marks from any thread (the daemon start path runs off main).
+    private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var surfaces: [Double] = []
     private static let capacity = 256
@@ -25,11 +28,11 @@ enum DebugTimings {
     }
 
     /// Milliseconds since the process started (kernel start time).
-    static var sinceProcessStart: Double {
+    nonisolated static var sinceProcessStart: Double {
         Date().timeIntervalSince(processStart) * 1_000
     }
 
-    private static let processStart: Date = {
+    private nonisolated static let processStart: Date = {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
@@ -38,14 +41,18 @@ enum DebugTimings {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
-    /// Records a launch mark (milliseconds since process start) once per name.
-    static func markLaunch(_ name: String) {
-        guard !launchMarks.contains(where: { $0.name == name }) else { return }
-        launchMarks.append((name, sinceProcessStart))
-        signposter.emitEvent("launch", "\(name, privacy: .public)")
+    /// Records a launch mark (milliseconds since process start) once per
+    /// name, from any thread.
+    nonisolated static func markLaunch(_ name: String) {
+        let ms = sinceProcessStart
+        launchMarks.withLock { marks in
+            guard !marks.contains(where: { $0.name == name }) else { return }
+            marks.append((name, ms))
+        }
     }
 
     static func install() {
+        DaemonLaunchTimings.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
@@ -69,7 +76,7 @@ enum DebugTimings {
     private static var report: JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        for mark in launchMarks { launch[mark.name] = round(mark.ms) }
+        for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in

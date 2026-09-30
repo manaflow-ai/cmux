@@ -169,6 +169,7 @@ final class DaemonService {
     }
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
+        DebugTimings.markLaunch("daemon_connected")
         self.connection = connection
         store.noteHandshake(identity)
         startupDeadlineTimer?.cancel()

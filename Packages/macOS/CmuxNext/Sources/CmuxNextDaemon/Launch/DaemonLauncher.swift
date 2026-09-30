@@ -91,7 +91,9 @@ public struct DaemonLauncher: Sendable {
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         let fixedOverrides = overrides
         return DaemonLauncher(configuration: configuration, environment: {
+            DaemonLaunchTimings.mark("daemon.login_env_start")
             let login = await cache.value()
+            DaemonLaunchTimings.mark("daemon.login_env_end")
             return LoginEnvironment.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
         })
     }
@@ -168,6 +170,8 @@ public struct DaemonLauncher: Sendable {
                                                     attributes: [.posixPermissions: 0o700])
         }
         let environment = await ensureEnvironment()
+        DaemonLaunchTimings.mark("daemon.ensure_start")
+        defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
             arguments: ["--session", configuration.session, "--json", "server", "ensure"],

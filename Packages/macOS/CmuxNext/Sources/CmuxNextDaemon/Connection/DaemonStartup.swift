@@ -57,7 +57,9 @@ public enum DaemonStartup {
         while !Task.isCancelled {
             let connection = makeConnection()
             do {
+                DaemonLaunchTimings.mark("daemon.connect_start")
                 let identity = try await connection.start()
+                DaemonLaunchTimings.mark("daemon.handshake_end")
                 return (connection, identity)
             } catch {
                 await connection.close()

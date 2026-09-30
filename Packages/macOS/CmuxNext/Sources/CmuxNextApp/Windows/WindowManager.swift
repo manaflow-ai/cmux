@@ -143,6 +143,7 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()

@@ -110,6 +110,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     private static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
+        case .replay, .output: DebugTimings.markLaunch("first_terminal_content")
+        default: break
+        }
+        return switch step {
         case .grid(let columns, let rows): .resize(cols: columns, rows: rows)
         case .replay(let replay): replayEvent(replay)
         case .output(let data): .output(data)
