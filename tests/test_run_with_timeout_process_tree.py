@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,51 @@ def wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
 
 
 class RunWithTimeoutProcessTreeTests(unittest.TestCase):
+    def test_sigterm_cleans_up_descendants_before_exiting(self) -> None:
+        """Runner cancellation must not orphan a detached test helper."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = pathlib.Path(temp_dir) / "tree.json"
+            command = [
+                sys.executable,
+                "-c",
+                textwrap.dedent(f"""
+                    import json, os, signal, subprocess, sys
+                    helper = subprocess.Popen(
+                        [sys.executable, "-c", "import signal; signal.pause()"],
+                        start_new_session=True,
+                    )
+                    with open({str(record)!r} + ".tmp", "w") as handle:
+                        json.dump({{"helper": helper.pid}}, handle)
+                    os.rename({str(record)!r} + ".tmp", {str(record)!r})
+                    signal.pause()
+                """),
+            ]
+            helper = None
+            runner = subprocess.Popen(
+                [sys.executable, str(RUNNER), "--timeout-seconds", "30", "--", *command],
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while not record.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(record.exists(), "child did not start")
+                helper = json.loads(record.read_text())["helper"]
+                os.kill(runner.pid, signal.SIGTERM)
+                self.assertEqual(runner.wait(timeout=10), 143)
+                self.assertTrue(
+                    wait_for_exit(helper),
+                    "SIGTERM to run_with_timeout orphaned its detached helper",
+                )
+            finally:
+                if runner.poll() is None:
+                    runner.kill()
+                    runner.wait()
+                if helper is not None and pid_alive(helper):
+                    os.kill(helper, signal.SIGKILL)
+
     def test_timeout_kills_a_grandchild_outside_the_process_group(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             record = pathlib.Path(temp_dir) / "tree.json"
