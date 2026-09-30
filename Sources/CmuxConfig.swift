@@ -1807,6 +1807,10 @@ final class CmuxConfigStore: ObservableObject {
     /// configured.
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    /// Original action-registry reference keyed by resolved surface-tab button id.
+    /// Inline buttons have no entry; this survives resolution so discovery UI
+    /// never has to infer action identity from equal payloads.
+    @Published private(set) var surfaceTabBarActionReferenceIDs: [String: String] = [:]
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
@@ -1838,11 +1842,13 @@ final class CmuxConfigStore: ObservableObject {
     private struct ResolvedSurfaceTabBarButtonEntry {
         let button: CmuxSurfaceTabBarButton
         let terminalCommandSourcePath: String?
+        let actionReferenceID: String?
     }
 
     private struct ResolvedSurfaceTabBarButtons {
         let buttons: [CmuxSurfaceTabBarButton]
         let terminalCommandSourcePaths: [String: String]
+        let actionReferenceIDs: [String: String]
     }
 
     private struct ResolvedContextMenuItems {
@@ -2237,7 +2243,8 @@ final class CmuxConfigStore: ObservableObject {
             settingName: "ui.surfaceTabBar.buttons"
         ) ?? ResolvedSurfaceTabBarButtons(
             buttons: defaultResolvedButtons,
-            terminalCommandSourcePaths: [:]
+            terminalCommandSourcePaths: [:],
+            actionReferenceIDs: [:]
         )
         let resolvedWorkspaceButtons = resolvedSurfaceTabBarWorkspaceCommands(
             resolvedButtons.buttons,
@@ -2299,6 +2306,10 @@ final class CmuxConfigStore: ObservableObject {
         workspaceGroupConfigs = resolvedGroupConfigs
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
+        let visibleSurfaceButtonIDs = Set(resolvedWorkspaceButtons.buttons.map(\.id))
+        surfaceTabBarActionReferenceIDs = resolvedButtons.actionReferenceIDs.filter {
+            visibleSurfaceButtonIDs.contains($0.key)
+        }
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
@@ -2742,12 +2753,16 @@ final class CmuxConfigStore: ObservableObject {
     ) -> ResolvedSurfaceTabBarButtons? {
         var resolvedButtons: [CmuxSurfaceTabBarButton] = []
         var terminalCommandSourcePaths: [String: String] = [:]
+        var actionReferenceIDs: [String: String] = [:]
         resolvedButtons.reserveCapacity(buttons.count)
 
         for button in buttons {
             do {
                 let resolved = try resolvedSurfaceTabBarButton(button, actions: actions)
                 resolvedButtons.append(resolved.button)
+                if let actionReferenceID = resolved.actionReferenceID {
+                    actionReferenceIDs[resolved.button.id] = actionReferenceID
+                }
                 guard resolved.button.terminalCommand != nil else { continue }
                 if let commandSourcePath = resolved.terminalCommandSourcePath {
                     terminalCommandSourcePaths[resolved.button.id] = commandSourcePath
@@ -2760,7 +2775,8 @@ final class CmuxConfigStore: ObservableObject {
 
         return ResolvedSurfaceTabBarButtons(
             buttons: resolvedButtons,
-            terminalCommandSourcePaths: terminalCommandSourcePaths
+            terminalCommandSourcePaths: terminalCommandSourcePaths,
+            actionReferenceIDs: actionReferenceIDs
         )
     }
 
@@ -2769,7 +2785,11 @@ final class CmuxConfigStore: ObservableObject {
         actions: [String: CmuxResolvedConfigAction]
     ) throws -> ResolvedSurfaceTabBarButtonEntry {
         guard case .actionReference(let identifier) = button.action else {
-            return ResolvedSurfaceTabBarButtonEntry(button: button, terminalCommandSourcePath: nil)
+            return ResolvedSurfaceTabBarButtonEntry(
+                button: button,
+                terminalCommandSourcePath: nil,
+                actionReferenceID: nil
+            )
         }
 
         let resolvedIdentifier = canonicalActionID(identifier)
@@ -2812,7 +2832,8 @@ final class CmuxConfigStore: ObservableObject {
             )
             return ResolvedSurfaceTabBarButtonEntry(
                 button: resolvedButton,
-                terminalCommandSourcePath: resolvedButton.terminalCommand == nil ? nil : entry.actionSourcePath
+                terminalCommandSourcePath: resolvedButton.terminalCommand == nil ? nil : entry.actionSourcePath,
+                actionReferenceID: resolvedIdentifier
             )
         }
 
@@ -2829,7 +2850,8 @@ final class CmuxConfigStore: ObservableObject {
                     actionSourcePath: button.actionSourcePath,
                     iconSourcePath: button.iconSourcePath
                 ),
-                terminalCommandSourcePath: nil
+                terminalCommandSourcePath: nil,
+                actionReferenceID: builtIn.configID
             )
         }
 
