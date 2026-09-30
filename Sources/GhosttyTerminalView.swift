@@ -3648,37 +3648,6 @@ class GhosttyApp {
 // MainWindowRouteRetiring. The process-wide instances live in the
 // transitional GhosttyApp composition statics below.
 
-/// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
-private final class TerminalSharedBackdropCutoutFilter: CIFilter {
-    private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
-    private static let filterOutputKeys = [kCIOutputImageKey]
-
-    /// The mask image supplied by AppKit for the cutout view.
-    @objc dynamic var inputImage: CIImage?
-
-    /// The already-rendered shared backdrop behind the terminal surface.
-    @objc dynamic var inputBackgroundImage: CIImage?
-
-    /// Input keys advertised to AppKit's Core Image compositing pipeline.
-    override var inputKeys: [String] {
-        Self.filterInputKeys
-    }
-
-    /// Output keys advertised to AppKit's Core Image compositing pipeline.
-    override var outputKeys: [String] {
-        Self.filterOutputKeys
-    }
-
-    /// The backdrop image with the cutout mask removed.
-    override var outputImage: CIImage? {
-        guard let inputImage, let inputBackgroundImage else { return nil }
-        return CIBlendKernel.destinationOut.apply(
-            foreground: inputImage,
-            background: inputBackgroundImage
-        )
-    }
-}
-
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
@@ -4264,12 +4233,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func recordPredictedEchoInput(
         _ keyEvent: ghostty_input_key_s,
         isPlainBackspace: Bool,
+        isLineErase: Bool,
         isBound: Bool
     ) {
-        guard TerminalPredictionCenter.shared.isPredictionEnabled,
-              let surfaceID = terminalSurface?.id else { return }
+        guard let surfaceID = terminalSurface?.id,
+              TerminalPredictionCenter.shared.predictsInput(surfaceID: surfaceID) else { return }
         if isPlainBackspace {
             TerminalPredictionCenter.shared.typedBackspace(surfaceID: surfaceID)
+            return
+        }
+        if isLineErase {
+            TerminalPredictionCenter.shared.typedLineErase(surfaceID: surfaceID)
             return
         }
         TerminalPredictionCenter.shared.typed(
@@ -4295,6 +4269,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return keyEvent.mods.rawValue & anyMods == 0
     }
 
+    /// Whether this is Ctrl-U, Ctrl-W or Option-Backspace, which line editors
+    /// bind to deleting back by a word or to the start of the line.
+    ///
+    /// Ctrl-U and Ctrl-W match on the layout's character, not the physical
+    /// key, so Dvorak's physical U (Ctrl-G) is not taken for a line erase.
+    private static func isLineErase(_ keyEvent: ghostty_input_key_s) -> Bool {
+        guard !keyEvent.composing else { return false }
+        let mods = keyEvent.mods.rawValue & (
+            GHOSTTY_MODS_SHIFT.rawValue
+                | GHOSTTY_MODS_CTRL.rawValue
+                | GHOSTTY_MODS_ALT.rawValue
+                | GHOSTTY_MODS_SUPER.rawValue
+        )
+        if keyEvent.keycode == UInt32(kVK_Delete) {
+            return mods == GHOSTTY_MODS_ALT.rawValue
+        }
+        guard mods == GHOSTTY_MODS_CTRL.rawValue else { return false }
+        let character = keyEvent.unshifted_codepoint
+        return character == UInt32(UInt8(ascii: "u")) || character == UInt32(UInt8(ascii: "w"))
+    }
+
     /// The single printable byte a key sends, or `nil` when its effect on the
     /// screen is not knowable.
     private static func predictedEchoByte(for keyEvent: ghostty_input_key_s) -> UInt8? {
@@ -4315,6 +4310,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func syncPredictionOverlay() {
         guard let surfaceID = terminalSurface?.id else {
             hidePredictionOverlay()
+            return
+        }
+        // Output removed blanks that the frame on screen still needs: keep
+        // the overlay where it was until the next presented frame.
+        if TerminalPredictionCenter.shared.holdsLayoutUntilFrame(surfaceID: surfaceID),
+           predictionOverlayView.isShowingGlyphs {
             return
         }
         let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)
@@ -5409,6 +5410,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         } else {
             _ = commitOwnBounds()
         }
+        terminalSurface?.rendererPresentationReadinessDidChange()
     }
 
     /// Sizes the Metal drawable for the committed geometry.
@@ -5683,6 +5685,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let surfaceID = terminalSurface?.id {
             TerminalPredictionCenter.shared.register(
                 surfaceID: surfaceID,
+                isRemote: { [weak self] in
+                    guard let terminalSurface = self?.terminalSurface else { return false }
+                    return TerminalRemoteMachineClassification.runsOnAnotherMachine(
+                        surfaceID: terminalSurface.id,
+                        workspaceID: terminalSurface.tabId
+                    )
+                },
                 isAlternateScreen: { [weak self] in
                     self?.terminalSurface?.isAlternateScreenActive() ?? false
                 },
@@ -7488,6 +7497,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             var bindingFlags = ghostty_binding_flags_e(0)
             if !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags) {
                 if terminalSurface?.enqueueManualInputNamedKey(keyName) == true {
+                    // A transport-named key (an arrow in a remote tmux pane)
+                    // moves the cursor somewhere prediction cannot follow.
+                    if let surfaceID = terminalSurface?.id {
+                        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: surfaceID)
+                    }
                     if let keyCode = UInt16(exactly: keyEvent.keycode) {
                         manualNamedKeyConsumedKeyUps.insert(keyCode)
                     }
@@ -7500,13 +7514,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // sequence or one-shot key table: afterwards a key that binding
         // consumed (the `c` of `ctrl+a>c`, say) no longer reports as bound.
         let predictsInput = keyEvent.action != GHOSTTY_ACTION_RELEASE
-            && TerminalPredictionCenter.shared.isPredictionEnabled
+            && terminalSurface.map {
+                TerminalPredictionCenter.shared.predictsInput(surfaceID: $0.id)
+            } == true
         var predictionBindingFlags = ghostty_binding_flags_e(0)
         let isBoundForPrediction = predictsInput
             && ghostty_surface_key_is_binding(surface, keyEvent, &predictionBindingFlags)
         let isPlainBackspace = predictsInput
             && !isBoundForPrediction
             && Self.isPlainBackspace(keyEvent)
+        let isLineErase = predictsInput
+            && !isBoundForPrediction
+            && Self.isLineErase(keyEvent)
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
@@ -7515,6 +7534,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             recordPredictedEchoInput(
                 keyEvent,
                 isPlainBackspace: isPlainBackspace,
+                isLineErase: isLineErase,
                 isBound: isBoundForPrediction
             )
         }
@@ -10170,7 +10190,7 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
-    private var sharedBackdropCutoutView: NSView?
+    private let sharedBackdropCutoutView: TerminalSharedBackdropCutoutView
     private let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -10456,6 +10476,7 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
+        sharedBackdropCutoutView = TerminalSharedBackdropCutoutView(frame: .zero)
         backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10499,6 +10520,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         backgroundView.terminalSurfaceView = surfaceView
         backgroundView.terminalScrollView = scrollView
+        addSubview(sharedBackdropCutoutView)
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
@@ -10959,9 +10981,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
-        if let sharedBackdropCutoutView {
-            _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
-        }
+        _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
@@ -11302,7 +11322,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
+        sharedBackdropCutoutView.setClearingSharedBackdrop(clearsSharedWindowBackdrop)
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
@@ -11312,36 +11332,6 @@ final class GhosttySurfaceScrollView: NSView {
         if !mobileViewportBorderOverlayView.isHidden {
             mobileViewportBorderOverlayView.needsDisplay = true
         }
-    }
-
-    /// Keeps the shared-backdrop cutout view present only while a pane-local fill needs it.
-    private func synchronizeSharedBackdropCutout(visible: Bool) {
-        if visible {
-            let cutoutView = sharedBackdropCutoutView ?? makeSharedBackdropCutoutView()
-            _ = setFrameIfNeeded(cutoutView, to: bounds)
-            return
-        }
-
-        sharedBackdropCutoutView?.removeFromSuperview()
-        sharedBackdropCutoutView = nil
-    }
-
-    /// Creates the Core Image filtered view that subtracts pane-local fills from shared backdrop.
-    ///
-    /// AppKit requires `layerUsesCoreImageFilters` to be configured before display, so the
-    /// cutout view is created lazily only when a pane-local OSC background override needs it.
-    private func makeSharedBackdropCutoutView() -> NSView {
-        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
-        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
-        let cutoutView = NSView(frame: bounds)
-        cutoutView.wantsLayer = true
-        cutoutView.layerUsesCoreImageFilters = true
-        cutoutView.compositingFilter = sharedBackdropCutoutFilter
-        cutoutView.layer?.backgroundColor = NSColor.white.cgColor
-        cutoutView.layer?.isOpaque = true
-        addSubview(cutoutView, positioned: .below, relativeTo: backgroundView)
-        sharedBackdropCutoutView = cutoutView
-        return cutoutView
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {

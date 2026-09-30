@@ -2126,6 +2126,53 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerPickerKeepsPresentedRowsDuringRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
+            "CMUX_UITEST_COMPUTER_PICKER_REFRESH": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ])
+        defer { app.terminate() }
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(waitForHittable(picker, timeout: 10))
+        picker.tap()
+
+        func computer(_ index: Int) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileWorkspaceMacPickerMachine-picker-refresh-\(index)"
+            )).firstMatch
+        }
+        let first = computer(0)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        let initialTitle = first.label
+        let last = computer(24)
+        for _ in 0..<8 {
+            if last.exists, last.isHittable { break }
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(last.isHittable)
+        let title = last.label
+        let frame = last.frame
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            XCTAssertTrue(last.exists && last.isHittable, "Refresh must not reset the open computer list.")
+            XCTAssertEqual(last.label, title, "Presented rows must keep their opening snapshot.")
+            XCTAssertEqual(last.frame.minY, frame.minY, accuracy: 1, "Refresh must not move the open menu.")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-picker-bottom-after-refreshes"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        tapMenuItem(last, in: app)
+        XCTAssertTrue(picker.label.hasPrefix("Computer 24"))
+        picker.press(forDuration: 0.6)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        XCTAssertNotEqual(first.label, initialTitle, "Reopening must pick up refreshed computer names.")
+    }
+
+    @MainActor
     func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
@@ -12443,11 +12490,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
-            let statusLine = app.descendants(matching: .any)[
-                "MobileWorkspaceConnectionStatusLine"
-            ]
-            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
-            XCTAssertEqual(statusLine.label, "Reconnecting…")
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            XCTAssertEqual(picker.value as? String, "Reconnecting…")
             XCTAssertFalse(emptyState.exists)
             XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)

@@ -13,8 +13,10 @@ final class InheritedMasterReapProcessRunner:
     private var recordedRequests: [RemoteProcessRequest] = []
     private let requestContinuation:
         AsyncStream<RemoteProcessRequest>.Continuation
+    private let relayPort: Int
 
-    init() {
+    init(relayPort: Int = 64_044) {
+        self.relayPort = relayPort
         (requestStream, requestContinuation) = AsyncStream.makeStream()
     }
 
@@ -35,7 +37,7 @@ final class InheritedMasterReapProcessRunner:
                 status: 255,
                 stdout: "",
                 stderr:
-                    "remote port forwarding failed for listen port 64044"
+                    "remote port forwarding failed for listen port \(relayPort)"
             )
         }
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")

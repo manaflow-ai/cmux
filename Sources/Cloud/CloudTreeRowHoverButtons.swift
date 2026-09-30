@@ -15,6 +15,7 @@ struct CloudTreeRowHoverButtons: View {
                     incomingAccessEnabled: section.incomingAccessEnabled,
                     discoveryManaged: section.discoveryManaged,
                     incomingAccessManaged: section.incomingAccessManaged,
+                    unavailable: !section.available,
                     setDiscovery: { nodeActions.setDeviceDiscovery($0) },
                     setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
                 )
