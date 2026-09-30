@@ -106,7 +106,7 @@ enum TextBoxAgentDetection: CaseIterable {
         configuredKeys: [String: String] = [:]
     ) -> (agent: String, key: String)? {
         for agent in allCases {
-            guard agent.matchesActive(context: context) else { continue }
+            guard agent.matchesActive(metadataLine: context) else { continue }
             if let configuredKey = configuredKeys[agent.configurationKey], !configuredKey.isEmpty {
                 return (agent.configurationKey, configuredKey)
             }
