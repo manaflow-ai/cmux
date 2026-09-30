@@ -3445,6 +3445,28 @@
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
   "sidebar.agentStatus.glyph.tooltip": {
     "source": "%1$@: %2$@",
     "identityLocales": {
