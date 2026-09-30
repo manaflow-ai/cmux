@@ -14,6 +14,7 @@ into `run:` and `env:`), runs the version step with a hostile branch name, and
 checks that nothing executed.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -46,30 +47,54 @@ def main():
     job = workflow["jobs"]["update-cask"]
     step = next(s for s in job["steps"] if s.get("id") == "version")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        marker = os.path.join(tmp, "pwned")
-        hostile = f"$(touch${{IFS}}{marker})"
-        context = {
-            "github.event.workflow_run.head_branch": hostile,
-            "github.event.inputs.version": "",
-            "github.event_name": "workflow_run",
-        }
-        output = os.path.join(tmp, "output")
-        open(output, "w").close()
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": output}
-        for key, value in (step.get("env") or {}).items():
-            env[key] = render(value, context)
-        script = render(step["run"], context)
-        subprocess.run(["bash", "-e", "-c", script], env=env, cwd=tmp, capture_output=True, text=True)
-        _check(not os.path.exists(marker), "a hostile head_branch never runs as a command in the version step")
-        _check("skip=true" in open(output).read(), "a non-release branch name is skipped, not used as a version")
+    # A bare payload and a semver-prefixed one. The prefixed case matters
+    # because the version regex is what keeps the one remaining `steps.*`
+    # interpolation safe: a regex widened to admit `1.2.3-beta.1` would pass a
+    # payload starting with digits straight through, and a bare `$(...)`
+    # payload cannot see that.
+    for label, shape in (
+        ("a hostile head_branch", "$(touch${{IFS}}{marker})"),
+        ("a semver-prefixed hostile head_branch", "v1.2.3$(touch${{IFS}}{marker})"),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "pwned")
+            context = {
+                "github.event.workflow_run.head_branch": shape.format(marker=marker),
+                "github.event.inputs.version": "",
+                "github.event_name": "workflow_run",
+            }
+            output = os.path.join(tmp, "output")
+            open(output, "w").close()
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": output}
+            for key, value in (step.get("env") or {}).items():
+                env[key] = render(value, context)
+            script = render(step["run"], context)
+            subprocess.run(["bash", "-e", "-c", script], env=env, cwd=tmp, capture_output=True, text=True)
+            written = open(output).read()
+            _check(not os.path.exists(marker), f"{label} never runs as a command in the version step")
+            _check("skip=true" in written, f"{label} is skipped, not used as a version")
+            _check("version=" not in written, f"{label} never reaches the version output")
+
+    # The version output is the one value still interpolated into a `run:`
+    # body's neighbours, so pin the pattern that constrains it. Anchors and a
+    # digits-and-dots-only body are what stop a payload from surviving; a
+    # widened pattern must update this assertion and think about it.
+    _check(
+        r"^[0-9]+\.[0-9]+\.[0-9]+$" in str(step["run"]),
+        "the version step pins an anchored semver pattern with no wildcard tail",
+    )
 
     for name, job_def in workflow["jobs"].items():
         for s in job_def.get("steps", []):
             run = str(s.get("run", ""))
             for expr in re.findall(r"\$\{\{\s*([^}]+?)\s*\}\}", run):
+                # `steps.version.outputs` is derived from the branch name, so it
+                # is attacker data one regex away from arbitrary text. It reaches
+                # a script through `env:` like the rest.
                 _check(
-                    not expr.startswith(("github.event.workflow_run", "github.event.inputs")),
+                    not expr.startswith(
+                        ("github.event.workflow_run", "github.event.inputs", "inputs.", "steps.version.outputs")
+                    ),
                     f"{name}: `{s.get('name')}` does not substitute {expr} into its script",
                 )
 
@@ -77,9 +102,19 @@ def main():
     for condition in (
         "github.event.workflow_run.path == '.github/workflows/release.yml'",
         "github.event.workflow_run.head_repository.full_name == github.repository",
-        "github.event.workflow_run.event == 'push'",
     ):
         _check(condition in gate_if, f"the gate requires {condition}")
+
+    # release.yml ships from a tag push and from a manual dispatch, and both
+    # need write access. Every other trigger, `pull_request` above all, would
+    # let a branch in this repository drive the job that holds the tap token.
+    triggers = re.search(
+        r"contains\(\s*fromJSON\(\s*'(\[[^']*\])'\s*\)\s*,\s*github\.event\.workflow_run\.event\s*\)",
+        gate_if,
+    )
+    _check(triggers is not None, "the gate allow-lists github.event.workflow_run.event")
+    allowed = set(json.loads(triggers.group(1))) if triggers else set()
+    _check(allowed == {"push", "workflow_dispatch"}, f"the gate admits only push and workflow_dispatch, not {sorted(allowed)}")
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
