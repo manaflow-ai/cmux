@@ -1514,6 +1514,7 @@
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
+		A374C3480A20A6AFFEBA8633 /* CoderouterAccountRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */; };
 		8B7F966DC2DEFDD1B0729982 /* CoderouterAccountsPanel+Rows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47A4BB974EFBF8F3B44FBBD /* CoderouterAccountsPanel+Rows.swift */; };
 		86D97E3DBC15388C7A9ED5E3 /* CoderouterAccountsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819D884F694F404ABBC0194A /* CoderouterAccountsPanel.swift */; };
 		AF8E96B083FB46CD0C0F70AB /* CoderouterAccountsPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F8F62B0BDB6ACD56721D65 /* CoderouterAccountsPanelModel.swift */; };
@@ -5713,6 +5714,7 @@
 		A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXWorkspaceLoadingCLIRegressionTests.swift; sourceTree = "<group>"; };
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
+		B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountRow.swift; sourceTree = "<group>"; };
 		D47A4BB974EFBF8F3B44FBBD /* CoderouterAccountsPanel+Rows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CoderouterAccountsPanel+Rows.swift"; sourceTree = "<group>"; };
 		819D884F694F404ABBC0194A /* CoderouterAccountsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountsPanel.swift; sourceTree = "<group>"; };
 		C8F8F62B0BDB6ACD56721D65 /* CoderouterAccountsPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterAccountsPanelModel.swift; sourceTree = "<group>"; };
@@ -9194,6 +9196,7 @@
 				E372545836462C5D1C899B56 /* MachinesPanelView+Coderouter.swift */,
 				347D1CC32D12CFA9B39A67CB /* CloudTreeCreateActionLabel.swift */,
 				E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */,
+				B8A8D7BF3CA0B4D8B55D88C3 /* CoderouterAccountRow.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -14213,6 +14216,7 @@
 				C51A73000000000000000013 /* CmuxWorkerEntrypoint.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
+				A374C3480A20A6AFFEBA8633 /* CoderouterAccountRow.swift in Sources */,
 				8B7F966DC2DEFDD1B0729982 /* CoderouterAccountsPanel+Rows.swift in Sources */,
 				86D97E3DBC15388C7A9ED5E3 /* CoderouterAccountsPanel.swift in Sources */,
 				AF8E96B083FB46CD0C0F70AB /* CoderouterAccountsPanelModel.swift in Sources */,

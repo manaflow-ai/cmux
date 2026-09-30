@@ -58,7 +58,7 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
@@ -72,11 +72,11 @@ struct MachinesPanelView: View {
         )
     }
 
-    private var includesDevices: Bool {
+    var includesDevices: Bool {
         return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard))
     }
 
-    private var includesCloud: Bool {
+    var includesCloud: Bool {
         _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
     }
@@ -97,9 +97,9 @@ struct MachinesPanelView: View {
         return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
     }
 
-    private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
+    var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
-    private var treeSnapshot: SurfaceCatalogSnapshot {
+    var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
             includesCloud: includesCloud,
             includesDevices: includesDevices,
@@ -419,7 +419,7 @@ struct MachinesPanelView: View {
         )
     }
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
-    private var machinesList: some View {
+    var machinesList: some View {
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
@@ -500,7 +500,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var emptyState: some View {
+    var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
             if !includesCloud {

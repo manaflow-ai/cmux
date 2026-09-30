@@ -53,6 +53,12 @@ final class CoderouterAccountsPanelModel {
         let activeSessions: Int
     }
 
+    struct UsageSummary: Equatable {
+        let totalTokens: Int
+        let totalValue: Double
+        let maximumTokens: Int
+    }
+
     enum Account: Identifiable, Equatable {
         case claude(ClaudeAccount)
         case native(NativeAccount)
@@ -197,11 +203,22 @@ final class CoderouterAccountsPanelModel {
     private let operations: Operations
     private var loadTask: Task<Void, Never>?
     private var generation: UInt64 = 0
+    private struct Scope: Equatable {
+        let teamID: String
+        let generation: UInt64
+    }
+    private static let fractionalISO8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let ISO8601Formatter = ISO8601DateFormatter()
 
     private(set) var teamID: String?
     private(set) var state: LoadState = .noTeam
     private(set) var accounts: [Account] = []
     private(set) var usage: TeamMachineUsage?
+    private(set) var usageSummary: UsageSummary?
     private(set) var failedSources: Set<FailedSource> = []
     private(set) var isMutating = false
 
@@ -268,56 +285,67 @@ final class CoderouterAccountsPanelModel {
     }
 
     func addClaude(_ input: ClaudeUpstreamInput, label: String?) async throws {
-        guard let teamID else { throw ServiceUnavailable() }
+        guard let scope = currentScope() else { throw ServiceUnavailable() }
         isMutating = true
         defer { isMutating = false }
-        _ = try await operations.addClaude(input, label, teamID)
-        await reloadNow(teamID: teamID)
+        _ = try await operations.addClaude(input, label, scope.teamID)
+        guard currentScope() == scope else { return }
+        await reloadNow(teamID: scope.teamID)
     }
 
     func addShared(_ payload: AIAccountUploadPayload) async throws {
-        guard let teamID else { throw ServiceUnavailable() }
+        guard let scope = currentScope() else { throw ServiceUnavailable() }
         isMutating = true
         defer { isMutating = false }
-        _ = try await operations.addShared(payload, teamID)
-        await reloadNow(teamID: teamID)
+        _ = try await operations.addShared(payload, scope.teamID)
+        guard currentScope() == scope else { return }
+        await reloadNow(teamID: scope.teamID)
     }
 
     func addNativeAPIKey(provider: CoderouterAPIKeyProvider, apiKey: String, label: String?) async throws {
-        guard let teamID else { throw ServiceUnavailable() }
+        guard let scope = currentScope() else { throw ServiceUnavailable() }
         isMutating = true
         defer { isMutating = false }
-        _ = try await operations.addNative(provider, apiKey, label, teamID)
-        await reloadNow(teamID: teamID)
+        _ = try await operations.addNative(provider, apiKey, label, scope.teamID)
+        guard currentScope() == scope else { return }
+        await reloadNow(teamID: scope.teamID)
     }
 
     func remove(_ account: Account) async throws {
-        guard let teamID else { throw ServiceUnavailable() }
+        guard let scope = currentScope() else { throw ServiceUnavailable() }
         isMutating = true
         defer { isMutating = false }
         switch account {
         case .claude(let value):
-            _ = try await operations.removeClaude(value.id, teamID)
+            _ = try await operations.removeClaude(value.id, scope.teamID)
         case .native(let value):
-            _ = try await operations.removeNative(value.id, teamID)
+            _ = try await operations.removeNative(value.id, scope.teamID)
         case .shared(let value):
-            _ = try await operations.removeShared(value.id, teamID)
+            _ = try await operations.removeShared(value.id, scope.teamID)
         }
-        await reloadNow(teamID: teamID)
+        guard currentScope() == scope else { return }
+        await reloadNow(teamID: scope.teamID)
     }
 
     func setClaude(_ account: ClaudeAccount, enabled: Bool) async throws {
-        guard let teamID else { throw ServiceUnavailable() }
+        guard let scope = currentScope() else { throw ServiceUnavailable() }
         isMutating = true
         defer { isMutating = false }
-        _ = try await operations.updateClaude(account.id, enabled ? "active" : "disabled", teamID)
-        await reloadNow(teamID: teamID)
+        _ = try await operations.updateClaude(account.id, enabled ? "active" : "disabled", scope.teamID)
+        guard currentScope() == scope else { return }
+        await reloadNow(teamID: scope.teamID)
+    }
+
+    private func currentScope() -> Scope? {
+        guard let teamID else { return nil }
+        return Scope(teamID: teamID, generation: generation)
     }
 
     private func reset(for teamID: String?) {
         self.teamID = teamID
         accounts = []
         usage = nil
+        usageSummary = nil
         failedSources = []
         state = teamID == nil ? .noTeam : .loading
     }
@@ -355,6 +383,7 @@ final class CoderouterAccountsPanelModel {
         guard !Task.isCancelled, self.generation == generation, self.teamID == teamID else { return }
         accounts = fetchedClaude.map(Account.claude) + fetchedNative.map(Account.native) + fetchedShared.map(Account.shared)
         usage = fetchedUsage
+        usageSummary = fetchedUsage.map(Self.makeUsageSummary)
         failedSources = failures
         state = failures.count == 4 ? .failed : .loaded
     }
@@ -363,6 +392,18 @@ final class CoderouterAccountsPanelModel {
         guard let teamID else { return nil }
         let value = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
+    }
+
+    private static func makeUsageSummary(_ usage: TeamMachineUsage) -> UsageSummary {
+        var totalTokens = 0
+        var totalValue = 0.0
+        var maximumTokens = 0
+        for machine in usage.machines {
+            totalTokens += machine.totals.totalTokens
+            totalValue += machine.totals.apiEquivalentUsd
+            maximumTokens = max(maximumTokens, machine.totals.totalTokens)
+        }
+        return UsageSummary(totalTokens: totalTokens, totalValue: totalValue, maximumTokens: max(1, maximumTokens))
     }
 
     private static func decodeClaudeAccounts(_ value: JSONValue) throws -> [ClaudeAccount] {
@@ -451,8 +492,6 @@ final class CoderouterAccountsPanelModel {
 
     private static func date(_ value: JSONValue?) -> Date? {
         guard let string = string(value) else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+        return fractionalISO8601Formatter.date(from: string) ?? ISO8601Formatter.date(from: string)
     }
 }

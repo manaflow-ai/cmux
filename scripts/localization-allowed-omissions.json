@@ -3506,5 +3506,61 @@
       "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
+  },
+  "coderouter.sidebar.provider.bedrock": {
+    "source": "Amazon Bedrock",
+    "class": "brand"
+  },
+  "coderouter.sidebar.provider.claude": {
+    "source": "Claude",
+    "class": "brand"
+  },
+  "coderouter.sidebar.provider.codex": {
+    "source": "Codex",
+    "class": "brand"
+  },
+  "coderouter.sidebar.title": {
+    "source": "CodeRouter",
+    "class": "brand"
+  },
+  "coderouter.sidebar.provider.claudeOAuth": {
+    "source": "Claude Code OAuth",
+    "identityLocales": {
+      "zh-Hant": "Provider product name and OAuth protocol name are invariant.",
+      "zh-Hans": "Provider product name and OAuth protocol name are invariant.",
+      "ko": "Provider product name and OAuth protocol name are invariant.",
+      "ja": "Provider product name and OAuth protocol name are invariant."
+    }
+  },
+  "coderouter.sidebar.ok": {
+    "source": "OK",
+    "identityLocales": {
+      "de": "Standard confirmation label in this locale.",
+      "fr": "Standard confirmation label in this locale.",
+      "ja": "Standard confirmation label in this locale."
+    }
+  },
+  "coderouter.sidebar.usage.tokens": {
+    "source": "Tokens",
+    "identityLocales": {
+      "es": "Established technical term with the same spelling in Spanish."
+    }
+  },
+  "coderouter.sidebar.sessions": {
+    "source": "%d sessions",
+    "identityLocales": {
+      "fr": {
+        "reason": "Session has the same spelling in French; translated plural entries remain required.",
+        "values": [
+          "%d sessions"
+        ]
+      }
+    }
+  },
+  "coderouter.sidebar.add.claudeSection": {
+    "source": "Claude upstream",
+    "identityLocales": {
+      "es": "Upstream is an established technical term in the Spanish provider label."
+    }
   }
 }

@@ -36,9 +36,14 @@ struct CoderouterAccountsPanel: View {
         .background(Color(nsColor: chromeBackgroundColor).opacity(0.18))
         .accessibilityIdentifier("CoderouterSection")
         .task(id: teamID ?? "coderouter-no-team") {
+            actionTask?.cancel()
+            actionTask = nil
+            isAddPresented = false
+            accountToRemove = nil
             model.load(teamID: teamID)
         }
         .onDisappear {
+            actionTask?.cancel()
             model.cancel()
         }
         .sheet(isPresented: $isAddPresented) {
@@ -73,6 +78,22 @@ struct CoderouterAccountsPanel: View {
             Button(String(localized: "coderouter.sidebar.ok", defaultValue: "OK"), role: .cancel) {}
         } message: { message in
             Text(message)
+        }
+    }
+
+    @State var actionTask: Task<Void, Never>?
+
+    func startAction(_ operation: @escaping @MainActor () async throws -> Void) {
+        actionTask?.cancel()
+        actionTask = Task { @MainActor in
+            defer { actionTask = nil }
+            do {
+                try await operation()
+            } catch is CancellationError {
+                return
+            } catch {
+                operationError = Self.userMessage(error)
+            }
         }
     }
 
@@ -213,9 +234,9 @@ struct CoderouterAccountsPanel: View {
     }
 
     static func userMessage(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return description
+        if error is CoderouterAccountsPanelModel.ServiceUnavailable {
+            return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
         }
-        return String(describing: error)
+        return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
     }
 }

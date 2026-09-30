@@ -28,6 +28,7 @@ struct CoderouterAddAccountSheet: View {
     @State private var sessionToken = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -108,6 +109,7 @@ struct CoderouterAddAccountSheet: View {
         }
         .padding(22)
         .frame(width: 440)
+        .onDisappear { saveTask?.cancel() }
     }
 
     @ViewBuilder
@@ -167,7 +169,12 @@ struct CoderouterAddAccountSheet: View {
         guard !isSaving else { return }
         errorMessage = nil
         isSaving = true
-        Task { @MainActor in
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            defer {
+                isSaving = false
+                saveTask = nil
+            }
             do {
                 switch kind {
                 case .claudeOAuth:
@@ -228,7 +235,6 @@ struct CoderouterAddAccountSheet: View {
             } catch {
                 errorMessage = Self.userMessage(error)
             }
-            isSaving = false
         }
     }
 
@@ -240,10 +246,13 @@ struct CoderouterAddAccountSheet: View {
     }
 
     private static func userMessage(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return description
+        if let input = error as? InputError {
+            return input.errorDescription ?? String(localized: "coderouter.sidebar.add.missingCredential", defaultValue: "Enter the required credential, then try again.")
         }
-        return String(describing: error)
+        if error is CoderouterAccountsPanelModel.ServiceUnavailable {
+            return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
+        }
+        return String(localized: "coderouter.sidebar.serviceUnavailable", defaultValue: "CodeRouter is temporarily unavailable.")
     }
 
     private enum InputError: Error, LocalizedError {

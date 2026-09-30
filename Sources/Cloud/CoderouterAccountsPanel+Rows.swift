@@ -45,17 +45,15 @@ extension CoderouterAccountsPanel {
     @ViewBuilder
     func usageContent(_ usage: TeamMachineUsage) -> some View {
         let machines = usage.machines
-        let totalTokens = machines.reduce(0) { $0 + $1.totals.totalTokens }
-        let totalValue = machines.reduce(0.0) { $0 + $1.totals.apiEquivalentUsd }
-        let maximum = max(1, machines.map { $0.totals.totalTokens }.max() ?? 0)
+        let summary = model.usageSummary ?? .init(totalTokens: 0, totalValue: 0, maximumTokens: 1)
         HStack(spacing: 12) {
             usageMetric(
                 label: String(localized: "coderouter.sidebar.usage.tokens", defaultValue: "Tokens"),
-                value: Self.compactNumber(totalTokens)
+                value: Self.compactNumber(summary.totalTokens)
             )
             usageMetric(
                 label: String(localized: "coderouter.sidebar.usage.value", defaultValue: "API value"),
-                value: Self.currency(totalValue)
+                value: Self.currency(summary.totalValue)
             )
             Spacer(minLength: 0)
         }
@@ -76,7 +74,7 @@ extension CoderouterAccountsPanel {
                                 .cmuxFont(size: 10, design: .monospaced, monospacedDigit: true)
                                 .foregroundStyle(.tertiary)
                         }
-                        ProgressView(value: Double(max(0, machine.totals.totalTokens)), total: Double(maximum))
+                        ProgressView(value: Double(max(0, machine.totals.totalTokens)), total: Double(summary.maximumTokens))
                             .progressViewStyle(.linear)
                             .controlSize(.small)
                             .tint(.accentColor)
@@ -137,7 +135,13 @@ extension CoderouterAccountsPanel {
                 emptyAccounts
             } else {
                 ForEach(model.accounts) { account in
-                    accountRow(account)
+                    CoderouterAccountRow(
+                        account: account,
+                        onToggleClaude: { value, enabled in
+                            startAction { try await model.setClaude(value, enabled: enabled) }
+                        },
+                        onRemove: { accountToRemove = $0 }
+                    )
                 }
             }
             if !ManagedAICredentialUploadPolicy.isEnabled {
@@ -168,177 +172,9 @@ extension CoderouterAccountsPanel {
         .padding(.vertical, 6)
     }
 
-    @ViewBuilder
-    func accountRow(_ account: CoderouterAccountsPanelModel.Account) -> some View {
-        switch account {
-        case .claude(let value):
-            claudeRow(value)
-        case .native(let value):
-            nativeRow(value)
-        case .shared(let value):
-            sharedRow(value)
-        }
-    }
-
-    func claudeRow(_ account: CoderouterAccountsPanelModel.ClaudeAccount) -> some View {
-        let cooling = account.cooldownUntil.map { $0 > Date() } ?? false
-        let disabled = account.state == "disabled"
-        return accountRowChrome(
-            icon: "sparkles",
-            provider: Self.claudeProviderLabel(account.kind),
-            label: account.label,
-            detail: [account.identifier, account.region].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-            status: disabled
-                ? String(localized: "coderouter.sidebar.status.disabled", defaultValue: "Disabled")
-                : cooling
-                    ? String(localized: "coderouter.sidebar.status.cooling", defaultValue: "Cooling down")
-                    : String(localized: "coderouter.sidebar.status.active", defaultValue: "Active"),
-            statusColor: disabled || cooling ? .orange : .green,
-            dimmed: disabled,
-            menu: {
-                Button(disabled
-                       ? String(localized: "coderouter.sidebar.enable", defaultValue: "Enable")
-                       : String(localized: "coderouter.sidebar.disable", defaultValue: "Disable")) {
-                    Task { @MainActor in
-                        do {
-                            try await model.setClaude(account, enabled: disabled)
-                        } catch {
-                            operationError = Self.userMessage(error)
-                        }
-                    }
-                }
-                Divider()
-                Button(String(localized: "coderouter.sidebar.remove.action", defaultValue: "Remove"), role: .destructive) {
-                    accountToRemove = .claude(account)
-                }
-            }
-        )
-    }
-
-    func sharedRow(_ account: CoderouterAccountsPanelModel.SharedAccount) -> some View {
-        let healthy = account.healthOK == true
-        return accountRowChrome(
-            icon: "person.crop.circle",
-            provider: Self.sharedProviderLabel(account.kind),
-            label: account.label,
-            detail: account.createdAt.map { Self.createdLabel($0) } ?? "",
-            status: account.healthOK == nil
-                ? String(localized: "coderouter.sidebar.status.unknown", defaultValue: "Status unknown")
-                : healthy
-                    ? String(localized: "coderouter.sidebar.status.healthy", defaultValue: "Healthy")
-                    : String(localized: "coderouter.sidebar.status.unhealthy", defaultValue: "Needs attention"),
-            statusColor: account.healthOK == nil ? .secondary : (healthy ? .green : .orange),
-            dimmed: account.healthOK == false,
-            menu: {
-                Button(String(localized: "coderouter.sidebar.remove.action", defaultValue: "Remove"), role: .destructive) {
-                    accountToRemove = .shared(account)
-                }
-            }
-        )
-        .help(account.healthMessage ?? "")
-    }
-
-    func nativeRow(_ account: CoderouterAccountsPanelModel.NativeAccount) -> some View {
-        let cooling = account.cooldownUntil.map { $0 > Date() } ?? false
-        let broken = account.state == "broken" || account.state == "expired"
-        let status = broken
-            ? String(localized: "coderouter.sidebar.status.needsRepair", defaultValue: "Needs repair")
-            : cooling
-                ? String(localized: "coderouter.sidebar.status.cooling", defaultValue: "Cooling down")
-                : String(localized: "coderouter.sidebar.status.active", defaultValue: "Active")
-        return accountRowChrome(
-            icon: "key.fill",
-            provider: Self.nativeProviderLabel(account.provider),
-            label: account.label,
-            detail: [account.providerAccountID, account.activeSessions > 0 ? Self.sessionLabel(account.activeSessions) : nil]
-                .compactMap { $0 }
-                .filter { !$0.isEmpty }
-                .joined(separator: " · "),
-            status: status,
-            statusColor: broken || cooling ? .orange : .green,
-            dimmed: broken,
-            menu: {
-                Button(String(localized: "coderouter.sidebar.remove.action", defaultValue: "Remove"), role: .destructive) {
-                    accountToRemove = .native(account)
-                }
-            }
-        )
-    }
-
-    func accountRowChrome<Menu: View>(
-        icon: String,
-        provider: String,
-        label: String,
-        detail: String,
-        status: String,
-        statusColor: Color,
-        dimmed: Bool,
-        @ViewBuilder menu: () -> Menu
-    ) -> some View {
-        HStack(alignment: .center, spacing: 7) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(dimmed ? .tertiary : .secondary)
-                .frame(width: 15)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(provider)
-                        .cmuxFont(size: 10, weight: .medium)
-                        .foregroundStyle(dimmed ? .secondary : .primary)
-                        .lineLimit(1)
-                    if !label.isEmpty {
-                        Text(label)
-                            .cmuxFont(size: 10)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                if !detail.isEmpty {
-                    Text(detail)
-                        .cmuxFont(size: 9, design: .monospaced)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            Spacer(minLength: 4)
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 5, height: 5)
-                Text(status)
-                    .cmuxFont(size: 9)
-                    .foregroundStyle(statusColor)
-                    .lineLimit(1)
-            }
-            Menu {
-                menu()
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 18, height: 18)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(String(localized: "coderouter.sidebar.accountActions", defaultValue: "Account actions"))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .opacity(dimmed ? 0.75 : 1)
-        .contentShape(Rectangle())
-    }
 
     func remove(_ account: CoderouterAccountsPanelModel.Account) {
         accountToRemove = nil
-        Task { @MainActor in
-            do {
-                try await model.remove(account)
-            } catch {
-                operationError = Self.userMessage(error)
-            }
-        }
+        startAction { try await model.remove(account) }
     }
 }

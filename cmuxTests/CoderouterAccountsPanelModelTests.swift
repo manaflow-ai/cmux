@@ -34,7 +34,7 @@ struct CoderouterAccountsPanelModelTests {
             listShared: { teamID in
                 [
                     .object([
-                        "id": .string("shared-(teamID)"),
+                        "id": .string("shared-\(teamID)"),
                         "kind": .string("codex"),
                         "label": .string("Work"),
                     ])
@@ -93,7 +93,7 @@ struct CoderouterAccountsPanelModelTests {
                 .object([
                     "accounts": .array([
                         .object([
-                            "id": .string("claude-(teamID)"),
+                            "id": .string("claude-\(teamID)"),
                             "kind": .string("anthropic_oauth"),
                             "label": .string("Team Claude"),
                             "identifier": .string("sk-ant-…1234"),
@@ -107,7 +107,7 @@ struct CoderouterAccountsPanelModelTests {
             listShared: { teamID in
                 [
                     .object([
-                        "id": .string("shared-(teamID)"),
+                        "id": .string("shared-\(teamID)"),
                         "kind": .string("codex"),
                         "label": .string("Team Codex"),
                     ])
