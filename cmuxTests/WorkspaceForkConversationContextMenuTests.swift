@@ -1442,12 +1442,12 @@ struct WorkspaceForkConversationContextMenuTests {
             workspaceRoot: root.path,
             executablePath: executable.path
         )
-        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let (loaderStartedEvents, loaderStartedContinuation) = AsyncStream<Void>.makeStream()
         let releaseLoader = OSAllocatedUnfairLock(initialState: false)
         let probeCount = OSAllocatedUnfairLock(initialState: 0)
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                loaderStarted.withLock { $0 = true }
+                loaderStartedContinuation.yield(())
                 while !releaseLoader.withLock({ $0 }) {
                     Thread.sleep(forTimeInterval: 0.005)
                 }
@@ -1565,10 +1565,8 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         sharedIndex.scheduleRefreshIfStale(validating: panelKey)
-        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
-            await Task.yield()
-        }
-        #expect(loaderStarted.withLock { $0 })
+        var loaderStartedIterator = loaderStartedEvents.makeAsyncIterator()
+        #expect(await loaderStartedIterator.next() != nil)
 
         await sharedIndex.refreshForkAvailabilityNow(
             workspaceId: workspaceId,
