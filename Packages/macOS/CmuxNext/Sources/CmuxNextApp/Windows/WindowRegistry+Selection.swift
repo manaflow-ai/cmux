@@ -8,7 +8,8 @@ extension WindowRegistry {
     /// - a selection that is still a member stays,
     /// - a selection that left falls to its next surviving neighbor in the
     ///   old order, then the previous one, then the first member,
-    /// - no members: nil (the empty state).
+    /// - no members: nil (only for a window being removed; a registered
+    ///   window always has one).
     static func repairedSelection(current: String?, previous: [String], members: [String], preferred: [String] = []) -> String? {
         if let pick = preferred.first(where: members.contains) { return pick }
         guard let current else { return members.first }

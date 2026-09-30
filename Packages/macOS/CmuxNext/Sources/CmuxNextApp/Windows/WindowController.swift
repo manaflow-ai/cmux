@@ -94,8 +94,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Shows the requested workspace on whichever machine holds it. While
     /// its Cloud machine is still connecting (relaunch), the window waits
     /// instead of replacing the request. A missing workspace falls back to
-    /// the first one this window lists; a window listing none shows the
-    /// empty state (only the last window can, see `WindowRegistry`).
+    /// the first one this window lists. There is no empty state: a window
+    /// that loses its last workspace is closed by `WindowManager` in the
+    /// same turn, before this observer runs. Until a workspace is mirrored
+    /// (launch, a Cloud machine reconnecting) the connecting state shows.
     private func showWorkspace(requested: String?) {
         let machines = services.machines
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
@@ -108,30 +110,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             show(workspace, on: daemon)
             return
         }
-        guard machines.local.store.isLoaded else {
-            if content == nil { showConnecting() }
-            return
-        }
-        showEmptyState()
-    }
-
-    /// No workspace: a minimal page with "New Workspace".
-    private func showEmptyState() {
-        guard content != nil || !(root.content is EmptyWindowView) else { return }
-        content?.teardown()
-        content = nil
-        startupObservation?.cancel()
-        startupObservation = nil
-        connectingView = nil
-        titleObservation?.cancel()
-        root.titlebar.title = Strings.appName
-        let empty = EmptyWindowView()
-        empty.onNewWorkspace = { [weak self] in
-            guard let self else { return }
-            self.services.windows.newWorkspace(in: self.state)
-        }
-        root.show(empty)
-        services.cloudContextDidChange()
+        // Keep what is shown (the old content stays until the manager
+        // closes or refills this window); a window with nothing yet waits.
+        if content == nil { showConnecting() }
     }
 
     /// The connecting (or unavailable) state of the local daemon's first
@@ -178,6 +159,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.stateDidChange(state)
         services.cloudContextDidChange()
+        services.windows.contentDidAppear(self)
     }
 
     var focusedPane: PaneController? { content?.focusedPane }

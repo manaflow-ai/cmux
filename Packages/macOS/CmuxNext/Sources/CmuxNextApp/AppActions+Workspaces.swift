@@ -43,12 +43,15 @@ extension AppActions {
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
         let show = invocation["focus"]?.boolValue ?? true
-        let state = services.windows.active?.state
+        let windows = services.windows!
+        // Shown: the active window, or a new one when none is open. Not
+        // shown (the CLI default): the most recent window lists it, or a new
+        // window when none is open (a workspace never lives in no window).
+        let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
+        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
         services.registry.track(Task {
             do {
-                let id = try await services.windows.createWorkspace(spawn)
-                guard show else { return nil }
-                if let state { services.windows.claim(workspaceID: id, in: state) } else { services.windows.openWindow(workspaces: [id]) }
+                _ = try await windows.createWorkspace(spawn, into: target)
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")

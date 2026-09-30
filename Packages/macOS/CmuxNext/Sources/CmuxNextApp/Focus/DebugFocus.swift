@@ -10,8 +10,10 @@ enum DebugFocus {
         let ghostty = services.cache.focusedTerminalTabs
         let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty) }
         let context = services.registry.context
+        let windowProblems = WindowInvariants.problems(services.windows)
         return .object([
             "windows": .array(windows),
+            "window_invariants": .array(windowProblems.map(JSONValue.string)),
             "ghostty_focused_tabs": .array(ghostty.map(JSONValue.string)),
             "key_window": NSApp.keyWindow.map { .string(String(describing: type(of: $0))) } ?? .null,
             "app_active": .bool(NSApp.isActive),
@@ -20,7 +22,7 @@ enum DebugFocus {
                 "browser_focused": .bool(context.contains(.browserFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
-            "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
+            "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
         ])
     }
 

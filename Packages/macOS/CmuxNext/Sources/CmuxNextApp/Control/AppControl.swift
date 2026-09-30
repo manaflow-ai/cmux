@@ -33,6 +33,12 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
             },
+            // Window membership and the window invariants (no window
+            // without a workspace).
+            .mainActor("debug.windows") { [weak services] _ in
+                guard let services, let windows = services.windows else { return .value(.null) }
+                return .value(WindowInvariants.report(windows))
+            },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }

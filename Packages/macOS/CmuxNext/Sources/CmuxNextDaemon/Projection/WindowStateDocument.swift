@@ -36,16 +36,16 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         windows.removeAll { $0.id == id }
     }
 
-    /// Drops workspaces that no longer exist from every window, then windows
-    /// that listed workspaces and have none left. A window that never listed
-    /// any (the only window's empty state) is kept.
+    /// Drops workspaces that no longer exist from every window, then every
+    /// window with none left. A window exists only while it holds a
+    /// workspace, so a record that never listed one (the empty state of
+    /// older builds, or another client's) is dropped too.
     public mutating func prune(liveWorkspaces: Set<WorkspaceKey>) {
         windows = windows.compactMap { window in
             var window = window
-            let listed = !window.workspaceKeys.isEmpty || window.workspaceKey != nil
             window.workspaceKeys.removeAll { !liveWorkspaces.contains($0) }
             if let shown = window.workspaceKey, !liveWorkspaces.contains(shown) { window.workspaceKey = window.workspaceKeys.first }
-            return listed && window.workspaceKey == nil && window.workspaceKeys.isEmpty ? nil : window
+            return window.workspaceKey == nil && window.workspaceKeys.isEmpty ? nil : window
         }
     }
 

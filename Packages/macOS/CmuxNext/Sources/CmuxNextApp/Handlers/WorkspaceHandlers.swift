@@ -56,12 +56,16 @@ enum WorkspaceHandlers {
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let services = context.services
         let daemon = services.activeDaemon
+        let windows = services.windows!
+        // Claimed before the create command, so the workspace lands in (or
+        // opens) its window in the step that first mirrors it.
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
         Task {
             guard let connection = daemon.connection else { return }
-            let created: String
             do {
                 let key = WorkspaceKey.generate()
-                created = try await services.emptyWorkspaces.populating(key) {
+                windows.claimNew(workspaceID: key.rawValue, window: target)
+                _ = try await services.emptyWorkspaces.populating(key) {
                     let workspace = try await connection.createWorkspace(name: name, key: key)
                     let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
                     try await configure?(connection, terminal)
@@ -69,12 +73,6 @@ enum WorkspaceHandlers {
                 }
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            if let state = services.windows.active?.state {
-                services.windows.claim(workspaceID: created, in: state)
-            } else {
-                services.windows.openWindow(workspaces: [created])
             }
         }
     }

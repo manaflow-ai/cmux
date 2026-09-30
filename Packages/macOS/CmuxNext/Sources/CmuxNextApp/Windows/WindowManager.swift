@@ -11,7 +11,10 @@ import Observation
 /// - `WindowState` (one per window, in `states`): everything else the
 ///   window owns. Outlives its controller while the window is registered.
 ///
-/// Controllers follow the registry declaratively (`sync`). Both persist in
+/// Controllers follow the registry declaratively (`sync`). A window exists
+/// only while it owns a workspace (`WindowRegistry`); the one exception is
+/// the launch window, which shows the daemon's connecting state before any
+/// membership exists and is registered once it receives workspaces. Both persist in
 /// the daemon's `personal` frontend projection (architecture.md 1), written
 /// 500 ms after the last change and flushed on quit.
 final class WindowManager {
@@ -25,17 +28,28 @@ final class WindowManager {
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// New workspaces a window asked for before the daemon reported them:
-    /// reconcile places each in that window and selects it.
+    /// reconcile places each in that window (opening it when it is not
+    /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
+    /// Frames for windows that open once their claimed workspace arrives.
+    var pendingFrames: [String: CGRect] = [:]
+    /// Windows created for workspaces the daemon has not reported yet: kept
+    /// off screen until their content is installed, so no window ever shows
+    /// without a workspace. The value asks for bring-to-front on present.
+    var awaitingContent: [String: Bool] = [:]
+    /// Transitions that broke a window invariant (`WindowInvariants`).
+    private(set) var invariantViolations = 0
     /// Machine each workspace was last seen on, to tell "gone" from "its
     /// machine is still connecting".
     var seenMachine: [String: String] = [:]
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
-    /// The window opened at launch, before the saved state loaded; it
-    /// becomes the frontmost restored window.
-    private var launchWindowID: String?
+    /// The window opened at launch, before the saved state loaded: it shows
+    /// the connecting state outside the registry, then becomes the frontmost
+    /// restored window (or the window of the first workspaces). Nil once it
+    /// is registered.
+    var launchWindowID: String?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -71,6 +85,19 @@ final class WindowManager {
         }
     }
 
+    /// Records invariant breaks found after a transition (a fault in debug
+    /// builds). Nothing is repaired here, so a lifecycle bug stays visible.
+    func noteInvariantViolations(_ problems: [String]) {
+        invariantViolations += problems.count
+        for problem in problems {
+            #if DEBUG
+            WindowInvariants.logger.fault("window invariant: \(problem, privacy: .public)")
+            #else
+            WindowInvariants.logger.error("window invariant: \(problem, privacy: .public)")
+            #endif
+        }
+    }
+
     func controller(for windowID: String) -> WindowController? {
         controllers.first { $0.state.id == windowID }
     }
@@ -86,14 +113,15 @@ final class WindowManager {
     // MARK: Restore
 
     /// Opens one window at once (it shows the connecting state until the
-    /// daemon answers), then restores the saved windows once the first
+    /// daemon answers; it is not a registry window, since it has no
+    /// workspace yet), then restores the saved windows once the first
     /// snapshot arrives, the launch window becoming the frontmost of them.
     /// Creates a workspace only when the daemon tree is empty.
     func restoreWhenLoaded() {
         if controllers.isEmpty {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
-            transition { $0.openWindow(id: id) }
+            makeController(for: WindowRegistry.Window(id: id))
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
@@ -125,6 +153,10 @@ final class WindowManager {
         }
         reconcileMembership()
         sync(previous: [:])
+        // Registered now (it received workspaces): an ordinary window. If
+        // it has none (the daemon failed to create one), it keeps showing
+        // the startup state and is registered when workspaces arrive.
+        if let launch = launchWindowID, registry.value.window(launch) != nil { launchWindowID = nil }
         // The adopted window is the frontmost saved one; keep it in front.
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
@@ -134,11 +166,10 @@ final class WindowManager {
     /// state, so relaunch shows it without opening a second window. With
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
-        guard let launchID = launchWindowID else { return nil }
-        launchWindowID = nil
-        guard let launch = controller(for: launchID), let front = restored.recency.first,
+        guard let launchID = launchWindowID, let launch = controller(for: launchID), let front = restored.recency.first,
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
+        launchWindowID = front
         states[launchID] = nil
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
@@ -154,7 +185,7 @@ final class WindowManager {
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
         let state = state(for: window.id)
-        var frame = window.frame.map { WindowPlacementFallback.visible($0, display: window.display) }
+        var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
@@ -164,9 +195,22 @@ final class WindowManager {
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
-        present(controller)
+        // A window created for workspaces the daemon has not reported yet
+        // stays off screen until `contentDidAppear` (never an empty frame).
+        let waiting = !window.workspaceIDs.isEmpty && window.workspaceIDs.allSatisfy {
+            pendingClaims[$0] != nil && services.machines.workspace(id: $0) == nil
+        }
+        if waiting { awaitingContent[window.id] = false } else { present(controller) }
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
+    }
+
+    /// The window installed its first workspace content: a window kept off
+    /// screen for it is ordered in now.
+    func contentDidAppear(_ controller: WindowController) {
+        guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
+        present(controller)
+        if front { bringToFront(controller) }
     }
 
     /// Orders a new window in without taking focus under no-activate.
@@ -188,6 +232,10 @@ final class WindowManager {
     /// Brings a window forward (not key and no activation under
     /// `CMUX_NEXT_NO_ACTIVATE=1`).
     func bringToFront(_ controller: WindowController) {
+        if awaitingContent[controller.state.id] != nil {
+            awaitingContent[controller.state.id] = true
+            return
+        }
         guard ordersWindowsIn, let window = controller.window else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         if services.environment.noActivate {
@@ -200,47 +248,16 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
+        awaitingContent[id] = nil
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
+        if id == launchWindowID {
+            // The unregistered launch window: nothing to hand over.
+            launchWindowID = nil
+            states[id] = nil
+            return
+        }
         userClosed(id)
-    }
-
-    // MARK: Workspaces
-
-    /// Creates a workspace with one terminal on `daemon` (default: the local
-    /// daemon). Returns its id.
-    func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil) async -> String? {
-        let daemon = daemon ?? services.daemon
-        do {
-            return try await createWorkspace(WorkspaceSpawn(cwd: cwd), on: daemon)
-        } catch {
-            daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil) {
-        let windowID = state?.id
-        Task {
-            guard let id = await createWorkspace(on: daemon) else { return }
-            if let windowID, let state = states[windowID], registry.value.window(windowID)?.isOpen == true {
-                claim(workspaceID: id, in: state)
-            } else {
-                openWindow(workspaces: [id])
-            }
-        }
-    }
-
-    /// New window with a new workspace. Returns the window id right away;
-    /// the window opens once the workspace exists.
-    @discardableResult
-    func newWindow(frame: CGRect? = nil) -> String {
-        let windowID = UUID().uuidString.lowercased()
-        Task {
-            guard let id = await createWorkspace() else { return }
-            openWindow(id: windowID, workspaces: [id], frame: frame)
-        }
-        return windowID
     }
 
     // MARK: Persistence

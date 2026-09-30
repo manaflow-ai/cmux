@@ -10,7 +10,8 @@ extension WindowRegistry {
     /// Rebuilds membership from saved records, front window first. A
     /// workspace listed by two records (older builds let every window show
     /// any workspace) stays with the frontmost; records left with nothing
-    /// are dropped unless every record is empty (then the front one stays).
+    /// are dropped (a window exists only while it holds a workspace), so an
+    /// empty record from an older build or another client never shows.
     init(records: [WindowRecord]) {
         self.init()
         let ordered = records.sorted { $0.order < $1.order }
@@ -21,9 +22,6 @@ extension WindowRegistry {
             ids = ids.filter { owned.insert($0).inserted }
             guard !ids.isEmpty else { continue }
             appendRestored(Window(id: record.id, workspaceIDs: ids, frame: record.frame?.rect, display: record.display))
-        }
-        if windows.isEmpty, let front = ordered.first {
-            appendRestored(Window(id: front.id, frame: front.frame?.rect, display: front.display))
         }
         // Front window most recent.
         for window in windows.reversed() { activate(window.id) }

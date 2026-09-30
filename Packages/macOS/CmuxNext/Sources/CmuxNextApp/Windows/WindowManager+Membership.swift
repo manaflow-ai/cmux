@@ -22,20 +22,22 @@ extension WindowManager {
             registry.order(like: live)
             return changes
         }
-        if registry.value != before || !preferred.isEmpty { sync(previous: previous, preferred: preferred) }
+        if registry.value != before || !preferred.isEmpty {
+            // Focus follows the workspaces: the window that received them.
+            let receivers = Array(preferred.keys) + changes.moved.keys.sorted()
+            sync(previous: previous, preferred: preferred, receivers: receivers)
+        }
         return changes
     }
 
-    /// Makes controllers match the registry: closes windows it removed or
-    /// closed (animated), opens missing ones, and repairs each window's
-    /// selection. Windows whose membership did not change keep their state
-    /// untouched.
-    func sync(previous: [String: [String]], preferred: [String: [String]] = [:]) {
+    /// Makes controllers match the registry, all in this main-actor turn so
+    /// no frame shows a window without its workspace: opens missing windows,
+    /// repairs each window's selection, closes windows the registry removed
+    /// or closed (at once), and when the key window closed, makes the window
+    /// that received its workspaces key (else the next one in z-order).
+    /// Windows whose membership did not change keep their state untouched.
+    func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = []) {
         let value = registry.value
-        for controller in controllers where value.window(controller.state.id)?.isOpen != true {
-            closeProgrammatically(controller)
-        }
-        for id in Array(states.keys) where value.window(id) == nil { states[id] = nil }
         for window in value.openWindows where controller(for: window.id) == nil {
             makeController(for: window)
         }
@@ -45,7 +47,28 @@ extension WindowManager {
                                                         members: window.workspaceIDs, preferred: preferred[window.id] ?? [])
             if state.workspaceID != pick { select(pick, in: state) }
         }
+        let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
+        let closedKey = closing.contains { $0.window?.isKeyWindow == true }
+        for controller in closing { closeProgrammatically(controller) }
+        for id in Array(states.keys) where value.window(id) == nil && id != launchWindowID { states[id] = nil }
+        if closedKey { handOffKey(to: receivers) }
+        checkInvariants()
         scheduleSave()
+    }
+
+    /// Makes the first open receiver key, else our frontmost window.
+    private func handOffKey(to receivers: [String]) {
+        guard ordersWindowsIn, !services.environment.noActivate else { return }
+        let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
+            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+        if let next { bringToFront(next) }
+    }
+
+    /// Counts and logs any broken window invariant after a transition.
+    private func checkInvariants() {
+        let problems = WindowInvariants.problems(self)
+        guard !problems.isEmpty else { return }
+        noteInvariantViolations(problems)
     }
 
     /// Sets the window's shown workspace (its own state).
@@ -98,7 +121,8 @@ extension WindowManager {
         transition(select: [state.id: [workspaceID]]) { $0.move([workspaceID], to: state.id) }
     }
 
-    /// Moves workspaces into an existing window and selects the first there.
+    /// Moves workspaces into an existing window and selects the first there;
+    /// a window left without workspaces closes.
     func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) {
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return }
         transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
@@ -106,7 +130,9 @@ extension WindowManager {
 
     /// Opens a new window listing `workspaces` (taken from their windows,
     /// which close when left empty) and showing the first. Returns its
-    /// controller.
+    /// controller; nil when `workspaces` is empty (no window without one).
+    /// A workspace the daemon has not reported yet keeps the window off
+    /// screen until its content is installed (`contentDidAppear`).
     @discardableResult
     func openWindow(id: String = UUID().uuidString.lowercased(), workspaces: [String], frame: CGRect? = nil) -> WindowController? {
         protectIfUnknown(workspaces, window: id)
@@ -117,7 +143,8 @@ extension WindowManager {
     }
 
     /// The user closed window `id`: its workspaces move to the most recent
-    /// other window; the last window stays registered (restorable).
+    /// other window; the last window stays registered, closed, with its
+    /// workspaces (restorable by a Dock click).
     func userClosed(_ id: String) {
         transition { $0.close(id) }
     }
@@ -136,23 +163,16 @@ extension WindowManager {
         return true
     }
 
-    /// Closes a window the registry removed. Fades out unless Reduce Motion
-    /// is on; never runs the user-close transition.
+    /// Closes a window the registry removed, at once and in the same turn
+    /// as the transition (like a standard window close). A fade would keep
+    /// the window on screen after its workspace left: either empty or
+    /// fighting the receiving window for the same terminal surfaces. Never
+    /// runs the user-close transition.
     func closeProgrammatically(_ controller: WindowController) {
         let id = controller.state.id
         guard !programmaticCloses.contains(id), let window = controller.window else { return }
         programmaticCloses.insert(id)
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, window.isVisible else {
-            window.close()
-            return
-        }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            window.animator().alphaValue = 0
-        }, completionHandler: {
-            MainActor.assumeIsolated { window.close() }
-        })
+        window.close()
     }
 
     // MARK: Reconcile with the daemons
@@ -173,9 +193,17 @@ extension WindowManager {
         }
     }
 
+    /// The one place daemon truth prunes and fills windows: dead
+    /// workspaces leave their windows (a window left with none closes),
+    /// new ones join their claimed window (opening it) or the most recent
+    /// one. Runs synchronously from each store's `onWorkspaceListChanged`,
+    /// so a window closes in the same turn as the delta that emptied it,
+    /// before any observer or frame; the observation loop above covers
+    /// machine list and Cloud load changes.
     func reconcileMembership() {
         var live: [String] = []
         for daemon in services.machines.daemons {
+            installWorkspaceListHook(on: daemon)
             for id in Self.orderedIDs(of: daemon) {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
@@ -183,11 +211,24 @@ extension WindowManager {
         }
         let placements = pendingClaims
         for id in live { pendingClaims[id] = nil }
-        let members = registry.value.windows.flatMap(\.workspaceIDs)
-        let dead = Set(members.filter(isDead))
-        transition { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, fallbackWindow: UUID().uuidString.lowercased())
+        // A claimed workspace is selected in its window.
+        let before = registry.value
+        var preferred: [String: [String]] = [:]
+        for id in live where before.owner(of: id) == nil {
+            if let window = placements[id] { preferred[window, default: []].append(id) }
         }
+        let members = before.windows.flatMap(\.workspaceIDs)
+        let dead = Set(members.filter(isDead))
+        let fallback = launchWindowID ?? UUID().uuidString.lowercased()
+        transition(select: preferred) { registry in
+            registry.reconcile(live: live, dead: dead, placements: placements, fallbackWindow: fallback)
+        }
+        if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
+    }
+
+    private func installWorkspaceListHook(on daemon: DaemonService) {
+        guard daemon.store.onWorkspaceListChanged == nil else { return }
+        daemon.store.onWorkspaceListChanged = { [weak self] in self?.reconcileMembership() }
     }
 
     /// True when `id` is known gone: its machine is loaded and lacks it, or

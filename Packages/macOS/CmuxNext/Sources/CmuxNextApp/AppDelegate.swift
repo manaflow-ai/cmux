@@ -108,14 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
+    /// The app stays running with no windows (standard macOS behavior): a
+    /// window closes when its last workspace closes, and the daemon keeps
+    /// every terminal regardless.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 
     /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces.
+    /// with its workspaces, else a new window with a new workspace.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows, let windows = services?.windows else { return true }
-        return !windows.reopenClosedWindow()
+        windows.reopenOrCreateWindow()
+        return false
     }
 }

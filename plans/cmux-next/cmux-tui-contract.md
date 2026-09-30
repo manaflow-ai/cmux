@@ -285,6 +285,21 @@ carries no body, so refetch it (`events.md:320-332`). Target identity is
 (`native-frontend.md:30-53`). `journal-frontend-event` records settled focus,
 resize, and viewport observations (`commands.md:849-878`).
 
+Window records and the no-empty-window rule (decision 2026-09-30): the macOS
+app's `personal` window document (`WindowStateDocument`, subject `windows`)
+lists each window's workspaces, and a window exists only while it holds at
+least one. The daemon stores the projection as opaque JSON with CAS, so it can
+hold a record with no workspaces (written by an older build's empty state, by
+another client, or left when every workspace of a window closed while the app
+was not running). The daemon does not enforce the rule: it would have to parse
+one frontend's schema and mutate a projection on a workspace close, which
+couples the daemon to a client format and races the app's CAS writes, for no
+gain, since the app is the only reader. The app enforces it in one place:
+`WindowStateDocument.prune` drops every record without a live workspace on
+each save, and `WindowRegistry(records:)` skips such records on load, so none
+is ever shown. Revisit if another frontend (iOS, TUI) starts reading window
+records.
+
 ### 2.7 Agents and notifications
 
 - `list-agents {surface?, state?}` and event `agent-changed {surface, state:

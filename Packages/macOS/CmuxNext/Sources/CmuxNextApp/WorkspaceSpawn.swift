@@ -43,10 +43,16 @@ extension WindowManager {
     /// On a Cloud machine (`daemon`), the terminal gets no Mac environment
     /// (only the placement keys) and starts in the machine's own default
     /// directory.
-    func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil) async throws -> String {
+    /// `windowID` claims the workspace for that window before the command
+    /// is sent (`claimNew`), so it lands there, or opens that window, in the
+    /// step that first mirrors it; nil leaves it to reconcile (the most
+    /// recent window).
+    func createWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
+                         frame: CGRect? = nil) async throws -> String {
         let daemon = daemon ?? services.daemon
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
+        if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.

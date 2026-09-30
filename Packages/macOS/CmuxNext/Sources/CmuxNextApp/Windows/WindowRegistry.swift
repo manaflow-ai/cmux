@@ -7,12 +7,16 @@ import Foundation
 /// (selected workspace, sidebar width, focus, screen switcher) is that
 /// window's own `WindowState`.
 ///
-/// Invariant: every workspace is owned by at most one window, and every
-/// live workspace by exactly one after `reconcile`. A window that loses its
-/// last workspace closes, unless it is the only open window: that one stays
-/// and shows an empty state. Closing a window never ends terminals: its
+/// Invariants: a window exists only while it owns at least one workspace
+/// (user decision 2026-09-30: no "No workspaces in this window" state);
+/// every workspace is owned by at most one window, and every live workspace
+/// by exactly one after `reconcile`. Every transition that takes a window's
+/// last workspace (close, move, tear-off, daemon removal) removes that
+/// window in the same step, the only window too; no window is registered
+/// without a workspace. Closing a window never ends terminals: its
 /// workspaces move to the most recent other open window, or, when it is the
-/// only one, it stays registered (closed) so relaunch or reopen restores it.
+/// only open one, it stays registered (closed, still owning them) so
+/// relaunch or reopen restores it.
 ///
 /// Pure value type: every transition is a mutating method returning the
 /// `Changes` the App animates. `WindowManager` applies them to controllers.
@@ -20,7 +24,8 @@ struct WindowRegistry: Equatable, Sendable {
     struct Window: Equatable, Sendable, Identifiable {
         let id: String
         /// Owned workspace ids (`WorkspaceModel.id`), in daemon sidebar
-        /// order after `reconcile`. The daemon owns the order; this mirrors it.
+        /// order after `reconcile`. Never empty for a registered window.
+        /// The daemon owns the order; this mirrors it.
         var workspaceIDs: [String]
         /// AppKit screen frame (bottom-left origin).
         var frame: CGRect?
@@ -87,9 +92,8 @@ struct WindowRegistry: Equatable, Sendable {
         }
         if Set(windows.map(\.id)).count != windows.count { problems.append("duplicate window ids") }
         if Set(recency) != Set(windows.map(\.id)) || recency.count != windows.count { problems.append("recency out of sync") }
-        let open = openWindows
-        for window in open where window.workspaceIDs.isEmpty && open.count > 1 {
-            problems.append("\(window.id) is empty but not the only open window")
+        for window in windows where window.workspaceIDs.isEmpty {
+            problems.append("\(window.id) has no workspaces")
         }
         return problems
     }
@@ -97,21 +101,24 @@ struct WindowRegistry: Equatable, Sendable {
     // MARK: Lifecycle
 
     /// Registers a new open window owning `workspaceIDs` (taken from their
-    /// current owners) and makes it the most recent.
+    /// current owners) and makes it the most recent. With no workspaces
+    /// nothing is registered: a window without one does not exist.
     @discardableResult
     mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil) -> Changes {
         guard window(id) == nil else { return move(workspaceIDs, to: id) }
+        guard !workspaceIDs.isEmpty else { return Changes() }
         var changes = Changes()
         let taken = detach(workspaceIDs)
         windows.append(Window(id: id, workspaceIDs: taken, frame: frame, display: display))
         recency.insert(id, at: 0)
-        if !taken.isEmpty { changes.moved[id] = taken }
-        changes.emptied = closeEmptied(keeping: id)
+        changes.moved[id] = taken
+        changes.emptied = closeEmptied()
         return changes
     }
 
     /// The user closed `id`. Its workspaces move to the most recent other
-    /// open window; the only open window is kept, closed, with its workspaces.
+    /// open window; the only open window is kept, closed, with its
+    /// workspaces (it owns at least one, so it is never an empty record).
     @discardableResult
     mutating func close(_ id: String) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
@@ -164,7 +171,7 @@ struct WindowRegistry: Equatable, Sendable {
         let slot = anchor.flatMap { windows[index].workspaceIDs.firstIndex(of: $0) } ?? windows[index].workspaceIDs.endIndex
         windows[index].workspaceIDs.insert(contentsOf: taken, at: slot)
         changes.moved[id] = taken
-        changes.emptied = closeEmptied(keeping: id)
+        changes.emptied = closeEmptied()
         return changes
     }
 
@@ -172,8 +179,11 @@ struct WindowRegistry: Equatable, Sendable {
     /// (known gone; a workspace whose machine is still connecting is not
     /// dead, so its window survives relaunch), orders each window like
     /// `live`, and gives orphans (created by a drag, the CLI, another
-    /// device) to their `placements` window when it is open, else the most
-    /// recent open window, else `fallbackWindow` when none is registered.
+    /// device) to their `placements` window: an open one takes it, an
+    /// unregistered one opens with it (a new window waiting for the
+    /// workspace it was created for, so it never shows empty). Other orphans
+    /// go to the most recent open window, else the most recent (closed)
+    /// one, else `fallbackWindow`. Windows left empty close.
     @discardableResult
     mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:],
                             fallbackWindow: @autoclosure () -> String) -> Changes {
@@ -183,19 +193,14 @@ struct WindowRegistry: Equatable, Sendable {
             windows[index].workspaceIDs = windows[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
         }
         let owned = Set(windows.flatMap(\.workspaceIDs))
-        let open = Set(openWindows.map(\.id))
         for orphan in live where !owned.contains(orphan) {
-            let heir = placements[orphan].flatMap { open.contains($0) ? $0 : nil } ?? mostRecentOpen() ?? recency.first ?? {
-                let id = fallbackWindow()
-                windows.append(Window(id: id))
-                recency.insert(id, at: 0)
-                return id
-            }()
+            let claimed = placements[orphan].flatMap { placementWindow($0) }
+            let heir = claimed ?? mostRecentOpen() ?? recency.first ?? register(fallbackWindow())
             guard let index = windows.firstIndex(where: { $0.id == heir }) else { continue }
             windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [orphan], rank: rank)
             changes.moved[heir, default: []].append(orphan)
         }
-        changes.emptied = closeEmptied(keeping: nil)
+        changes.emptied = closeEmptied()
         return changes
     }
 
@@ -223,18 +228,25 @@ struct WindowRegistry: Equatable, Sendable {
         recency.removeAll { $0 == id }
     }
 
-    /// Removes windows with no workspaces, except one open window when no
-    /// non-empty open window remains: `preferred` if it is such a window,
-    /// else the most recent one.
-    private mutating func closeEmptied(keeping preferred: String?) -> [String] {
-        let empty = windows.filter(\.workspaceIDs.isEmpty)
-        guard !empty.isEmpty else { return [] }
-        var survivor: String?
-        if !openWindows.contains(where: { !$0.workspaceIDs.isEmpty }) {
-            let candidates = Set(empty.filter(\.isOpen).map(\.id))
-            survivor = preferred.flatMap { candidates.contains($0) ? $0 : nil } ?? recency.first { candidates.contains($0) }
-        }
-        let closed = empty.map(\.id).filter { $0 != survivor }
+    /// The window a claimed orphan goes to: its window when open, or a new
+    /// open window with that id when none is registered. A claim on a
+    /// closed window falls through to the usual heir.
+    private mutating func placementWindow(_ id: String) -> String? {
+        guard let existing = window(id) else { return register(id) }
+        return existing.isOpen ? id : nil
+    }
+
+    /// Registers open window `id`, most recent. Its caller gives it a
+    /// workspace in the same transition; `closeEmptied` removes it otherwise.
+    private mutating func register(_ id: String) -> String {
+        windows.append(Window(id: id))
+        recency.insert(id, at: 0)
+        return id
+    }
+
+    /// Removes every window left with no workspace (the only one too).
+    private mutating func closeEmptied() -> [String] {
+        let closed = windows.filter(\.workspaceIDs.isEmpty).map(\.id)
         for id in closed { remove(id) }
         return closed
     }

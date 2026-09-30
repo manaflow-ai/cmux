@@ -16,6 +16,7 @@ extension DaemonStore {
         if let transaction = event.clientTransactionID {
             confirm(transaction)
         }
+        workspaceListMayHaveChanged()
         return followup
     }
 
@@ -23,6 +24,11 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        applyDepth += 1
+        defer {
+            applyDepth -= 1
+            workspaceListMayHaveChanged()
+        }
         var followup = Followup.none
         for envelope in batch {
             if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {

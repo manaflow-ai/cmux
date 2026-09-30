@@ -43,6 +43,16 @@ public final class DaemonStore {
     public internal(set) var confirmedTransactions: [ClientTransactionID] = []
     /// Called once per echoed transaction id, on the main actor.
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
+    /// Called on the main actor, synchronously, once the loaded workspace
+    /// list (membership or sidebar order) changed: right after the event
+    /// batch, snapshot, or optimistic patch that changed it, before any
+    /// observer or frame runs. The App keeps window membership in step here,
+    /// so a window never shows after its last workspace is gone.
+    @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
+    /// The list last reported to `onWorkspaceListChanged`.
+    @ObservationIgnored var notifiedWorkspaceList: [String]?
+    /// Nesting of batch applies; the hook runs when the outermost ends.
+    @ObservationIgnored var applyDepth = 0
     @ObservationIgnored public var transactionLimit = 64
     @ObservationIgnored public var notificationLimit = 200
 
@@ -116,6 +126,7 @@ public final class DaemonStore {
         if !isLoaded { isLoaded = true }
         structureChanged()
         reapplyPendingPatches()
+        workspaceListMayHaveChanged()
     }
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
@@ -167,6 +178,16 @@ public final class DaemonStore {
         workspacesByKey = byKey
         tabGroupsByID = tabGroups
         recomputeSidebar()
+    }
+
+    /// Runs `onWorkspaceListChanged` when the workspace list differs from
+    /// the last one reported (outside a batch, once loaded).
+    func workspaceListMayHaveChanged() {
+        guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
+        let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
+        guard list != notifiedWorkspaceList else { return }
+        notifiedWorkspaceList = list
+        hook()
     }
 
     func recomputeSidebar() {

@@ -47,6 +47,7 @@ extension DaemonStore {
     public func applyOptimistic(_ patch: OptimisticPatch, transaction: ClientTransactionID) {
         pendingPatches.append(PendingPatch(transaction: transaction, patch: patch))
         apply(patch)
+        workspaceListMayHaveChanged()
     }
 
     /// The command failed: drop the patch and restore daemon truth.
