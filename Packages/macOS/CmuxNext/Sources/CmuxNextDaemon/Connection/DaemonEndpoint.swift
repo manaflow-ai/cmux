@@ -57,6 +57,16 @@ public enum DaemonCapabilities {
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public static let loopbackForward = "loopback-forward-v1"
+    /// `source` on notifications (cli, terminal, agent, daemon), and OSC 9,
+    /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
+    /// (plans/cmux-next/notifications.md).
+    public static let notificationSource = "notification-source-v1"
+    /// `shell_args` on the terminal-creating commands, so bash and nushell
+    /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
+    public static let terminalShellArgs = "terminal-shell-args-v1"
+    /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
+    /// and window records, read before connecting (`LaunchSnapshot`).
+    public static let launchSnapshot = "launch-snapshot-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
