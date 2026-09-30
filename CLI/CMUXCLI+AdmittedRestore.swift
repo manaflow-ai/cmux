@@ -12,6 +12,25 @@ extension CMUXCLI {
         }
     }
 
+    /// Tells the user, on stderr, how this restore departs from the recorded
+    /// launch, right before the agent replaces this process.
+    func reportRestoreNotices(_ notices: [AgentRestoreNotice]) {
+        for notice in notices {
+            let message: String
+            switch notice {
+            case .routedLauncherUnavailable(let executable):
+                message = String(
+                    format: String(
+                        localized: "cli.restore.notice.routedLauncherUnavailable",
+                        defaultValue: "restore: this session was started through the routed launcher '%@', which is not on PATH. Resuming the agent directly instead."
+                    ),
+                    executable
+                )
+            }
+            FileHandle.standardError.write(Data((message + "\n").utf8))
+        }
+    }
+
     /// Both legacy fallback branches enter the same admission and lease transaction.
     func legacyRestoreExecution(
         record: RestoreRecord,
@@ -111,6 +130,7 @@ extension CMUXCLI {
             switch execution {
             case .invocation(let invocation):
                 client.close()
+                reportRestoreNotices(invocation.notices)
                 try execRestoreInvocation(invocation, appliedWorkingDirectory: effectiveWorkingDirectory, admittedScope: claim)
             case .legacy(let command, let environment):
                 try execLegacyRestoreRecord(command, record: record, environment: environment, client: client)

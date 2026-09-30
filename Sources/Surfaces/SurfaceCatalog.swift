@@ -43,6 +43,8 @@ final class SurfaceCatalog {
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
+    /// Admits one display creation per machine so repeated clicks cannot project the same guest twice.
+    var activeDisplayCreations: Set<SurfaceMachineID> = []
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
@@ -170,26 +172,7 @@ final class SurfaceCatalog {
         for key in inFlightKeys {
             cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
         }
-        // A machine that is gone (deleted, or access ended) takes its URL-backed
-        // panes with it: a display or browser pane holds a tokened gateway URL
-        // that decays into the hosting provider's raw error page once the
-        // workload is dead. Terminal panes stay — their attach process exits and
-        // the scrollback is still the user's to read.
-        let urlBacked = projections.filter {
-            $0.resource.machine == machine
-                && ($0.resource.kind == .display || $0.resource.kind == .browser)
-        }
-        let provider = providers[machine]
-        for projection in urlBacked {
-            if let provider {
-                provider.discardMaterialization(projection)
-            } else {
-                // The registry removes its provider before calling us during a
-                // fleet prune. There is still a real browser/display pane to
-                // close, even though no provider remains to do it for us.
-                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-            }
-        }
+        closeURLBackedPanes(on: machine)
         cloudWorkspaceDeletionLedger.remove(machine: machine)
         providers[machine] = nil
         machines[machine] = nil
@@ -246,11 +229,12 @@ final class SurfaceCatalog {
     /// reconnect timeout.
     func refresh(machine: SurfaceMachineID, force: Bool = false) async {
         guard let provider = providers[machine] else { return }
+        if force { requestPortDiscovery(for: machine) }
         await provider.refresh(force: force)
     }
-
     func refreshAll(force: Bool = false) async {
         for provider in providers.values {
+            if force { requestPortDiscovery(for: provider.machine) }
             await provider.refresh(force: force)
         }
     }
