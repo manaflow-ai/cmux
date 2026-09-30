@@ -1,0 +1,59 @@
+// sites.linkedin and sites.x against mock pages and LinkedIn's Voyager API.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createSitesEnv } from "./harness.mjs";
+import { SECRETS } from "./mock-sites.mjs";
+
+const env = await createSitesEnv();
+test.after(() => env.close());
+const s = env.session("social");
+
+test("linkedin.me and profile use the Voyager API with the page's CSRF value, which never returns", async () => {
+  assert.deepEqual(await s.value("sites.linkedin.me()"), { id: 424242, publicIdentifier: "ada-lovelace", firstName: "Ada", lastName: "Lovelace", headline: "Analyst", url: "https://www.linkedin.com/in/ada-lovelace/" });
+  assert.deepEqual(await s.value('sites.linkedin.profile("https://www.linkedin.com/in/grace-hopper/")'), { publicIdentifier: "grace-hopper", firstName: "Grace", lastName: "Hopper", headline: "Rear Admiral", location: "Arlington, Virginia", url: "https://www.linkedin.com/in/grace-hopper/" });
+  const scope = Object.keys(s.repl.scope).map((k) => { try { return JSON.stringify(s.repl.scope[k]); } catch { return ""; } }).join("\n");
+  assert.ok(!scope.includes(SECRETS.linkedinJsession));
+});
+
+test("linkedin.search and feed read result cards", async () => {
+  const people = await s.value('sites.linkedin.search("admiral")');
+  assert.deepEqual(people.map((p) => [p.name, p.url, p.summary[0]]), [["Grace Hopper", "https://www.linkedin.com/in/grace-hopper/", "Rear Admiral"], ["Alan Turing", "https://www.linkedin.com/in/alan-t/", "Mathematician"]]);
+  const feed = await s.value("sites.linkedin.feed({ limit: 2 })");
+  assert.deepEqual(feed.map((f) => [f.urn, f.author, f.text]), [["urn:li:activity:1", "Grace Hopper", "Compilers are fun."], ["urn:li:activity:2", "Alan Turing", "Can machines think?"]]);
+});
+
+test("linkedin.post: draft, then the confirmed draft posts through the share composer", async () => {
+  const d = await s.value('sites.linkedin.post("Hiring compiler engineers.")');
+  assert.equal(env.state.linkedinPosts.length, 0);
+  assert.deepEqual(await s.value(`sites.linkedin.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted" });
+  assert.deepEqual(env.state.linkedinPosts, [{ text: "Hiring compiler engineers." }]);
+});
+
+test("x.user, timeline, search and tweet read profile and post cards with counts", async () => {
+  assert.deepEqual(await s.value('sites.x.user("@grace")'), { name: "Grace Hopper", screenName: "grace", description: "Computer scientist.", location: "Arlington", url: null, joined: "Joined May 2009", followersCount: 1500000, followingCount: 120 });
+  const tl = await s.value("sites.x.timeline({ limit: 2 })");
+  assert.deepEqual(tl[0], { id: "111", url: "https://x.com/grace/status/111", author: { name: "Grace Hopper", screenName: "grace" }, text: "Nanoseconds are this long.", createdAt: "2026-09-29T12:00:00.000Z", replies: 12, retweets: 3400, likes: 1204, bookmarks: 5, views: 120000, media: [] });
+  assert.equal((await s.value('sites.x.search("machines", { limit: 1 })')).length, 1);
+  assert.deepEqual((await s.value('sites.x.tweet("https://x.com/grace/status/111")')).map((t) => t.id), ["111", "112"]);
+  assert.match(await s.error('sites.x.user("not a handle!")'), /expected a handle/);
+});
+
+test("x.post: a reply draft; the confirmed draft posts through the Web Intent composer", async () => {
+  const d = await s.value('sites.x.post({ text: "Agreed.", replyTo: "https://x.com/grace/status/111" })');
+  assert.deepEqual(d.preview, { text: "Agreed.", replyTo: "111" });
+  assert.equal(env.state.xPosts.length, 0);
+  assert.deepEqual(await s.value(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted", replyTo: "111" });
+  assert.deepEqual(env.state.xPosts, [{ text: "Agreed.", in_reply_to: "111" }]);
+});
+
+test("signed out: LinkedIn and X login redirects are reported", async () => {
+  const out = await createSitesEnv({ signedIn: false });
+  try {
+    const o = out.session("x");
+    assert.match(await o.error("sites.linkedin.me()"), /not signed in to LinkedIn/);
+    assert.match(await o.error("sites.linkedin.feed()"), /linkedin: the cmux browser is not signed in/);
+    assert.match(await o.error('sites.x.user("grace")'), /x\.user: the cmux browser is not signed in \(landed on https:\/\/x\.com\/i\/flow\/login\)/);
+  } finally {
+    await out.close();
+  }
+});

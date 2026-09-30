@@ -84,11 +84,14 @@ function textPdf(text) {
   return Buffer.from(out);
 }
 
-export async function createDevBrowser({ headless = true, viewport = { width: 1280, height: 800 } } = {}) {
+// `setupContext(context)` runs once on the Playwright context before any tab
+// opens (site-tool tests route real hostnames to local mock sites with it).
+export async function createDevBrowser({ headless = true, viewport = { width: 1280, height: 800 }, setupContext } = {}) {
   const { webkit } = loadPlaywright();
   const installSource = agentInstallSource();
   const browser = await webkit.launch({ headless });
   const context = await browser.newContext({ viewport, acceptDownloads: true });
+  if (setupContext) await setupContext(context);
   // The app's agent world sees closed shadow roots (WebKit's
   // allowAccessToClosedShadowRoots world option). Playwright cannot configure
   // a world, and this driver's agent shares the main world, so closed roots

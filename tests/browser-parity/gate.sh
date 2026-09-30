@@ -3,7 +3,7 @@
 # command. Run it before each push; a round that changes behavior must keep it
 # green or change goldens with a reviewed reason.
 #
-#   tests/browser-parity/gate.sh                 # unit, cmux-dev, oracle
+#   tests/browser-parity/gate.sh                 # unit, sites, cmux-dev, oracle
 #   PARITY_CMUX_CLI=<tagged cli> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
 #     tests/browser-parity/gate.sh --app [--app-runs N]   # plus the real app
 set -uo pipefail
@@ -28,6 +28,7 @@ step() {
 }
 
 step unit node --test tests/browser-parity/unit/*.test.mjs
+step sites node --test tests/browser-parity/sites/*.test.mjs
 step cmux-dev node tests/browser-parity/run.mjs check --backend cmux-dev
 step oracle node tests/browser-parity/run.mjs check --backend oracle
 if [ "$app" = 1 ]; then
