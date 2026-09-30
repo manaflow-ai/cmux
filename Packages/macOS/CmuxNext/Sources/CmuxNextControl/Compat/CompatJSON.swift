@@ -25,7 +25,9 @@ enum CompatJSON {
         return [
             "id": .string(window.uuid), "ref": .string(window.ref), "index": JSON(window.index),
             "key": .bool(window.isKey), "visible": .bool(window.isVisible),
-            "workspace_count": JSON(world.workspaces.count),
+            "workspace_count": JSON(window.workspaceUUIDs.count),
+            "workspace_ids": .array(window.workspaceUUIDs.map(JSON.string)),
+            "workspace_refs": .array(window.workspaceUUIDs.compactMap { world.workspace($0)?.ref }.map(JSON.string)),
             "selected_workspace_id": shown.map { .string($0.uuid) } ?? .null,
             "selected_workspace_ref": shown.map { .string($0.ref) } ?? .null,
         ]

@@ -61,9 +61,9 @@ extension TabGroupHandlers {
                 return
             }
             if newWindow {
-                ctx.services.windows.open(record: nil, workspaceID: key.rawValue)
+                ctx.services.windows.openWindow(workspaces: [key.rawValue])
             } else if let state = ctx.services.windows.active?.state {
-                ctx.services.windows.show(workspaceID: key.rawValue, in: state)
+                ctx.services.windows.claim(workspaceID: key.rawValue, in: state)
             }
         }
     }

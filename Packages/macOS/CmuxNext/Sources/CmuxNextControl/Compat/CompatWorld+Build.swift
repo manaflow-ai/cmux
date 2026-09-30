@@ -15,7 +15,8 @@ extension CompatWorld {
             let workspaceUUID = info.workspaceID.map(Self.workspaceUUID(modelID:))
             if let workspaceUUID { windowsByWorkspace[workspaceUUID, default: []].append(uuid) }
             windows.append(Window(uuid: uuid, ref: refs.ref(.window, uuid), index: index, modelID: info.id,
-                                  workspaceUUID: workspaceUUID, isKey: info.isKey, isVisible: info.isVisible))
+                                  workspaceUUID: workspaceUUID, workspaceUUIDs: info.workspaceIDs.map(Self.workspaceUUID(modelID:)),
+                                  isKey: info.isKey, isVisible: info.isVisible))
             if info.id == activeWindowID { activeWindowUUID = uuid }
         }
         for (workspaceIndex, info) in topology.workspaces.enumerated() {

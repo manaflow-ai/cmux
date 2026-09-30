@@ -107,8 +107,15 @@ extension ActionCatalog {
                 id: "moveWorkspaceToWindow",
                 title: String(localized: "action.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window…", bundle: .module),
                 keywords: ["window"], category: .workspace, symbol: "macwindow.and.cursorarrow",
-                surfaces: [.menu, .contextMenu], arguments: [CatalogArgument.windowWindow], targets: [.workspace],
+                surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.windowWindow], targets: [.workspace],
                 cliName: "workspace move-to-window", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "moveWorkspaceToNewWindow",
+                title: String(localized: "action.moveWorkspaceToNewWindow", defaultValue: "Move Workspace to New Window", bundle: .module),
+                keywords: ["window", "tear off", "detach"], category: .workspace, symbol: "macwindow.badge.plus",
+                surfaces: [.palette, .menu, .contextMenu], targets: [.workspace],
+                cliName: "workspace move-to-new-window", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "renameWorkspace",

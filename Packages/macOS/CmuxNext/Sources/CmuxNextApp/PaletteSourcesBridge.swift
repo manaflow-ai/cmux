@@ -5,7 +5,8 @@ import CmuxNextPalette
 /// Feeds the palette's workspace and tab pages from the daemon store.
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
-        PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services))
+        PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
+                       targets: WindowTargetSource(services: services))
     }
 
     final class WorkspaceSource: PaletteWorkspaceSource {
@@ -56,9 +57,8 @@ enum PaletteSourcesBridge {
         func selectTab(id: String) {
             guard let (_, pane) = services.locateTab(id),
                   let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.screens.contains { $0.panes.contains { $0 === pane } } }),
-                  let window = services.windows.active else { return }
+                  let window = services.windows.reveal(workspaceID: workspace.id) else { return }
             window.state.selection.select(id, in: pane.id)
-            services.windows.show(workspaceID: workspace.id, in: window.state)
             services.paneController(for: pane)?.select(StripTabID(id))
         }
 

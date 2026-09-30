@@ -49,7 +49,7 @@ enum WindowHandlers {
 
     private static func showMainWindow(_ context: AppActionContext) {
         guard let window = context.activeWindow?.window else {
-            context.services.windows.newWindow()
+            if !context.services.windows.reopenClosedWindow() { context.services.windows.newWindow() }
             return
         }
         if window.isMiniaturized { window.deminiaturize(nil) }

@@ -102,4 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
+
+    /// Dock click with no window open: the last closed window comes back
+    /// with its workspaces.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows, let windows = services?.windows else { return true }
+        return !windows.reopenClosedWindow()
+    }
 }
