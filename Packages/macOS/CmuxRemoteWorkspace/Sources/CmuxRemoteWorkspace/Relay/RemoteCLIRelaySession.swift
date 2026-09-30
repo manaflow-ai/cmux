@@ -227,9 +227,30 @@ extension RemoteCLIRelayServer {
                 return
             }
 
+            // A client that sends its own nonce requires the relay to prove it
+            // holds the token too, so a listener another remote user bound on
+            // the forwarded port cannot pose as the relay. Older clients send
+            // no nonce and get the plain success line.
+            var success: [String: Any] = ["ok": true]
+            if let clientNonceValue = object["client_nonce"] {
+                guard let clientNonce = clientNonceValue as? String,
+                      Self.isValidClientNonce(clientNonce) else {
+                    sendFailureAndClose()
+                    return
+                }
+                let proof = Self.relayProofMAC(
+                    token: relayToken,
+                    relayID: relayID,
+                    clientNonce: clientNonce,
+                    serverNonce: challengeNonce,
+                    version: challengeVersion
+                )
+                success["relay_mac"] = proof.map { String(format: "%02x", $0) }.joined()
+            }
+
             phase = .awaitingCommand
             armPhaseTimeout(for: .awaitingCommand)
-            sendJSONLine(["ok": true]) { [weak self] _ in
+            sendJSONLine(success) { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {
                     self.processBufferedLines()
@@ -401,6 +422,33 @@ extension RemoteCLIRelayServer {
 
         private static func authMessage(relayID: String, nonce: String, version: Int) -> Data {
             Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
+        }
+
+        /// The relay's proof of the token, returned to clients that send a
+        /// nonce. The leading label keeps it distinct from every client MAC,
+        /// whose message starts with `relay_id=`, so neither can be reflected
+        /// as the other.
+        static func relayProofMAC(
+            token: Data,
+            relayID: String,
+            clientNonce: String,
+            serverNonce: String,
+            version: Int
+        ) -> Data {
+            let message = Data(
+                "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=\(serverNonce)\nversion=\(version)".utf8
+            )
+            return authMAC(token: token, message: message)
+        }
+
+        /// Accepts 16 to 64 bytes of lowercase hex.
+        private static func isValidClientNonce(_ nonce: String) -> Bool {
+            guard (32...128).contains(nonce.utf8.count),
+                  nonce.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
+            else {
+                return false
+            }
+            return hexData(from: nonce) != nil
         }
 
         static func authMAC(token: Data, message: Data) -> Data {

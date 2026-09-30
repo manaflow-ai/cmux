@@ -17,6 +17,13 @@ import Network
 /// failure-response delay (anti-timing-oracle), and every NSError
 /// domain/code/message must not change.
 ///
+/// Mutual authentication: a client that adds a `client_nonce` to its MAC line
+/// gets `relay_mac` in the success line, an HMAC over a
+/// `cmux-relay-server-proof` label, the relay ID and both nonces. Current
+/// remote CLIs require it before sending anything, so a listener another
+/// remote user binds on the forwarded port cannot impersonate the relay.
+/// Clients without a nonce get the unchanged v1 `{"ok":true}`.
+///
 /// Post-authentication, every command line is authorized by
 /// `RemoteRelayCommandPolicy` (GHSA-9vmv-3hjw-j28c): deny-by-default method
 /// allowlist, remote-owned workspace/surface targets only, no command-bearing
