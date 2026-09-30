@@ -310,6 +310,17 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func agentRuntimeObservationReplaysChangeBeforeSubscriberRegistration() async {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        model.setAgentPIDs(["codex.session-gap": 12_347])
+
+        var changes = model.changes().makeAsyncIterator()
+        #expect(
+            await changes.next() != nil,
+            "A runtime update between snapshot construction and observation setup must wake the first sidebar subscriber."
+        )
+    }
+
     @Test func redundantAgentLifecycleWriteDoesNotNotifySidebarRows() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
