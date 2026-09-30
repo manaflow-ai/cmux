@@ -4,7 +4,7 @@
 // the two have to agree, because the same sentence can be read in either
 // surface and a reader should not have to know which one they are looking at.
 import { describe, expect, test } from "bun:test";
-import { gitHubReference } from "../src/githubReferences";
+import { gitHubReference, gitHubSlugFromRemoteURL } from "../src/githubReferences";
 
 const SLUG = "manaflow-ai/cmux";
 
@@ -74,5 +74,35 @@ describe("gitHubReference", () => {
 
   test("needs the session repository for a commit SHA", () => {
     expect(gitHubReference("a360a95", null)).toBeNull();
+  });
+});
+
+describe("gitHubSlugFromRemoteURL", () => {
+  test("reads the HTTPS remote form", () => {
+    expect(gitHubSlugFromRemoteURL("https://github.com/manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
+    expect(gitHubSlugFromRemoteURL("https://github.com/manaflow-ai/cmux")).toBe("manaflow-ai/cmux");
+  });
+
+  test("reads the SSH remote forms", () => {
+    expect(gitHubSlugFromRemoteURL("git@github.com:manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
+    expect(gitHubSlugFromRemoteURL("ssh://git@github.com/manaflow-ai/cmux.git")).toBe("manaflow-ai/cmux");
+  });
+
+  test("ignores trailing whitespace git prints", () => {
+    expect(gitHubSlugFromRemoteURL("git@github.com:manaflow-ai/cmux.git\n")).toBe("manaflow-ai/cmux");
+  });
+
+  test("refuses hosts that are not github.com", () => {
+    // A self-hosted host has different issue URLs, so guessing github.com would
+    // send every click on that machine to the wrong place.
+    expect(gitHubSlugFromRemoteURL("https://gitlab.com/manaflow-ai/cmux.git")).toBeNull();
+    expect(gitHubSlugFromRemoteURL("git@github.example.com:manaflow-ai/cmux.git")).toBeNull();
+  });
+
+  test("refuses anything that is not a two-component path", () => {
+    expect(gitHubSlugFromRemoteURL("https://github.com/manaflow-ai")).toBeNull();
+    expect(gitHubSlugFromRemoteURL("https://github.com/a/b/c")).toBeNull();
+    expect(gitHubSlugFromRemoteURL("")).toBeNull();
+    expect(gitHubSlugFromRemoteURL("not a url")).toBeNull();
   });
 });

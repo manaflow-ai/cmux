@@ -23,6 +23,7 @@ import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
 import type { HarnessRecommendation } from "./harness-contract";
 import { harnessCatalogs } from "./harness-messages";
+import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -770,14 +771,40 @@ async function handoffSession(source: Session): Promise<Session> {
   return forkSession(source, "user_handoff");
 }
 
-async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
+async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string; repositorySlug?: string }> {
   try {
     const s = await stat(cwd);
-    if (s.isDirectory()) return { ok: true };
+    if (s.isDirectory()) {
+      const repositorySlug = await gitHubRepositorySlug(cwd);
+      return repositorySlug ? { ok: true, repositorySlug } : { ok: true };
+    }
   } catch {
     // Fall through to the stable user-facing message.
   }
   return { ok: false, message: `working directory does not exist: ${cwd}` };
+}
+
+/// The `owner/name` GitHub repository a directory's `origin` remote names.
+///
+/// The transcript uses this to resolve bare references such as `#847`. A
+/// directory outside a repository, or one whose `origin` is not on github.com,
+/// has no slug, and those references then stay text rather than guessing.
+const repositorySlugCache = new Map<string, string | null>();
+async function gitHubRepositorySlug(cwd: string): Promise<string | null> {
+  const cached = repositorySlugCache.get(cwd);
+  if (cached !== undefined) return cached;
+  let slug: string | null = null;
+  try {
+    const remote = await gitOutput(cwd, ["config", "--get", "remote.origin.url"], 4_000);
+    slug = gitHubSlugFromRemoteURL(remote);
+  } catch {
+    // Not a repository, no origin, or git was too slow. All mean no slug.
+  }
+  // A checkout's origin does not change while the app is open, and the cost of
+  // being wrong is one stale link, so this is cached for the process lifetime
+  // rather than re-read on every keystroke in the working-directory field.
+  repositorySlugCache.set(cwd, slug);
+  return slug;
 }
 
 async function assertCwd(cwd: string) {

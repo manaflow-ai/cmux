@@ -5,6 +5,8 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
 import { CopyIcon } from "./components/icons";
+import { useRepositorySlug } from "./context";
+import { linkifyGitHubReferences } from "./githubReferences";
 
 const langs = ["ts", "tsx", "js", "json", "bash", "shell", "python", "swift", "rust", "go", "html", "css", "markdown", "yaml", "diff"];
 const themeName = "agent-css-variables";
@@ -216,13 +218,19 @@ function markdownComponents(streaming: boolean): Components {
 
 export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const components = useMemo(() => markdownComponents(streaming), [streaming]);
+  const repositorySlug = useRepositorySlug();
+  // Agents write `#847` and `a360a95` far more often than they write a URL, and
+  // the terminal already makes both clickable. Rewriting the source into
+  // ordinary markdown links keeps the renderer itself untouched, so a reference
+  // gets the same styling and the same click handling as any other link.
+  const linked = useMemo(() => linkifyGitHubReferences(text, repositorySlug), [repositorySlug, text]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks]}
       rehypePlugins={[[rehypeSanitize, schema]]}
       components={components}
     >
-      {text}
+      {linked}
     </ReactMarkdown>
   );
 });

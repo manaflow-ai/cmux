@@ -252,7 +252,7 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
   fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
@@ -350,7 +350,7 @@ export function useSession(): SessionState {
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
@@ -619,7 +619,7 @@ export function useSession(): SessionState {
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
