@@ -74,6 +74,14 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("globalFontMagnification") {
             logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
         }
+        if section.keys.contains("density") {
+            if let raw = jsonString(section["density"]),
+               let density = InterfaceDensity(rawValue: raw) {
+                snapshot.managedUserDefaults[InterfaceDensity.userDefaultsKey] = .string(density.rawValue)
+            } else {
+                logInvalid("app.density", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonInt(section["paneResizeStepPixels"]) {
             if (PaneResizeStepSettings.minimumPixels...PaneResizeStepSettings.maximumPixels).contains(value) {
                 snapshot.managedUserDefaults[PaneResizeStepSettings.key] = .int(value)

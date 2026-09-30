@@ -32,6 +32,7 @@ extension CmuxSettingsFileStore {
         "app.sendAnonymousTelemetry",
         "app.confirmQuit",
         "app.globalFontMagnification",
+        "app.density",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",

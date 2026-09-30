@@ -6,6 +6,7 @@ import CoreGraphics
 import Observation
 import SwiftUI
 import Bonsplit
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -504,6 +505,180 @@ final class WorkspaceContentViewVisibilityTests {
 
         #expect(minimalControls == [.upgrade])
         #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func interfaceDensityMetricsStayWithinHIGHitTargetsAndTitlebarRow() {
+        let comfortable = InterfaceDensityMetrics.metrics(for: .comfortable)
+        let standard = InterfaceDensityMetrics.metrics(for: .standard)
+        let compact = InterfaceDensityMetrics.metrics(for: .compact)
+
+        // Standard is exactly what shipped before app.density.
+        #expect(standard.titlebarButtonSize == HeaderChromeControlMetrics.buttonSize)
+        #expect(standard.titlebarIconSize == HeaderChromeControlMetrics.iconSize)
+        #expect(standard.sidebarFooterButtonSize == SidebarFooterButtonMetrics.buttonSize)
+        #expect(standard.sidebarFooterPrimaryIconSize == SidebarFooterButtonMetrics.helpIconSize)
+        #expect(standard.sidebarFooterSecondaryIconSize == SidebarFooterButtonMetrics.mobileIconSize)
+        #expect(
+            TitlebarControlsStyle.classic.config(density: .standard).buttonSize
+                == HeaderChromeControlMetrics.buttonSize
+        )
+
+        for metrics in [comfortable, standard, compact] {
+            // macOS HIG minimum control size is 20x20pt.
+            #expect(metrics.titlebarButtonSize >= 20)
+            #expect(metrics.sidebarFooterButtonSize >= 20)
+            // Buttons sit inside the fixed 28pt titlebar row.
+            #expect(metrics.titlebarButtonSize <= WindowChromeMetrics.appTitlebarHeight)
+        }
+        #expect(comfortable.titlebarIconSize > standard.titlebarIconSize)
+        #expect(comfortable.sidebarFooterPrimaryIconSize > standard.sidebarFooterPrimaryIconSize)
+        #expect(compact.titlebarIconSize < standard.titlebarIconSize)
+        #expect(compact.sidebarFooterPrimaryIconSize < standard.sidebarFooterPrimaryIconSize)
+    }
+
+    @Test
+    func titlebarControlsStayInsideTheDefaultSidebar() {
+        // Controls must end before the sidebar edge, or they straddle the
+        // sidebar/workspace boundary. The row starts at the left-controls inset
+        // in the minimal-mode sidebar header and at the traffic-light inset,
+        // further in, in the standard titlebar; checking the further of the two
+        // covers both, since a row that fits there fits nearer the edge too.
+        let leadingInset = max(
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset)
+        )
+        let sidebarEdge = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
+        for density in InterfaceDensity.allCases {
+            let config = TitlebarControlsStyle.classic.config(density: density)
+            let trailingEdge = leadingInset + TitlebarControlsLayoutMetrics.rowExtent(config: config)
+            #expect(
+                trailingEdge + TitlebarControlsDensityFit.edgeClearance <= sidebarEdge,
+                "\(density) controls end at \(trailingEdge), past the sidebar edge at \(sidebarEdge)"
+            )
+            // The unread badge anchors to the icon frame's top-trailing corner
+            // (not the button's) and must stay inside the 28pt titlebar row.
+            let iconFrame = HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
+            let iconTop = (WindowChromeMetrics.appTitlebarHeight - iconFrame) / 2
+            #expect(iconTop + config.badgeOffset.height >= 0)
+        }
+    }
+
+    @Test
+    func titlebarFitMeasuresFromTheFurtherLeadingInset() throws {
+        // A sidebar minimum that fits comfortable only when measured from the
+        // nearer of the two leading insets has to step down anyway: the
+        // standard titlebar starts the row further in, so keeping comfortable
+        // there would eat into the edge clearance instead of keeping it.
+        let nearInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)
+        let farInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset)
+        try #require(farInset > nearInset, "This case only exists while the two insets differ.")
+        let comfortableExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .comfortable)
+        )
+        // One point short of fitting comfortable from the further inset, and so
+        // still wide enough for it from the nearer one.
+        let minimumWidth = farInset + comfortableExtent + TitlebarControlsDensityFit.edgeClearance - 1
+        try #require(SessionPersistencePolicy.sidebarMinimumWidthRange.contains(Double(minimumWidth)))
+        try #require(comfortableExtent <= minimumWidth - nearInset - TitlebarControlsDensityFit.edgeClearance)
+
+        let suiteName = "cmux-titlebar-fit-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Double(minimumWidth), forKey: SessionPersistencePolicy.sidebarMinimumWidthKey)
+        defaults.set(InterfaceDensity.comfortable.rawValue, forKey: InterfaceDensity.userDefaultsKey)
+
+        #expect(
+            TitlebarControlsDensityFit.availableRowWidth(defaults: defaults)
+                == minimumWidth - farInset - TitlebarControlsDensityFit.edgeClearance
+        )
+        #expect(TitlebarControlsDensityFit.effectiveDensity(defaults: defaults) == .standard)
+    }
+
+    @Test
+    func titlebarControlsStepDownWhenTheSidebarIsTooNarrow() {
+        func fitted(_ requested: InterfaceDensity, _ width: CGFloat) -> InterfaceDensity {
+            TitlebarControlsDensityFit.effectiveDensity(requested: requested, availableWidth: width)
+        }
+        let comfortableExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .comfortable)
+        )
+        let standardExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .standard)
+        )
+
+        #expect(fitted(.comfortable, comfortableExtent) == .comfortable)
+        #expect(fitted(.comfortable, comfortableExtent - 1) == .standard)
+        #expect(fitted(.comfortable, standardExtent - 1) == .compact)
+        #expect(fitted(.standard, standardExtent - 1) == .compact)
+        // Never steps up past the chosen density.
+        #expect(fitted(.compact, 1000) == .compact)
+        #expect(fitted(.standard, 1000) == .standard)
+        // Compact is the floor even when nothing fits.
+        #expect(fitted(.comfortable, 10) == .compact)
+    }
+
+    @Test
+    func sidebarAccountPresentationFollowsDensity() {
+        let comfortable = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false,
+            hasProfilePicture: true,
+            density: .comfortable
+        )
+        #expect(comfortable.size == InterfaceDensityMetrics.comfortable.sidebarFooterPrimaryIconSize)
+    }
+
+    @Test
+    func compactDensityFoldsTitlebarControlsButKeepsUnreadVisible() {
+        func shows(
+            _ density: InterfaceDensity,
+            hovering: Bool = false,
+            unread: Bool = false,
+            mode: TitlebarControlsVisibilityMode = .alwaysVisible
+        ) -> Bool {
+            TitlebarControlsVisibilityMode.showsControls(
+                mode: mode,
+                density: density,
+                isHovering: hovering,
+                isPopoverShown: false,
+                showsShortcutHints: false,
+                hasUnreadNotifications: unread
+            )
+        }
+
+        #expect(shows(.comfortable))
+        #expect(shows(.standard))
+        #expect(!shows(.compact))
+        #expect(shows(.compact, hovering: true))
+        #expect(shows(.compact, unread: true))
+        // The legacy hover mode keeps its behavior outside compact.
+        #expect(!shows(.standard, unread: true, mode: .onHover))
+    }
+
+    @Test
+    func compactDensityFoldsOnlySidebarFooterActions() {
+        func shows(
+            _ density: InterfaceDensity,
+            hovering: Bool = false,
+            hints: Bool = false,
+            popover: Bool = false
+        ) -> Bool {
+            SidebarFooterFoldPolicy.showsFoldableActions(
+                density: density,
+                isHoveringFooter: hovering,
+                isShowingShortcutHints: hints,
+                isPopoverShown: popover
+            )
+        }
+        #expect(shows(.comfortable))
+        #expect(shows(.standard))
+        #expect(!shows(.compact))
+        #expect(shows(.compact, hovering: true))
+        #expect(shows(.compact, hints: true))
+        // Moving the pointer into an open footer popover leaves the footer, so
+        // hover has already ended. The anchor button has to stay visible.
+        #expect(shows(.compact, popover: true))
     }
 
     @Test

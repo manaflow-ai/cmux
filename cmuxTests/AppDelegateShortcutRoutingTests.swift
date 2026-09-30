@@ -3172,7 +3172,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
-        let titlebarConfig = TitlebarControlsStyle.classic.config
+        // The right sidebar header keeps the standard size at every app.density.
+        let titlebarConfig = TitlebarControlsStyle.classic.config(density: .standard)
 
         XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)

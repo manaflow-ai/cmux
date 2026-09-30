@@ -557,7 +557,9 @@ struct TitlebarControlsHoverPolicyTests {
 
     @Test
     func testButtonsStayVisuallyEvenAcrossTitlebarStyles() {
-        let sizes = TitlebarControlsStyle.allCases.map { $0.config.buttonSize }
+        // Debug styles are compared at the standard density; app.density
+        // resizes only the classic style on purpose.
+        let sizes = TitlebarControlsStyle.allCases.map { $0.config(density: .standard).buttonSize }
         let smallest = sizes.min() ?? 0
         let largest = sizes.max() ?? 0
 

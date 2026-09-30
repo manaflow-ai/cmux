@@ -57,14 +57,23 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         }
     }
 
+    /// Controls config at the stored `app.density`, stepped down if needed so
+    /// the row fits inside the sidebar (see ``TitlebarControlsDensityFit``).
     var config: TitlebarControlsStyleConfig {
+        config(density: TitlebarControlsDensityFit.effectiveDensity())
+    }
+
+    /// Controls config for `density`. Only the default `classic` style follows
+    /// the density; the other styles are debug-menu experiments with fixed sizes.
+    func config(density: InterfaceDensity) -> TitlebarControlsStyleConfig {
         switch self {
         case .classic:
+            let metrics = InterfaceDensityMetrics.metrics(for: density)
             return TitlebarControlsStyleConfig(
-                spacing: 6,
-                iconSize: HeaderChromeControlMetrics.iconSize,
-                buttonSize: HeaderChromeControlMetrics.buttonSize,
-                badgeSize: 12,
+                spacing: metrics.titlebarSpacing,
+                iconSize: metrics.titlebarIconSize,
+                buttonSize: metrics.titlebarButtonSize,
+                badgeSize: metrics.titlebarBadgeSize,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
@@ -128,6 +137,63 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     }
 }
 
+/// Keeps the titlebar control row inside the sidebar.
+///
+/// The row clears the traffic lights and sits over the sidebar in both the
+/// standard titlebar and the minimal-mode sidebar header. A row that runs
+/// past the sidebar's edge straddles the boundary into the workspace, so the
+/// controls use the largest density, up to the chosen one, whose row ends
+/// `edgeClearance` points before the narrowest the sidebar can be. Compact is
+/// the floor; a sidebar minimum too narrow even for it keeps compact.
+enum TitlebarControlsDensityFit {
+    static let edgeClearance: CGFloat = 8
+
+    static func effectiveDensity(defaults: UserDefaults = .standard) -> InterfaceDensity {
+        effectiveDensity(
+            requested: InterfaceDensity.stored(in: defaults),
+            availableWidth: availableRowWidth(defaults: defaults)
+        )
+    }
+
+    /// Width the row may use: the narrowest sidebar minus the row's leading
+    /// inset and the edge clearance.
+    ///
+    /// The same row starts from two different insets. The minimal-mode sidebar
+    /// header places it at the left-controls inset; the standard titlebar
+    /// places it at the traffic-light inset, which is further in. The fit has
+    /// to hold in both, so measure from the further of the two: measuring from
+    /// the nearer one silently spends the difference out of `edgeClearance`
+    /// whenever the standard titlebar draws the row.
+    static func availableRowWidth(defaults: UserDefaults = .standard) -> CGFloat {
+        let leadingInset = max(
+            MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
+            MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset(defaults: defaults)
+        )
+        return CGFloat(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults))
+            - leadingInset
+            - edgeClearance
+    }
+
+    static func effectiveDensity(requested: InterfaceDensity, availableWidth: CGFloat) -> InterfaceDensity {
+        for candidate in steppedDown(from: requested) {
+            let config = TitlebarControlsStyle.classic.config(density: candidate)
+            if TitlebarControlsLayoutMetrics.rowExtent(config: config) <= availableWidth {
+                return candidate
+            }
+        }
+        return .compact
+    }
+
+    /// `requested` followed by every smaller density, largest first.
+    private static func steppedDown(from requested: InterfaceDensity) -> [InterfaceDensity] {
+        switch requested {
+        case .comfortable: return [.comfortable, .standard, .compact]
+        case .standard: return [.standard, .compact]
+        case .compact: return [.compact]
+        }
+    }
+}
+
 struct TitlebarControlsStyleConfig {
     let spacing: CGFloat
     let iconSize: CGFloat
@@ -143,7 +209,12 @@ struct TitlebarControlsStyleConfig {
 
 struct TitlebarControlsLayoutModelSnapshot: Equatable {
     let style: TitlebarControlsStyle
+    let density: InterfaceDensity
     let contentSize: NSSize
+
+    var config: TitlebarControlsStyleConfig {
+        style.config(density: density)
+    }
 }
 
 /// Owns the expensive shortcut/font-derived titlebar size once for every
@@ -174,9 +245,11 @@ final class TitlebarControlsLayoutModel {
         self.notificationCenter = notificationCenter
         self.contentSizeProvider = contentSizeProvider
         let style = TitlebarControlsStyle.stored(in: defaults)
+        let density = TitlebarControlsDensityFit.effectiveDensity(defaults: defaults)
         snapshot = TitlebarControlsLayoutModelSnapshot(
             style: style,
-            contentSize: contentSizeProvider(style.config)
+            density: density,
+            contentSize: contentSizeProvider(style.config(density: density))
         )
 
         observers.append(
@@ -224,8 +297,9 @@ final class TitlebarControlsLayoutModel {
 
     private func refreshStyleIfNeeded() {
         let style = TitlebarControlsStyle.stored(in: defaults)
-        guard style != snapshot.style else { return }
-        recompute(style: style)
+        let density = TitlebarControlsDensityFit.effectiveDensity(defaults: defaults)
+        guard style != snapshot.style || density != snapshot.density else { return }
+        recompute(style: style, density: density)
     }
 
     private func shortcutChangeAffectsLayout(_ notification: Notification) -> Bool {
@@ -238,11 +312,13 @@ final class TitlebarControlsLayoutModel {
         return TitlebarShortcutHintActionSlot.allCases.contains { $0.action == action }
     }
 
-    private func recompute(style: TitlebarControlsStyle? = nil) {
+    private func recompute(style: TitlebarControlsStyle? = nil, density: InterfaceDensity? = nil) {
         let style = style ?? snapshot.style
+        let density = density ?? snapshot.density
         snapshot = TitlebarControlsLayoutModelSnapshot(
             style: style,
-            contentSize: contentSizeProvider(style.config)
+            density: density,
+            contentSize: contentSizeProvider(style.config(density: density))
         )
     }
 }
@@ -625,6 +701,12 @@ enum TitlebarControlsLayoutMetrics {
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
             + hintTrailingBaseInset
+    }
+
+    /// Distance from the controls' leading inset to the trailing edge of the
+    /// last button, including the outer leading padding.
+    static func rowExtent(config: TitlebarControlsStyleConfig) -> CGFloat {
+        TitlebarControlsHitRegions.buttonXRanges(config: config).last?.upperBound ?? 0
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
@@ -1018,6 +1100,7 @@ struct TitlebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
+    @State private var isHoveringFoldedControls = false
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
@@ -1052,19 +1135,20 @@ struct TitlebarControlsView: View {
     }
 
     private var shouldShowControls: Bool {
-        if visibilityMode == .alwaysVisible {
-            return true
-        }
-        return isHoveringControls
-            || popoverVisibilityState.isShown(in: hostWindowNumber)
-            || shouldShowTitlebarShortcutHints
+        TitlebarControlsVisibilityMode.showsControls(
+            mode: visibilityMode,
+            density: layoutModel.snapshot.density,
+            isHovering: isHoveringControls || isHoveringFoldedControls,
+            isPopoverShown: popoverVisibilityState.isShown(in: hostWindowNumber),
+            showsShortcutHints: shouldShowTitlebarShortcutHints,
+            hasUnreadNotifications: unreadModel.totalUnreadCount > 0
+        )
     }
 
     var body: some View {
         let _ = appearanceRefreshTick
         let layoutSnapshot = layoutModel.snapshot
-        let style = layoutSnapshot.style
-        let config = style.config
+        let config = layoutSnapshot.config
         let contentSize = layoutSnapshot.contentSize
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
@@ -1076,6 +1160,24 @@ struct TitlebarControlsView: View {
             .opacity(shouldShowControls ? 1 : 0)
             .allowsHitTesting(shouldShowControls)
             .chromeRevealAnimation(isVisible: shouldShowControls, fadeOut: .easeOut(duration: 0.14))
+            // Faded controls are not hit-testable, so their own hover never
+            // fires. This clear layer keeps tracking the row's frame while
+            // it is folded.
+            //
+            // The position of this modifier is load-bearing: it has to stay
+            // below `.allowsHitTesting(shouldShowControls)` so the clear layer
+            // keeps accepting the pointer while the controls above it do not.
+            // Moving it above that line still compiles and still draws the same
+            // pixels, but the folded row stops revealing on hover, because the
+            // only hover source in the compact layout has been disabled along
+            // with the controls.
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        isHoveringFoldedControls = hovering
+                    }
+            )
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
@@ -1559,7 +1661,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     }
 
     var body: some View {
-        let style = layoutModel.snapshot.style
+        let config = layoutModel.snapshot.config
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
@@ -1602,7 +1704,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
-                visibilityMode: .alwaysVisible
+                visibilityMode: .hostManaged
             )
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -1614,14 +1716,14 @@ struct HiddenTitlebarSidebarControlsView: View {
             .accessibilityHidden(true)
             .chromeRevealAnimation(isVisible: shouldPinControls, fadeOut: .easeOut(duration: 0.14))
 
-            TitlebarControlsGapDragView(config: style.config)
+            TitlebarControlsGapDragView(config: config)
                 .frame(
                     width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                     height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
                 )
 
             MinimalModeSidebarControlActionProxyView(
-                config: style.config,
+                config: config,
                 requiresRevealedState: true
             ) { slot, anchorView, _ in
                 switch slot {
@@ -1667,7 +1769,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
             alignment: .leading
         )
-        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
+        .background(MinimalModeTitlebarButtonHitRegionView(config: config))
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
@@ -1701,6 +1803,36 @@ struct HiddenTitlebarSidebarControlsView: View {
 enum TitlebarControlsVisibilityMode {
     case alwaysVisible
     case onHover
+    /// The host shows and hides the controls itself (the minimal-mode
+    /// sidebar host), so density must not fold them a second time.
+    case hostManaged
+
+    /// Whether the titlebar controls are drawn and clickable.
+    ///
+    /// Compact density folds `alwaysVisible` controls behind hover like
+    /// `onHover`. The buttons keep their positions while hidden so muscle
+    /// memory still lands on them, and an unread notification keeps the row
+    /// visible so the badge is never hidden. `hasUnreadNotifications` is an
+    /// autoclosure so views outside the folding case never observe the count.
+    static func showsControls(
+        mode: TitlebarControlsVisibilityMode,
+        density: InterfaceDensity,
+        isHovering: Bool,
+        isPopoverShown: Bool,
+        showsShortcutHints: Bool,
+        hasUnreadNotifications: @autoclosure () -> Bool
+    ) -> Bool {
+        if mode == .hostManaged {
+            return true
+        }
+        if mode == .alwaysVisible && !density.foldsActionsBehindHover {
+            return true
+        }
+        return isHovering
+            || isPopoverShown
+            || showsShortcutHints
+            || (density.foldsActionsBehindHover && hasUnreadNotifications())
+    }
 }
 
 func minimalModePassthroughHoverTrackerCapturesHit(

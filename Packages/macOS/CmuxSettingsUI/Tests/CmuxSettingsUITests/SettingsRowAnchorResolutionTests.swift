@@ -39,6 +39,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.accentColor",
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
+        "app.density",
         "app.equalizeSplitsOnCreate",
         "app.focusPaneOnFirstClick",
         "app.focusHistoryIncludesPanesAndTabs",

@@ -31,6 +31,26 @@ extension AppSection {
         }
     }
 
+    func interfaceDensitySubtitle(_ density: InterfaceDensity) -> String {
+        switch density {
+        case .comfortable:
+            return String(
+                localized: "settings.app.density.comfortable.subtitle",
+                defaultValue: "Larger icons and click targets in the titlebar and sidebar footer."
+            )
+        case .standard:
+            return String(
+                localized: "settings.app.density.standard.subtitle",
+                defaultValue: "The original icon and click target sizes."
+            )
+        case .compact:
+            return String(
+                localized: "settings.app.density.compact.subtitle",
+                defaultValue: "Smaller icons. Titlebar, pane tab bar, and sidebar footer buttons fade until you point at them. Notification and update badges stay visible."
+            )
+        }
+    }
+
     func warnCloseXSubtitle(hideCloseButton: Bool) -> String {
         // The hidden-button status replaces the description. The warning
         // cannot apply while close buttons are hidden.

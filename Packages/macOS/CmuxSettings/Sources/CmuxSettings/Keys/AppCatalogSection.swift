@@ -148,6 +148,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: GlobalFontMagnification.percentKey
     )
 
+    /// Size of window controls (titlebar buttons, sidebar footer, pane tab
+    /// bar actions). See ``InterfaceDensity``.
+    public let interfaceDensity = DefaultsKey<InterfaceDensity>(
+        id: "app.density",
+        defaultValue: InterfaceDensity.defaultValue,
+        userDefaultsKey: InterfaceDensity.userDefaultsKey
+    )
+
     public let iMessageMode = DefaultsKey<Bool>(
         id: "app.iMessageMode",
         defaultValue: false,

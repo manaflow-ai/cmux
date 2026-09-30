@@ -653,6 +653,13 @@
           "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
+        "density": {
+          "type": "string",
+          "enum": ["comfortable", "standard", "compact"],
+          "default": "standard",
+          "descriptionKey": "schemaDescriptions.app.density",
+          "description": "Size of window controls: titlebar buttons, the sidebar footer, and pane tab bar action buttons. \"comfortable\" uses larger icons and hit targets, \"standard\" keeps the previous sizes, and \"compact\" uses smaller icons (never below the 20pt macOS minimum hit target) and fades titlebar, pane tab bar, and sidebar footer actions until the pointer reaches them. Notification badges and update state stay visible. Text size is app.globalFontMagnification; sidebar row detail is the sidebar.show* settings."
+        },
         "reorderOnNotification": {
           "oneOf": [
             {
