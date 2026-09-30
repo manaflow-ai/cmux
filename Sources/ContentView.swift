@@ -3572,14 +3572,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onAppear {
-            guard Self.claimKeymapChooserPresentation() else { return }
+            guard Self.claimKeymapChooserPresentation(for: windowId) else { return }
             isKeymapChooserPresented = true
         })
 
         view = AnyView(view.onDisappear {
-            if !isKeymapChooserPresented {
-                Self.releaseKeymapChooserPresentation()
-            }
+            Self.releaseKeymapChooserPresentation(for: windowId)
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {

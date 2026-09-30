@@ -103,6 +103,10 @@ public struct ShortcutKeymapChooserView: View {
         }
         .padding(24)
         .frame(minWidth: 620)
+        // A failure belongs to the preset it was raised for. Without this the
+        // banner outlives the selection and reads as a statement about a
+        // preset nothing has been attempted for yet.
+        .onChange(of: selection) { _, _ in applyError = nil }
         .accessibilityIdentifier("KeymapChooser")
     }
 

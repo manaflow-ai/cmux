@@ -10,9 +10,37 @@ extension ContentView {
     /// fresh install is asked exactly once.
     static let keymapChooserAnsweredDefaultsKey = "cmux.shortcuts.keymapChooser.answered.v1"
 
+    /// Which window, if any, holds the right to present the first-run chooser.
+    ///
+    /// Ownership rather than a bare flag, because the release below has to
+    /// tell the window that claimed apart from the windows that lost the race.
+    /// With a bare flag, closing a window that never claimed freed the
+    /// winner's claim, and the next window opened a second chooser on top of
+    /// the first, with two selections racing the same write.
+    struct KeymapChooserPresentationClaim {
+        private(set) var owner: UUID?
+
+        var isClaimed: Bool { owner != nil }
+
+        /// Takes the claim for `windowId`, or reports that someone else holds it.
+        mutating func claim(_ windowId: UUID) -> Bool {
+            guard owner == nil else { return false }
+            owner = windowId
+            return true
+        }
+
+        /// Drops the claim only when `windowId` is the window that took it.
+        @discardableResult
+        mutating func release(_ windowId: UUID) -> Bool {
+            guard owner == windowId else { return false }
+            owner = nil
+            return true
+        }
+    }
+
     /// Guards against two restored windows both opening the chooser.
     @MainActor
-    private static var hasPresentedKeymapChooserThisLaunch = false
+    private static var keymapChooserClaim = KeymapChooserPresentationClaim()
 
     /// Lets a UI test opt back into the chooser that tests otherwise suppress.
     ///
@@ -27,8 +55,8 @@ extension ContentView {
     /// Claims the right to present as a side effect, so the first window to ask
     /// is the only one that shows it.
     @MainActor
-    static func claimKeymapChooserPresentation() -> Bool {
-        guard !hasPresentedKeymapChooserThisLaunch else { return false }
+    static func claimKeymapChooserPresentation(for windowId: UUID) -> Bool {
+        guard !keymapChooserClaim.isClaimed else { return false }
         guard keymapChooserIsAllowedInThisProcess() else { return false }
         let decision = keymapChooserLaunchDecision()
         guard decision == .open else {
@@ -39,15 +67,19 @@ extension ContentView {
             }
             return false
         }
-        hasPresentedKeymapChooserThisLaunch = true
-        return true
+        return keymapChooserClaim.claim(windowId)
     }
 
-    /// Gives another window a chance when this window disappeared before its
-    /// claimed sheet could be presented.
+    /// Gives another window a chance when the window that claimed the chooser
+    /// goes away.
+    ///
+    /// Scoped to the owner, so a window that lost the race cannot free the
+    /// winner's claim. Safe to call on every teardown: a chooser that was
+    /// answered has written the answered marker, and the launch decision stops
+    /// the next claim from reopening it.
     @MainActor
-    static func releaseKeymapChooserPresentation() {
-        hasPresentedKeymapChooserThisLaunch = false
+    static func releaseKeymapChooserPresentation(for windowId: UUID) {
+        keymapChooserClaim.release(windowId)
     }
 
     /// Whether this process is allowed to open the chooser by itself.
@@ -142,9 +174,14 @@ extension ContentView {
     /// UserDefaults bindings are passed in, because those do outlive the file
     /// and a managed profile can force them onto a machine with no config yet.
     /// Settings plans against the live file instead.
+    ///
+    /// Does not record the answered marker itself. The sheet's `onDismiss`
+    /// does that, and it runs on every way the sheet closes, including Not Now
+    /// and Escape. Recording here as well would also mark a *failed* write as
+    /// answered, so a user whose write failed and who quit rather than
+    /// retrying would never be asked again.
     @MainActor
     static func applyKeymapChooserChoice(_ preset: ShortcutKeymapPreset) async -> Bool {
-        recordKeymapChooserAnswered()
         guard let runtime = AppDelegate.shared?.settingsRuntime else { return false }
         let plan = preset.plan(
             from: ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: []),

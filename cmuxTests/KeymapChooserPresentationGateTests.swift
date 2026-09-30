@@ -111,4 +111,60 @@ struct KeymapChooserPresentationGateTests {
         #expect(!writeAttempted)
         #expect(!isChooserPresented)
     }
+
+    @Test("Only the first window to ask may present the chooser")
+    @MainActor
+    func oneWindowAtATimeHoldsTheClaim() {
+        var claim = ContentView.KeymapChooserPresentationClaim()
+        let first = UUID()
+        let second = UUID()
+
+        #expect(claim.claim(first))
+        #expect(!claim.claim(second))
+        #expect(claim.owner == first)
+    }
+
+    @Test("Closing a window that lost the race leaves the winner's claim alone")
+    @MainActor
+    func losingWindowCannotReleaseTheClaim() {
+        var claim = ContentView.KeymapChooserPresentationClaim()
+        let presenting = UUID()
+        let losing = UUID()
+        #expect(claim.claim(presenting))
+        #expect(!claim.claim(losing))
+
+        // The losing window closes first. Its teardown must not hand the
+        // claim to a third window while the chooser is still up elsewhere.
+        #expect(!claim.release(losing))
+
+        #expect(claim.isClaimed)
+        #expect(claim.owner == presenting)
+        #expect(!claim.claim(UUID()))
+    }
+
+    @Test("Closing the presenting window frees the chooser for another window")
+    @MainActor
+    func owningWindowReleasesTheClaim() {
+        var claim = ContentView.KeymapChooserPresentationClaim()
+        let presenting = UUID()
+        #expect(claim.claim(presenting))
+
+        #expect(claim.release(presenting))
+
+        #expect(!claim.isClaimed)
+        #expect(claim.owner == nil)
+        let next = UUID()
+        #expect(claim.claim(next))
+        #expect(claim.owner == next)
+    }
+
+    @Test("Releasing an unclaimed chooser does nothing")
+    @MainActor
+    func releaseWithoutAClaimIsANoOp() {
+        var claim = ContentView.KeymapChooserPresentationClaim()
+
+        #expect(!claim.release(UUID()))
+
+        #expect(!claim.isClaimed)
+    }
 }
