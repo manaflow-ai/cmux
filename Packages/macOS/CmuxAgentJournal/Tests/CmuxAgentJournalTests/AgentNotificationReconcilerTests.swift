@@ -9,12 +9,13 @@ struct AgentNotificationReconcilerTests {
     private func event(_ sequence: Int64, _ kind: AgentJournalEventKind, source: String,
                        turn: String? = "turn-1", request: String? = nil, pending: Bool = false,
                        notify: Bool = true, occurredAt: Int64? = nil, nativeID: String? = nil,
-                       surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil) -> AgentJournalEvent {
+                       surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil,
+                       nativeEvent: String? = nil) -> AgentJournalEvent {
         AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence,
             draft: AgentJournalEventDraft(eventId: "event-\(sequence)", kind: kind,
                 occurredAtMs: occurredAt ?? sequence, source: source, agentKey: source,
                 sessionId: "session", workspaceId: workspace, surfaceId: surfaceID ?? surface,
-                pendingWork: pending, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
+                pendingWork: pending, nativeEvent: nativeEvent, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
                     turnIdentity: turn, requestIdentity: request,
                     notification: notify ? AgentJournalNotification(title: "Agent", subtitle: "",
                         body: "Ready", category: kind == .turnCompleted ? "turn-complete" : "needs-permission") : nil)))
@@ -264,7 +265,7 @@ struct AgentNotificationReconcilerTests {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
         let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
-                             occurredAt: 20, declaredPhase: .running)
+                             occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse")
         _ = reconciler.apply(activity)
         #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
     }
@@ -284,11 +285,21 @@ struct AgentNotificationReconcilerTests {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
         let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
-                             occurredAt: 20, declaredPhase: .running)
+                             occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse")
         _ = reconciler.apply(activity)
         let lateStop = event(3, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10)
         #expect(reconciler.apply(lateStop).disposition == .stale)
         #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessPostToolResultKeepsSettledCompletionIdle(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let result = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                           occurredAt: 20, declaredPhase: .running, nativeEvent: "PostToolUse")
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
     }
 
     @Test(arguments: ["claude", "codex"])

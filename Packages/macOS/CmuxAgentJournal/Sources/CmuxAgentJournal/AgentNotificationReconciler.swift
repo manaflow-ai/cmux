@@ -78,6 +78,8 @@ public struct AgentNotificationReconciler: Sendable {
             // tool event may reopen a settled turn.
             let fresh = draft.occurredAtMs > session.occurredAtMs
                 || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence)
+            let isIdentitylessToolStart = incomingTurn == nil
+                && draft.nativeEvent?.caseInsensitiveCompare("PreToolUse") == .orderedSame
             let incomingTurn = context?.turnIdentity
             let isNewTurn = incomingTurn != nil
                 && session.nativeTurn != nil
@@ -86,7 +88,7 @@ public struct AgentNotificationReconciler: Sendable {
                !session.ended,
                draft.pendingWork
                 || (isNewTurn && incomingTurn.map { !session.seenTurns.contains($0) } == true)
-                || (incomingTurn == nil && fresh) {
+                || (isIdentitylessToolStart && fresh) {
                 // A tool completion is progress, including a continuation
                 // that starts without UserPromptSubmit. Reopen only fresh
                 // activity with a new turn identity; an older or same-turn
@@ -264,6 +266,7 @@ public struct AgentNotificationReconciler: Sendable {
                     && incomingTurn != session.nativeTurn
                     && incomingTurn.map { !session.seenTurns.contains($0) } == true
                 let isFreshIdentitylessActivity = incomingTurn == nil
+                    && draft.nativeEvent?.caseInsensitiveCompare("PreToolUse") == .orderedSame
                     && (draft.occurredAtMs > session.occurredAtMs
                         || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence))
                 // A tool event without a turn identity is ambiguous after a
