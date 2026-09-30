@@ -209,9 +209,16 @@ ensure_terminal_surface() {
   local row_id
   if [[ -n "$WORKSPACE_ID" ]]; then
     row_id="MobileWorkspaceRow-$WORKSPACE_ID"
-    "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
-      | grep -qF "$row_id" \
-      || fail "target workspace row is not visible: $row_id"
+    local ui_dump
+    ui_dump="$($AXE describe-ui --udid "$SIM_UDID" 2>/dev/null || true)"
+    if ! grep -qF "$row_id" <<<"$ui_dump"; then
+      # Multiple Macs namespace row identifiers with U+001F. Match the
+      # workspace suffix while preserving the exact exposed identifier for
+      # AXe, so the driver opens the Codex workspace on the intended Mac.
+      row_id="$(grep -oE 'MobileWorkspaceRow-[^"[:space:]]+' <<<"$ui_dump" \
+        | grep -F -- "$WORKSPACE_ID" | head -1 || true)"
+    fi
+    [[ -n "$row_id" ]] || fail "target workspace row is not visible: MobileWorkspaceRow-$WORKSPACE_ID"
   else
     row_id="$("$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
       | grep -oE 'MobileWorkspaceRow-[A-Za-z0-9._:-]+' \

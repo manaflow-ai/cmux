@@ -3445,8 +3445,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
-        let loadedActiveMac: MobilePairedMac?
-        let loadedMacs: [MobilePairedMac]
+        var loadedActiveMac: MobilePairedMac?
+        var loadedMacs: [MobilePairedMac]
         if hydratePairedMacs, pairedMacLoadState == .loaded {
             // `loadPairedMacs()` just populated this cache for the launch UI.
             // Reusing it avoids a second active-row query and a second full
@@ -3470,6 +3470,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 finishStoredMacReconnectAttempt(generation: generation)
                 return .failed(.unknown)
             }
+        }
+        // A reinstall can leave the local pairing store empty while the
+        // authoritative backup still contains the pairing. The first read
+        // above intentionally races that backup refresh for fast startup, but
+        // an empty result must wait for the refresh and re-read before we
+        // conclude that there is no saved Mac.
+        if hydratePairedMacs,
+           loadedMacs.isEmpty,
+           let deferredBackupRefresh {
+            await deferredBackupRefresh.value
+            if let result = storedMacReconnectInterruptionResult(generation: generation) {
+                return result ? .connected : .superseded
+            }
+            guard await loadPairedMacs(forceRefresh: true) else {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .failed(.timedOut)
+            }
+            loadedMacs = storedPairedMacsIncludingHidden
+            loadedActiveMac = loadedMacs.first(where: \.isActive)
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
@@ -16893,7 +16912,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
-        if !mergeExistingWorkspaces {
+        if !mergeExistingWorkspaces, groupsAreAuthoritative {
             persistForegroundWorkspaceSnapshot()
         }
         #if DEBUG

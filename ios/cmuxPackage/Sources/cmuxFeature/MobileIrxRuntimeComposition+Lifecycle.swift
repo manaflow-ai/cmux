@@ -20,9 +20,10 @@ extension MobileIrxRuntimeComposition {
         // account/team tuple. Warm it immediately while Stack restores the
         // session. This path can render the cached directory and start IROH,
         // but it cannot issue or authorize any control-plane mutation.
+        let startupEpoch = epoch
         cachedWarmupTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
-            await self.warmCachedRuntime(auth: auth)
+            await self.warmCachedRuntime(auth: auth, expectedEpoch: startupEpoch)
         }
         authTask = Task { [weak self, weak auth] in
             guard let auth else { return }
@@ -34,7 +35,7 @@ extension MobileIrxRuntimeComposition {
         }
     }
 
-    private func warmCachedRuntime(auth: AuthCoordinator) async {
+    private func warmCachedRuntime(auth: AuthCoordinator, expectedEpoch: UInt64) async {
         guard let cachedIdentity = await auth.cachedTeamIdentity else { return }
         do {
             let deviceID = try await installation.deviceID()
@@ -54,7 +55,8 @@ extension MobileIrxRuntimeComposition {
                 identityKey: key
             )
             let restored = try await stateStore.load(identity: tuple)
-            guard await auth.cachedTeamIdentity == cachedIdentity,
+            guard epoch == expectedEpoch,
+                  await auth.cachedTeamIdentity == cachedIdentity,
                   let restored,
                   !restored.authorityRevoked else { return }
 
@@ -73,6 +75,8 @@ extension MobileIrxRuntimeComposition {
                 journal: journal,
                 diagnosticLog: diagnosticLog
             )
+            guard epoch == expectedEpoch,
+                  await auth.cachedTeamIdentity == cachedIdentity else { return }
             preparedCachedRuntime = PreparedCachedRuntime(
                 identity: identity,
                 key: key,
@@ -83,11 +87,18 @@ extension MobileIrxRuntimeComposition {
             )
             cache = restored
             await projectCachedDirectoryForUI(restored.directory, identity: cachedIdentity, auth: auth)
+            guard epoch == expectedEpoch,
+                  await auth.cachedTeamIdentity == cachedIdentity else { return }
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupTask = Task { [weak self] in
+                    guard let self,
+                          self.epoch == expectedEpoch,
+                          await auth.cachedTeamIdentity == cachedIdentity else { return }
                     do {
                         _ = try await supervisor.readyEndpoint(credentials: credentials)
+                        guard self.epoch == expectedEpoch,
+                              await auth.cachedTeamIdentity == cachedIdentity else { return }
                         await self?.recordEndpointReady(cached: true)
                     } catch {
                         // Authoritative provisioning retries through the same
