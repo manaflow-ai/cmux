@@ -10,7 +10,7 @@ import Foundation
 /// Immutable C function pointers: safe to hand from the loading thread to the
 /// main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
-    static let abiVersion: Int32 = 4
+    static let abiVersion: Int32 = 5
 
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     typealias EventFn = @convention(c) (

@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define CMUX_CEF_SHIM_ABI 4
+#define CMUX_CEF_SHIM_ABI 5
 
 #define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
 
