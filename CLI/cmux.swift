@@ -7664,7 +7664,14 @@ struct CMUXCLI {
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             if keyArgs.count > 1 {
                 let trailing = keyArgs.dropFirst().joined(separator: " ")
-                throw CLIError(message: "send-key: unexpected arguments: \(trailing)")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key",
+                    trailing
+                ))
             }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
@@ -7712,7 +7719,14 @@ struct CMUXCLI {
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
             if skpArgs.count > 1 {
                 let trailing = skpArgs.dropFirst().joined(separator: " ")
-                throw CLIError(message: "send-key-panel: unexpected arguments: \(trailing)")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key-panel",
+                    trailing
+                ))
             }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
