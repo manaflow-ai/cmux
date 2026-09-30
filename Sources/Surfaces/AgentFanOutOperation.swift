@@ -252,11 +252,20 @@ actor AgentFanOutOperationStore {
                 if candidate.localWorkspaceID == nil {
                     candidate.localWorkspaceID = current.localWorkspaceID
                 }
-                if candidate.projectionErrorCode == nil {
+                if candidate.projectionErrorCode == nil, candidate.localWorkspaceID == nil {
                     candidate.projectionErrorCode = current.projectionErrorCode
                 }
                 if current.state == .exited {
-                    return current
+                    // A status refresh may race a local projection that is
+                    // completing after the remote process exited. Keep the
+                    // terminal receipt and exit result from the settled
+                    // record, while retaining any newer local projection
+                    // identity captured by the candidate.
+                    var settled = current
+                    settled.remoteWorkspaceID = candidate.remoteWorkspaceID
+                    settled.localWorkspaceID = candidate.localWorkspaceID
+                    settled.projectionErrorCode = candidate.projectionErrorCode
+                    return settled
                 }
                 if current.state == .failed,
                    candidate.state == .starting || candidate.state == .running {
