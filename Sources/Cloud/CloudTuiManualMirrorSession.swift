@@ -64,6 +64,9 @@ final class CloudTuiManualMirrorSession {
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private(set) var lastRemoteGrid: CloudTuiManualIOGrid?
+    /// Frames for another surface are ignored and must not prove this
+    /// attachment's liveness. Kept for diagnostics and deterministic tests.
+    private(set) var ignoredFrameCount = 0
     var replayFidelity = CloudTuiReplayFidelity()
     var fidelityCheckTask: Task<Void, Never>?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
@@ -575,24 +578,24 @@ final class CloudTuiManualMirrorSession {
                 remoteSurfaceID = surfaceID
                 inputRouter.updateSurfaceID(surfaceID)
             }
-            guard surfaceID == remoteSurfaceID else { return }
+            guard surfaceID == remoteSurfaceID else { ignoredFrameCount += 1; return }
             watchdog.noteFrame()
             applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
         case let .output(surfaceID, bytes, colors):
-            guard surfaceID == remoteSurfaceID else { return }
+            guard surfaceID == remoteSurfaceID else { ignoredFrameCount += 1; return }
             watchdog.noteFrame()
             surface?.processRemoteOutput(bytes)
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors):
-            guard surfaceID == remoteSurfaceID else { return }
+            guard surfaceID == remoteSurfaceID else { ignoredFrameCount += 1; return }
             watchdog.noteFrame()
             applyReplacement(bytes, colors: colors, columns: columns, rows: rows)
         case let .colorsChanged(surfaceID, colors):
-            guard surfaceID == remoteSurfaceID else { return }
+            guard surfaceID == remoteSurfaceID else { ignoredFrameCount += 1; return }
             watchdog.noteFrame()
             applyColors(colors)
         case let .detached(surfaceID):
-            guard surfaceID == remoteSurfaceID else { return }
+            guard surfaceID == remoteSurfaceID else { ignoredFrameCount += 1; return }
             watchdog.noteFrame()
             transitionToDisconnected(reason: .transportClosed)
         case let .overflow(surfaceID):

@@ -186,6 +186,7 @@ import Testing
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let reconnects = ReconnectCounter()
+        let clock = SidebarTestManualClock()
         let session = CloudTuiManualMirrorSession(
             machineID: "machine",
             terminalID: Self.terminalID,
@@ -195,6 +196,7 @@ import Testing
                 livenessInterval: .milliseconds(200),
                 livenessAnswer: .milliseconds(200)
             ),
+            clock: clock,
             onNeedsReconnect: { reconnects.increment() }
         )
         defer { session.stop() }
@@ -208,20 +210,21 @@ import Testing
         fixture.send(["id": attach.id, "ok": true, "data": [:]])
         #expect(await Self.waitUntil { session.phase == .attached })
 
-        let staleFrames = Task { @MainActor in
-            while !Task.isCancelled {
-                fixture.send([
-                    "event": "output",
-                    "surface": 999,
-                    "data": Data().base64EncodedString(),
-                ])
-                try? await Task.sleep(for: .milliseconds(40))
-            }
-        }
+        fixture.send([
+            "event": "output",
+            "surface": 999,
+            "data": Data().base64EncodedString(),
+        ])
+        #expect(await Self.waitUntil { session.ignoredFrameCount >= 1 })
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        clock.advance(by: .milliseconds(200))
+        let probe = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(probe.cmd == "ping")
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        clock.advance(by: .milliseconds(200))
         let disconnected = await Self.waitUntil(timeout: .seconds(1)) {
             session.phase == .disconnected
         }
-        staleFrames.cancel()
 
         #expect(disconnected)
         #expect(reconnects.count >= 1)
