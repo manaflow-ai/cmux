@@ -22,7 +22,7 @@ enum CLIPathShorthand {
         guard !arg.hasPrefix("-"), !CLITopLevelCommands.names.contains(arg) else { return false }
         // A bare word with no extension is a command (listed, or an action
         // noun from the app's catalog), whatever the folder holds.
-        //STUB
+        guard arg.contains(".") else { return false }
         return exists(arg)
     }
 }
