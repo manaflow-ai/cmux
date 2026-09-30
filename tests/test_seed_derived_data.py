@@ -867,6 +867,7 @@ def evaluate(expression, context):
 def github_context(event_name, ref="refs/heads/main", **variables):
     return {
         "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
+        "env": {"CI_OWNED_HEAD_REPOS": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
         "vars": {
             "MACOS_RUNNER_PR": "pool-pr",
             "MACOS_RUNNER_15": "pool-15-paid",
@@ -874,7 +875,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
             **variables,
         },
-        "inputs": {"cache_backend": "default"},
+        "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
         "steps": {},
     }
 
@@ -1315,8 +1316,8 @@ class Wiring(unittest.TestCase):
         for overflow in ("", "1"):
             main_dispatch = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
             self.assertTrue(evaluate(adopt["if"], main_dispatch))
-        # A dispatch on another branch and a merge group still build clean.
-        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
+        # A trusted dispatch on another branch and a merge group still build clean.
+        self.assertTrue(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
         self.assertFalse(evaluate(adopt["if"], github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x")))
         self.assertTrue(evaluate(adopt["if"], github_context("pull_request", ref="refs/pull/1/merge")))
         self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", CI_ADMISSION_SEED_DERIVED_DATA="0")))
@@ -1358,7 +1359,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
         self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
         branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
-        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "blacksmith-6vcpu-macos-15")
+        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "pool-pr")
 
     def test_fork_pull_request_admission_stays_on_blacksmith(self):
         # MACOS_RUNNER_PR (pool-pr here) may name an owned Mac. A fork pull
@@ -1638,12 +1639,12 @@ class Wiring(unittest.TestCase):
                 _, prefer = named(steps("ci-macos.yml", "macos-compile-admission"),
                                   "Prefer a near seed over this owned Mac's DerivedData")
                 self.assertEqual(evaluate(prefer["env"]["MERGED_ONTO"], context), "head")
-        # A dispatch on another branch never reads the owned state.
+        # A trusted dispatch on another branch reads the owned state too.
         topic = github_context("workflow_dispatch", ref="refs/heads/topic")
         topic["env"] = {"CMUX_PRODUCT_RUNNER": mini}
         topic["steps"] = {"reuse-products": {"outputs": {"hit": "false"}}}
         _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
-        self.assertIs(evaluate(state["if"], topic), False)
+        self.assertIs(evaluate(state["if"], topic), True)
 
     def test_main_full_suite_dispatch_reads_the_route_token_and_the_lane_pin(self):
         changes = load("ci.yml")["jobs"]["changes"]["steps"]
@@ -1651,7 +1652,7 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in changes if step.get("id") == "macos-pool")
         for event_name, ref, head, minted, pin in (
             ("workflow_dispatch", "refs/heads/main", None, True, "/Applications/Xcode-pr.app"),
-            ("workflow_dispatch", "refs/heads/topic", None, False, ""),
+            ("workflow_dispatch", "refs/heads/topic", None, True, "/Applications/Xcode-pr.app"),
             ("merge_group", "refs/heads/gh-readonly-queue/main/x", None, False, ""),
             ("pull_request", "refs/pull/1/merge", "manaflow-ai/cmux", True, "/Applications/Xcode-pr.app"),
             ("pull_request", "refs/pull/1/merge", "someone/cmux", False, ""),
