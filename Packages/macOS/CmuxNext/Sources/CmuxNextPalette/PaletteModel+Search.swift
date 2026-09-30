@@ -98,7 +98,7 @@ extension PaletteModel {
     }
 
     func publish(_ newSections: [PaletteResultSection], resetSelection: Bool) {
-        sections = newSections
+        sections = notice.map { Self.applying($0, to: newSections) } ?? newSections
         resultsVersion += 1
         let rows = self.rows
         if resetSelection || selectedRowID == nil || !rows.contains(where: { $0.id == selectedRowID }) {
@@ -111,5 +111,17 @@ extension PaletteModel {
         current?.selectedRowID = selectedRowID
         current?.lastSections = newSections
         applyRestoredSelection()
+    }
+
+    /// The notice replaces its row's subtitle.
+    static func applying(_ notice: PaletteNotice, to sections: [PaletteResultSection]) -> [PaletteResultSection] {
+        sections.map { section in
+            PaletteResultSection(section: section.section, rows: section.rows.map { row in
+                guard row.id == notice.rowID else { return row }
+                var item = row.item
+                item.subtitle = notice.text
+                return PaletteRow(item: item, highlights: row.highlights, score: row.score)
+            })
+        }
     }
 }

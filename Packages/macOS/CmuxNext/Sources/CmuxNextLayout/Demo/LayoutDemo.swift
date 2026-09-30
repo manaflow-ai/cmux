@@ -82,7 +82,9 @@ public final class LayoutDemoController: NSObject {
             case "w": if let pane = model.focusedPane { source.closePane(pane) }
             case "s": model.showsScreenSwitcher.toggle()
             case "i": model.dimsInactivePanes.toggle()
-            case "e": model.columnRevealMode = model.columnRevealMode == .center ? .minimal : .center
+            case "e":
+                let modes = CenterFocusedColumn.allCases
+                model.centerFocusedColumnOverride = modes[((modes.firstIndex(of: model.centerFocusedColumn) ?? 0) + 1) % modes.count]
             case let digit? where Int(digit).map({ (1...9).contains($0) }) == true:
                 let index = Int(digit)! - 1
                 if model.screens.indices.contains(index) { model.selectScreen(model.screens[index].id) }

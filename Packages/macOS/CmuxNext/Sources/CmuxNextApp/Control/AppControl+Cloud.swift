@@ -31,11 +31,21 @@ extension AppControl {
                     case .disconnected: "disconnected"
                     case .failed(let reason): "failed: \(reason)"
                     }
+                    let compat = services.machines.compatibility(of: session.daemon)
                     return .object([
                         "id": .string(session.machineID),
                         "title": .string(session.machine.title),
                         "status": .string(session.machine.status.rawValue),
                         "daemon": .string(state),
+                        // Capability negotiation per machine (DaemonCompatibility).
+                        "session_id": compat?.sessionID.map(JSONValue.string) ?? .null,
+                        "session": compat?.sessionName.map(JSONValue.string) ?? .null,
+                        "protocol": compat?.protocolVersion.map { .number(Double($0)) } ?? .null,
+                        "daemon_version": compat.map { .string($0.version) } ?? .null,
+                        "daemon_commit": compat?.buildCommit.map(JSONValue.string) ?? .null,
+                        "compatibility": compat.map { .string($0.level.rawValue) } ?? .null,
+                        "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
+                        "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
                         "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
                     ])
                 }

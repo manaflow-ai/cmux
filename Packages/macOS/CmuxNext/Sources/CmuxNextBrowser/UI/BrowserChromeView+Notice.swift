@@ -7,25 +7,28 @@ import CmuxNextDesign
 extension BrowserChromeView {
     /// Shows `text` in a dismissible pill at the bottom of the page,
     /// replacing any notice already shown. Child-window (Chromium) pages
-    /// draw above the chrome, so this is for in-view (WebKit) pages.
+    /// draw above the chrome; the pill is one of their occlusion rects, so
+    /// it shows over them too.
     public func showNotice(_ text: String) {
         let notice = currentNotice ?? makeNotice()
         notice.text = text
+        needsLayout = true
     }
 
     /// Removes the notice, if any.
     public func hideNotice() {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
-        Motion.animate(.fadeOut, { notice.animator().alphaValue = 0 }, completion: {
+        Motion.animate(.fadeOut, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
             notice.removeFromSuperview()
+            self?.needsLayout = true
         })
     }
 
     /// The notice text on screen (tests, diagnostics).
     public var noticeText: String? { currentNotice?.text }
 
-    private var currentNotice: BrowserNoticeView? {
+    var currentNotice: BrowserNoticeView? {
         subviews.lazy.compactMap { $0 as? BrowserNoticeView }.first { !$0.isDismissing }
     }
 

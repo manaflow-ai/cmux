@@ -50,9 +50,19 @@ public enum DaemonCapabilities {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public static let batchClose = "batch-close-v1"
+    /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
+    /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
+    /// `profile` field on workspaces, groups and saved tab groups.
+    public static let profiles = "profiles-v1"
+    /// Personal state kept only on the home (local) session
+    /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
+    public static let homeOnly: [String] = [profiles]
+    /// Written to the local daemon's personal rows instead of each machine's
+    /// daemon once the local daemon serves `profiles-v1`.
+    public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose]
+                                            terminalReap, batchClose, profiles]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + [

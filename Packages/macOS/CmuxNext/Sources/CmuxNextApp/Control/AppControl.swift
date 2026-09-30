@@ -42,6 +42,8 @@ final class AppControl {
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
+            // Launch, palette-open and terminal-creation spans (bench-stalls.py).
+            .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md).
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -67,6 +69,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))
             },
+            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
+            .async("resources") { [weak services] call in
+                let services = await MainActor.run { services }
+                return try await ResourceControl.run(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.deadline)),
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.

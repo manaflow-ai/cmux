@@ -1,7 +1,7 @@
 import Foundation
 
 /// One named value of an enumeration argument.
-public struct ActionEnumCase: Sendable, Hashable {
+public nonisolated struct ActionEnumCase: Sendable, Hashable {
     /// Stable value used by the CLI and handlers (`--arg color=sage`).
     public let value: String
     public let title: String
@@ -13,7 +13,7 @@ public struct ActionEnumCase: Sendable, Hashable {
 }
 
 /// The type of an action argument.
-public enum ActionArgumentKind: Sendable, Hashable {
+public nonisolated enum ActionArgumentKind: Sendable, Hashable {
     case string
     case int(ClosedRange<Int>?)
     case bool
@@ -25,7 +25,7 @@ public enum ActionArgumentKind: Sendable, Hashable {
 /// One typed argument in an action's schema. The palette collects arguments
 /// inline in order; the CLI takes them as `--arg name=value`; handlers read
 /// them from `ActionInvocation.arguments`.
-public struct ActionArgument: Sendable, Hashable {
+public nonisolated struct ActionArgument: Sendable, Hashable {
     /// Stable key (`--arg <name>=`).
     public let name: String
     public var title: String

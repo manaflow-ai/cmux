@@ -79,12 +79,9 @@ enum ScreenHandlers {
         select(screens[(index + (forward ? 1 : -1) + screens.count) % screens.count].id, in: content)
     }
 
-    /// Shows the screen and focuses its first pane through `LayoutModel.focus`,
-    /// so the window's remembered focus moves too (else the next store update
-    /// would restore focus, and the screen, from before the switch).
+    /// Shows the screen; its intent focuses the screen's most recently
+    /// focused pane (`WorkspaceContentController.focusRememberedPane`).
     private static func select(_ id: LayoutScreenID, in content: WorkspaceContentController) {
         content.layoutModel.selectScreen(id)
-        guard let pane = content.layoutModel.screens.first(where: { $0.id == id })?.layout.panes.first else { return }
-        PaneHandlers.focus(pane, in: content)
     }
 }

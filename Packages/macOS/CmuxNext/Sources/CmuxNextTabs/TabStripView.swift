@@ -42,8 +42,9 @@ public final class TabStripView: NSView {
         set { hoverCard.policy = newValue }
     }
 
-    /// Dragging empty strip space moves the window (titlebar strips).
+    /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
+    var windowControlsInset: CGFloat = 0
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -359,8 +360,9 @@ public final class TabStripView: NSView {
         let showsButton = model.showsNewTabButton
         let padding = metrics.stripHorizontalPadding
         let groupWidth = trailingGroupWidth
-        let viewport = max(0, bounds.width - 2 * padding - (showsButton ? metrics.newTabButtonWidth : 0) - groupWidth)
-        tabsClip.frame = CGRect(x: padding, y: 0, width: viewport, height: bounds.height)
+        windowControlsInset = computeWindowControlsInset()
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (showsButton ? metrics.newTabButtonWidth : 0) - groupWidth)
+        tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport

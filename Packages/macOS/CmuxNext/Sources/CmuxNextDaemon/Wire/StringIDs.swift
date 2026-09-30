@@ -40,6 +40,8 @@ public enum StringIDKind {
     public enum ClientTransaction: DaemonStringIDKind {}
     public enum TabGroup: DaemonStringIDKind {}
     public enum SavedTabGroup: DaemonStringIDKind {}
+    public enum Profile: DaemonStringIDKind {}
+    public enum BrowserProfile: DaemonStringIDKind {}
 }
 
 /// Durable workspace identity: lowercase canonical UUID.
@@ -78,5 +80,29 @@ extension DaemonStringID where Kind == StringIDKind.Terminal {
 }
 
 extension DaemonStringID where Kind == StringIDKind.ClientTransaction {
+    public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
+}
+
+/// Profile id (`profiles-v1`, plans/cmux-next/data-model.md): `default` for
+/// the built-in profile, else 1-64 of `[A-Za-z0-9_.:-]`; the app generates
+/// `prof_<32 hex>`.
+public typealias ProfileID = DaemonStringID<StringIDKind.Profile>
+
+extension DaemonStringID where Kind == StringIDKind.Profile {
+    /// The built-in profile. Workspaces without a profile belong to it.
+    public static let defaultProfile: Self = "default"
+
+    /// A fresh id in the form the daemon mints.
+    public static func generate() -> Self {
+        Self(rawValue: "prof_" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+    }
+}
+
+/// Browser profile id (`profiles-v1`): `default` for the built-in browser
+/// profile, else a lowercase UUID that keys the engines' storage.
+public typealias BrowserProfileKey = DaemonStringID<StringIDKind.BrowserProfile>
+
+extension DaemonStringID where Kind == StringIDKind.BrowserProfile {
+    public static let defaultProfile: Self = "default"
     public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
 }

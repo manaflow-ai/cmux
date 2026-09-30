@@ -1,7 +1,7 @@
 import Foundation
 
 /// Localized strings for the palette. Keys live in Localizable.xcstrings (en, ja).
-enum PaletteStrings {
+nonisolated enum PaletteStrings {
     static var sectionRecent: String { String(localized: "palette.section.recent", defaultValue: "Recent", bundle: .module) }
     static var sectionWorkspaces: String { String(localized: "palette.section.workspaces", defaultValue: "Workspaces", bundle: .module) }
     static var sectionTabs: String { String(localized: "palette.section.tabs", defaultValue: "Tabs", bundle: .module) }

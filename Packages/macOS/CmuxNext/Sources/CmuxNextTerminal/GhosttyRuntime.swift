@@ -42,12 +42,21 @@ public final class GhosttyRuntime {
     private var appearanceObservation: NSKeyValueObservation?
 
     private init() {
+        var phase = ContinuousClock.now
+        func mark(_ name: String) {
+            let now = ContinuousClock.now
+            TerminalTimings.runtimePhase(name, phase.duration(to: now))
+            phase = now
+        }
         Self.configureProcessEnvironment()
+        defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
             return
         }
+        mark("ghostty_init")
         guard let config = Self.loadConfig(diagnostics: &configDiagnostics) else { return }
+        mark("config_load")
         self.config = config
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while `shared` is

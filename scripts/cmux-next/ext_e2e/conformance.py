@@ -47,6 +47,7 @@ UI_CHECKS = [
     ("mv3", "tabs", "create_on_install"),
     ("mv3", "cmux", "tabs.create_adopted"),
     ("mv3", "cmux", "windows.create_mapped"),
+    ("mv3", "cmux", "windows.create_popup_mapped"),
     ("mv3", "cmux", "tabs_in_sync"),
     ("mv2", "mv2", "loaded"),
     ("mv2", "mv2", "popup_getBackgroundPage"),
@@ -176,12 +177,12 @@ class Run:
     def check_adoption(self, event):
         role = event.get("role")
         found = False
-        for _ in range(8):
+        for _ in range(20):
             urls = self.app.urls()
             if role == "page":
                 found = any("/page.html?suite=mv3" in url for url in urls)
             else:
-                found = any("window=1" in url or "popup=1" in url for url in urls)
+                found = any(("window=1" if role == "window" else "popup=1") in url for url in urls)
             if found:
                 break
             time.sleep(0.15)
@@ -191,6 +192,9 @@ class Run:
         elif role == "window":
             self.note("mv3", "cmux", "windows.create_mapped", "pass" if found else "fail",
                       "cmux shows the window's tab" if found else "chrome.windows.create window missing from the cmux snapshot")
+        elif role == "popup-window":
+            self.note("mv3", "cmux", "windows.create_popup_mapped", "pass" if found else "fail",
+                      "cmux shows the popup window's tab" if found else "chrome.windows.create(type popup) tab missing from the cmux snapshot")
 
     def poll(self, read, done, timeout):
         deadline = time.monotonic() + timeout
@@ -241,9 +245,15 @@ class Run:
         worker = self.sw_session(MV3_ID)
         if not worker:
             return
-        chrome_urls = sorted(worker.evaluate("chrome.tabs.query({}).then((t) => t.map((x) => x.url || x.pendingUrl))") or [])
+        query = "chrome.tabs.query({}).then((t) => t.map((x) => x.url || x.pendingUrl))"
+        chrome_urls, cmux_urls = [], []
+        for _ in range(10):
+            chrome_urls = sorted(worker.evaluate(query) or [])
+            cmux_urls = sorted(url for _, url in self.browser_tabs())
+            if chrome_urls == cmux_urls:
+                break
+            time.sleep(0.5)
         worker.close()
-        cmux_urls = sorted(url for _, url in self.browser_tabs())
         extra_cmux = [u for u in cmux_urls if u not in chrome_urls]
         extra_chrome = [u for u in chrome_urls if u not in cmux_urls]
         self.log(f"tabs: chrome {chrome_urls} cmux {cmux_urls}")

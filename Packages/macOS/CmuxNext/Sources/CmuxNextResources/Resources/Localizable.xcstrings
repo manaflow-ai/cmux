@@ -1,0 +1,1578 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "resources.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "resources.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %1$@ · Memory %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المعالج %1$@ · الذاكرة %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Memorija %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Hukommelse %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Speicher %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Memoria %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Mémoire %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Memoria %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · メモリ %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · អង្គចងចាំ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · 메모리 %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Minne %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Pamięć %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Memória %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ЦП %1$@ · Память %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · หน่วยความจำ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Bellek %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ЦП %1$@ · Пам’ять %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · Bộ nhớ %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · 内存 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CPU %1$@ · 記憶體 %2$@"
+          }
+        }
+      }
+    },
+    "resources.listSeparator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "، "
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "、"
+          }
+        }
+      }
+    },
+    "resources.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "–"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "–"
+          }
+        }
+      }
+    },
+    "resources.role.app": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "resources.role.extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإضافات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proširenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udvidelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erweiterungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estensioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拡張機能"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확장 프로그램"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utvidelser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozszerzenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Extensões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Расширения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่วนขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розширення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiện ích mở rộng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "扩展程序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擴充功能"
+          }
+        }
+      }
+    },
+    "resources.role.gpu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPU"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وحدة GPU"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPU"
+          }
+        }
+      }
+    },
+    "resources.role.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الشبكة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mreža"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Netværk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réseau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ネットワーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បណ្ដាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "네트워크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettverk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sieć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ağ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мережа"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mạng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网络"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網路"
+          }
+        }
+      }
+    },
+    "resources.role.utility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilities"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأدوات المساعدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomoćni procesi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjælpeprocesser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hilfsprozesse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilidades"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilitaires"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ユーティリティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍ជំនួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "유틸리티"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjelpeprosesser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Narzędzia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilitários"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Служебные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยูทิลิตี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yardımcılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Службові"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiện ích"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实用工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "公用程式"
+          }
+        }
+      }
+    },
+    "resources.shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared (%1$@): %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مشترك (%1$@): %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljeno (%1$@): %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delt (%1$@): %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gemeinsam (%1$@): %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartido (%1$@): %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Partagé (%1$@) : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Condiviso (%1$@): %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有 (%1$@): %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចែករំលែក (%1$@)៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공유 (%1$@): %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delt (%1$@): %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Współdzielone (%1$@): %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartilhado (%1$@): %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Общие (%1$@): %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้ร่วมกัน (%1$@): %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paylaşılan (%1$@): %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спільні (%1$@): %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng chung (%1$@): %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共享（%1$@）：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共用（%1$@）：%2$@"
+          }
+        }
+      }
+    },
+    "resources.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource usage unavailable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الموارد غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potrošnja resursa nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ressourceforbrug er ikke tilgængeligt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ressourcennutzung nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uso de recursos no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilisation des ressources indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilizzo delle risorse non disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リソース使用量を取得できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចមើលការប្រើប្រាស់ធនធានបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "리소스 사용량을 사용할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ressursbruk er ikke tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użycie zasobów niedostępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uso de recursos indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Использование ресурсов недоступно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีข้อมูลการใช้ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaynak kullanımı kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використання ресурсів недоступне"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có dữ liệu sử dụng tài nguyên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "资源使用情况不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法取得資源使用量"
+          }
+        }
+      }
+    },
+    "resources.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلا عنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez naslova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uden titel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne Titel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sans titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senza titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名称未設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제목 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uten tittel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без названия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adsız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без назви"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

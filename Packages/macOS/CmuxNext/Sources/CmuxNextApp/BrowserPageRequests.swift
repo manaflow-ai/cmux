@@ -55,6 +55,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let extra = host.items
             host.removeAllItems()
             BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
+        case .notice(let text):
+            services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download:
             break
         }

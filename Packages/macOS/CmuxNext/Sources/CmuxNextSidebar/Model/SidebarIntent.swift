@@ -38,4 +38,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
+    /// Show another profile in this window (dot click, swipe).
+    case switchProfile(ProfileKey)
+    /// Create a profile (the bar's "+").
+    case newProfile
+    /// Move a profile to an insertion index (dot drag).
+    case reorderProfile(ProfileKey, index: Int)
 }

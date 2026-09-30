@@ -130,23 +130,6 @@ private func style(gap: CGFloat = 8) -> LayoutStyle {
         #expect(ColumnStripGeometry.adjacentSnap(from: 800, direction: 1, snaps: snaps) == 800)
     }
 
-    @Test func minimalRevealScrollsLeastAmount() {
-        let frame = CGRect(x: 1208, y: 0, width: 400, height: 100)
-        let offset = ColumnStripGeometry.revealOffset(for: frame, current: 0, viewportWidth: 1000, contentWidth: 3000, gap: 8, mode: .minimal)
-        #expect(offset == CGFloat(616))
-        let visible = ColumnStripGeometry.revealOffset(for: CGRect(x: 108, y: 0, width: 300, height: 100), current: 0, viewportWidth: 1000, contentWidth: 3000, gap: 8, mode: .minimal)
-        #expect(visible == 0)
-        let behind = ColumnStripGeometry.revealOffset(for: CGRect(x: 208, y: 0, width: 300, height: 100), current: 500, viewportWidth: 1000, contentWidth: 3000, gap: 8, mode: .minimal)
-        #expect(behind == 200)
-    }
-
-    @Test func centerRevealClampsAtEnds() {
-        let frame = CGRect(x: 1000, y: 0, width: 400, height: 100)
-        #expect(ColumnStripGeometry.revealOffset(for: frame, current: 0, viewportWidth: 1000, contentWidth: 3000, gap: 8, mode: .center) == 700)
-        let first = CGRect(x: 8, y: 0, width: 400, height: 100)
-        #expect(ColumnStripGeometry.revealOffset(for: first, current: 900, viewportWidth: 1000, contentWidth: 3000, gap: 8, mode: .center) == 0)
-    }
-
     @Test func rubberBandResistsPastEnds() {
         let banded = ColumnStripGeometry.rubberBand(-200, contentWidth: 2000, viewportWidth: 1000)
         #expect(banded < 0 && banded > -200)

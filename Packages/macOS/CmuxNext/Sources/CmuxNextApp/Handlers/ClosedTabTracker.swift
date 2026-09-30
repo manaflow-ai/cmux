@@ -3,34 +3,36 @@ import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// Feeds `ClosedTabHistory` from the daemon store and reopens closed tabs.
-/// Observes structure only (which tab is in which pane); a closed tab's cwd,
-/// URL, and terminal are read from the last `TabModel` seen, which the store
-/// leaves untouched after removal. Session-local browser tabs are not tracked.
-/// A terminal tab reopened within the daemon's reap grace period shows the
-/// same live terminal (`ClosedTerminalRestorer`).
+/// Feeds `ClosedTabHistory` from every machine's daemon store and reopens
+/// closed tabs on the machine they were closed on. Observes structure only
+/// (which tab is in which pane); a closed tab's cwd, URL, and terminal are
+/// read from the last `TabModel` seen, which the store leaves untouched
+/// after removal. Session-local browser tabs are not tracked. A terminal tab
+/// reopened within its daemon's reap grace period shows the same live
+/// terminal (`ClosedTerminalRestorer`). Record ids are qualified by machine
+/// (`<machine>/<id>`) because daemon-local ids repeat across machines.
 final class ClosedTabTracker {
     private unowned let services: AppServices
-    /// Daemon path for reopening terminal tabs; tests replace it.
-    var restorer: ClosedTerminalRestorer
+    /// Replaces the daemon path for reopening terminal tabs (tests). Nil
+    /// uses the owning machine's daemon (`ClosedTerminalRestorer.live`).
+    var restorer: ClosedTerminalRestorer?
     private var history = ClosedTabHistory()
     private var lastSeen: [String: TabModel] = [:]
-    private var generation: String?
+    private var generations: [String: String] = [:]
     private var observation: Task<Void, Never>?
 
     private struct Structure: Sendable {
         var tabs: [(tab: TabModel, record: ClosedTabHistory.Record)]
         var live: Set<String>
-        var generation: String?
-        var connected: Bool
+        /// Boot generation per connected machine.
+        var generations: [String: String]
     }
 
     init(services: AppServices) {
         self.services = services
-        restorer = .live(services.activeDaemon)
-        let store = services.activeDaemon.store
+        let machines = services.machines
         observation = Task { [weak self] in
-            for await structure in Observations({ Self.structure(of: store) }) {
+            for await structure in Observations({ Self.structure(of: machines.daemons) }) {
                 self?.apply(structure)
             }
         }
@@ -38,35 +40,56 @@ final class ClosedTabTracker {
 
     deinit { observation?.cancel() }
 
-    private static func structure(of store: DaemonStore) -> Structure {
+    static func qualified(_ machine: String, _ id: String) -> String { "\(machine)/\(id)" }
+
+    /// `(machine, id)` of a qualified record id.
+    static func split(_ qualified: String) -> (machine: String, id: String)? {
+        guard let slash = qualified.firstIndex(of: "/") else { return nil }
+        return (String(qualified[..<slash]), String(qualified[qualified.index(after: slash)...]))
+    }
+
+    /// Connected machines only: a machine that drops takes its tabs and
+    /// workspaces out together, so nothing on it counts as closed.
+    private static func structure(of daemons: [DaemonService]) -> Structure {
         var tabs: [(TabModel, ClosedTabHistory.Record)] = []
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for (index, tab) in pane.tabs.enumerated() {
-                        let kind: ClosedTabHistory.Record.Kind
-                        switch tab.kind {
-                        case .pty: kind = .terminal
-                        case .browser: kind = .browser
-                        default: continue
+        var live: Set<String> = []
+        var generations: [String: String] = [:]
+        for daemon in daemons {
+            let store = daemon.store
+            guard case .connected = store.connectionState else { continue }
+            let machine = daemon.machineID
+            generations[machine] = store.generation?.rawValue ?? ""
+            for workspace in store.workspaces {
+                live.insert(qualified(machine, workspace.id))
+                for screen in workspace.screens {
+                    for pane in screen.panes {
+                        for (index, tab) in pane.tabs.enumerated() {
+                            let kind: ClosedTabHistory.Record.Kind
+                            switch tab.kind {
+                            case .pty: kind = .terminal
+                            case .browser: kind = .browser
+                            default: continue
+                            }
+                            tabs.append((tab, ClosedTabHistory.Record(
+                                kind: kind, tabID: qualified(machine, tab.id), paneID: qualified(machine, pane.id),
+                                workspaceID: qualified(machine, workspace.id), index: index)))
                         }
-                        tabs.append((tab, ClosedTabHistory.Record(kind: kind, tabID: tab.id, paneID: pane.id,
-                                                                  workspaceID: workspace.id, index: index)))
                     }
                 }
             }
         }
-        let connected = if case .connected = store.connectionState { true } else { false }
-        return Structure(tabs: tabs, live: Set(store.workspaces.map(\.id)), generation: store.generation?.rawValue,
-                         connected: connected)
+        return Structure(tabs: tabs, live: live, generations: generations)
     }
 
     private func apply(_ structure: Structure) {
-        guard structure.connected else { return }
-        if structure.generation != generation {
-            generation = structure.generation
-            history.resetBaseline()
+        // A machine's daemon restarted (new boot generation): its tabs come
+        // back with new ids, so forget the baseline instead of recording
+        // every one of them as closed.
+        let restarted = structure.generations.contains { machine, generation in
+            generations[machine].map { $0 != generation } ?? false
         }
+        generations = structure.generations
+        if restarted { history.resetBaseline() }
         let previous = lastSeen
         history.observe(structure.tabs.map(\.record), liveWorkspaces: structure.live) { record in
             var record = record
@@ -76,7 +99,7 @@ final class ClosedTabTracker {
             record.terminalResourceID = previous[record.tabID]?.terminalResourceID?.rawValue
             return record
         }
-        lastSeen = Dictionary(structure.tabs.map { ($0.tab.id, $0.tab) }, uniquingKeysWith: { first, _ in first })
+        lastSeen = Dictionary(structure.tabs.map { ($0.record.tabID, $0.tab) }, uniquingKeysWith: { first, _ in first })
     }
 
     func popLast() -> ClosedTabHistory.Record? {
@@ -85,8 +108,12 @@ final class ClosedTabTracker {
 
     /// Reopens `record` at its old position in its old pane, else in `fallback`.
     func reopen(_ record: ClosedTabHistory.Record, fallback: PaneController?) {
-        let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-        let paneModel = panes.first { $0.id == record.paneID } ?? fallback?.pane
+        let owner = Self.split(record.paneID)
+        let recorded = owner.flatMap { owner in
+            services.machines.daemon(machine: owner.machine)?.store.workspaces
+                .flatMap(\.screens).flatMap(\.panes).first { $0.id == owner.id }
+        }
+        let paneModel = recorded ?? fallback?.pane
         guard let paneModel else {
             services.registry.refuse(RefusalStrings.closedTabPaneGone)
             return
@@ -102,6 +129,7 @@ final class ClosedTabTracker {
             controller.newBrowserTab(url: record.url.flatMap(URL.init(string:)), inherited: record.engine)
         case .terminal:
             let daemon = services.daemon(for: paneModel)
+            let restorer = restorer ?? .live(daemon)
             guard restorer.isAvailable() else {
                 services.registry.refuse(MiscHandlerStrings.daemonOffline)
                 return
@@ -109,7 +137,7 @@ final class ClosedTabTracker {
             let spawn = ClosedTerminalRestorer.Spawn(pane: paneModel.handle, cwd: record.cwd,
                                                      workspace: services.workspaceKey(of: paneModel), index: record.index)
             let path = services.resourcePath(of: paneModel)
-            let restorer = restorer, logger = daemon.logger
+            let logger = daemon.logger
             services.registry.track(Task { @MainActor in
                 if let terminal = record.terminalResourceID, let path {
                     do {

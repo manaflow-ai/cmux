@@ -64,13 +64,16 @@ extension DaemonStore {
     private func applyState(_ event: DaemonEvent) -> Followup {
         switch event {
         case .connected(let identity, _):
+            connectionEpoch += 1
             connectionState = .connected(identity)
             noteHandshake(identity)
             return .resync
         case .disconnected(let reason):
+            connectionEpoch += 1
             connectionState = .disconnected(reason)
             return .none
         case .daemonShutdown:
+            connectionEpoch += 1
             connectionState = .disconnected("daemon shut down")
             return .none
 

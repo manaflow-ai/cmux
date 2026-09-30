@@ -16,6 +16,13 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
 
     public func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
 
+    /// The session's stable identity: `registry_id`, the UUID its SQLite
+    /// registry records once. It survives daemon restarts, in-place upgrades
+    /// and host adoption, and every deployed build reports it (a Cloud VM on
+    /// the image's cmux-tui included). `session` is the session's name and
+    /// `generation` fences one daemon boot; neither is an identity.
+    public var sessionID: String? { registryID.flatMap { $0.isEmpty ? nil : $0.lowercased() } }
+
     public init(
         app: String = "cmux-tui",
         version: String = "0",

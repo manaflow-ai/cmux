@@ -3,10 +3,13 @@ import CmuxNextDesign
 import QuartzCore
 
 /// Wraps one App-provided pane view. The content sits in `clipView`, the
-/// cell inset by the pane padding and clipped to a rounded rect, so
-/// layer-backed content (the Ghostty Metal layer, WebKit) takes the pane's
-/// corners. Chromium pages are child windows the clip cannot reach; the
-/// browser module reads the rounded ancestor and masks the page itself.
+/// cell inset by the pane padding. A view that reports a header
+/// (`PaneContentChrome`: the tab strip, a browser toolbar) rounds its own
+/// content area and the chrome traces that area only; any other view is
+/// clipped to a rounded rect here, header and all. Layer clips take the
+/// Ghostty Metal layer and WebKit along; Chromium pages are child windows
+/// no clip reaches, so the browser module reads the rounded ancestor and
+/// masks the page itself.
 ///
 /// The focus ring, border and inactive dim (`chrome`) live in the layout's
 /// `OverlayPlane`, not in this view, so they draw above content that is a
@@ -19,6 +22,8 @@ final class PaneHostView: NSView {
     private let clipView = PaneClipView()
     private(set) var padding: CGFloat = 0
     private(set) var cornerRadius: CGFloat = 0
+    private var reporter: PaneContentChrome? { content as? PaneContentChrome }
+    private var lastWindowFrame: CGRect?
 
     init(pane: PaneID, content: NSView) {
         self.pane = pane
@@ -32,6 +37,7 @@ final class PaneHostView: NSView {
         content.autoresizingMask = [.width, .height]
         content.frame = clipView.bounds
         clipView.addSubview(content)
+        reporter?.onPaneHeaderHeightChange = { [weak self] in self?.layoutClip() }
     }
 
     @available(*, unavailable)
@@ -41,8 +47,14 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// The rounded content rect in this view's coordinates.
+    /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
+
+    /// The rounded area the border and ring trace: below the content's
+    /// header, or the whole padded rect for content without one.
+    var roundedRect: CGRect {
+        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: reporter?.paneHeaderHeight ?? 0)
+    }
 
     /// Applies the pane padding and corner radius (live style values).
     func applyShape(padding: CGFloat, cornerRadius: CGFloat) {
@@ -63,12 +75,30 @@ final class PaneHostView: NSView {
         style.paneCornerRadius = cornerRadius
         let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
         if clipView.frame != rect { clipView.frame = rect }
-        clipView.setCornerRadius(PaneChromeGeometry.cornerRadius(for: rect, style: style))
-        chrome.setShape(padding: padding, cornerRadius: cornerRadius)
+        let header = reporter?.paneHeaderHeight ?? 0
+        let radius = PaneChromeGeometry.cornerRadius(for: PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header), style: style)
+        if let reporter {
+            clipView.setCornerRadius(0)
+            reporter.setPaneContentCornerRadius(radius)
+        } else {
+            clipView.setCornerRadius(radius)
+        }
+        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header)
     }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, showsBorder: Bool, animated: Bool) {
-        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth, showsBorder: showsBorder, animated: animated)
+    /// Tells the content when the pane's frame in the window changed.
+    func noteWindowFrame() {
+        guard let reporter, window != nil else { return }
+        let frame = convert(bounds, to: nil)
+        guard frame != lastWindowFrame else { return }
+        lastWindowFrame = frame
+        reporter.paneFrameInWindowDidChange()
+    }
+
+    func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border: PaneOverlayView.Border,
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, border: border,
+                      attention: attention, attentionSettings: attentionSettings, animated: animated)
     }
 }
 

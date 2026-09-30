@@ -4,7 +4,12 @@ extension PaletteModel {
     // MARK: Keyboard
 
     /// Applies a key command. Returns whether it was consumed; unconsumed
-    /// commands fall through to the text field.
+    /// commands fall through to the text field. Every command the key map
+    /// produces is consumed, also when it has nothing to do (Return with no
+    /// row, Backspace at the root): falling through, the field editor would
+    /// end editing on Return or beep on a Backspace at the start, and the
+    /// next key would reach `noResponder(for:)`, the system beep. Only
+    /// Backspace with text in the field goes to the field.
     @discardableResult
     public func handle(_ command: PaletteKeyCommand) -> Bool {
         if actionsMenu != nil, handleActionsMenu(command) { return true }
@@ -22,12 +27,12 @@ extension PaletteModel {
                 pendingSubmit = command
                 return true
             }
-            guard let item = selectedItem else { return false }
+            guard let item = selectedItem else { return true }
             run(command == .submit ? item.primary : (item.alternate ?? item.primary), of: item)
         case .toggleActions, .openActions:
-            return openActionsMenu()
+            _ = openActionsMenu()
         case .closeActions:
-            return false
+            break
         case .escape:
             if pop() { return true }
             if !query.isEmpty {
@@ -37,7 +42,7 @@ extension PaletteModel {
             onDismiss?()
         case .back:
             guard query.isEmpty else { return false }
-            return pop()
+            pop()
         case .actionsFilterAppend, .actionsFilterDeleteBackward:
             return false
         }

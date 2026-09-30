@@ -2,7 +2,7 @@ import Foundation
 
 /// Argument definitions shared by catalog actions. Titles live in
 /// Localizable.xcstrings under `argument.<name>` and `argument.value.<value>`.
-enum CatalogArgument {
+nonisolated enum CatalogArgument {
     static var workspaceWorkspace: ActionArgument {
         ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module), kind: .target(.workspace))
     }

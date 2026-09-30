@@ -1,13 +1,5 @@
 public import CoreGraphics
 
-/// How keyboard focus scrolls a column into view (niri `center-focused-column`).
-public nonisolated enum ColumnRevealMode: Hashable, Sendable {
-    /// Scroll the least amount that makes the focused column fully visible.
-    case minimal
-    /// Always center the focused column.
-    case center
-}
-
 /// Pure math for niri-style scrolling columns. Offsets are the content-space
 /// x of the viewport's leading edge.
 public nonisolated enum ColumnStripGeometry {
@@ -105,31 +97,6 @@ public nonisolated enum ColumnStripGeometry {
     public static func adjacentSnap(from offset: CGFloat, direction: Int, snaps: [CGFloat]) -> CGFloat {
         if direction > 0 { return snaps.first { $0 > offset + 0.5 } ?? snaps.last ?? offset }
         return snaps.last { $0 < offset - 0.5 } ?? snaps.first ?? offset
-    }
-
-    /// The offset that shows `frame` according to `mode`.
-    public static func revealOffset(
-        for frame: CGRect,
-        current: CGFloat,
-        viewportWidth: CGFloat,
-        contentWidth: CGFloat,
-        gap: CGFloat,
-        mode: ColumnRevealMode
-    ) -> CGFloat {
-        let target: CGFloat
-        switch mode {
-        case .center:
-            target = frame.midX - viewportWidth / 2
-        case .minimal:
-            if frame.width + gap * 2 > viewportWidth || frame.minX - gap < current {
-                target = frame.minX - gap
-            } else if frame.maxX + gap > current + viewportWidth {
-                target = frame.maxX + gap - viewportWidth
-            } else {
-                target = current
-            }
-        }
-        return clamp(target, contentWidth: contentWidth, viewportWidth: viewportWidth)
     }
 
     /// Rubber-band resistance past the ends, like AppKit elastic scrolling.

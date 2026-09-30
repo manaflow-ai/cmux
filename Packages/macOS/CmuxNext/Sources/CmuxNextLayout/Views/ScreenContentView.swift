@@ -14,12 +14,16 @@ final class ScreenContentView: NSView {
     private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
 
-    var scroll = SpringValue(0)
-    /// Unbanded offset accumulated during a trackpad gesture.
-    var rawScroll: CGFloat = 0
-    var isUserScrolling = false
-    var scrollSamples: [(time: TimeInterval, delta: CGFloat)] = []
+    /// Column scroll rules and state (`ColumnScrollState.reduce`).
+    var scrollState = ColumnScrollState()
+    var scroll: SpringValue {
+        get { scrollState.spring }
+        set { scrollState.spring = newValue }
+    }
+    var isUserScrolling: Bool { scrollState.isGestureActive }
     var reportScrollOnSettle = false
+    /// The focus the scroll last followed; a window resize re-syncs with it.
+    var lastFocused: PaneID?
 
     var activeDrag: ActiveDrag?
 
@@ -45,12 +49,19 @@ final class ScreenContentView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        if changed { reconcile(animated: false) }
+        if changed { reconcileAndScroll() }
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        reconcileAndScroll()
+    }
+
+    /// A window resize: frames snap, and the scroll keeps the focused column
+    /// in place on screen, then fits it (niri `update_config`).
+    private func reconcileAndScroll() {
         reconcile(animated: false)
+        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)
     }
 
     // MARK: Model updates
@@ -61,7 +72,8 @@ final class ScreenContentView: NSView {
     /// frame: panes and dividers snap to their targets and a new pane is
     /// fully opaque at once, so its content can draw in the same frame.
     /// Ratio and width changes (equalize, width presets, another client's
-    /// divider drag) and column reveal scrolls keep their spring.
+    /// divider drag) keep their spring. The strip scroll (including the
+    /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
     func update(layout: ScreenLayout, animated: Bool) -> Bool {
         let structural = !self.layout.hasSameStructure(as: layout)
@@ -127,17 +139,8 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = nil
         }
 
-        // Scroll. A clamp caused by a structural change (a closed column)
-        // snaps with it; reveal scrolls requested afterwards still spring.
-        let clamped = ColumnStripGeometry.clamp(scroll.target, contentWidth: geometry.contentWidth, viewportWidth: bounds.width)
-        if clamped != scroll.target && !isUserScrolling {
-            scroll.target = clamped
-            if !animateFrames { scroll.snap() }
-        }
-        if !geometry.isColumns {
-            scroll = SpringValue(0)
-        }
-
+        // The scroll follows in `syncScroll`, which the root calls with the
+        // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
         return animate && hasMotion
     }
@@ -226,17 +229,22 @@ final class ScreenContentView: NSView {
 
     // MARK: Chrome
 
-    func updateChrome(focused: PaneID?, dimsInactive: Bool, animated: Bool) {
+    /// Focus ring, inactive dim and attention rings. Overlay-only: no pane
+    /// frame or inset depends on any of it.
+    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
+        let ringAllowed = multiple || style.focusRing.showsForSinglePane
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
             host.setChrome(
-                showsRing: multiple && isFocused,
+                showsRing: ringAllowed && isFocused,
                 dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
-                ringWidth: style.focusRingWidth,
-                showsBorder: style.showsPaneBorder,
+                focusRing: style.focusRing,
+                border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
+                attention: attention[pane],
+                attentionSettings: style.attention,
                 animated: animated
             )
         }

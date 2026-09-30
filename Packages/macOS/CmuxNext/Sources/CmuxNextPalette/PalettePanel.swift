@@ -12,7 +12,9 @@ final class PalettePanel: ActiveAppKeyPanel {
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
-            defer: true
+            // Created ahead of the first open (`PaletteController.prepare`),
+            // so the window-server window is made then, not on open.
+            defer: false
         )
         ThemeStore.shared.adopt(self)
         isOpaque = false
@@ -39,6 +41,15 @@ final class PalettePanel: ActiveAppKeyPanel {
     override func resignKey() {
         super.resignKey()
         onResignKey?()
+    }
+
+    /// Key-downs no responder handled (AppKit beeps for each). The palette
+    /// handles every key it maps, so this stays 0 (`debug.key` reports it).
+    private(set) var unhandledKeyDowns = 0
+
+    override func noResponder(for eventSelector: Selector) {
+        if eventSelector == #selector(NSResponder.keyDown(with:)) { unhandledKeyDowns += 1 }
+        super.noResponder(for: eventSelector)
     }
 
     override func cancelOperation(_ sender: Any?) {

@@ -94,6 +94,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             observe()
         case .contextMenu(let request):
             BrowserContextMenuBuilder.present(request, in: tab.contentView)
+        case .notice(let text):
+            chrome.showNotice(text)
         }
     }
 

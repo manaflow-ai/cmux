@@ -35,6 +35,8 @@ final class AppServices {
     private(set) var dragSession: TabDragSession!
     private(set) var palette: PaletteController!
     private(set) var previews: TabPreviewSource!
+    /// CPU and memory for the hover cards and `resources` (sampled on demand).
+    private(set) var resources: AppResourceSource!
     /// App side of the cmux CLI compat layer (window/focus state, intents).
     private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
@@ -65,6 +67,11 @@ final class AppServices {
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
+        cache.cef.openURLWithoutWindow = { [weak self] url, disposition in
+            // Chromium wanted a window and has none for that profile: a new
+            // browser tab in the focused pane (Chromium opens nothing).
+            self?.windows?.active?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+        }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self
@@ -81,6 +88,7 @@ final class AppServices {
         }
         surfaceInvariant.services = self
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
+        resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
@@ -157,9 +165,12 @@ final class AppServices {
     }
 
     /// The pane controller showing `pane` in the active window, if any.
+    /// The controller showing `pane` itself. Handles are daemon-local
+    /// numbers that repeat across machines, so a handle match counts only
+    /// when the controller shows this very model.
     func paneController(for pane: PaneModel) -> PaneController? {
         for controller in windows.controllers {
-            if let found = controller.content?.pane(for: pane.handle) { return found }
+            if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
     }

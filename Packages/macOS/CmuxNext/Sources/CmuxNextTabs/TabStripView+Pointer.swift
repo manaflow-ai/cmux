@@ -60,12 +60,24 @@ extension TabStripView {
         guard !hoverCardSuppressed, !groupEditor.isVisible else { return }
         if let chip {
             hoverChip(chip)
-        } else if let id, let item = model.tab(id), let cell = cells[id], let window, NSApp.isActive {
+        } else if let id, let item = model.tab(id), let cell = cells[id], let window,
+                  NSApp.isActive || WindowPlacement.noActivate {
             let anchor = window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
             hoverCard.hover(.tab(item), anchor: anchor, tabWidth: cell.frame.width, parent: window)
         } else {
             hoverCard.hide()
         }
+    }
+
+    /// Shows tab `id`'s hover card now (with its CPU and memory) until the
+    /// next key press, click or scroll. False when the tab has no visible
+    /// cell or the window is hidden.
+    @discardableResult
+    public func showHoverCard(for id: TabID) -> Bool {
+        guard let item = model.tab(id), let cell = cells[id], cell.frame.width > 0.5, let window else { return false }
+        let anchor = window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
+        hoverCard.showPinned(.tab(item), anchor: anchor, parent: window)
+        return hoverCard.shownID == id
     }
 
     public override func mouseEntered(with event: NSEvent) {
@@ -127,11 +139,11 @@ extension TabStripView {
             press = Press(id: id, start: point)
             return
         }
-        if event.clickCount == 2 {
-            model.send(.newTab(after: nil))
-            return
-        }
-        if dragsWindowFromEmptySpace { window?.performDrag(with: event) }
+        // In the window's top row empty space is the titlebar: it moves
+        // the window, and a double-click zooms or minimizes (the user's
+        // macOS setting). Elsewhere a double-click opens a tab.
+        if actsAsTitlebar { return WindowTitlebar.handleMouseDown(event, in: window) }
+        if event.clickCount == 2 { model.send(.newTab(after: nil)) }
     }
 
     public override func mouseDragged(with event: NSEvent) {

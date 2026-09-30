@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextResources
 import QuartzCore
 
 /// What a hover card shows.
@@ -21,6 +22,11 @@ enum TabHoverCardContent: Equatable {
 /// the pointer moves across tabs.
 final class TabHoverCardController {
     weak var previewProvider: (any TabPreviewProvider)?
+    /// Samples CPU and memory of the hovered tab while its card is pending
+    /// or shown (first sample at hover start), never otherwise.
+    let resources = ResourceCardSampler(source: nil)
+    /// Ends a card an action opened (not the pointer).
+    private let pin = PinnedCardDismissal()
     var policy = HoverCardPolicy()
     var metrics = TabStripMetrics.standard
 
@@ -52,6 +58,8 @@ final class TabHoverCardController {
         }
         if pendingID == content.id { return }
         pendingShow?.cancel()
+        pin.disarm()
+        startResources(for: content)
         let delay = policy.delay(
             tabWidth: tabWidth,
             cardIsVisible: isVisible,
@@ -68,6 +76,21 @@ final class TabHoverCardController {
             guard let self, !Task.isCancelled, self.pendingID == content.id else { return }
             self.show(content, anchor: anchor, parent: parent)
         }
+    }
+
+    /// Shows the card now, without the hover delay, until the next key
+    /// press, click or scroll (the "Show Resource Usage" actions).
+    func showPinned(_ content: TabHoverCardContent, anchor: CGRect, parent: NSWindow?) {
+        pendingShow?.cancel()
+        pendingShow = nil
+        pendingID = nil
+        startResources(for: content)
+        show(content, anchor: anchor, parent: parent)
+        guard shownID == content.id else {
+            resources.close()
+            return
+        }
+        pin.arm { [weak self] in self?.hide(allowsQuickReshow: false) }
     }
 
     /// Design tokens changed: rebuild the card at the new sizes next time.
@@ -93,6 +116,8 @@ final class TabHoverCardController {
         pendingShow?.cancel()
         pendingShow = nil
         pendingID = nil
+        pin.disarm()
+        resources.close()
         thumbnailTask?.cancel()
         guard let panel, shownID != nil else { return }
         shownID = nil
@@ -109,9 +134,24 @@ final class TabHoverCardController {
         self.panel = panel
         shownID = content.id
         panel.configure(content)
+        if case .tab = content { panel.setResources(resources.report) }
         panel.setThumbnail(thumbnails[content.id])
         panel.present(below: anchor, parent: parent, sliding: wasVisible)
         if case .tab(let item) = content { loadThumbnail(for: item.id) }
+    }
+
+    /// Starts sampling the tab under the pointer (the first sample is the
+    /// CPU baseline, taken at hover start so the card shows CPU about one
+    /// interval later). Group chips have no resource line.
+    private func startResources(for content: TabHoverCardContent) {
+        guard case .tab(let item) = content else {
+            resources.close()
+            return
+        }
+        resources.open(.tab(item.id.rawValue)) { [weak self] report in
+            guard let self, self.shownID == item.id else { return }
+            self.panel?.setResources(report)
+        }
     }
 
     private func loadThumbnail(for id: TabID) {

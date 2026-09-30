@@ -17,6 +17,7 @@ public final class PaletteModel {
     public var query: String = "" {
         didSet {
             guard query != oldValue else { return }
+            notice = nil
             current?.query = query
             refreshResults(resetSelection: true)
         }
@@ -32,6 +33,9 @@ public final class PaletteModel {
     /// Titles of the pages above the root, for the breadcrumb.
     public private(set) var breadcrumbs: [String] = []
     public private(set) var isTextInput = false
+    /// Why the last command could not run, shown as its row's subtitle
+    /// until the query or the page changes (never a beep).
+    public internal(set) var notice: PaletteNotice?
     public internal(set) var isLoading = false
     /// Increments when keyboard navigation moves the selection, so the view
     /// scrolls it into view (mouse hover never scrolls).
@@ -46,6 +50,13 @@ public final class PaletteModel {
     /// Called when a command closes the palette. The controller hides the
     /// panel here; the command's handler runs right after.
     @ObservationIgnored public var onDismiss: (@MainActor () -> Void)?
+    /// Runs a closing command's handler and returns the reason it refused,
+    /// if any (the controller installs `ActionRegistry.reportingRefusal`).
+    /// Nil runs handlers directly.
+    @ObservationIgnored public var performer: (@MainActor (@MainActor () -> Void) -> String?)?
+    /// A closing command refused: the controller shows the palette again on
+    /// the same page with `notice`.
+    @ObservationIgnored public var onRefusal: (@MainActor (String) -> Void)?
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
     @ObservationIgnored public internal(set) var frecency: FrecencyStore
@@ -104,13 +115,14 @@ public final class PaletteModel {
     /// a menu or shortcut). A `.perform` effect runs immediately.
     public func reset(to effect: PaletteEffect, fallback: PalettePageSpec) {
         clearStack()
-        switch effect {
+        switch effect.resolved() {
+        case .deferred: break
         case .push(let page): push(page)
         case .textInput(let spec): pushTextInput(spec)
         case .perform(let handler), .performKeepingOpen(let handler):
             push(fallback)
             onDismiss?()
-            handler()
+            perform(handler, rowID: nil, closing: true)
         }
     }
 
@@ -172,12 +184,14 @@ public final class PaletteModel {
             frecency.record(key, at: now())
             persistence?.save(frecency)
         }
-        switch command.effect {
+        switch command.effect.resolved() {
+        case .deferred:
+            break
         case .perform(let handler):
             onDismiss?()
-            handler()
+            perform(handler, rowID: item.id, closing: true)
         case .performKeepingOpen(let handler):
-            handler()
+            perform(handler, rowID: item.id, closing: false)
             reload()
         case .push(let page):
             push(page)
@@ -186,7 +200,20 @@ public final class PaletteModel {
         }
     }
 
+    /// Runs `handler`; a refusal becomes the notice on `rowID` (the page's
+    /// first row when nil) and, for a closing command, reopens the palette
+    /// on the same page. The handler targets what the palette captured on
+    /// open (`PaletteArgumentFlow`), so reopening changes nothing it acts on.
+    private func perform(_ handler: @MainActor () -> Void, rowID: String?, closing: Bool) {
+        guard let performer else { return handler() }
+        guard let reason = performer(handler) else { return }
+        notice = PaletteNotice(rowID: rowID ?? rows.first?.id ?? "", text: reason)
+        publish(sections, resetSelection: false)
+        if closing { onRefusal?(reason) }
+    }
+
     private func activate(_ state: PageState, restoring: Bool) {
+        notice = nil
         switch state.kind {
         case .list(let page):
             pageTitle = page.title
@@ -229,4 +256,10 @@ public final class PaletteModel {
         current?.selectedRowID = saved
         scrollRequest += 1
     }
+}
+
+/// A command's refusal, shown on its row.
+public struct PaletteNotice: Equatable, Sendable {
+    public let rowID: String
+    public let text: String
 }

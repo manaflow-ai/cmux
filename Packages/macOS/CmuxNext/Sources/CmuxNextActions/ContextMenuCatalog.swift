@@ -24,6 +24,7 @@ public enum ContextMenuCatalog {
         case .link: link
         case .cloudMachine: cloudMachine
         case .newTab: newTab
+        case .profile: profile
         }
     }
 
@@ -60,7 +61,7 @@ public enum ContextMenuCatalog {
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
                   "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
                   "palette.toggleFullWidthTab")
-        + [.separator] + actions("palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
+        + [.separator] + actions("tab.showResources", "palette.copySurfaceID", "palette.copySurfaceLink", "palette.copyIdentifiers")
         + [.separator] + actions("disconnectRemoteTab", "closeTabsToLeft", "closeTabsToRight", "closeOtherTabsInPane", "closeTab")
 
     static let tabGroup: [ContextMenuEntry] =
@@ -87,9 +88,9 @@ public enum ContextMenuCatalog {
                 "palette.markWorkspaceRead", "palette.markWorkspaceUnread")
         + [.separator]
         + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
-                  "moveWorkspaceToGroup", "removeWorkspaceFromGroup")
+                  "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspace.moveToRoom", "workspace.duplicateToRoom")
         + [.separator]
-        + actions("reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+        + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
                   "palette.copyWorkspaceLink")
         + [.separator]
         + actions("palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove", "closeWorkspace")
@@ -100,18 +101,27 @@ public enum ContextMenuCatalog {
         + actions("cloudResizeMachine", "palette.cloud.status", "palette.cloud.snapshot", "palette.cloud.fork") + [.separator]
         + actions("cloudKillMachine")
 
+    /// A room dot in the sidebar.
+    static let profile: [ContextMenuEntry] =
+        actions("room.newWindow", "room.newWorkspace") + [.separator]
+        + actions("room.rename")
+        + [.submenu("room.setColor", colors("room") + [.separator] + actions("room.clearColor"))]
+        + actions("room.setIcon", "room.clearIcon", "room.setDefaults") + [.separator]
+        + actions("room.moveLeft", "room.moveRight") + [.separator]
+        + actions("room.new") + [.separator] + actions("room.delete")
+
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")
         + [.submenu("workspaceGroup.setColor", colors("workspaceGroup"))]
         + actions("workspaceGroup.togglePin", "toggleFocusedWorkspaceGroupCollapsed") + [.separator]
         + actions("workspaceGroup.markRead", "workspaceGroup.markUnread", "workspaceGroup.clearNotifications") + [.separator]
         + actions("workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToNewWindow",
-                  "workspaceGroup.moveToWindow")
+                  "workspaceGroup.moveToWindow", "workspaceGroup.moveToRoom")
         + [.separator] + actions("workspaceGroup.editConfig") + [.separator]
         + actions("workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces", "workspaceGroup.delete")
 
     static let sidebarBackground: [ContextMenuEntry] =
-        actions("newTab", "newBrowserWorkspace", "openFolder", "newWorkspaceGroup") + [.separator]
+        actions("newTab", "newBrowserWorkspace", "openFolder", "newWorkspaceGroup", "room.new") + [.separator]
         + actions("newCloudWorkspace") + [.separator] + actions("toggleSidebar")
 
     static let terminalSelection: [ContextMenuEntry] =

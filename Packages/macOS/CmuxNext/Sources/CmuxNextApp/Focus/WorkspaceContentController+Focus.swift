@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // The focus topology of the shown workspace and the helpers creation paths
 // use to ask for focus on something that lands later.
@@ -26,6 +27,18 @@ extension WorkspaceContentController {
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
         }
         return FocusTopology(workspace: workspace.id, panes: panes)
+    }
+
+    /// The shown workspace's focus history, newest first (focus.md 4a).
+    var recentPanes: [LayoutPaneID] {
+        focus.state.recentPanes.map(LayoutPaneID.init(rawValue:))
+    }
+
+    /// Focuses the most recently focused pane of `screen`, else its first.
+    func focusRememberedPane(on screen: LayoutScreenID) {
+        guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes,
+              let pane = FocusNavigation.mostRecent(panes, recency: recentPanes) ?? panes.first else { return }
+        focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
     /// Starts a user intent whose result lands later.

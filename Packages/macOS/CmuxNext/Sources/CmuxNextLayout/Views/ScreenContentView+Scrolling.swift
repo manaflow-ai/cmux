@@ -1,80 +1,70 @@
 import AppKit
 import CmuxNextDesign
 
-/// Column strip scrolling: focus reveal, trackpad gestures with rubber
-/// banding and fling projection, and discrete mouse-wheel snaps.
+/// Column strip scrolling. Every rule lives in `ColumnScrollState.reduce`
+/// (plans/cmux-next/niri.md); this extension feeds it model snapshots,
+/// trackpad gestures and wheel notches, and applies its effects.
 extension ScreenContentView {
-    /// Scrolls so `pane`'s column is visible per `mode`. Returns true if frames are needed.
+    /// The strip the reducer sees now; nil on a split screen.
+    private var strip: ColumnStrip? {
+        ColumnStrip(layout: layout, geometry: geometry, gap: context.style.stripGap)
+    }
+
+    /// Feeds the current layout, geometry and focus to the reducer. Returns
+    /// true if the spring needs frames.
     @discardableResult
-    func reveal(_ pane: PaneID, mode: ColumnRevealMode, animated: Bool) -> Bool {
-        guard geometry.isColumns, let column = layout.column(containing: pane), let frame = geometry.columns[column.id] else { return false }
-        let target = ColumnStripGeometry.revealOffset(
-            for: frame,
-            current: scroll.target,
-            viewportWidth: bounds.width,
-            contentWidth: geometry.contentWidth,
-            gap: context.style.stripGap,
-            mode: mode
-        )
-        guard target != scroll.target else { return false }
-        scroll.target = target
-        reportScrollOnSettle = true
-        if !animated || context.reduceMotion {
-            scroll.snap()
+    func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true) -> Bool {
+        lastFocused = focused
+        guard let strip else {
+            scrollState = ColumnScrollState()
             applyPresentation()
-            reportScrollOnSettle = false
-            reportLeadingColumn()
             return false
         }
-        return true
+        scrollState.mode = mode
+        let animate = animated && !context.reduceMotion && bounds.width > 0
+        return apply(scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals)))
+    }
+
+    /// niri `center-column`. Returns true if the spring needs frames.
+    @discardableResult
+    func center(_ pane: PaneID, animated: Bool) -> Bool {
+        apply(scrollState.reduce(.center(pane, animated: animated && !context.reduceMotion)))
     }
 
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
 
     func beginUserScroll() {
-        isUserScrolling = true
-        scroll.velocity = 0
-        rawScroll = scroll.value
-        scrollSamples.removeAll()
+        scrollState.reduce(.gestureBegan)
     }
 
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
-        rawScroll -= deltaX
-        scroll.value = ColumnStripGeometry.rubberBand(rawScroll, contentWidth: geometry.contentWidth, viewportWidth: bounds.width)
-        scroll.target = scroll.value
-        scrollSamples.append((timestamp, -deltaX))
-        scrollSamples.removeAll { timestamp - $0.time > 0.1 }
+        scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         applyPresentation()
     }
 
-    /// Ends a trackpad gesture: projects the fling and springs to a column edge.
+    /// Ends a trackpad gesture: projects the fling and springs to a snap point.
     func endUserScroll(timestamp: TimeInterval) {
-        isUserScrolling = false
-        let recent = scrollSamples.filter { timestamp - $0.time <= 0.1 }
-        var velocity: CGFloat = 0
-        if let first = recent.first, recent.count > 1 {
-            let dt = max(timestamp - first.time, 1.0 / 120.0)
-            velocity = recent.reduce(0) { $0 + $1.delta } / CGFloat(dt)
-        }
-        scrollSamples.removeAll()
-        let target = ColumnStripGeometry.snapTarget(releaseOffset: scroll.value, velocity: velocity, snaps: geometry.snapOffsets)
-        scroll.target = target
-        scroll.velocity = velocity
-        reportScrollOnSettle = true
-        if context.reduceMotion {
-            scroll.snap()
-            applyPresentation()
-        }
+        apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
-        scroll.target = ColumnStripGeometry.adjacentSnap(from: scroll.target, direction: direction, snaps: geometry.snapOffsets)
-        reportScrollOnSettle = true
-        if context.reduceMotion {
-            scroll.snap()
-            applyPresentation()
+        apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
+    }
+
+    @discardableResult
+    private func apply(_ effects: ColumnScrollEffects) -> Bool {
+        if effects.reportOnSettle { reportScrollOnSettle = true }
+        if !effects.needsFrames { applyPresentation() }
+        if let pane = effects.focus {
+            lastFocused = pane
+            context.model.focus(pane, source: .scroll)
         }
+        if !effects.needsFrames && reportScrollOnSettle {
+            reportScrollOnSettle = false
+            reportLeadingColumn()
+        }
+        return effects.needsFrames
     }
 
     func reportLeadingColumn() {

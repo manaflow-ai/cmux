@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
 
@@ -17,18 +18,21 @@ final class SidebarBridge {
     private var observation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var widthObservation: Task<Void, Never>?
+    private var profileObservation: Task<Void, Never>?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.ungroupedFirst = true
         // Synchronous, before the hide animation starts: focus leaves the
         // sidebar in the same turn (plans/cmux-next/focus.md).
         model.onPresentationChange = { [weak state] presentation in
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        container.sidebarView.resourceSource = services.resources
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -42,6 +46,7 @@ final class SidebarBridge {
         observation?.cancel()
         selectionObservation?.cancel()
         widthObservation?.cancel()
+        profileObservation?.cancel()
     }
 
     private func observe() {
@@ -51,9 +56,20 @@ final class SidebarBridge {
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
-            for await sections in Observations({ Self.sections(machines, statuses: board, members: registry.members(of: windowState.id)) }) {
+            for await sections in Observations({
+                Self.sections(machines, statuses: board, members: registry.members(of: windowState.id), profile: windowState.profileID)
+            }) {
                 guard let self, self.model.sections != sections else { continue }
                 self.model.sections = sections
+            }
+        }
+        profileObservation = Task { [weak self] in
+            for await (profiles, active) in Observations({
+                (Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue))
+            }) {
+                guard let self else { return }
+                if self.model.profiles != profiles { self.model.profiles = profiles }
+                if self.model.activeProfileID != active { self.model.activeProfileID = active }
             }
         }
         let state = windowState
@@ -79,32 +95,59 @@ final class SidebarBridge {
     }
 
     /// This window's sidebar: every machine section, listing only the
-    /// workspaces the window owns (`WindowRegistry`).
-    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, members: [String]) -> [SidebarRowSection] {
-        SidebarMembership.filter(sections(machines, statuses: statuses), members: Set(members))
+    /// workspaces the window owns (`WindowRegistry`) in the profile it shows
+    /// (`WindowProfiles`).
+    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, members: [String],
+                         profile: ProfileID) -> [SidebarRowSection] {
+        let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
+        return SidebarMembership.filter(sections(machines, statuses: statuses, profile: profile), members: Set(visible))
+    }
+
+    /// The profile bar of the local daemon's profiles (empty when it has
+    /// none; the bar hides below two).
+    static func profiles(_ store: DaemonStore) -> [SidebarProfile] {
+        store.profiles.sorted { $0.index < $1.index }.map { profile in
+            SidebarProfile(id: SidebarProfileKey(profile.id.rawValue), name: profile.name,
+                           color: profile.color.flatMap(GroupColor.init(rawValue:)), icon: profile.icon)
+        }
     }
 
     /// One section per machine: the local daemon, then each Cloud machine
-    /// (empty while it connects), with every workspace.
-    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard) -> [SidebarRowSection] {
+    /// (empty while it connects), with the workspaces and groups of
+    /// `profile` (all of them on a machine without that profile).
+    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, profile: ProfileID) -> [SidebarRowSection] {
         let status = { (id: String) in statuses.line(for: id) }
-        var sections = SidebarMapping.sections(machines.local.store.sidebarSections,
+        var sections = SidebarMapping.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                statusLine: status)
         for session in machines.cloud {
-            let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive)
-            sections += SidebarMapping.sections(session.daemon.store.sidebarSections, machine: header, statusLine: status)
+            let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
+                                 compatibility: machines.compatibility(of: session.daemon))
+            sections += SidebarMapping.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
+                                                machine: header, statusLine: status)
         }
         return sections
     }
 
-    static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true) -> SidebarMachine {
-        let status: SidebarMachine.Status = switch daemon.store.connectionState {
+    static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true,
+                        compatibility: DaemonCompatibility? = nil) -> SidebarMachine {
+        var status: SidebarMachine.Status = switch daemon.store.connectionState {
         case .connected: .connected
         case .connecting, .disconnected: live ? .connecting : .offline
         case .failed: live ? .connecting : .offline
         }
-        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status)
+        // A remote machine keeps its own cmux-tui build: say when it is too
+        // old instead of showing it as connecting (or silently limited).
+        let compat = kind == .local ? nil : (compatibility ?? daemon.compatibility)
+        if let compat, live {
+            switch compat.level {
+            case .incompatible where daemon.startup.isUnavailable: status = .updateRequired
+            case .limited where status == .connected: status = .updateAvailable
+            default: break
+            }
+        }
+        let detail = (status == .updateRequired || status == .updateAvailable) ? compat.map(CloudStrings.compatibility) : nil
+        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status, detail: detail)
     }
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
@@ -119,6 +162,8 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground)
+        case .profile(let id):
+            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
         }
     }
 

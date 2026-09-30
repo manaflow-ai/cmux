@@ -1,0 +1,4329 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "action.room.clearColor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Room Color"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مسح لون الغرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukloni boju sobe"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ryd rummets farve"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe entfernen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quitar color de la sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Effacer la couleur de la salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovi colore della stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色を消去"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សម្អាតពណ៌បន្ទប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상 지우기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern romfarge"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyczyść kolor pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Limpar Cor da Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сбросить цвет комнаты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ล้างสีห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengini Temizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скинути колір кімнати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa màu phòng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "清除房间颜色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "清除房間顏色"
+          }
+        }
+      }
+    },
+    "action.room.clearIcon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Room Icon"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مسح أيقونة الغرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukloni ikonu sobe"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ryd rummets ikon"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumsymbol entfernen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quitar icono de la sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Effacer l’icône de la salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovi icona della stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームのアイコンを消去"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សម្អាតរូបតំណាងបន្ទប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 아이콘 지우기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern romikon"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyczyść ikonę pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Limpar Ícone da Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сбросить значок комнаты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ล้างไอคอนห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Simgesini Temizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скинути значок кімнати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa biểu tượng phòng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "清除房间图标"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "清除房間圖示"
+          }
+        }
+      }
+    },
+    "action.room.color.blue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Blue"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: أزرق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: plava"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Blå"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Blau"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: azul"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : bleu"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: blu"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: ブルー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ខៀវ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 파란색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Blå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: niebieski"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Azul"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: синий"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: น้ำเงิน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Mavi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: синій"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Xanh dương"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：蓝色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：藍色"
+          }
+        }
+      }
+    },
+    "action.room.color.cyan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Cyan"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: سماوي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: cijan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Cyan"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Cyan"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: cian"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : cyan"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: ciano"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: シアン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ខៀវខ្ចី"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 청록색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Turkis"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: cyjan"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Ciano"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: голубой"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: ฟ้าอมเขียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Camgöbeği"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: блакитний"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Xanh lơ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：青色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：青色"
+          }
+        }
+      }
+    },
+    "action.room.color.green" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Green"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: أخضر"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: zelena"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Grøn"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Grün"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: verde"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : vert"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: verde"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: グリーン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ បៃតង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 초록색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Grønn"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: zielony"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Verde"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: зеленый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: เขียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Yeşil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: зелений"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Xanh lá"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：绿色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：綠色"
+          }
+        }
+      }
+    },
+    "action.room.color.grey" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Grey"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: رمادي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: siva"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Grå"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Grau"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: gris"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : gris"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: grigio"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: グレー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ប្រផេះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 회색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Grå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: szary"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Cinza"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: серый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: เทา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Gri"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: сірий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Xám"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：灰色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：灰色"
+          }
+        }
+      }
+    },
+    "action.room.color.orange" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Orange"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: برتقالي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: narandžasta"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Orange"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Orange"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: naranja"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : orange"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: arancione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: オレンジ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ទឹកក្រូច"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 주황색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Oransje"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: pomarańczowy"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Laranja"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: оранжевый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: ส้ม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Turuncu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: помаранчевий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Cam"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：橙色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：橙色"
+          }
+        }
+      }
+    },
+    "action.room.color.pink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Pink"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: وردي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: roza"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Pink"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Rosa"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: rosa"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : rose"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: rosa"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: ピンク"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ផ្កាឈូក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 분홍색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Rosa"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: różowy"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Rosa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: розовый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: ชมพู"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Pembe"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: рожевий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Hồng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：粉色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：粉紅色"
+          }
+        }
+      }
+    },
+    "action.room.color.purple" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Purple"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: أرجواني"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: ljubičasta"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Lilla"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Lila"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: morado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : violet"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: viola"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: パープル"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ស្វាយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 보라색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Lilla"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: fioletowy"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Roxo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: фиолетовый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: ม่วง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Mor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: фіолетовий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Tím"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：紫色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：紫色"
+          }
+        }
+      }
+    },
+    "action.room.color.red" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Red"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: أحمر"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: crvena"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Rød"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Rot"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: rojo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : rouge"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: rosso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: レッド"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ ក្រហម"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 빨간색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Rød"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: czerwony"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Vermelho"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: красный"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: แดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Kırmızı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: червоний"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Đỏ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：红色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：紅色"
+          }
+        }
+      }
+    },
+    "action.room.color.yellow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Color: Yellow"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لون الغرفة: أصفر"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boja sobe: žuta"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets farve: Gul"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe: Gelb"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Color de la sala: amarillo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleur de la salle : jaune"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colore della stanza: giallo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色: イエロー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌បន្ទប់៖ លឿង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상: 노란색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romfarge: Gul"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolor pokoju: żółty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cor da Sala: Amarelo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвет комнаты: желтый"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีห้อง: เหลือง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengi: Sarı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Колір кімнати: жовтий"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu phòng: Vàng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间颜色：黄色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間顏色：黃色"
+          }
+        }
+      }
+    },
+    "action.room.delete" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حذف الغرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Izbriši sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slet rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum löschen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eliminar sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimer la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elimina stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームを削除…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លុបបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 삭제…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slett rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usuń pokój…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Excluir Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалить комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Sil…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалити кімнату…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "删除房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "刪除房間…"
+          }
+        }
+      }
+    },
+    "action.room.move" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Room to Position…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل الغرفة إلى موضع…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Premjesti sobu na poziciju…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt rum til position…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum an Position bewegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover sala a posición…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer la salle à la position…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta stanza nella posizione…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームを指定位置へ移動…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់បន្ទប់ទៅទីតាំង…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸을 위치로 이동…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt rom til posisjon …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przenieś pokój na pozycję…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Sala para Posição…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить комнату на позицию…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายห้องไปตำแหน่ง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Konuma Taşı…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити кімнату на позицію…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển phòng tới vị trí…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将房间移到位置…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將房間移至位置…"
+          }
+        }
+      }
+    },
+    "action.room.moveLeft" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Room Left"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل الغرفة لليسار"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pomjeri sobu lijevo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt rum til venstre"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum nach links bewegen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover sala a la izquierda"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer la salle à gauche"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta stanza a sinistra"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームを左へ移動"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់បន្ទប់ទៅឆ្វេង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸을 왼쪽으로 이동"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt rom til venstre"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przesuń pokój w lewo"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Sala para a Esquerda"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить комнату влево"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายห้องไปทางซ้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Sola Taşı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити кімнату ліворуч"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển phòng sang trái"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将房间左移"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將房間左移"
+          }
+        }
+      }
+    },
+    "action.room.moveRight" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Room Right"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل الغرفة لليمين"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pomjeri sobu desno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt rum til højre"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum nach rechts bewegen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover sala a la derecha"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer la salle à droite"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta stanza a destra"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームを右へ移動"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់បន្ទប់ទៅស្តាំ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸을 오른쪽으로 이동"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt rom til høyre"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przesuń pokój w prawo"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Sala para a Direita"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить комнату вправо"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายห้องไปทางขวา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Sağa Taşı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити кімнату праворуч"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển phòng sang phải"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将房间右移"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將房間右移"
+          }
+        }
+      }
+    },
+    "action.room.new" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "غرفة جديدة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova soba"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nyt rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neuer Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nueva sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvelle salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuova stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新規ルーム"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់ថ្មី"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 룸"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nytt rom"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowy pokój"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новая комната"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้องใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni Oda"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нова кімната"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phòng mới"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新建房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新增房間"
+          }
+        }
+      }
+    },
+    "action.room.newWindow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Window in Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نافذة جديدة في غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Novi prozor u sobi…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nyt vindue i rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neues Fenster im Raum …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nueva ventana en sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvelle fenêtre dans la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuova finestra nella stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームで新規ウインドウ…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្អួចថ្មីក្នុងបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸에서 새 윈도우…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nytt vindu i rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowe okno w pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova Janela na Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новое окно в комнате…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หน้าต่างใหม่ในห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odada Yeni Pencere…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нове вікно в кімнаті…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cửa sổ mới trong phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在房间中新建窗口…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在房間中新增視窗…"
+          }
+        }
+      }
+    },
+    "action.room.newWorkspace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Workspace in Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحة عمل جديدة في غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Novi radni prostor u sobi…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nyt arbejdsområde i rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neuer Arbeitsbereich im Raum …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuevo espacio de trabajo en sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvel espace de travail dans la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuova area di lavoro nella stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームで新規ワークスペース…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការថ្មីក្នុងបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸에서 새 작업 공간…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nytt arbeidsområde i rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowa przestrzeń w pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova Área de Trabalho na Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новое пространство в комнате…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซใหม่ในห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odada Yeni Çalışma Alanı…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нова робоча область у кімнаті…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc mới trong phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在房间中新建工作区…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在房間中新增工作區…"
+          }
+        }
+      }
+    },
+    "action.room.next" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الغرفة التالية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sljedeća soba"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Næste rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nächster Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala siguiente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salle suivante"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stanza successiva"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "次のルーム"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់បន្ទាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다음 룸"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neste rom"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Następny pokój"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Próxima Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Следующая комната"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้องถัดไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sonraki Oda"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наступна кімната"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phòng tiếp theo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一个房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "下一個房間"
+          }
+        }
+      }
+    },
+    "action.room.previous" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الغرفة السابقة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prethodna soba"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vorheriger Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala anterior"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salle précédente"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stanza precedente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "前のルーム"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់មុន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이전 룸"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forrige rom"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Poprzedni pokój"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala Anterior"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Предыдущая комната"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้องก่อนหน้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Önceki Oda"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Попередня кімната"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phòng trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一个房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上一個房間"
+          }
+        }
+      }
+    },
+    "action.room.rename" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعادة تسمية الغرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Preimenuj sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omdøb rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum umbenennen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renombrar sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renommer la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rinomina stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム名を変更…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្តូរឈ្មោះបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 이름 변경…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gi nytt navn til rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zmień nazwę pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renomear Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переименовать комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปลี่ยนชื่อห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Yeniden Adlandır…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейменувати кімнату…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đổi tên phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重命名房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重新命名房間…"
+          }
+        }
+      }
+    },
+    "action.room.selectByNumber" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Room 1…9"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختيار الغرفة 1…9"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberi sobu 1…9"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg rum 1…9"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum 1 … 9 auswählen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seleccionar sala 1…9"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sélectionner la salle 1…9"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seleziona stanza 1…9"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム 1…9 を選択"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសបន្ទប់ 1…9"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 1…9 선택"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg rom 1 … 9"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz pokój 1…9"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Selecionar Sala 1…9"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выбрать комнату 1…9"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกห้อง 1…9"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda 1…9 Seç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вибрати кімнату 1…9"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn phòng 1…9"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "选择房间 1…9"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "選擇房間 1…9"
+          }
+        }
+      }
+    },
+    "action.room.setColor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set Room Color…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعيين لون الغرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavi boju sobe…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angiv rummets farve…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumfarbe festlegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir color de la sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Définir la couleur de la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imposta colore della stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームの色を設定…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់ពណ៌បន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 색상 설정…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angi romfarge …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustaw kolor pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir Cor da Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задать цвет комнаты…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตั้งสีห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Rengini Ayarla…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задати колір кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đặt màu phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "设置房间颜色…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定房間顏色…"
+          }
+        }
+      }
+    },
+    "action.room.setDefaults" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set Room Terminal Defaults…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعيين إعدادات الطرفية الافتراضية للغرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavi zadane postavke terminala sobe…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angiv rummets terminalstandarder…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminal-Standards des Raums festlegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir valores de terminal de la sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Définir les réglages de terminal de la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imposta valori predefiniti del terminale della stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームのターミナル既定値を設定…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់លំនាំដើមស្ថានីយរបស់បន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 터미널 기본값 설정…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angi rommets terminalstandarder …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustaw domyślne ustawienia terminala pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir Padrões de Terminal da Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задать параметры терминала комнаты…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตั้งค่าเริ่มต้นเทอร์มินัลของห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Terminal Varsayılanlarını Ayarla…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задати типові налаштування термінала кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đặt mặc định terminal của phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "设置房间终端默认值…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定房間終端機預設值…"
+          }
+        }
+      }
+    },
+    "action.room.setIcon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set Room Icon…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعيين أيقونة الغرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavi ikonu sobe…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angiv rummets ikon…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumsymbol festlegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir icono de la sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Définir l’icône de la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Imposta icona della stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームのアイコンを設定…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់រូបតំណាងបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 아이콘 설정…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angi romikon …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustaw ikonę pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definir Ícone da Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задать значок комнаты…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตั้งไอคอนห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Simgesini Ayarla…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задати значок кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đặt biểu tượng phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "设置房间图标…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定房間圖示…"
+          }
+        }
+      }
+    },
+    "action.room.switch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التبديل إلى غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prebaci na sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skift til rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zu Raum wechseln …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cambiar a sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passer à la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passa alla stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームに切り替え…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្តូរទៅបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸으로 전환…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bytt til rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przełącz na pokój…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mudar para Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейти в комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สลับไปที่ห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaya Geç…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейти до кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chuyển sang phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切换到房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "切換到房間…"
+          }
+        }
+      }
+    },
+    "action.workspace.duplicateToRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duplicate Workspace into Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تكرار مساحة العمل في غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dupliciraj radni prostor u sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dupliker arbejdsområde i rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereich in Raum duplizieren …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Duplicar espacio de trabajo en sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dupliquer l’espace de travail dans la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Duplica area di lavoro nella stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースをルームに複製…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចម្លងកន្លែងធ្វើការទៅបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간을 룸에 복제…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dupliser arbeidsområde i rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiel przestrzeń w pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Duplicar Área de Trabalho na Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дублировать пространство в комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำสำเนาเวิร์กสเปซไปยังห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma Alanını Odada Çoğalt…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дублювати робочу область у кімнату…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhân bản không gian làm việc vào phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将工作区复制到房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將工作區複製到房間…"
+          }
+        }
+      }
+    },
+    "action.workspace.moveToRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Workspace to Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل مساحة العمل إلى غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Premjesti radni prostor u sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt arbejdsområde til rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereich in Raum bewegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover espacio de trabajo a sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer l’espace de travail vers la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta area di lavoro nella stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースをルームへ移動…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់កន្លែងធ្វើការទៅបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간을 룸으로 이동…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt arbeidsområde til rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przenieś przestrzeń do pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Área de Trabalho para Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить пространство в комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายเวิร์กสเปซไปห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma Alanını Odaya Taşı…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити робочу область до кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển không gian làm việc vào phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将工作区移到房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將工作區移至房間…"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.moveToRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Workspace Group to Room…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل مجموعة مساحات العمل إلى غرفة…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Premjesti grupu radnih prostora u sobu…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt arbejdsområdegruppe til rum…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereichsgruppe in Raum bewegen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover grupo de espacios a sala…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer le groupe d’espaces vers la salle…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta gruppo di aree di lavoro nella stanza…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースグループをルームへ移動…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់ក្រុមកន្លែងធ្វើការទៅបន្ទប់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간 그룹을 룸으로 이동…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt arbeidsområdegruppe til rom …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przenieś grupę przestrzeni do pokoju…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Grupo de Áreas para Sala…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить группу пространств в комнату…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายกลุ่มเวิร์กสเปซไปห้อง…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma Alanı Grubunu Odaya Taşı…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити групу робочих областей до кімнати…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển nhóm không gian làm việc vào phòng…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将工作区组移到房间…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將工作區群組移至房間…"
+          }
+        }
+      }
+    },
+    "argument.icon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icon"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأيقونة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikona"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikon"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Symbol"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icono"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icône"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icona"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アイコン"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបតំណាង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아이콘"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikon"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikona"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ícone"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значок"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไอคอน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Simge"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значок"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Biểu tượng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "图标"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "圖示"
+          }
+        }
+      }
+    },
+    "argument.moveTo" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Workspaces To"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقل مساحات العمل إلى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Premjesti radne prostore u"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flyt arbejdsområder til"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeitsbereiche verschieben nach"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover espacios a"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déplacer les espaces vers"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sposta aree di lavoro in"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースの移動先"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាស់កន្លែងធ្វើការទៅ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간 이동 대상"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Flytt arbeidsområder til"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przenieś przestrzenie do"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mover Áreas para"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переместить пространства в"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้ายเวิร์กสเปซไปที่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma Alanlarını Taşı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемістити робочі області до"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Di chuyển không gian làm việc tới"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将工作区移到"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將工作區移至"
+          }
+        }
+      }
+    },
+    "argument.position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Position"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الموضع"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozicija"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Position"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Position"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Posición"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Position"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Posizione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "位置"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទីតាំង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "위치"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Posisjon"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozycja"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Posição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Позиция"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Konum"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Позиція"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vị trí"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "位置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "位置"
+          }
+        }
+      }
+    },
+    "argument.room" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الغرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Soba"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rom"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokój"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Комната"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кімната"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phòng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

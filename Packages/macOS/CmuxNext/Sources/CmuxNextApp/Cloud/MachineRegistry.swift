@@ -31,6 +31,25 @@ final class MachineRegistry {
         machineID == Self.localID ? local : session(machineID)?.daemon
     }
 
+    /// What `daemon` can do for the app. A remote daemon never needs the
+    /// home-only capabilities, nor, once the local daemon keeps personal
+    /// state (`profiles-v1`), workspace groups and saved tab groups.
+    func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
+        guard !daemon.isLocal else { return daemon.compatibility }
+        var notNeeded = Set(DaemonCapabilities.homeOnly)
+        if local.supports(DaemonCapabilities.profiles) { notNeeded.formUnion(DaemonCapabilities.personalOnHome) }
+        return daemon.compatibility(notNeeded: notNeeded)
+    }
+
+    /// The daemon serving session `sessionID` (its `registry_id` UUID), on
+    /// any machine. Session ids are the stable key across machines: a
+    /// machine's daemon can restart, be upgraded or be re-linked, and its
+    /// session id stays the same.
+    func daemon(session sessionID: String) -> DaemonService? {
+        let wanted = sessionID.lowercased()
+        return daemons.first { $0.identity?.sessionID == wanted }
+    }
+
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
     func daemon(forWorkspace id: String) -> DaemonService? {
         daemons.first { daemon in daemon.store.workspaces.contains { $0.id == id } }

@@ -11,4 +11,6 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     case section(SectionID)
     /// Empty space below or between sections.
     case background
+    /// A dot in the profile bar.
+    case profile(ProfileKey)
 }

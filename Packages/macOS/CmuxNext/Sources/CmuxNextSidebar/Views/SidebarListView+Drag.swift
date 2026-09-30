@@ -38,6 +38,7 @@ extension SidebarListView {
     }
 
     func beginDrag(_ press: Press) {
+        hoverCard.hide()
         guard let row = displayed.row(for: press.key) else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
@@ -105,7 +106,8 @@ extension SidebarListView {
 
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections)
+        let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
+                                          ungroupedFirst: model.ungroupedFirst)
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)

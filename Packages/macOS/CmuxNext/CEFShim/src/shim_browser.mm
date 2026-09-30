@@ -75,6 +75,43 @@ int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
   return 1;
 }
 
+int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser || !out || capacity <= 0) {
+    return 0;
+  }
+  // A frame identifier is "<render process host id>-<frame token>"
+  // (frame_util::MakeFrameIdentifier); the host id is the renderer's
+  // --renderer-client-id.
+  std::vector<CefString> identifiers;
+  browser->GetFrameIdentifiers(identifiers);
+  int count = 0;
+  for (const CefString& identifier : identifiers) {
+    const std::string text = identifier.ToString();
+    const size_t dash = text.find('-');
+    if (dash == std::string::npos || dash == 0) continue;
+    int id = 0;
+    bool digits = true;
+    for (size_t i = 0; i < dash; ++i) {
+      if (text[i] < '0' || text[i] > '9' || id > 100000000) {
+        digits = false;
+        break;
+      }
+      id = id * 10 + (text[i] - '0');
+    }
+    if (!digits || id <= 0) continue;
+    bool seen = false;
+    for (int i = 0; i < count; ++i) {
+      if (out[i] == id) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen && count < capacity) out[count++] = id;
+  }
+  return count;
+}
+
 void cmux_shim_stop(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->StopLoad();
 }

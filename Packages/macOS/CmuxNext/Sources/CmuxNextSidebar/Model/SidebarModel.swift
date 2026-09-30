@@ -18,8 +18,17 @@ public final class SidebarModel {
     public var selection: Set<WorkspaceID> = []
     /// The workspace shown in the window.
     public var activeWorkspaceID: WorkspaceID?
+    /// Profiles in order (the bar at the bottom center). The bar hides
+    /// while there is at most one.
+    public var profiles: [SidebarProfile] = []
+    /// The profile this window shows.
+    public var activeProfileID: ProfileKey?
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
+    /// Machine sections list loose workspaces before groups (a daemon-backed
+    /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
+    /// never offers a slot past the first group.
+    @ObservationIgnored public var ungroupedFirst = false
     /// Shown or hidden. Setting it notifies `onPresentationChange`
     /// synchronously, before any animation, so focus can leave a hiding
     /// sidebar in the same turn.
@@ -101,6 +110,16 @@ public final class SidebarModel {
         case let .close(ids):
             SidebarEdits.apply(intent, to: &sections)
             dropClosed(Set(ids))
+        case let .switchProfile(id):
+            activeProfileID = id
+        case let .reorderProfile(id, index):
+            guard let from = profiles.firstIndex(where: { $0.id == id }),
+                  let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
+            profiles.insert(profiles.remove(at: from), at: to)
+        case .newProfile:
+            let id = ProfileKey("prof_" + UUID().uuidString.lowercased())
+            profiles.append(SidebarProfile(id: id, name: Strings.newProfileName))
+            activeProfileID = id
         default:
             SidebarEdits.apply(intent, to: &sections)
         }
@@ -173,6 +192,15 @@ public final class SidebarModel {
     }
 
     // MARK: Presentation
+
+    /// Next (+1) or previous (-1) profile, clamped at the ends. Returns
+    /// false when there is none that way.
+    @discardableResult
+    public func stepProfile(by delta: Int) -> Bool {
+        guard let target = ProfileBarLogic.step(from: activeProfileID, by: delta, in: profiles.map(\.id)) else { return false }
+        send(.switchProfile(target))
+        return true
+    }
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {

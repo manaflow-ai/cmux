@@ -32,6 +32,9 @@ public enum BrowserTabIntent {
     /// host shows it, adding its own items, and completes the request; a host
     /// that ignores the intent drops the request, which dismisses the menu.
     case contextMenu(BrowserContextMenuRequest)
+    /// A one-line message for the user about this tab (the host shows it
+    /// over the page), e.g. why a link did not open.
+    case notice(String)
 }
 
 /// Receives intents from a tab.

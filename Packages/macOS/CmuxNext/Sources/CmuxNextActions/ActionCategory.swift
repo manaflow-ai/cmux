@@ -2,7 +2,7 @@ import Foundation
 
 /// Functional domain of an action. Matches the sections of the action catalog
 /// in plans/cmux-next/inventory.md section 1.
-public enum ActionCategory: String, CaseIterable, Sendable, Hashable {
+public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable {
     case window
     case workspace
     case pane
@@ -43,7 +43,7 @@ public enum ActionCategory: String, CaseIterable, Sendable, Hashable {
 
 /// Top-level menus of the menu bar. The App builds each from the actions
 /// whose `mainMenu` names it, in catalog order.
-public enum ActionMainMenu: String, CaseIterable, Sendable, Hashable {
+public nonisolated enum ActionMainMenu: String, CaseIterable, Sendable, Hashable {
     case app
     case file
     case edit

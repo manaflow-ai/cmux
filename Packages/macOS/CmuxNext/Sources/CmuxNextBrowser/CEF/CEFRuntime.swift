@@ -37,6 +37,17 @@ final class CEFRuntime {
     /// Browsers Chromium created while their pane's window was still being
     /// created (see `adoptOrphan`).
     var adoptions = CEFAdoptionLedger()
+    /// Tabs Chromium created in no window or in a window cmux does not host,
+    /// waiting for the fork to insert them into a pane window (fork API 8).
+    var unplaced: [Int32: CEFCreatedBy] = [:]
+    /// How the next tabs inserted into a window open, by window id, from the
+    /// window requests that sent them there (oldest first).
+    var placements: [Int32: [BrowserNewTabDisposition]] = [:]
+    /// Window requests so far (`debug.cef` `window_requests`).
+    var windowRequestLog = CEFWindowRequestLog()
+    /// Opens `url` in a new cmux tab when no Chromium window of its profile
+    /// exists (the App sets it; the runtime has no panes of its own).
+    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
@@ -61,6 +72,11 @@ final class CEFRuntime {
     /// Runs once CEF is initialized (the App re-installs its crash signal
     /// handlers, which Chromium resets to the default action).
     var onReady: (() -> Void)?
+    /// Hides or closes top-level Chromium windows that slip through (see
+    /// `ChromiumWindowGuard`).
+    private(set) lazy var windowGuard = ChromiumWindowGuard(logger: logger) { [weak self] window in
+        self?.isPlacedDevToolsWindow(window) ?? false
+    }
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -185,6 +201,7 @@ final class CEFRuntime {
             try initialize(library, environment: environment)
             state = .ready
             startChildMonitor()
+            windowGuard.start()
             onReady?()
             self.trigger = trigger
             loadDuration = library.loadDuration
@@ -277,6 +294,9 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
+        // Chromium never opens a window of its own (fork API 8); the fork
+        // installs it at OnContextInitialized.
+        shim.setWindowRequestHandler(cefWindowRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(

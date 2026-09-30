@@ -57,6 +57,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
+    /// `layout.centerFocusedColumn`; "never" when unset or invalid.
+    public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
+    /// `focusRing.*`.
+    public var focusRing = FocusRingSettings()
+    /// `notifications.attention.*`.
+    public var attention = AttentionSettings()
+    /// `window.titlebar`; "minimal" when unset or invalid.
+    public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -90,6 +98,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
+        let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
+        snapshot.centerFocusedColumn = centering
+        if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
+        snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
+        snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
+        snapshot.titlebar = titlebar
+        if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

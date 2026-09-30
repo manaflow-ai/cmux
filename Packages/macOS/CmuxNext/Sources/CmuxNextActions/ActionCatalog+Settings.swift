@@ -1,6 +1,6 @@
 // Catalog rows for one domain. Titles live in Localizable.xcstrings (en, ja).
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func settingsActions() -> [ActionDescriptor] {
         [
             ActionDescriptor(
@@ -180,6 +180,72 @@ extension ActionCatalog {
                 title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Toggle Rounded Pane Corners", bundle: .module),
                 keywords: ["corner", "radius", "rounded", "square", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.on.square", surfaces: [.palette], cliName: "settings toggle-pane-corners"
+            ),
+            ActionDescriptor(
+                id: "layout.centerFocusedColumn.never",
+                title: String(localized: "action.layout.centerFocusedColumn.never", defaultValue: "Scroll Columns Minimally", bundle: .module),
+                keywords: ["niri", "column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
+                symbol: "arrow.left.and.right", surfaces: [.palette], cliName: "settings scroll-columns-minimally"
+            ),
+            ActionDescriptor(
+                id: "layout.centerFocusedColumn.always",
+                title: String(localized: "action.layout.centerFocusedColumn.always", defaultValue: "Always Center Focused Column", bundle: .module),
+                keywords: ["niri", "column", "center", "scroll", "always", "layout"], category: .settings,
+                symbol: "align.horizontal.center", surfaces: [.palette], cliName: "settings always-center-focused-column"
+            ),
+            ActionDescriptor(
+                id: "layout.centerFocusedColumn.onOverflow",
+                title: String(localized: "action.layout.centerFocusedColumn.onOverflow", defaultValue: "Center Focused Column on Overflow", bundle: .module),
+                keywords: ["niri", "column", "center", "scroll", "overflow", "layout"], category: .settings,
+                symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
+            ),
+            ActionDescriptor(
+                id: "focusRing.toggle",
+                title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
+                keywords: ["focus", "ring", "outline", "highlight", "pane", "appearance"], category: .settings,
+                symbol: "square.dashed.inset.filled", surfaces: [.palette], cliName: "settings toggle-focus-ring"
+            ),
+            ActionDescriptor(
+                id: "focusRing.style.ring",
+                title: String(localized: "action.focusRing.style.ring", defaultValue: "Use Ring Focus Style", bundle: .module),
+                keywords: ["focus", "ring", "outline", "stroke", "pane", "appearance"], category: .settings,
+                symbol: "square", surfaces: [.palette], cliName: "settings use-ring-focus-style"
+            ),
+            ActionDescriptor(
+                id: "focusRing.style.glow",
+                title: String(localized: "action.focusRing.style.glow", defaultValue: "Use Glow Focus Style", bundle: .module),
+                keywords: ["focus", "glow", "inner", "shadow", "pane", "appearance"], category: .settings,
+                symbol: "square.fill.on.square", surfaces: [.palette], cliName: "settings use-glow-focus-style"
+            ),
+            ActionDescriptor(
+                id: "focusRing.singlePane.toggle",
+                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Toggle Focus Ring for a Single Pane", bundle: .module),
+                keywords: ["focus", "ring", "single", "one", "pane", "appearance"], category: .settings,
+                symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
+            ),
+            ActionDescriptor(
+                id: "appearance.paneBorderWidth.toggle",
+                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Toggle Thick Pane Borders", bundle: .module),
+                keywords: ["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"], category: .settings,
+                symbol: "lineweight", surfaces: [.palette], cliName: "settings toggle-thick-pane-borders"
+            ),
+            ActionDescriptor(
+                id: "appearance.paneBorderColor.reset",
+                title: String(localized: "action.appearance.paneBorderColor.reset", defaultValue: "Use Theme Color for Pane Borders", bundle: .module),
+                keywords: ["border", "color", "colour", "theme", "ghostty", "reset", "pane", "appearance", "layout"], category: .settings,
+                symbol: "paintpalette", surfaces: [.palette], cliName: "settings use-theme-pane-border-color"
+            ),
+            ActionDescriptor(
+                id: "appearance.titlebar.minimal",
+                title: String(localized: "action.appearance.titlebar.minimal", defaultValue: "Use Minimal Titlebar", bundle: .module),
+                keywords: ["titlebar", "title bar", "window", "compact", "hide", "drag", "appearance"], category: .settings,
+                symbol: "macwindow", surfaces: [.palette], cliName: "settings use-minimal-titlebar"
+            ),
+            ActionDescriptor(
+                id: "appearance.titlebar.standard",
+                title: String(localized: "action.appearance.titlebar.standard", defaultValue: "Use Standard Titlebar", bundle: .module),
+                keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
+                symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.increase",

@@ -47,7 +47,11 @@ public final class BrowserChromeView: NSView {
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
     private let progressLine = ProgressLineView()
-    private let contentContainer = NSView()
+    /// The page area: the page, docked DevTools and the page overlays. The
+    /// pane's rounded corners clip it (`PaneContentChrome`).
+    let contentContainer = NSView()
+    public var onPaneHeaderHeightChange: (() -> Void)?
+    private var reportedHeader: CGFloat = -1
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let pageStatus = PageStatusViews()
@@ -335,6 +339,10 @@ public final class BrowserChromeView: NSView {
         applyToolbarLayout()
         super.layout()
         updateOcclusion()
+        if pageAreaTop != reportedHeader {
+            reportedHeader = pageAreaTop
+            onPaneHeaderHeightChange?()
+        }
     }
 
     /// Child-window pages draw above this view; tell them where the find
@@ -342,7 +350,9 @@ public final class BrowserChromeView: NSView {
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
         let content = tab.contentView
-        let bars = ([findBar, promptBar] as [NSView]).filter { !$0.isHidden && $0.superview != nil }
+        var candidates: [NSView] = [findBar, promptBar]
+        if let notice = currentNotice { candidates.append(notice) }
+        let bars = candidates.filter { !$0.isHidden && $0.superview != nil }
         let rects = (bars + pageStatus.shown).map { convert($0.frame, to: content) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }

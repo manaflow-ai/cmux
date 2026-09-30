@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+public import CmuxNextDesign
 
 /// Input and output of the layout engine for one workspace.
 ///
@@ -23,8 +24,16 @@ public final class LayoutModel {
     public var showsScreenSwitcher = false
     /// Dims panes other than the focused one.
     public var dimsInactivePanes = false
-    /// How focus changes scroll columns into view.
-    public var columnRevealMode: ColumnRevealMode = .minimal
+    /// Pins the column centering mode (tests, the demo); nil follows
+    /// cmux.json `layout.centerFocusedColumn` through `DesignSettings`.
+    public var centerFocusedColumnOverride: CenterFocusedColumn?
+    /// niri `center-focused-column`: the override, else the live setting
+    /// while `followsDesignMetrics` is on, else `.never`.
+    public var centerFocusedColumn: CenterFocusedColumn {
+        centerFocusedColumnOverride ?? (followsDesignMetrics ? DesignSettings.shared.centerFocusedColumn : .never)
+    }
+    /// What moved the focus last; the column scroll never centers a click.
+    @ObservationIgnored public private(set) var lastFocusSource: ColumnFocusSource = .programmatic
     /// Layout knobs that are not design tokens (minimum pane extent, drop
     /// zones, dimming). Its token fields are ignored while
     /// `followsDesignMetrics` is on.
@@ -38,6 +47,10 @@ public final class LayoutModel {
     public var style: LayoutStyle {
         followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
     }
+
+    /// Panes that need attention (an unread notification), with the mark
+    /// the overlay draws. Set by the App from daemon unread state.
+    public var attention: [PaneID: AttentionMark] = [:]
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
@@ -176,12 +189,18 @@ public final class LayoutModel {
         focus(pane, notify: true)
     }
 
+    /// Focuses `pane` from `source` (a click, a scroll) and emits the intent.
+    public func focus(_ pane: PaneID, source: ColumnFocusSource) {
+        focus(pane, notify: true, source: source)
+    }
+
     /// Focuses `pane`. `notify: false` mirrors a focus decided elsewhere
     /// (the app's focus coordinator) without emitting an intent.
-    public func focus(_ pane: PaneID, notify: Bool) {
+    public func focus(_ pane: PaneID, notify: Bool, source: ColumnFocusSource = .programmatic) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
         guard focusedPane != pane else { return }
+        lastFocusSource = source
         focusedPane = pane
         if notify { emit(.focus(pane)) }
     }
@@ -192,7 +211,7 @@ public final class LayoutModel {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection, frames: [PaneID: CGRect]) -> PaneID? {
         guard let focusedPane, let next = FocusNavigation.neighbor(of: focusedPane, direction: direction, frames: frames) else { return nil }
-        focus(next)
+        focus(next, notify: true, source: .keyboard)
         return next
     }
 

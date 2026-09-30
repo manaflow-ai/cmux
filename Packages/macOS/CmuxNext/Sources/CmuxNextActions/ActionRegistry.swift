@@ -71,6 +71,10 @@ public final class ActionRegistry {
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
+    /// A caller shows refusals itself (the palette): no beep, but unlike
+    /// capturing, destructive actions still ask for confirmation.
+    @ObservationIgnored public internal(set) var isReportingRefusal = false
+    @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
 
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]

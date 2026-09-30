@@ -12,6 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             model.apply(intent)
@@ -58,9 +59,10 @@ extension SidebarBridge {
             }
         case .move(let ids, let group):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            guard let target = daemon(ofGroup: group), let (daemon, members) = sameMachine(ids), daemon === target else { return resync() }
-            for key in members { command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: id) } }
+            guard let target = daemon(ofGroup: group), let (daemon, _) = sameMachine(ids), daemon === target else { return resync() }
+            // Appended in order, like the sidebar: each lands after the group's last member.
+            let end = daemon.store.workspaces.count { $0.group?.rawValue == group.rawValue && !ids.contains(SidebarWorkspaceID($0.id)) }
+            run(ids.enumerated().map { .place(id: $1.rawValue, group: group.rawValue, index: end + $0) }, on: daemon)
         case .renameGroup(let group, let name):
             model.apply(intent)
             groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, name: name) }
@@ -83,6 +85,14 @@ extension SidebarBridge {
             for (daemon, key, terminals) in members {
                 command("close-workspace", on: daemon) { c, _ in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
             }
+        case .switchProfile(let profile):
+            services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
+        case .newProfile:
+            services.registry.perform("room.new", invocation: ActionInvocation())
+        case .reorderProfile(let profile, let index):
+            model.apply(intent)
+            let id = ProfileID(rawValue: profile.rawValue)
+            command("move-profile", on: services.machines.local) { c, _ in try await c.moveProfile(id, to: index) }
         case .setIcon, .setPinned, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
@@ -119,16 +129,41 @@ extension SidebarBridge {
 
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
-              let (daemon, members) = sameMachine(ids), daemon === target,
-              let root = daemonRootIndex(for: position, moving: ids, in: sections)
+              let (daemon, _) = sameMachine(ids), daemon === target
         else { return resync() }
-        for (offset, key) in members.enumerated() {
-            let index = root + offset
-            if let group = position.group {
-                let groupID = WorkspaceGroupID(rawValue: group.rawValue)
-                command("move-workspace-to-group", on: daemon) { c, _ in _ = try await c.moveWorkspace(key, toGroup: groupID, index: index) }
-            } else {
-                command("move-workspace", on: daemon, patch: .moveWorkspace(key: key, index: index)) { c, _ in _ = try await c.moveWorkspace(key, to: index) }
+        let store = daemon.store
+        let entries = store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: $0.group?.rawValue) }
+        let groups = daemon.supports(DaemonCapabilities.workspaceGroups)
+        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: groups)
+        else { return resync() }
+        run(commands, on: daemon)
+    }
+
+    /// Sends reorder commands one after another in one task: each index
+    /// assumes the previous command applied. A rejection re-syncs.
+    private func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService) {
+        let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
+                              uniquingKeysWith: { first, _ in first })
+        Task {
+            for command in commands {
+                let ok: Bool
+                switch command {
+                case .move(let id, let index):
+                    guard let key = keys[id] else { continue }
+                    ok = await daemon.perform("move-workspace", patch: .custom { _ in }) { c, _ in
+                        _ = try await c.moveWorkspace(key, to: index)
+                    }
+                case .place(let id, let group, let index):
+                    guard let key = keys[id] else { continue }
+                    let groupID = group.map(WorkspaceGroupID.init(rawValue:))
+                    ok = await daemon.perform("move-workspace-to-group", patch: .placeWorkspace(key: key, group: groupID, index: index)) { c, _ in
+                        _ = try await c.moveWorkspace(key, toGroup: groupID, index: index)
+                    }
+                }
+                if !ok {
+                    resync()
+                    return
+                }
             }
         }
     }
@@ -136,7 +171,9 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines, statuses: services.statusBoard, members: services.windows.registry.members(of: state.id))
+        model.sections = Self.sections(services.machines, statuses: services.statusBoard,
+                                       members: services.windows.registry.members(of: state.id), profile: state.profileID)
+        model.profiles = Self.profiles(services.machines.local.store)
     }
 
     private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },

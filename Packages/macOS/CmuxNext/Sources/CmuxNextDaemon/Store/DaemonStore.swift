@@ -19,10 +19,19 @@ public enum DaemonConnectionState: Sendable, Equatable {
 public final class DaemonStore {
     public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
+    /// Rooms in order (`profiles-v1`, home session only; the wire calls
+    /// them profiles). Empty on a daemon without personal state.
+    public internal(set) var profiles: [ProfileModel] = []
+    /// The rest of the home session's personal state (`PersonalStore`).
+    public internal(set) var personal = PersonalStore()
     public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
+    /// Counts connection changes (connected, disconnected, shut down), so a
+    /// reader can tell facts seen on an earlier connection from this one
+    /// even when it missed the states in between.
+    @ObservationIgnored public internal(set) var connectionEpoch = 0
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
@@ -94,6 +103,7 @@ public final class DaemonStore {
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
+    public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
 
     /// The pane currently holding `surface`.
     /// The workspace whose screens hold pane `handle`.
@@ -116,6 +126,7 @@ public final class DaemonStore {
         if let reordered = reconcile(groups, with: tree.groups, id: \.id, make: WorkspaceGroupModel.init, update: { $0.update($1) }) {
             groups = reordered
         }
+        applyPersonal(tree.personal)
         if let reordered = reconcile(savedTabGroups, with: tree.savedTabGroups, id: \.id, make: SavedTabGroupModel.init,
                                      update: { $0.update($1) }) {
             savedTabGroups = reordered

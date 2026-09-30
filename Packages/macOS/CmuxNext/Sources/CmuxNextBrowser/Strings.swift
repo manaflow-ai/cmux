@@ -47,6 +47,12 @@ nonisolated enum Strings {
     static var findPrevious: String { String(localized: "browser.find.previous", defaultValue: "Previous Match", bundle: .module) }
     static var findNext: String { String(localized: "browser.find.next", defaultValue: "Next Match", bundle: .module) }
     static var dismissNotice: String { String(localized: "browser.notice.dismiss", defaultValue: "Dismiss", bundle: .module) }
+    /// A page asked for an incognito window (link menu, Cmd-Shift-N, an
+    /// extension); Chromium opened nothing.
+    static var incognitoUnavailable: String {
+        String(localized: "browser.incognito.unavailable",
+               defaultValue: "Incognito windows aren't available in cmux, so this didn't open.", bundle: .module)
+    }
     static var findDone: String { String(localized: "browser.find.done", defaultValue: "Done", bundle: .module) }
     static var findNoMatches: String { String(localized: "browser.find.noMatches", defaultValue: "No matches", bundle: .module) }
     static func findPosition(_ index: Int, of count: Int) -> String {

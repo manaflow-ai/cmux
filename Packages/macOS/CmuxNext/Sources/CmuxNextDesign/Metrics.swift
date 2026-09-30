@@ -98,6 +98,9 @@ public enum Metrics {
     public static var paneBorder: PaneBorderStyle {
         DesignSettings.shared.paneChrome.border ?? .subtle
     }
+    /// Pane border width in points (`layout.paneBorderWidth`); nil is one
+    /// device pixel.
+    public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth }
 
     /// Corner radius for floating glass panels (sidebar, palette).
     public static var panelCornerRadius: CGFloat { pick(10, 12, .panelCornerRadius) }

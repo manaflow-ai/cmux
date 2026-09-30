@@ -153,7 +153,7 @@ enum TabHandlers {
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
-        registry.bind("palette.toggleTabPin", invoke: { invocation in
+        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.tabMetadata), invoke: { invocation in
             if TabLifecycle.togglePinHidden(ctx, invocation) { return }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }

@@ -30,6 +30,7 @@ enum WorkspaceGroupHandlers {
             try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.activeDaemon, run: { invocation in
+            if context.usesPersonalGroups { return context.ungroupPersonal(try context.workspace(invocation).model) }
             try context.require(DaemonCapabilities.workspaceGroups)
             let key = try context.workspace(invocation).key
             let daemon = context.services.activeDaemon
@@ -72,10 +73,15 @@ enum WorkspaceGroupHandlers {
             let group = try context.group(invocation)
             try context.sidebar().handle(.closeGroup(sidebarID(group)))
             let id = group.id
-            context.services.activeDaemon.send("delete-workspace-group") { try await $0.deleteGroup(id) }
+            if context.usesPersonalGroups {
+                context.services.machines.local.send("delete-personal-group") { try await $0.deletePersonalGroup(id) }
+            } else {
+                context.services.activeDaemon.send("delete-workspace-group") { try await $0.deleteGroup(id) }
+            }
         })
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.workspaceGroups, daemon: context.services.activeDaemon, run: { invocation in
             let id = try context.group(invocation).id
+            if context.usesPersonalGroups { return newPersonalWorkspace(in: id, context) }
             WorkspaceHandlers.createAndShow(context) { connection, terminal in
                 _ = try await connection.moveWorkspace(terminal.key, toGroup: id)
             }
@@ -86,6 +92,20 @@ enum WorkspaceGroupHandlers {
 
         registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
         registry.bindUnavailable(["workspaceGroup.markUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
+    }
+
+    /// New workspace in the window's room, then into personal group `id`.
+    private static func newPersonalWorkspace(in id: WorkspaceGroupID, _ context: AppActionContext) {
+        let windows = context.services.windows!
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let local = context.services.machines.local
+        Task {
+            guard let key = try? await windows.createWorkspace(WorkspaceSpawn(), into: target), let session = local.store.registryID else { return }
+            local.send("set-personal-workspace") {
+                try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(sessionID: session, workspaceKey: WorkspaceKey(rawValue: key),
+                                                                              group: .set(id)))
+            }
+        }
     }
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
@@ -112,7 +132,7 @@ enum WorkspaceGroupHandlers {
 
     private static func move(_ invocation: ActionInvocation, by offset: Int, _ context: AppActionContext) throws {
         let group = try context.group(invocation)
-        let ordered = context.store.groups.sorted { $0.index < $1.index }
+        let ordered = context.usesPersonalGroups ? context.roomGroups : context.store.groups.sorted { $0.index < $1.index }
         guard let index = ordered.firstIndex(where: { $0 === group }) else { return }
         let target = min(max(index + offset, 0), ordered.count - 1)
         guard target != index else { return }
@@ -121,6 +141,7 @@ enum WorkspaceGroupHandlers {
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let id = try context.group(invocation).id
-        try WorkspaceMetadataHandlers.acknowledge(context.store.workspaces.filter { $0.group == id }, context)
+        let members = context.usesPersonalGroups ? context.workspaces(inPersonalGroup: id) : context.store.workspaces.filter { $0.group == id }
+        try WorkspaceMetadataHandlers.acknowledge(members, context)
     }
 }

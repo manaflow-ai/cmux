@@ -10,7 +10,8 @@ extension AppActionContext {
 
     /// Throws unless the daemon serves `capability`.
     func require(_ capability: String) throws {
-        guard services.activeDaemon.supports(capability) else { throw ActionFailure.needsDaemonCapability(capability) }
+        let daemon = services.activeDaemon
+        guard daemon.supports(capability) else { throw ActionFailure(message: daemon.missingCapabilityMessage(capability)) }
     }
 
     /// The targeted workspace (target, `workspace` argument) or the one the
@@ -33,6 +34,7 @@ extension AppActionContext {
     /// The targeted workspace group (target, `group` argument), else the
     /// group of the targeted or shown workspace.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
+        if usesPersonalGroups { return try personalGroup(invocation) }
         try require(DaemonCapabilities.workspaceGroups)
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {

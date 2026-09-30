@@ -151,16 +151,17 @@ final class CEFPaneHost {
     }
 
     /// A tab Chromium opened in this window (target=_blank, window.open,
-    /// chrome.tabs.create). It is handed to the host app through the opener's
-    /// delegate as `.adoptTab`, which keeps `window.opener`.
-    func adoptChromiumTab(browser: Int32) {
+    /// chrome.tabs.create, a window request the fork placed here). It is
+    /// handed to the host app through the opener's delegate as `.adoptTab`,
+    /// which keeps `window.opener`.
+    func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab) {
         let opener = visibleTab ?? tabs.last
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
         tab.inheritDelegates(from: opener)
-        opener?.emit(.adoptTab(tab, .foregroundTab))
+        opener?.emit(.adoptTab(tab, disposition))
     }
 
     func removed(_ tab: CEFTab) {

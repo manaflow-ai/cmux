@@ -61,8 +61,10 @@ extension CEFRuntime {
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
-        case .afterCreated(let browser, let request, let window):
-            browserCreated(browser, request: request, window: window)
+        case .afterCreated(let browser, let request, let window, let created):
+            browserCreated(browser, request: request, window: window, created: created)
+        case .chromeCommand(let browser, let command):
+            chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             browserClosed(browser)
         case .devToolsResult(let browser, let messageID, let success, let json):
@@ -117,7 +119,7 @@ extension CEFRuntime {
 
     // MARK: Browser lifetime
 
-    private func browserCreated(_ browser: Int32, request: Int32, window: Int32) {
+    private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
             return
@@ -129,7 +131,7 @@ extension CEFRuntime {
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
-        adoptOrphan(browser: browser, window: window)
+        adoptOrphan(browser: browser, window: window, created: created)
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
@@ -143,6 +145,7 @@ extension CEFRuntime {
         } else {
             // Never registered: drop a pending adoption of it.
             adoptions.closedUnregistered(browser)
+            unplaced[browser] = nil
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
@@ -154,6 +157,7 @@ extension CEFRuntime {
     private func forkTabEvent(_ kind: CEFForkTabEvent, browser: Int32, window: Int32, value: Int) {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
+            if kind == .inserted { placeUnplaced(browser: browser, window: window) }
             for host in hosts.values where host.owns(window: window) || host.containsBrowser(inWindow: window) {
                 host.refreshExtensionActions()
             }
@@ -183,6 +187,8 @@ extension CEFRuntime {
             }
         case .devToolsDockSide:
             tabsByBrowser[browser]?.devToolsDockSideChosen(value)
+        case .foreignBrowserBlocked:
+            logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
         case .moved, .unknown:
             break
         }
@@ -272,7 +278,7 @@ extension CEFShimEvent {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
              .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _),
-             .afterCreated(let b, _, _), .beforeClose(let b), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
+             .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b):

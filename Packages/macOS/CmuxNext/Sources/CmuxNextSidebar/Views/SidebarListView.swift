@@ -26,6 +26,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// Recycled row views by class; only rows near the viewport have views.
     var reusePool: [ObjectIdentifier: [SidebarRowView]] = [:]
     var hoveredKey: SidebarRowKey?
+    /// Workspace hover card (title, cwd, CPU and memory).
+    let hoverCard = WorkspaceHoverCardController()
     var press: Press?
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
@@ -131,6 +133,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
             }
         }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
+        if let shown = hoverCard.shownID {
+            if let workspace = workspaces[shown] { hoverCard.refresh(workspace) } else { hoverCard.hide() }
+        }
         apply(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)), animated: animated)
     }
 
@@ -356,7 +361,10 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
-    override func mouseExited(with event: NSEvent) { setHovered(nil) }
+    override func mouseExited(with event: NSEvent) {
+        setHovered(nil)
+        hoverCard.hide()
+    }
 
     func updateHover(_ windowPoint: NSPoint? = nil) {
         guard drag == nil, let window else { return setHovered(nil) }
@@ -370,6 +378,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         if let hoveredKey { rowViews[hoveredKey]?.isHovered = false }
         hoveredKey = key
         if let key { rowViews[key]?.isHovered = true }
+        updateHoverCard()
     }
 
 }

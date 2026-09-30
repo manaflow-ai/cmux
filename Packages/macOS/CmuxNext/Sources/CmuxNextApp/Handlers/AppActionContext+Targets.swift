@@ -12,13 +12,14 @@ import os
 extension AppActionContext {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
-    /// Logs every refusal; keyboard, menu, and palette runs also beep.
-    /// Control-socket runs get the reason back instead.
+    /// Logs every refusal; keyboard and menu runs also beep. Control-socket
+    /// runs get the reason back, and the palette shows it on the command's
+    /// row (`ActionRegistry.reportingRefusal`), so neither beeps.
     func observeRefusals() {
         let registry = registry
         registry.refusalObserver = { reason in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
-            if !registry.isCapturingRefusal { NSSound.beep() }
+            if !registry.refusalHasCaller { NSSound.beep() }
         }
     }
 
@@ -39,7 +40,7 @@ extension AppActionContext {
     /// lacks `capability`.
     func needs(_ capability: String) -> @MainActor () -> String? {
         let daemon = services.activeDaemon
-        return { daemon.supports(capability) ? nil : RefusalStrings.needsDaemonCapability(capability) }
+        return { daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability) }
     }
 
     func connection() -> DaemonConnection? {

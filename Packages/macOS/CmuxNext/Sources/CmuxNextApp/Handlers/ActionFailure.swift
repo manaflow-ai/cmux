@@ -34,7 +34,7 @@ extension ActionRegistry {
               run: @escaping @MainActor (ActionInvocation) throws -> Void) -> Bool {
         let reason: @MainActor () -> String? = {
             guard let capability, let daemon = daemon(), !daemon.supports(capability) else { return nil }
-            return ActionFailure.needsDaemonCapability(capability).message
+            return daemon.missingCapabilityMessage(capability)
         }
         return bind(id, unavailable: reason, invoke: { [weak self] invocation in
             do { try run(invocation) } catch { self?.refuse(String(describing: error)) }

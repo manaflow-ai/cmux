@@ -182,7 +182,7 @@ public final class ControlRouter: Sendable {
         }
         let snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
-        let limit = startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline
+        let limit = method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let call = ControlCall(request: request, snapshot: snapshot, connection: connection,
                                deadline: .now + limit, startsTerminal: startsTerminal)
         do {

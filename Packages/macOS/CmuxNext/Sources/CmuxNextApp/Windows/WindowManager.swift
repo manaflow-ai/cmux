@@ -31,6 +31,8 @@ final class WindowManager {
     private let saveTimer = DemandTimer(owner: "WindowManager.save")
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
+    /// Records connected sessions in the home session (rooms, data-model.md 1.1).
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
@@ -173,6 +175,7 @@ final class WindowManager {
         // The adopted window is the frontmost saved one; keep it in front.
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
+        sessionRegistrar.start()
     }
 
     /// The launch window takes the frontmost saved window's identity and

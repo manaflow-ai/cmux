@@ -164,9 +164,18 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     var overlays: [Overlay] = []
     /// Last focused pane per workspace (restored on switching back).
     var remembered: [String: String] = [:]
-    /// Recently focused panes, newest first (successor of a closed pane).
-    var history: [String] = []
-    static let historyLimit = 16
+    /// Recently focused panes per workspace, newest first, from every
+    /// source (click, keyboard, CLI, palette, app-driven landing). The
+    /// successor of a closed pane and the tie-breaker of directional focus
+    /// (focus.md section 4a). Closed panes are dropped when the workspace's
+    /// topology arrives; in memory only.
+    var history: [String: [String]] = [:]
+    static let historyLimit = 64
+
+    /// The shown workspace's focus history, newest first.
+    var recentPanes: [String] {
+        topology.workspace.flatMap { history[$0] } ?? []
+    }
     var expectation: Expectation?
     var drag: DragRestore?
     /// Browser tabs in browser focus mode (all keys but tier 0 go to the page).

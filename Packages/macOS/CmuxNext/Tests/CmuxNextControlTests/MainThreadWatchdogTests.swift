@@ -16,7 +16,9 @@ import Testing
         CFRunLoopWakeUp(CFRunLoopGetMain())
         CFRunLoopRunInMode(.defaultMode, 0.4, false)
         let records = watchdog.log.records()
-        let stall = try #require(records.first, "no stall recorded")
+        // The longest record: on a loaded machine a descheduled main thread
+        // can add a shorter stall before the test's own one.
+        let stall = try #require(records.max { $0.duration < $1.duration }, "no stall recorded")
         #expect(stall.duration >= .milliseconds(100))
         #expect(!stall.frames.isEmpty)
         #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
@@ -24,6 +26,33 @@ import Testing
         // An idle run loop records nothing further.
         CFRunLoopRunInMode(.defaultMode, 0.2, false)
         #expect(watchdog.log.summary.count == records.count)
+    }
+
+    /// AppKit lays out, displays and commits Core Animation in
+    /// before-waiting observers (order 2,000,000 for the CA commit). That
+    /// work is main-thread time before the loop sleeps; a stall there must
+    /// count like a stall inside a source.
+    @MainActor
+    @Test func recordsAStallInABeforeWaitingObserverLikeDisplayAndCommit() throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        watchdog.start()
+        defer { watchdog.stop() }
+        var fired = false
+        let commit = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_000) { _, _ in
+            guard !fired else { return }
+            fired = true
+            stallForTest()
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), commit, .commonModes)
+        defer { CFRunLoopObserverInvalidate(commit) }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {}
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 0.4, false)
+        #expect(fired)
+        let stall = try #require(watchdog.log.records().max { $0.duration < $1.duration },
+                                 "a stall in a before-waiting observer was not recorded")
+        #expect(stall.duration >= .milliseconds(100))
+        #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
 
     @Test func hangLogIsBoundedDropOldest() {

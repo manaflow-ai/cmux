@@ -224,7 +224,11 @@ def prepare(scenario, control, args, app_pid, bundle):
 
     if scenario == "chromium-static":
         # The first Chromium tab starts CEF (slow on a loaded machine).
-        reason = refused(control.action("openBrowser.chromium", timeout=90, url=args.url))
+        response = control.action("openBrowser.chromium", timeout=90, url=args.url)
+        # A cold CefInitialize on a loaded machine can outlast the 2 s
+        # control deadline while the tab still opens: wait for its renderer.
+        timed_out = (response.get("error") or {}).get("code") == "timeout"
+        reason = None if timed_out else refused(response)
         if reason is None and not wait_for(lambda: "cef-renderer" in classify(app_pid, bundle).values(), 90):
             reason = "no Chromium renderer appeared within 90 s"
         return reason

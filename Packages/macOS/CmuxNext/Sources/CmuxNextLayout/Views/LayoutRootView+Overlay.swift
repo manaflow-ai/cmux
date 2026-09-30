@@ -28,6 +28,7 @@ extension LayoutRootView {
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
+                host.noteWindowFrame()
                 shown.insert(ObjectIdentifier(chrome))
             }
         }

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextTerminalGeometry
 import GhosttyKit
+import os
 import QuartzCore
 
 /// NSView that hosts one Ghostty surface fed by a ``TerminalIO``.
@@ -94,6 +95,12 @@ public final class TerminalSurfaceView: NSView {
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
     private func createSurface(mode: ghostty_surface_io_mode_e) {
+        let started = ContinuousClock.now
+        let signpost = TerminalTimings.signposter.beginInterval("createSurface")
+        defer {
+            TerminalTimings.signposter.endInterval("createSurface", signpost)
+            TerminalTimings.surfaceCreated(started.duration(to: .now))
+        }
         guard let app = GhosttyRuntime.shared.app else { return }
         let userdata = bridge.toOpaque()
         var config = ghostty_surface_config_new()
@@ -254,6 +261,18 @@ public final class TerminalSurfaceView: NSView {
         if model.grid != grid { model.grid = grid }
         let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
+    }
+
+    /// A rough app-side memory cost of this surface for the resource hover
+    /// card: its drawable (three BGRA buffers) plus the GPU cell buffers
+    /// (about 64 bytes per cell). Ghostty does not report its own
+    /// allocations (font atlas, parser state), so this is a lower bound.
+    public var memoryEstimateBytes: UInt64 {
+        guard let surface else { return 0 }
+        let size = ghostty_surface_size(surface)
+        let pixels = UInt64(size.width_px) * UInt64(size.height_px)
+        let cells = UInt64(size.columns) * UInt64(size.rows)
+        return pixels * 4 * 3 + cells * 64
     }
 
     /// The grid the surface renders now.

@@ -10,6 +10,9 @@ public enum OptimisticPatch: Sendable {
     case renameWorkspace(key: WorkspaceKey, name: String)
     case moveWorkspace(key: WorkspaceKey, index: Int)
     case setWorkspaceGroup(key: WorkspaceKey, group: WorkspaceGroupID?)
+    /// `move-workspace-to-group`: into `group` (nil = ungrouped) at final
+    /// `index` among that section's other members. Idempotent.
+    case placeWorkspace(key: WorkspaceKey, group: WorkspaceGroupID?, index: Int)
     case setWorkspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
     case setTabGroupCollapsed(TabGroupID, collapsed: Bool)
     case custom(@MainActor @Sendable (DaemonStore) -> Void)
@@ -105,6 +108,8 @@ extension DaemonStore {
         case .setWorkspaceGroup(let key, let group):
             workspacesByKey[key]?.setGroup(group)
             recomputeSidebar()
+        case .placeWorkspace(let key, let group, let index):
+            placeWorkspace(key, group: group, index: index)
         case .setWorkspaceGroupCollapsed(let id, let collapsed):
             groups.first { $0.id == id }?.setCollapsed(collapsed)
         case .setTabGroupCollapsed(let id, let collapsed):
@@ -112,5 +117,30 @@ extension DaemonStore {
         case .custom(let body):
             body(self)
         }
+    }
+}
+
+extension DaemonStore {
+    /// cmux-tui's `move-workspace-to-group` on the mirror (presentation.rs
+    /// `move_workspace_to_group`): the section is the durable order filtered
+    /// by group, so the workspace goes before the member now at `index`, or
+    /// after the last member, or stays put in an empty section.
+    func placeWorkspace(_ key: WorkspaceKey, group: WorkspaceGroupID?, index: Int) {
+        guard let old = workspaces.firstIndex(where: { $0.key == key }) else { return }
+        let remaining = workspaces.indices.filter { $0 != old }
+        let members = remaining.filter { workspaces[$0].group == group }
+        let position = { (target: Int) in remaining.firstIndex(of: target) ?? old }
+        var new = old
+        if let last = members.last {
+            new = index < members.count ? position(members[index]) : position(last) + 1
+        }
+        new = min(new, workspaces.count - 1)
+        let model = workspaces[old]
+        model.setGroup(group)
+        if new != old {
+            workspaces.remove(at: old)
+            workspaces.insert(model, at: new)
+        }
+        recomputeSidebar()
     }
 }

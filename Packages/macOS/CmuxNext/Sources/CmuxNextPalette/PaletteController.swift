@@ -27,7 +27,14 @@ public final class PaletteController {
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
     public var onVisibilityChange: ((Bool) -> Void)?
+    /// Main-thread phases of each open, request to committed first frame
+    /// (the stall bench, `debug.timings`).
+    public var onPresented: ((PaletteOpenTiming) -> Void)?
+    private var openStarted: ContinuousClock.Instant?
+    private var modelReady: ContinuousClock.Instant?
 
+    /// What the user acted on when the palette opened (`PaletteSources.context`).
+    public private(set) var capturedTargets: [ActionTargetRef] = []
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
@@ -41,6 +48,10 @@ public final class PaletteController {
         self.sources = sources
         self.model = PaletteModel(persistence: frecencyPersistence)
         model.onDismiss = { [weak self] in self?.hide() }
+        // A command that refuses shows why on its row instead of beeping,
+        // and the palette comes back on the same page.
+        model.performer = { [registry] handler in registry.reportingRefusal(handler) }
+        model.onRefusal = { [weak self] _ in self?.presentAgain() }
     }
 
     // MARK: Registry wiring
@@ -66,6 +77,41 @@ public final class PaletteController {
         model.recordUse("action:\(registry.canonicalID(for: id).rawValue)")
     }
 
+    // MARK: Warm-up
+
+    /// Loads the palette's localized string tables. Pure and thread-safe:
+    /// call it off the main thread at launch so the first open does not
+    /// read the tables from disk on the main thread.
+    public nonisolated static func prewarmStrings() {
+        _ = PaletteStrings.copyActionID
+        for category in ActionCategory.allCases { _ = category.title }
+    }
+
+    /// Work of the first open, done ahead of it in steps (the App runs one
+    /// step per idle moment after the first window shows), so the first
+    /// open costs what later opens cost: step 0 creates the panel, its
+    /// views and its window-server window; step 1 loads the command page
+    /// and lays out its visible rows (row views, symbol images). Returns
+    /// false when there is no further step.
+    @discardableResult
+    public func prepare(step: Int) -> Bool {
+        guard !isVisible else { return false }
+        switch step {
+        case 0:
+            guard panel == nil else { return true }
+            let panel = makePanel()
+            panel.contentView?.layoutSubtreeIfNeeded()
+            return true
+        case 1:
+            guard let panel else { return false }
+            model.reset(to: commandsPage())
+            panel.contentView?.layoutSubtreeIfNeeded()
+            return false
+        default:
+            return false
+        }
+    }
+
     // MARK: Presentation
 
     public func toggle(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
@@ -78,7 +124,10 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        openStarted = .now
+        captureContext()
         model.reset(to: page(for: mode))
+        modelReady = .now
         present(relativeTo: window)
     }
 
@@ -87,23 +136,40 @@ public final class PaletteController {
     /// shortcut for an argument-taking action asks inline.
     public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
-        let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets)
+        captureContext()
+        let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
+                                       captured: capturedTargets)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
             handler()
             return
         }
+        openStarted = .now
         model.reset(to: effect, fallback: commandsPage())
+        modelReady = .now
         present(relativeTo: window)
     }
 
+    /// Captures the focused objects on open. An open palette keeps what it
+    /// captured (its focus overlay hides the content below it).
+    func captureContext() {
+        guard !isVisible else { return }
+        capturedTargets = sources.context?() ?? []
+    }
+
     private func present(relativeTo window: NSWindow?) {
+        let started = openStarted ?? .now
+        let modelDone = modelReady ?? started
+        openStarted = nil
+        modelReady = nil
+        let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
         var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
         while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
+        let panelDone = ContinuousClock.now
         presentationGeneration += 1
         registry.context.insert(.paletteOpen)
         if isVisible {
@@ -123,6 +189,25 @@ public final class PaletteController {
         panel.makeKeyAndOrderFront(nil)
         contentView?.focusField()
         contentView?.animateIn()
+        if let onPresented {
+            let presented = ContinuousClock.now
+            CATransaction.setCompletionBlock {
+                let committed = ContinuousClock.now
+                onPresented(PaletteOpenTiming(
+                    model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
+                    present: panelDone.duration(to: presented), commit: presented.duration(to: committed),
+                    createdPanel: createdPanel))
+            }
+        }
+    }
+
+    /// Shows the palette again over the window it was closed from, on the
+    /// page it closed on (a refused command's notice).
+    private func presentAgain() {
+        guard !isVisible else { return }
+        // Without a parent (opened while no window was key or main, as in a
+        // no-activate run) `present` picks the key or main window again.
+        present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })
     }
 
     /// Closes the palette. The parent window becomes key immediately so a
@@ -131,6 +216,13 @@ public final class PaletteController {
     public func hide() {
         hide(restoringKey: true)
     }
+
+    /// The panel while the palette is open (`debug.key` target `palette`).
+    public var visiblePanel: NSWindow? { isVisible ? panel : nil }
+
+    /// Key-downs in the panel that reached `noResponder(for:)` (the system
+    /// beep) since launch.
+    public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }
 
     /// Whether `window` is the palette's panel.
     public func owns(_ window: NSWindow) -> Bool { window === panel }
@@ -216,4 +308,19 @@ public final class PaletteController {
         ) else { return false }
         return model.handle(command)
     }
+}
+
+/// Phases of one palette open on the main thread.
+public struct PaletteOpenTiming: Sendable {
+    /// Building the page's items and first results.
+    public var model: Duration
+    /// Creating the panel and its views (zero once it exists).
+    public var panel: Duration
+    /// Placing, ordering in and focusing the panel.
+    public var present: Duration
+    /// Layout, display and the Core Animation commit of the first frame.
+    public var commit: Duration
+    public var createdPanel: Bool
+
+    public var total: Duration { model + panel + present + commit }
 }

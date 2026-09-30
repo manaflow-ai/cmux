@@ -31,6 +31,7 @@ nonisolated enum RefusalStrings {
     static var directionUp: String { text("handlers.refusal.directionUp", "up") }
     static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     static func needsDaemonCapability(_ capability: String) -> String { format("handlers.refusal.needsDaemonCapability", "needs daemon capability %@", capability) }
+    static func updateCloudMachine(_ capability: String) -> String { format("handlers.refusal.updateCloudMachine", "update this Cloud machine to use this (its cmux-tui lacks %@)", capability) }
     static func needsAppCapability(_ feature: String) -> String { format("handlers.refusal.needsAppCapability", "needs app capability %@", feature) }
     static func notShownInAnyWindow(_ target: String) -> String { format("handlers.refusal.notShownInAnyWindow", "%@ is not shown in any window", target) }
     static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }

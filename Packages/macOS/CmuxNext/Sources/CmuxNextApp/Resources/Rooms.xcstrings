@@ -1,0 +1,1971 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "rooms.defaultName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room %lld"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الغرفة %lld"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Soba %lld"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rum %lld"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum %lld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Salle %lld"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stanza %lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム %lld"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់ %lld"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 %lld"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rom %lld"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokój %lld"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sala %lld"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Комната %lld"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้อง %lld"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda %lld"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кімната %lld"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phòng %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间 %lld"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間 %lld"
+          }
+        }
+      }
+    },
+    "rooms.delete" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حذف"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Izbriši"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Löschen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eliminar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elimina"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "削除"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លុប"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "삭제"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slett"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usuń"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Excluir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "删除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "刪除"
+          }
+        }
+      }
+    },
+    "rooms.deleteMovesBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its workspaces and groups move to “%@”."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنتقل مساحات العمل والمجموعات إلى “%@”."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Njeni radni prostori i grupe premještaju se u „%@“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dets arbejdsområder og grupper flyttes til “%@”."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Arbeitsbereiche und Gruppen werden nach „%@“ verschoben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sus espacios de trabajo y grupos pasan a «%@»."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ses espaces de travail et groupes passent dans « %@ »."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le sue aree di lavoro e i gruppi passano in “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースとグループは“%@”へ移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការ និងក្រុមរបស់វាផ្លាស់ទៅ “%@”។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간과 그룹이 “%@”(으)로 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområdene og gruppene flyttes til «%@»."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jego przestrzenie i grupy zostaną przeniesione do „%@”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suas áreas de trabalho e grupos vão para “%@”."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Его пространства и группы переместятся в «%@»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซและกลุ่มจะย้ายไปที่ “%@”"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanları ve grupları “%@” odasına taşınır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Її робочі області й групи переміщуються до «%@»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không gian làm việc và nhóm sẽ chuyển tới “%@”."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其工作区和组将移到“%@”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其工作區和群組將移至「%@」。"
+          }
+        }
+      }
+    },
+    "rooms.deleteReturnsBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its workspaces stay open and return to the rooms that follow their machines."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تبقى مساحات العمل مفتوحة وتعود إلى الغرف التي تتابع أجهزتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Njeni radni prostori ostaju otvoreni i vraćaju se u sobe koje prate njihove mašine."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dets arbejdsområder forbliver åbne og vender tilbage til de rum, der følger deres maskiner."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Arbeitsbereiche bleiben geöffnet und kehren in die Räume zurück, die ihren Rechnern folgen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sus espacios de trabajo siguen abiertos y vuelven a las salas que siguen a sus máquinas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ses espaces de travail restent ouverts et reviennent dans les salles qui suivent leurs machines."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le sue aree di lavoro restano aperte e tornano nelle stanze che seguono le loro macchine."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースは開いたまま、そのマシンをフォローしているルームに戻ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការរបស់វានៅបើក ហើយត្រឡប់ទៅបន្ទប់ដែលតាមដានម៉ាស៊ីនរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간은 열린 채로 해당 머신을 팔로우하는 룸으로 돌아갑니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arbeidsområdene forblir åpne og går tilbake til rommene som følger maskinene deres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jego przestrzenie pozostają otwarte i wracają do pokojów, które śledzą ich maszyny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suas áreas de trabalho continuam abertas e voltam às salas que seguem suas máquinas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Его пространства остаются открытыми и возвращаются в комнаты, которые следят за их машинами."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซยังเปิดอยู่และกลับไปยังห้องที่ติดตามเครื่องของเวิร์กสเปซนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışma alanları açık kalır ve makinelerini izleyen odalara döner."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Її робочі області лишаються відкритими й повертаються до кімнат, що стежать за їхніми машинами."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các không gian làm việc vẫn mở và quay về những phòng theo dõi máy của chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其工作区保持打开，并回到关注其机器的房间。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "其工作區保持開啟，並回到追蹤其機器的房間。"
+          }
+        }
+      }
+    },
+    "rooms.deleteTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete room “%@”?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حذف الغرفة “%@”؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Izbrisati sobu „%@“?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slet rummet “%@”?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum „%@“ löschen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "¿Eliminar la sala «%@»?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimer la salle « %@ » ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eliminare la stanza “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム“%@”を削除しますか?"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លុបបន្ទប់ “%@” ឬ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 “%@”을(를) 삭제할까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slette rommet «%@»?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunąć pokój „%@”?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Excluir a sala “%@”?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалить комнату «%@»?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบห้อง “%@” หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” odası silinsin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалити кімнату «%@»?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa phòng “%@”?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "删除房间“%@”？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "刪除房間「%@」？"
+          }
+        }
+      }
+    },
+    "rooms.iconTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Room Icon (SF Symbol name or one emoji)"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أيقونة الغرفة (اسم SF Symbol أو رمز تعبيري واحد)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikona sobe (naziv SF Symbola ili jedan emoji)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rummets ikon (SF Symbol-navn eller én emoji)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raumsymbol (SF-Symbol-Name oder ein Emoji)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icono de la sala (nombre de SF Symbol o un emoji)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icône de la salle (nom SF Symbol ou un emoji)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icona della stanza (nome SF Symbol o un emoji)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームのアイコン（SF Symbol 名または絵文字 1 つ）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបតំណាងបន្ទប់ (ឈ្មោះ SF Symbol ឬ emoji មួយ)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 아이콘(SF Symbol 이름 또는 이모지 1개)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Romikon (SF Symbol-navn eller én emoji)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikona pokoju (nazwa SF Symbol lub jedno emoji)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ícone da Sala (nome de SF Symbol ou um emoji)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значок комнаты (имя SF Symbol или один эмодзи)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไอคอนห้อง (ชื่อ SF Symbol หรืออีโมจิหนึ่งตัว)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oda Simgesi (SF Symbol adı veya bir emoji)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значок кімнати (назва SF Symbol або один емодзі)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Biểu tượng phòng (tên SF Symbol hoặc một emoji)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间图标（SF Symbol 名称或一个表情）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間圖示（SF Symbol 名稱或一個表情符號）"
+          }
+        }
+      }
+    },
+    "rooms.refusal.alreadyInRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the workspace is already in that room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مساحة العمل موجودة بالفعل في تلك الغرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "radni prostor je već u toj sobi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "arbejdsområdet er allerede i det rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Arbeitsbereich ist bereits in diesem Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "el espacio de trabajo ya está en esa sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "l’espace de travail est déjà dans cette salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "l’area di lavoro è già in quella stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ワークスペースはすでにそのルームにあります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងធ្វើការនៅក្នុងបន្ទប់នោះរួចហើយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 공간이 이미 그 룸에 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "arbeidsområdet er allerede i det rommet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "przestrzeń jest już w tym pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "a área de trabalho já está nessa sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "пространство уже в этой комнате"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวิร์กสเปซอยู่ในห้องนั้นแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "çalışma alanı zaten o odada"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "робоча область уже в цій кімнаті"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không gian làm việc đã ở trong phòng đó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作区已在该房间中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "工作區已在該房間中"
+          }
+        }
+      }
+    },
+    "rooms.refusal.atEdge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the room is already at the edge"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الغرفة عند الطرف بالفعل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "soba je već na rubu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "rummet er allerede yderst"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Raum ist bereits am Rand"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la sala ya está en el extremo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la salle est déjà au bord"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la stanza è già al bordo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルームはすでに端にあります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទប់នៅគែមរួចហើយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸이 이미 끝에 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "rommet er allerede ytterst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "pokój jest już na krawędzi"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "a sala já está na borda"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "комната уже с краю"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ห้องอยู่ที่ขอบแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "oda zaten kenarda"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "кімната вже з краю"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "phòng đã ở cạnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房间已在边缘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "房間已在邊緣"
+          }
+        }
+      }
+    },
+    "rooms.refusal.defaultCannotBeDeleted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the Default room cannot be deleted"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يمكن حذف الغرفة الافتراضية"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "zadana soba se ne može izbrisati"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "standardrummet kan ikke slettes"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Standardraum kann nicht gelöscht werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la sala predeterminada no se puede eliminar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la salle par défaut ne peut pas être supprimée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "la stanza predefinita non può essere eliminata"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "デフォルトのルームは削除できません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចលុបបន្ទប់លំនាំដើមបានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기본 룸은 삭제할 수 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "standardrommet kan ikke slettes"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nie można usunąć pokoju domyślnego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "a sala padrão não pode ser excluída"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "комнату по умолчанию нельзя удалить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบห้องเริ่มต้นไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "varsayılan oda silinemez"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "кімнату за замовчуванням не можна видалити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không thể xóa phòng mặc định"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法删除默认房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法刪除預設房間"
+          }
+        }
+      }
+    },
+    "rooms.refusal.envMustBeObject" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "env must be a JSON object of strings"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يجب أن يكون env كائن JSON من السلاسل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env mora biti JSON objekt sa stringovima"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env skal være et JSON-objekt med strenge"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env muss ein JSON-Objekt aus Zeichenketten sein"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env debe ser un objeto JSON de cadenas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env doit être un objet JSON de chaînes"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env deve essere un oggetto JSON di stringhe"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env は文字列の JSON オブジェクトである必要があります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env ត្រូវតែជាវត្ថុ JSON នៃខ្សែអក្សរ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env는 문자열로 된 JSON 객체여야 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env må være et JSON-objekt med strenger"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env musi być obiektem JSON z ciągami znaków"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env deve ser um objeto JSON de strings"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env должен быть JSON-объектом со строками"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env ต้องเป็นออบเจ็กต์ JSON ของสตริง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env, dizelerden oluşan bir JSON nesnesi olmalı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env має бути JSON-об’єктом із рядків"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env phải là đối tượng JSON gồm các chuỗi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env 必须是由字符串组成的 JSON 对象"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "env 必須是由字串組成的 JSON 物件"
+          }
+        }
+      }
+    },
+    "rooms.refusal.iconRequired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "an icon argument (SF Symbol name or one emoji) is required"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يلزم وسيط أيقونة (اسم SF Symbol أو رمز تعبيري واحد)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "potreban je argument ikone (naziv SF Symbola ili jedan emoji)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "et ikon-argument (SF Symbol-navn eller én emoji) er påkrævet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ein Symbol-Argument (SF-Symbol-Name oder ein Emoji) ist erforderlich"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "se requiere un argumento de icono (nombre de SF Symbol o un emoji)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "un argument icône (nom SF Symbol ou un emoji) est requis"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "è richiesto un argomento icona (nome SF Symbol o un emoji)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アイコン引数（SF Symbol 名または絵文字 1 つ）が必要です"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ត្រូវការអាគុយម៉ង់រូបតំណាង (ឈ្មោះ SF Symbol ឬ emoji មួយ)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아이콘 인수(SF Symbol 이름 또는 이모지 1개)가 필요합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "et ikon-argument (SF Symbol-navn eller én emoji) kreves"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "wymagany jest argument ikony (nazwa SF Symbol lub jedno emoji)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "é necessário um argumento de ícone (nome de SF Symbol ou um emoji)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "нужен аргумент значка (имя SF Symbol или один эмодзи)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ต้องมีอาร์กิวเมนต์ไอคอน (ชื่อ SF Symbol หรืออีโมจิหนึ่งตัว)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "bir simge bağımsız değişkeni (SF Symbol adı veya bir emoji) gerekli"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "потрібен аргумент значка (назва SF Symbol або один емодзі)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cần đối số biểu tượng (tên SF Symbol hoặc một emoji)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要图标参数（SF Symbol 名称或一个表情）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要圖示引數（SF Symbol 名稱或一個表情符號）"
+          }
+        }
+      }
+    },
+    "rooms.refusal.noOtherRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "there is no room that way"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا توجد غرفة في هذا الاتجاه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nema sobe u tom smjeru"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der er intet rum i den retning"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "in dieser Richtung gibt es keinen Raum"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "no hay ninguna sala en esa dirección"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "aucune salle dans cette direction"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "non c’è nessuna stanza in quella direzione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "その方向にルームはありません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានបន្ទប់នៅទិសនោះទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그 방향에 룸이 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "det finnes ikke noe rom i den retningen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "w tym kierunku nie ma pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "não há sala nessa direção"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "в этом направлении нет комнаты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีห้องในทิศทางนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "o yönde oda yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "у цьому напрямку немає кімнати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không có phòng theo hướng đó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "该方向没有房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "該方向沒有房間"
+          }
+        }
+      }
+    },
+    "rooms.refusal.noRoom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "no room %@"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا توجد غرفة %@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nema sobe %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "intet rum %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "kein Raum %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "no hay ninguna sala %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "aucune salle %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nessuna stanza %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム %@ はありません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានបន្ទប់ %@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 %@ 없음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ingen rom %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "brak pokoju %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "nenhuma sala %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "нет комнаты %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีห้อง %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ odası yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "немає кімнати %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không có phòng %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有房间 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有房間 %@"
+          }
+        }
+      }
+    },
+    "rooms.refusal.roomRequired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "a room argument is required"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يلزم وسيط غرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "potreban je argument sobe"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "et rum-argument er påkrævet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ein Raum-Argument ist erforderlich"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "se requiere un argumento de sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "un argument salle est requis"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "è richiesto un argomento stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム引数が必要です"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ត្រូវការអាគុយម៉ង់បន្ទប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 인수가 필요합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "et rom-argument kreves"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "wymagany jest argument pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "é necessário um argumento de sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "нужен аргумент комнаты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ต้องมีอาร์กิวเมนต์ห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "bir oda bağımsız değişkeni gerekli"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "потрібен аргумент кімнати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cần đối số phòng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要房间参数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要房間引數"
+          }
+        }
+      }
+    },
+    "rooms.renameTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Room"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعادة تسمية الغرفة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Preimenuj sobu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omdøb rum"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Raum umbenennen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renombrar sala"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renommer la salle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rinomina stanza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ルーム名を変更"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្តូរឈ្មោះបន្ទប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "룸 이름 변경"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gi nytt navn til rom"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zmień nazwę pokoju"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Renomear Sala"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переименовать комнату"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปลี่ยนชื่อห้อง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odayı Yeniden Adlandır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перейменувати кімнату"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đổi tên phòng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重命名房间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重新命名房間"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -24,7 +24,14 @@ extension WorkspaceContentController {
             sendGesture(transaction, phase: phase, label: "set-viewport-pane-width") { connection in
                 try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
             }
-        case .scrollTo, .selectScreen:
+        case .selectScreen(let screen):
+            // Every screen switch (switcher click, screen actions) focuses the
+            // screen's most recently focused pane, like a tmux window's
+            // active pane, through the coordinator so history and the window's
+            // remembered focus move too.
+            focusRememberedPane(on: screen)
+            services.windows.stateDidChange(state)
+        case .scrollTo:
             services.windows.stateDidChange(state)
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)

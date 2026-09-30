@@ -62487,6 +62487,1709 @@
           }
         }
       }
+    },
+    "action.layout.centerFocusedColumn.never": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Columns Minimally"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمرير الأعمدة بأقل قدر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimalno pomjeraj kolone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rul kolonner mindst muligt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spalten minimal scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desplazar columnas lo mínimo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire défiler les colonnes au minimum"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scorri le colonne al minimo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列を最小限だけスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រំកិលជួរឈរតិចបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열을 최소한으로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rull kolonner minst mulig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewijaj kolumny minimalnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolar colunas o mínimo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручивать столбцы минимально"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลื่อนคอลัมน์ให้น้อยที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sütunları en az kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручувати стовпці мінімально"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộn cột ít nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最小幅度滚动列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最小幅度捲動欄"
+          }
+        }
+      }
+    },
+    "action.layout.centerFocusedColumn.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Center Focused Column"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توسيط العمود المحدد دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvijek centriraj fokusiranu kolonu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centrér altid den aktive kolonne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierte Spalte immer zentrieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centrar siempre la columna enfocada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours centrer la colonne active"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centra sempre la colonna attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中の列を常に中央に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ជួរឈរដែលបានផ្ដោតនៅកណ្ដាលជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스된 열을 항상 가운데로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Midtstill alltid kolonnen i fokus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zawsze wyśrodkowuj aktywną kolumnę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sempre centralizar a coluna em foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всегда центрировать активный столбец"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดคอลัมน์ที่โฟกัสไว้กลางเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaklı sütunu her zaman ortala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завжди центрувати активний стовпець"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luôn căn giữa cột đang chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终居中聚焦的列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永遠置中聚焦的欄"
+          }
+        }
+      }
+    },
+    "action.layout.centerFocusedColumn.onOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Center Focused Column on Overflow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توسيط العمود المحدد عند التجاوز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centriraj fokusiranu kolonu pri prelivanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centrér den aktive kolonne ved overløb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokussierte Spalte bei Überlauf zentrieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centrar la columna enfocada si no cabe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centrer la colonne active en cas de débordement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centra la colonna attiva se non entra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "収まらない時にフォーカス中の列を中央に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ជួរឈរដែលបានផ្ដោតនៅកណ្ដាលពេលលើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "넘칠 때 포커스된 열을 가운데로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Midtstill kolonnen i fokus ved overflyt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyśrodkuj aktywną kolumnę przy przepełnieniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Centralizar a coluna em foco ao transbordar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Центрировать активный столбец при переполнении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดคอลัมน์ที่โฟกัสไว้กลางเมื่อล้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşmada odaklı sütunu ortala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Центрувати активний стовпець при переповненні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Căn giữa cột đang chọn khi tràn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "溢出时居中聚焦的列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "溢出時置中聚焦的欄"
+          }
+        }
+      }
+    },
+    "action.focusRing.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Focus Ring"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل حلقة التركيز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi/isključi prsten fokusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå fokusring til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusring ein/aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activar o desactivar el anillo de foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer/désactiver l’anneau de focus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva/disattiva anello di focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスリングを切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើករង្វង់ផ្ដោត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포커스 링 켜기/끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå fokusring av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz pierścień fokusu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar anel de foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкл./выкл. рамку фокуса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด/ปิดวงแหวนโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odak halkasını aç/kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути/вимкнути рамку фокуса"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật/tắt viền tiêu điểm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换焦点环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換焦點環"
+          }
+        }
+      }
+    },
+    "action.focusRing.style.ring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Ring Focus Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام نمط الحلقة للتركيز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi stil prstena za fokus"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug ringfokus"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ring als Fokusstil verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar estilo de foco con anillo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le style de focus anneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa stile di focus ad anello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リング型のフォーカス表示を使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើរចនាប័ទ្មផ្ដោតជារង្វង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링 포커스 스타일 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk ring som fokusstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj stylu fokusu z obramowaniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar estilo de foco em anel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рамка как стиль фокуса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้รูปแบบโฟกัสแบบวงแหวน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Halka odak stilini kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рамка як стиль фокуса"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng kiểu tiêu điểm viền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用环形焦点样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用環形焦點樣式"
+          }
+        }
+      }
+    },
+    "action.focusRing.style.glow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Glow Focus Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام نمط التوهج للتركيز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi stil sjaja za fokus"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug glødfokus"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Leuchten als Fokusstil verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar estilo de foco con brillo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser le style de focus lueur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa stile di focus a bagliore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グロー型のフォーカス表示を使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើរចនាប័ទ្មផ្ដោតជាពន្លឺ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "글로 포커스 스타일 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk glød som fokusstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj stylu fokusu z poświatą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar estilo de foco com brilho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свечение как стиль фокуса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้รูปแบบโฟกัสแบบเรืองแสง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parıltı odak stilini kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Світіння як стиль фокуса"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng kiểu tiêu điểm phát sáng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用发光焦点样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用發光焦點樣式"
+          }
+        }
+      }
+    },
+    "action.focusRing.singlePane.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Focus Ring for a Single Pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل حلقة التركيز للوحة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prsten fokusa za jedno okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusring for én rude til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusring bei einem Bereich ein/aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anillo de foco con un solo panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anneau de focus pour un seul panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anello di focus con un solo riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単一ペインのフォーカスリングを切り替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើករង្វង់ផ្ដោតសម្រាប់ផ្ទាំងតែមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단일 창 포커스 링 켜기/끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokusring for én rute av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pierścień fokusu dla jednego panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anel de foco com um só painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рамка фокуса для одной панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด/ปิดวงแหวนโฟกัสเมื่อมีบานเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tek bölmede odak halkası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рамка фокуса для однієї панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viền tiêu điểm khi chỉ có một ô"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换单窗格焦点环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換單窗格焦點環"
+          }
+        }
+      }
+    },
+    "action.appearance.titlebar.minimal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Minimal Titlebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最小限のタイトルバーを使用"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام شريط عنوان مصغّر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi minimalnu naslovnu traku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug minimal titellinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimale Titelleiste verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar barra de título mínima"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser une barre de titre minimale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa barra del titolo minima"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើរបារចំណងជើងតិចតួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최소 제목 막대 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk minimal tittellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj minimalnego paska tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar Barra de Título Mínima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Минимальная строка заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้แถบชื่อเรื่องแบบย่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimal Başlık Çubuğunu Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінімальний рядок заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng thanh tiêu đề tối giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用精简标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用精簡標題列"
+          }
+        }
+      }
+    },
+    "action.appearance.titlebar.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Standard Titlebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準のタイトルバーを使用"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام شريط العنوان القياسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi standardnu naslovnu traku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug standardtitellinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard-Titelleiste verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar barra de título estándar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser la barre de titre standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa barra del titolo standard"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើរបារចំណងជើងស្តង់ដារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표준 제목 막대 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk standard tittellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj standardowego paska tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar Barra de Título Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стандартная строка заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้แถบชื่อเรื่องแบบมาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standart Başlık Çubuğunu Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стандартний рядок заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng thanh tiêu đề tiêu chuẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用标准标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用標準標題列"
+          }
+        }
+      }
+    },
+    "action.appearance.paneBorderWidth.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Thick Pane Borders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインの太い枠線を切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل الحدود السميكة للأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi/isključi debele rubove okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå tykke rudekanter til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dicke Bereichsrahmen ein/aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar bordes gruesos de paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer/désactiver les bordures épaisses des panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva/disattiva bordi spessi dei riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ/បើកស៊ុមក្រាស់នៃផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "두꺼운 창 테두리 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå tykke rutekanter av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełącz grube obramowanie paneli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar Bordas Grossas dos Painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переключить толстые рамки панелей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับขอบหนาของบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kalın Bölme Kenarlıklarını Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемкнути товсті рамки панелей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật/tắt viền ngăn dày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切换粗窗格边框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "切換粗窗格邊框"
+          }
+        }
+      }
+    },
+    "action.appearance.paneBorderColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Theme Color for Pane Borders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインの枠線にテーマの色を使用"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام لون السمة لحدود الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi boju teme za rubove okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brug temafarve til rudekanter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Themenfarbe für Bereichsrahmen verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar el color del tema para los bordes de paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utiliser la couleur du thème pour les bordures des panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usa il colore del tema per i bordi dei riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើពណ៌រចនាប័ទ្មសម្រាប់ស៊ុមផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창 테두리에 테마 색상 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruk temafarge for rutekanter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Użyj koloru motywu dla obramowania paneli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar Cor do Tema nas Bordas dos Painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвет темы для рамок панелей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้สีธีมสำหรับขอบบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölme Kenarlıkları İçin Tema Rengini Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Колір теми для рамок панелей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng màu chủ đề cho viền ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格边框使用主题颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格邊框使用主題顏色"
+          }
+        }
+      }
+    },
+    "action.tab.showResources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Tab Resource Usage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض استخدام موارد علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži potrošnju resursa kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis fanens ressourceforbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ressourcennutzung des Tabs anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso de recursos de la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher l’utilisation des ressources de l’onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra utilizzo risorse della scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブのリソース使用量を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការប្រើប្រាស់ធនធានរបស់ផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 리소스 사용량 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis fanens ressursbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż użycie zasobów karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso de recursos da aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать использование ресурсов вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงการใช้ทรัพยากรของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme kaynak kullanımını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати використання ресурсів вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị mức dùng tài nguyên của thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示标签页资源使用情况"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示分頁資源使用量"
+          }
+        }
+      }
+    },
+    "action.workspace.showResources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Resource Usage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض استخدام موارد مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži potrošnju resursa radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis arbejdsområdets ressourceforbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ressourcennutzung des Arbeitsbereichs anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso de recursos del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher l’utilisation des ressources de l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra utilizzo risorse dell’area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースのリソース使用量を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការប្រើប្រាស់ធនធានរបស់កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 리소스 사용량 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis arbeidsområdets ressursbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż użycie zasobów obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar uso de recursos do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать использование ресурсов рабочей области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงการใช้ทรัพยากรของพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı kaynak kullanımını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати використання ресурсів робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị mức dùng tài nguyên của không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示工作区资源使用情况"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示工作區資源使用量"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

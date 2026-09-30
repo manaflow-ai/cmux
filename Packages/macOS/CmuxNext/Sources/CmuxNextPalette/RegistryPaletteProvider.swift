@@ -15,6 +15,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Objects captured when the palette opened; argument-taking actions
+    /// target them (`PaletteArgumentFlow`).
+    public var capturedTargets: [ActionTargetRef] = []
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
 
@@ -37,6 +40,18 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func makeItems() -> [PaletteItem] {
         var items: [PaletteItem] = []
+        // Localized once per open, not once per action (hundreds of rows).
+        let unbound = PaletteStrings.unbound
+        let copyActionID = PaletteStrings.copyActionID
+        let open = PaletteStrings.open
+        let runCommand = PaletteStrings.runCommand
+        var sections: [ActionCategory: PaletteSection] = [:]
+        func section(_ category: ActionCategory) -> PaletteSection {
+            if let cached = sections[category] { return cached }
+            let made = Self.section(for: category)
+            sections[category] = made
+            return made
+        }
         for entry in registry.entries {
             let descriptor = entry.descriptor
             guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
@@ -50,22 +65,22 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 title: descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
-                accessory: entry.isBound || override != nil ? nil : PaletteStrings.unbound,
+                accessory: entry.isBound || override != nil ? nil : unbound,
                 symbol: descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
-                section: Self.section(for: descriptor.category),
+                section: section(descriptor.category),
                 keywords: descriptor.keywords + [actionID.rawValue],
                 isEnabled: isEnabled,
                 primary: PaletteCommand(
                     id: "run",
-                    title: Self.primaryTitle(for: descriptor),
+                    title: descriptor.arguments.contains(where: \.isRequired) ? open : runCommand,
                     symbol: "return",
                     effect: effect
                 ),
                 secondary: [
                     PaletteCommand(
                         id: "copyID",
-                        title: PaletteStrings.copyActionID,
+                        title: copyActionID,
                         symbol: "doc.on.doc",
                         effect: .perform { PaletteClipboard.copy(actionID.rawValue) }
                     ),
@@ -76,9 +91,19 @@ public final class RegistryPaletteProvider: PaletteProvider {
         return items
     }
 
+    /// Decided when the row runs (`PaletteEffect.deferred`): an action
+    /// with arguments builds its argument page, target list included, only
+    /// then, never for every row on open.
     private func defaultEffect(for descriptor: ActionDescriptor) -> PaletteEffect {
-        PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets)
-            .effect(collected: ActionInvocation())
+        let registry = registry
+        let id = descriptor.id
+        guard descriptor.arguments.contains(where: \.isRequired) else {
+            return .perform { registry.perform(id, invocation: ActionInvocation()) }
+        }
+        return .deferred { [targets, capturedTargets] in
+            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets)
+                .effect(collected: ActionInvocation())
+        }
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {

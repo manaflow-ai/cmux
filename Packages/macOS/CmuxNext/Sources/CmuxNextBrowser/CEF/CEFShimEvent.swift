@@ -1,11 +1,15 @@
+import CoreGraphics
 import Foundation
 
 /// A shim callback, decoded (cmux_shim_event_kind_t in cmux_cef_shim.h).
 nonisolated enum CEFShimEvent: Equatable, Sendable {
     case contextInitialized
     /// `request` is the create-window token, 0 for tabs added to an existing
-    /// window (cmux_tab_add, chrome.tabs.create, target=_blank).
-    case afterCreated(browser: Int32, request: Int32, window: Int32)
+    /// window (cmux_tab_add, chrome.tabs.create, target=_blank). `window` is
+    /// 0 while the tab is in no window yet (a popup before Chromium places
+    /// it). `opener` and `disposition` name the page that opened a popup
+    /// and how (0 and `.unknown` otherwise).
+    case afterCreated(browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy = .none)
     case beforeClose(browser: Int32)
     case address(browser: Int32, url: String)
     case title(browser: Int32, title: String)
@@ -36,12 +40,17 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
+    /// A Chrome command that would open a Chromium window; the shim blocked
+    /// it (`IDC_*` id).
+    case chromeCommand(browser: Int32, command: Int32)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
         switch kind {
         case 1: self = .contextInitialized
-        case 2: self = .afterCreated(browser: browser, request: request, window: Int32(truncatingIfNeeded: a))
+        case 2:
+            self = .afterCreated(browser: browser, request: request, window: Int32(truncatingIfNeeded: a),
+                                 created: CEFCreatedBy(packed: b, features: s1))
         case 3: self = .beforeClose(browser: browser)
         case 4: self = .address(browser: browser, url: s1)
         case 5: self = .title(browser: browser, title: s1)
@@ -71,6 +80,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1)
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
+        case 26: self = .chromeCommand(browser: browser, command: request)
         default: self = .unknown(kind: kind)
         }
     }
@@ -91,5 +101,32 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     /// The DevTools menu chose a dock side (fork API v5); value = 0
     /// undocked, 1 left, 2 bottom, 3 right.
     case devToolsDockSide = 8
+    /// Chromium created a Browser (window) outside cmux; the fork keeps it
+    /// hidden, moves its tabs to a pane window and closes it (fork API 8).
+    /// value = the Browser type.
+    case foreignBrowserBlocked = 9
     case unknown = -1
+}
+
+/// The page that opened a tab and how (AFTER_CREATED `b` and `s1`).
+nonisolated struct CEFCreatedBy: Equatable, Sendable {
+    var opener: Int32
+    var disposition: CEFDisposition
+    /// Popup window features (screen DIPs), when the page gave a size.
+    var features: CGRect?
+
+    static let none = CEFCreatedBy(opener: 0, disposition: .unknown, features: nil)
+
+    init(opener: Int32, disposition: CEFDisposition, features: CGRect?) {
+        self.opener = opener
+        self.disposition = disposition
+        self.features = features
+    }
+
+    init(packed: Int64, features: String) {
+        opener = Int32(truncatingIfNeeded: packed >> 32)
+        disposition = CEFDisposition(raw: Int(Int32(truncatingIfNeeded: packed & 0xffff_ffff)))
+        let parts = features.split(separator: ",").compactMap { Double($0) }
+        self.features = parts.count == 4 ? CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]) : nil
+    }
 }

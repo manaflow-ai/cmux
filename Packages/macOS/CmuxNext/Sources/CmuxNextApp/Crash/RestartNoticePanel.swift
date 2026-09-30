@@ -32,13 +32,12 @@ final class RestartNoticePanel {
     }
 
     private func makeContent(text: String) -> NSView {
-        let label = NSTextField(wrappingLabelWithString: text)
+        // One line: a wrapping label reported one line of height in the
+        // panel's fitting size and clipped the second.
+        let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.textColor = Palette.textPrimary
-        label.maximumNumberOfLines = 3
-        label.preferredMaxLayoutWidth = 300
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
         var views: [NSView] = [label]
         if onShowLog != nil {
             let show = NSButton(title: CrashStrings.showLog, target: self, action: #selector(showLog))
@@ -89,6 +88,7 @@ final class RestartNoticePanel {
 
     private func place() {
         guard let parent else { return }
+        body.layoutSubtreeIfNeeded()
         let size = body.fittingSize
         let frame = parent.frame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 16, width: size.width, height: size.height), display: true)

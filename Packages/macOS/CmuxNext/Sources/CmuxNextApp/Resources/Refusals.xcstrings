@@ -12576,6 +12576,268 @@
           }
         }
       }
+    },
+    "handlers.refusal.updateCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "update this Cloud machine to use this (its cmux-tui lacks %@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث جهاز Cloud هذا لاستخدام هذه الميزة (يفتقر cmux-tui فيه إلى %@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ažurirajte ovu Cloud mašinu da biste ovo koristili (njenom cmux-tui nedostaje %@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "opdater denne Cloud-maskine for at bruge dette (dens cmux-tui mangler %@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "aktualisiere diese Cloud-Maschine, um das zu nutzen (ihrem cmux-tui fehlt %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "actualiza esta máquina de Cloud para usar esto (a su cmux-tui le falta %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mettez à jour cette machine Cloud pour utiliser ceci (son cmux-tui n'a pas %@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "aggiorna questa macchina Cloud per usarlo (al suo cmux-tui manca %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを使うにはこの Cloud マシンをアップデートしてください (cmux-tui に %@ がありません)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន Cloud នេះ ដើម្បីប្រើមុខងារនេះ (cmux-tui របស់វាខ្វះ %@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기능을 쓰려면 이 Cloud 머신을 업데이트하세요 (cmux-tui에 %@이(가) 없음)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "oppdater denne Cloud-maskinen for å bruke dette (dens cmux-tui mangler %@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zaktualizuj tę maszynę Cloud, aby tego użyć (jej cmux-tui nie ma %@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atualize esta máquina do Cloud para usar isto (falta %@ no cmux-tui dela)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "обновите эту машину Cloud, чтобы использовать это (в её cmux-tui нет %@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตเครื่อง Cloud นี้เพื่อใช้ฟีเจอร์นี้ (cmux-tui ของเครื่องไม่มี %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bunu kullanmak için bu Cloud makinesini güncelleyin (cmux-tui'sinde %@ yok)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "оновіть цю машину Cloud, щоб скористатися цим (у її cmux-tui немає %@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hãy cập nhật máy Cloud này để dùng tính năng này (cmux-tui của máy thiếu %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新此 Cloud 机器以使用此功能（其 cmux-tui 缺少 %@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新此 Cloud 機器以使用此功能（其 cmux-tui 缺少 %@）"
+          }
+        }
+      }
+    },
+    "handlers.refusal.resourceCardNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tab or workspace is not shown in a window, so its resource card cannot open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التبويب أو مساحة العمل غير معروضة في نافذة، لذا لا يمكن فتح بطاقة مواردها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kartica ili radni prostor nije prikazan u prozoru, pa se kartica resursa ne može otvoriti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fanen eller arbejdsområdet vises ikke i et vindue, så ressourcekortet kan ikke åbnes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Tab oder Arbeitsbereich wird in keinem Fenster angezeigt, daher kann seine Ressourcenkarte nicht geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la pestaña o el espacio de trabajo no se muestra en ninguna ventana, así que su tarjeta de recursos no puede abrirse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "l’onglet ou l’espace de travail n’est affiché dans aucune fenêtre, sa fiche de ressources ne peut donc pas s’ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la scheda o l’area di lavoro non è mostrata in una finestra, quindi la sua scheda risorse non può aprirsi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブまたはワークスペースがウインドウに表示されていないため、リソースカードを開けません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង ឬកន្លែងធ្វើការមិនបង្ហាញក្នុងបង្អួចទេ ដូច្នេះមិនអាចបើកកាតធនធានបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이나 작업 공간이 창에 표시되지 않아 리소스 카드를 열 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fanen eller arbeidsområdet vises ikke i et vindu, så ressurskortet kan ikke åpnes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "karta lub obszar roboczy nie jest widoczny w żadnym oknie, więc nie można otworzyć karty zasobów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a aba ou o espaço de trabalho não está visível em uma janela, então o cartão de recursos não pode abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "вкладка или рабочая область не показаны ни в одном окне, поэтому карточку ресурсов открыть нельзя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บหรือพื้นที่ทำงานไม่ได้แสดงในหน้าต่าง จึงเปิดการ์ดทรัพยากรไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sekme veya çalışma alanı bir pencerede gösterilmiyor, bu yüzden kaynak kartı açılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "вкладка або робочий простір не показані у вікні, тому картку ресурсів не можна відкрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "thẻ hoặc không gian làm việc không hiển thị trong cửa sổ nào nên không thể mở thẻ tài nguyên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页或工作区未显示在任何窗口中，无法打开其资源卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁或工作區未顯示在任何視窗中，無法開啟其資源卡片"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

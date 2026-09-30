@@ -59,8 +59,13 @@ final class CrashRecoveryService {
         guard recovery.isRestart, !noticeShown, let window else { return }
         noticeShown = true
         let text = recovery.skipsBrowserPages ? CrashStrings.restartNoticeSafe : CrashStrings.restartNotice
-        let log = previousCrashLog ?? previousReport
-        let panel = RestartNoticePanel(text: text, onShowLog: log.map { url in { NSWorkspace.shared.open(url) } })
+        // The report paths are found off the main thread after launch; the
+        // button reads them when clicked, and opens the report folder if
+        // neither exists yet.
+        let panel = RestartNoticePanel(text: text) { [weak self] in
+            guard let self else { return }
+            NSWorkspace.shared.open(self.previousCrashLog ?? self.previousReport ?? self.writer.directory)
+        }
         panel.show(on: window)
         notice = panel
     }

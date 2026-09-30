@@ -69,6 +69,7 @@ extension AppActions {
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
+        if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }

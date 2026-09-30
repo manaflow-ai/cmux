@@ -208,6 +208,10 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
+        guard daemon.supports(DaemonCapabilities.tabMetadata) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
+            return
+        }
         services.registry.track(Task {
             let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
                 _ = try await connection.setTabPinned(surface, pinned)

@@ -40,6 +40,9 @@ public struct ControlMethod: Sendable {
         case terminalStart
         /// Chosen per request, for example by the action it runs.
         case perRequest(@Sendable (ControlRequest, ControlSnapshot) -> Bool)
+        /// A fixed limit for a request that measures over an interval (for
+        /// example `resources`, two samples one interval apart).
+        case fixed(Duration)
     }
 
     public let name: String
@@ -59,7 +62,14 @@ public struct ControlMethod: Sendable {
         case .controlPlane: false
         case .terminalStart: true
         case .perRequest(let decide): decide(request, snapshot)
+        case .fixed: false
         }
+    }
+
+    /// The limit a `.fixed` deadline sets, else nil (the router's default).
+    var fixedLimit: Duration? {
+        if case .fixed(let limit) = deadline { return limit }
+        return nil
     }
 
     public var lane: Lane {

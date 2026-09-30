@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
@@ -8,6 +9,19 @@ enum CloudStrings {
     static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect.", table: "Cloud", bundle: .module) }
     static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
     static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>.", table: "Cloud", bundle: .module) }
+    /// Why a Cloud machine needs an update, for its sidebar header and the
+    /// Cloud diagnostics: the build it runs and what an update turns on.
+    static func compatibility(_ compat: DaemonCompatibility) -> String {
+        switch compat.level {
+        case .current: return ""
+        case .limited:
+            return String(format: String(localized: "cloud.compat.limited", defaultValue: "This machine runs cmux-tui %1$@. Update it to turn on: %2$@.", table: "Cloud", bundle: .module),
+                          compat.versionLabel, compat.missingOptional.joined(separator: ", "))
+        case .incompatible:
+            return String(format: String(localized: "cloud.compat.incompatible", defaultValue: "This machine runs a cmux-tui this app cannot use (%@). Update the machine to connect.", table: "Cloud", bundle: .module),
+                          compat.missingRequired.joined(separator: ", "))
+        }
+    }
     static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }

@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -6,7 +7,27 @@ import CmuxNextPalette
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
-                       targets: WindowTargetSource(services: services))
+                       targets: WindowTargetSource(services: services),
+                       context: { [weak services] in services.map(capturedTargets) ?? [] })
+    }
+
+    /// The active window's focused objects when the palette opens: the
+    /// selected tab of the focused pane, its group, the pane, the shown
+    /// screen, workspace and window.
+    static func capturedTargets(_ services: AppServices) -> [ActionTargetRef] {
+        guard let window = services.windows.active else { return [] }
+        var refs: [ActionTargetRef] = []
+        if let pane = window.focusedPane {
+            if let selected = pane.stripModel.selectedID {
+                if let group = pane.tab(selected)?.tabGroup { refs.append(ActionTargetRef(kind: .tabGroup, id: group.rawValue)) }
+                refs.append(ActionTargetRef(kind: .tab, id: selected.rawValue))
+            }
+            refs.append(ActionTargetRef(kind: .pane, id: pane.paneKey))
+        }
+        if let screen = window.content?.layoutModel.activeScreenID { refs.append(ActionTargetRef(kind: .screen, id: screen.rawValue)) }
+        if let workspace = window.state.workspaceID { refs.append(ActionTargetRef(kind: .workspace, id: workspace)) }
+        refs.append(ActionTargetRef(kind: .window, id: window.state.id))
+        return refs
     }
 
     final class WorkspaceSource: PaletteWorkspaceSource {

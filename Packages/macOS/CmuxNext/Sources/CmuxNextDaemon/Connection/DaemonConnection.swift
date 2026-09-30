@@ -214,6 +214,11 @@ public actor DaemonConnection {
                                                          timeout: configuration.requestTimeout).savedGroups
             tree.linkSavedTabGroups()
         }
+        if identity?.supports(DaemonCapabilities.profiles) == true {
+            // Personal state is its own read; its changes emit
+            // `personal-changed`, which triggers this snapshot again.
+            tree.personal = try await Self.perform(ListPersonalRequest(), on: transport, timeout: configuration.requestTimeout)
+        }
         return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
     }
 

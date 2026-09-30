@@ -30,6 +30,14 @@ public final class DesignSettings {
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
+    /// `layout.centerFocusedColumn` (niri `center-focused-column`).
+    public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `focusRing.*`: the focused pane's ring or glow.
+    public var focusRing = FocusRingSettings()
+    /// `notifications.attention.*`: the unread pane's attention ring.
+    public var attention = AttentionSettings()
+    /// `window.titlebar`: minimal (no titlebar strip) or standard.
+    public var titlebar: TitlebarStyle = .minimal
 
     public init() {}
 

@@ -36,13 +36,15 @@ public nonisolated enum DropResolver {
         y: CGFloat,
         payload: DragPayload,
         base: SidebarLayout,
-        sections: [SidebarSection]
+        sections: [SidebarSection],
+        ungroupedFirst: Bool = false
     ) -> DropTarget? {
         guard !base.rows.isEmpty else { return nil }
         let (row, fraction) = hit(y: y, layout: base)
         switch payload {
         case let .workspaces(ids):
-            guard let target = workspaceTarget(row: row, fraction: fraction, base: base, sections: sections) else { return nil }
+            guard var target = workspaceTarget(row: row, fraction: fraction, base: base, sections: sections) else { return nil }
+            if ungroupedFirst { target = leadingUngrouped(target, moving: Set(ids), sections: sections) }
             return isValid(target, for: ids, sections: sections) ? target : nil
         case let .group(group):
             return groupTarget(group: group, row: row, fraction: fraction, y: y, base: base, sections: sections)
@@ -128,6 +130,21 @@ public nonisolated enum DropResolver {
             index = 0
         }
         return .position(DropPosition(section: home, index: index))
+    }
+
+    /// With `ungroupedFirst`, a machine section lists loose workspaces
+    /// before its groups (the daemon has no slot for one after a group): a
+    /// top-level slot past the first group moves to just before it.
+    static func leadingUngrouped(_ target: DropTarget, moving: Set<WorkspaceID>, sections: [SidebarSection]) -> DropTarget {
+        guard case let .position(position) = target, position.group == nil,
+              let section = sections.first(where: { $0.id == position.section }), section.machine != nil else { return target }
+        let nodes = section.nodes.filter { node in
+            if case let .workspace(ws) = node { return !moving.contains(ws.id) }
+            return true
+        }
+        guard let firstGroup = nodes.firstIndex(where: { if case .group = $0 { true } else { false } }),
+              position.index > firstGroup else { return target }
+        return .position(DropPosition(section: position.section, index: firstGroup))
     }
 
     static func previousExpandedSection(before row: SidebarRow, in base: SidebarLayout) -> SidebarRow? {

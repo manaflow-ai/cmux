@@ -92,6 +92,7 @@ extension PaletteController {
     func makeRegistryProvider() -> RegistryPaletteProvider {
         let provider = RegistryPaletteProvider(registry: registry)
         provider.targets = sources.targets
+        provider.capturedTargets = capturedTargets
         provider.effectOverrides["palette.searchShortcuts"] = { [weak self] in
             self.map { .push($0.keyboardShortcutsPage()) }
         }

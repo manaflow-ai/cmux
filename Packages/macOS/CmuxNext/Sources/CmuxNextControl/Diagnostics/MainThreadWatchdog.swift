@@ -7,8 +7,9 @@ import Synchronization
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
 ///
-/// A `CFRunLoopObserver` on the main run loop stamps a heartbeat at every
-/// run-loop activity. Time between two stamps while the loop is not asleep
+/// `CFRunLoopObserver`s on the main run loop stamp a heartbeat at every
+/// run-loop activity (the before-waiting stamp after AppKit's display and
+/// the Core Animation commit). Time between two stamps while the loop is not asleep
 /// is main-thread work; a gap over the threshold is a stall, measured
 /// exactly on the main thread when it ends. A dedicated watchdog thread
 /// parks while the main run loop sleeps (no wakeups when the app is idle),
@@ -21,7 +22,15 @@ public final class MainThreadWatchdog: Sendable {
         public var sampleStacks: Bool
         public var logStalls: Bool
 
-        public init(threshold: Duration = .milliseconds(50), capacity: Int = 128, sampleStacks: Bool = true,
+        /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
+        /// diagnostic launch (for example 8 to sample one-frame stalls);
+        /// the default is 50 ms.
+        public static var environmentThreshold: Duration {
+            let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_HANG_THRESHOLD_MS"].flatMap(Int.init) ?? 50
+            return .milliseconds(min(max(raw, 4), 1_000))
+        }
+
+        public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild) {
             self.threshold = threshold
             self.capacity = capacity
@@ -49,6 +58,12 @@ public final class MainThreadWatchdog: Sendable {
     private let longFrames = Atomic<UInt64>(0)
     private let longFrameMaxNanos = Atomic<UInt64>(0)
     static let frameNanos: UInt64 = 16_666_667
+    /// Main-thread work gaps longer than one 120 Hz frame (8.3 ms), and the
+    /// longest gap of any length: the stall bench's per-action numbers
+    /// (scripts/cmux-next/bench-stalls.py).
+    private let frames120 = Atomic<UInt64>(0)
+    private let gapMaxNanos = Atomic<UInt64>(0)
+    static let frame120Nanos: UInt64 = 8_333_333
     private let mainAsleep = Atomic<Bool>(true)
     private let watchdogParked = Atomic<Bool>(false)
     private let running = Atomic<Bool>(false)
@@ -74,9 +89,17 @@ public final class MainThreadWatchdog: Sendable {
         (Int(longFrames.load(ordering: .relaxed)), .nanoseconds(Int64(longFrameMaxNanos.load(ordering: .relaxed))))
     }
 
+    /// Main-thread work gaps over 8.3 ms since the last reset, and the
+    /// longest gap of any length.
+    public var gapStats: (over120HzFrame: Int, max: Duration) {
+        (Int(frames120.load(ordering: .relaxed)), .nanoseconds(Int64(gapMaxNanos.load(ordering: .relaxed))))
+    }
+
     public func resetLongFrames() {
         longFrames.store(0, ordering: .relaxed)
         longFrameMaxNanos.store(0, ordering: .relaxed)
+        frames120.store(0, ordering: .relaxed)
+        gapMaxNanos.store(0, ordering: .relaxed)
     }
 
     /// Starts watching the main run loop. Call once, on the main actor.
@@ -87,12 +110,20 @@ public final class MainThreadWatchdog: Sendable {
         beatNanos.store(Self.now(), ordering: .releasing)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
-        let activities = CFRunLoopActivity.allActivities.rawValue
-        let runLoopObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CFIndex.min) { [weak self] _, activity in
+        // Two observers: every activity but before-waiting stamps first
+        // (order CFIndex.min); before-waiting stamps last (CFIndex.max), so
+        // AppKit's layout, display and the Core Animation commit, which run
+        // in before-waiting observers, count as main-thread work.
+        let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
+        let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), runLoopObserver, .commonModes)
-        let box = ObserverBox(runLoopObserver)
+        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+            self?.heartbeat(activity)
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
+        let box = ObserverBox([earlyObserver, lateObserver])
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         let thread = Thread { [self] in watch(sampler: sampler) }
@@ -104,7 +135,7 @@ public final class MainThreadWatchdog: Sendable {
     public func stop() {
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
-            CFRunLoopObserverInvalidate(box.observer)
+            for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
         }
         wake.signal()
     }
@@ -117,14 +148,13 @@ public final class MainThreadWatchdog: Sendable {
         let previous = beatNanos.load(ordering: .acquiring)
         let wasAsleep = mainAsleep.load(ordering: .acquiring)
         let beat = beatSequence.load(ordering: .acquiring)
-        if !wasAsleep, now > previous, now - previous >= Self.frameNanos {
-            longFrames.add(1, ordering: .relaxed)
-            var current = longFrameMaxNanos.load(ordering: .relaxed)
-            while now - previous > current {
-                let (exchanged, original) = longFrameMaxNanos.compareExchange(
-                    expected: current, desired: now - previous, ordering: .relaxed)
-                if exchanged { break }
-                current = original
+        if !wasAsleep, now > previous {
+            let gap = now - previous
+            Self.raise(gapMaxNanos, to: gap)
+            if gap >= Self.frame120Nanos { frames120.add(1, ordering: .relaxed) }
+            if gap >= Self.frameNanos {
+                longFrames.add(1, ordering: .relaxed)
+                Self.raise(longFrameMaxNanos, to: gap)
             }
         }
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
@@ -197,9 +227,18 @@ public final class MainThreadWatchdog: Sendable {
 
     static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
+    private static func raise(_ value: borrowing Atomic<UInt64>, to candidate: UInt64) {
+        var current = value.load(ordering: .relaxed)
+        while candidate > current {
+            let (exchanged, original) = value.compareExchange(expected: current, desired: candidate, ordering: .relaxed)
+            if exchanged { break }
+            current = original
+        }
+    }
+
     /// CFRunLoopObserver is thread-safe to invalidate from any thread.
     private final class ObserverBox: @unchecked Sendable {
-        let observer: CFRunLoopObserver?
-        init(_ observer: CFRunLoopObserver?) { self.observer = observer }
+        let observers: [CFRunLoopObserver]
+        init(_ observers: [CFRunLoopObserver?]) { self.observers = observers.compactMap { $0 } }
     }
 }

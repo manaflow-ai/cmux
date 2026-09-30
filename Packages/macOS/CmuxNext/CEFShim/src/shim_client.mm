@@ -34,6 +34,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
 
   void OnContextInitialized() override {
     InstallForkObserver();
+    InstallWindowRequestHandler();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
 
@@ -62,6 +63,7 @@ class Client : public CefClient,
                public CefFindHandler,
                public CefContextMenuHandler,
                public CefRequestHandler,
+               public CefCommandHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -73,6 +75,19 @@ class Client : public CefClient,
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+  CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+
+  // MARK: Chrome commands
+
+  // Chrome commands that open a window of Chromium's own never run: the
+  // host sees them as CHROME_COMMAND. Every other command runs as in Chrome.
+  bool OnChromeCommand(CefRefPtr<CefBrowser> browser, int command_id, cef_window_open_disposition_t) override {
+    if (!IsWindowCommand(command_id)) {
+      return false;
+    }
+    Emit(CMUX_SHIM_CHROME_COMMAND, browser->GetIdentifier(), command_id);
+    return true;
+  }
 
   // MARK: Renderer process failures
 
@@ -103,6 +118,40 @@ class Client : public CefClient,
   }
 
   // MARK: Context menu
+
+  // Link items that open a Chromium window (a new window, an incognito
+  // window, another profile's window, an app window, a split view in the
+  // hidden tab strip) are removed. "Open Link in New Tab" stays: it opens a
+  // cmux tab.
+  void OnBeforeContextMenu(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefContextMenuParams>,
+                           CefRefPtr<CefMenuModel> model) override {
+    for (int command : {50101 /* IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW */,
+                        50102 /* IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD */,
+                        50108 /* IDC_CONTENT_CONTEXT_OPENLINKINPROFILE */,
+                        50109 /* IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP */,
+                        50111 /* IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW */,
+                        50113 /* IDC_CONTENT_CONTEXT_OPENLINK_ISOLATED */}) {
+      while (model->Remove(command)) {
+      }
+    }
+    RemoveDoubleSeparators(model);
+  }
+
+  static void RemoveDoubleSeparators(CefRefPtr<CefMenuModel> model) {
+    bool previous_separator = true;  // no separator first
+    for (size_t i = 0; i < model->GetCount();) {
+      const bool separator = model->GetTypeAt(i) == MENUITEMTYPE_SEPARATOR;
+      if (separator && previous_separator) {
+        model->RemoveAt(i);
+        continue;
+      }
+      previous_separator = separator;
+      ++i;
+    }
+    if (model->GetCount() > 0 && model->GetTypeAt(model->GetCount() - 1) == MENUITEMTYPE_SEPARATOR) {
+      model->RemoveAt(model->GetCount() - 1);
+    }
+  }
 
   // Chromium's page menu (extension chrome.contextMenus items included) is
   // shown by the host as its own menu, merged with host actions.
@@ -158,16 +207,23 @@ class Client : public CefClient,
     int request = request_;
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
-    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window);
+    std::string features;
+    int64_t popup = request == 0 ? TakePopup(browser, &features) : 0;
+    Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features);
   }
 
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
-                     const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures&,
-                     CefWindowInfo&, CefRefPtr<CefClient>&, CefBrowserSettings&,
+                     const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures& features,
+                     CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings&,
                      CefRefPtr<CefDictionaryValue>&, bool*) override {
-    // Tabbed windows: new-tab dispositions become tabs of the same Chromium
-    // window (OnAfterCreated with request 0), which keeps window.opener.
-    // Report the popup so the host can place it.
+    // Every popup (target=_blank, window.open with or without features) is
+    // a tab: no parent view or bounds of its own, so Chromium never gives it
+    // a window. Fork API 8 adds it to a cmux window (the window request
+    // handler places NEW_POPUP/NEW_WINDOW); older forks give it its own
+    // Chromium window and the host moves the tab into a pane. window.opener
+    // stays either way. AFTER_CREATED carries the disposition and features.
+    window_info = CefWindowInfo();
+    RememberPopup(browser->GetIdentifier(), disposition, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
     return false;
   }
@@ -195,6 +251,7 @@ class Client : public CefClient,
     registrations_.erase(id);
     browsers().erase(id);
     ForgetDevTools(id);
+    ForgetPopups(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);
   }
 

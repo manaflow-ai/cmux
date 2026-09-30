@@ -5,7 +5,7 @@
 /// match `KeyboardShortcutSettings.Action` raw values where one existed
 /// (users store them in `cmux.json` `shortcuts`), else the old palette
 /// command ID, else a new stable ID.
-public enum ActionCatalog {
+public nonisolated enum ActionCatalog {
     /// Every catalog descriptor, in inventory order.
     public static let all: [ActionDescriptor] = makeAll()
 
@@ -27,8 +27,10 @@ public enum ActionCatalog {
         all += windowActions()
         all += workspaceActions()
         all += workspaceGroupsActions()
+        all += profileActions()
         all += paneActions()
         all += tabActions()
+        all += resourceActions()
         all += tabGroupsActions()
         all += terminalActions()
         all += browserActions()

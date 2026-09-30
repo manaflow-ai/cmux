@@ -55,6 +55,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view = PaneContentView(stripModel: stripModel)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
+        view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
         observe()

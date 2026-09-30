@@ -4,7 +4,7 @@
 // and can take a shortcut in cmux.json; none has a default shortcut, as in
 // Chrome.
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func extensionActions() -> [ActionDescriptor] {
         let keywords = ["extension", "extensions", "chrome", "chromium", "addon", "plugin"]
         func descriptor(
@@ -56,7 +56,7 @@ extension ActionCatalog {
 }
 
 /// Arguments of the extension actions.
-enum ExtensionArgument {
+nonisolated enum ExtensionArgument {
     static var extensionID: ActionArgument {
         ActionArgument(name: "extension", title: String(localized: "argument.extension", defaultValue: "Extension", table: "Extensions", bundle: .module), kind: .string)
     }

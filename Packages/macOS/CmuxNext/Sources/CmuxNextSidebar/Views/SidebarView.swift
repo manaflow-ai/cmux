@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextResources
 import Observation
 
 /// Footer slots the App fills (account, cloud, status).
@@ -24,7 +25,8 @@ public final class SidebarView: NSView {
     private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
-    private let scrollView = NSScrollView()
+    private let scrollView = SidebarScrollView()
+    let profileBar: ProfileBarView
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     private(set) var isChromeRevealed = false
@@ -36,6 +38,7 @@ public final class SidebarView: NSView {
     public init(model: SidebarModel) {
         self.model = model
         list = SidebarListView(model: model)
+        profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
         list.reload(animated: false)
@@ -76,12 +79,32 @@ public final class SidebarView: NSView {
         window?.makeFirstResponder(list)
     }
 
+    /// CPU and memory for the workspace hover card. Sampled only while a
+    /// card is pending or shown.
+    public var resourceSource: (any ResourceSampleSource)? {
+        get { list.hoverCard.resources.source }
+        set { list.hoverCard.resources.setSource(newValue) }
+    }
+
+    /// Shows workspace `id`'s hover card (CPU and memory) now, until the
+    /// next key press, click or scroll. False when its row is not shown.
+    @discardableResult
+    public func showHoverCard(for id: WorkspaceID) -> Bool {
+        list.showHoverCard(for: id)
+    }
+
+    /// True while the workspace hover card samples resources.
+    public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
+
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
-        set { list.contextMenuProvider = newValue }
+        set {
+            list.contextMenuProvider = newValue
+            profileBar.contextMenuProvider = newValue
+        }
     }
 
     /// Starts inline rename of a workspace (the "rename workspace" action's
@@ -123,9 +146,11 @@ public final class SidebarView: NSView {
         // Sidebars keep overlay scrollers even when the system shows legacy
         // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
         addSubview(scrollView)
 
         addSubview(footer)
+        footer.addSubview(profileBar)
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -163,14 +188,30 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let footerHeight: CGFloat = visibleSlots.isEmpty ? 0 : SidebarStyle.footerHeight
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
+        profileBar.isHidden = !showsProfiles
+        let footerHeight: CGFloat = visibleSlots.isEmpty && !showsProfiles ? 0 : SidebarStyle.footerHeight
         footer.frame = NSRect(x: 0, y: b.height - footerHeight, width: b.width, height: footerHeight)
         layoutFooter(visibleSlots)
+        profileBar.frame = footer.bounds
+        profileBar.refresh()
 
         scrollView.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
         scrollView.tile()
         syncListWidth()
     }
+
+    // MARK: Titlebar row
+
+    /// The header row beside the traffic lights is titlebar: it moves the
+    /// window, and a double-click zooms or minimizes (the user's macOS
+    /// setting). Its buttons take their own clicks.
+    override public func mouseDown(with event: NSEvent) {
+        guard convert(event.locationInWindow, from: nil).y < titlebarHeight else { return super.mouseDown(with: event) }
+        WindowTitlebar.handleMouseDown(event, in: window)
+    }
+
+    override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     // MARK: Hover reveal
 
@@ -218,6 +259,8 @@ public final class SidebarView: NSView {
         var sections: [SidebarSection]
         var selection: Set<WorkspaceID>
         var active: WorkspaceID?
+        var profiles: [SidebarProfile]
+        var activeProfile: ProfileKey?
         var filter: String
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
@@ -234,6 +277,8 @@ public final class SidebarView: NSView {
                     sections: model.sections,
                     selection: model.selection,
                     active: model.activeWorkspaceID,
+                    profiles: model.profiles,
+                    activeProfile: model.activeProfileID,
                     filter: model.filterText,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
@@ -250,8 +295,11 @@ public final class SidebarView: NSView {
         let chromeChanged = lastState?.metrics != state.metrics
             || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
+        let profilesChanged = lastState?.profiles != state.profiles || lastState?.activeProfile != state.activeProfile
+        let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
+            || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
         lastState = state
-        list.reload(animated: true)
-        if chromeChanged { needsLayout = true }
+        if listChanged { list.reload(animated: true) }
+        if chromeChanged || profilesChanged { needsLayout = true }
     }
 }

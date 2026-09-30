@@ -1,6 +1,6 @@
 // Catalog rows for one domain. Titles live in Localizable.xcstrings (en, ja).
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func paneActions() -> [ActionDescriptor] {
         [
             ActionDescriptor(
