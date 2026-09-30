@@ -200,7 +200,7 @@ jobs:
           curl -fsSL --retry 3 -o "$archive" \
             "https://github.com/n0-computer/iroh/releases/download/${IROH_RELAY_VERSION}/${asset}"
           echo "${IROH_RELAY_SHA256}  $archive" | sha256sum -c -
-          tar -xzf "$archive" -C "$dir" iroh-relay
+          tar -xzf "$archive" -C "$dir" ./iroh-relay
 
       - name: Save iroh-relay
         if: steps.relay-cache.outputs.cache-hit != 'true'
