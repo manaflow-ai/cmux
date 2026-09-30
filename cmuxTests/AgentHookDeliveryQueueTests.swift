@@ -435,17 +435,22 @@ struct AgentHookDeliveryQueueTests {
             payload: "session-end-d",
             surfaceID: "surface-d"
         )))
-        #expect(!queue.enqueue(try makeEvent(
+        #expect(queue.enqueue(try makeEvent(
             subcommand: "session-end",
             payload: "session-end-overflow",
             surfaceID: "surface-overflow"
         )))
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-overflow-2",
+            surfaceID: "surface-overflow-2"
+        )))
 
         await probe.release(payload: "active")
-        try await probe.waitUntilCompleted(count: 5)
+        try await probe.waitUntilCompleted(count: 6)
         #expect(await probe.completedPayloads() == [
             "active", "stop-a", "session-end-b", "session-end-c",
-            "session-end-d",
+            "session-end-d", "session-end-overflow",
         ])
     }
 
