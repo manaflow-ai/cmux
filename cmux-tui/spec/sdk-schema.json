@@ -3557,6 +3557,16 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "detached-terminals-v1"
     }
    },
    "additional_properties": false
@@ -8393,11 +8403,22 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "detached": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "detached-terminals-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
-     "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
+     "At least one of workspace and key must be supplied unless detached is true; when both are supplied they must identify the same workspace. detached forbids workspace and key.",
      "argv and command are mutually exclusive and must be nonempty when supplied.",
      "cols and rows must be supplied together.",
      "origin and mutation_id are either both present or both absent.",
@@ -8410,7 +8431,8 @@
    },
    "stream": null,
    "constraints": [
-    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+    "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+    "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id."
    ]
   },
   "new-screen": {
