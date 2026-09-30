@@ -79,16 +79,16 @@ class ClaudeHookSpoolTests(unittest.TestCase):
         # wrapper's exec. Closing the owner's stdin ends the "session".
         owner = '''import os,subprocess,sys
 os.environ['CMUX_CLAUDE_PID']=str(os.getpid())
-subprocess.Popen([sys.argv[1], 'hooks', 'claude', 'spool-forwarder'],
-                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-print(os.getpid(), flush=True)
+forwarder = subprocess.Popen([sys.argv[1], 'hooks', 'claude', 'spool-forwarder'],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+print(os.getpid(), forwarder.pid, flush=True)
 sys.stdin.read()
 '''
         env = {k: v for k, v in self.env.items() if k != 'CMUX_CLAUDE_HOOK_CMUX_BIN'}
         self.owner = subprocess.Popen([sys.executable, '-c', owner, self.cli],
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                       env=env, text=True)
-        self.owner_pid = int(self.owner.stdout.readline())
+        self.owner_pid, self.forwarder_pid = map(int, self.owner.stdout.readline().split())
         self.addCleanup(self.stop_owner)
         deadline = time.monotonic() + 15
         while not (self.spool / 'keys').exists():
@@ -96,10 +96,22 @@ sys.stdin.read()
             time.sleep(0.02)
 
     def stop_owner(self):
-        if self.owner and self.owner.poll() is None:
+        if not self.owner:
+            return
+        if self.owner.poll() is None:
             self.owner.stdin.close()
             self.owner.wait(timeout=10)
-            self.owner.stdout.close()
+        self.owner.stdout.close()
+
+        # The forwarder is a grandchild, so wait for it after its owner exits.
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                os.kill(self.forwarder_pid, 0)
+            except ProcessLookupError:
+                return
+            self.assertLess(time.monotonic(), deadline, 'forwarder did not exit after owner exited')
+            time.sleep(0.02)
 
     def accept(self):
         while not self.stopping.is_set():
