@@ -2189,7 +2189,11 @@ function startServer() {
       }));
       ws.send(JSON.stringify({
         kind: "sessions",
-        sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+        // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
       }));
       },
       close(ws) {
