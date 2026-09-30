@@ -18,6 +18,10 @@ import unittest
 from unittest import mock
 from pathlib import Path
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+from test_ci_change_areas import (
+    GUARD_WORKFLOW as GUARD_WORKFLOW_PATH,
+    workflow_job_block,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -339,6 +343,73 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         # started. It must not be attributed to this branch.
         self.assertEqual(
             validator.newly_added_tests(base_tip, root),
+            {"tests/test_mine.py"},
+        )
+
+    def test_registry_workflow_resolves_the_current_base_ref(self) -> None:
+        block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW_PATH)
+        start = block.index("      - name: Validate Python test execution registry")
+        end = block.index("      - name:", start + 1)
+        step = block[start:end]
+
+        self.assertIn(
+            "CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}",
+            step,
+        )
+        self.assertNotIn("github.event.pull_request.base.sha", step)
+        self.assertIn(
+            'git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"',
+            step,
+        )
+        self.assertIn('CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"', step)
+        self.assertIn('args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")', step)
+        self.assertIn("Keep this fetch shallow", step)
+
+    def test_newly_added_tests_show_why_the_workflow_needs_the_current_base_tip(self) -> None:
+        root = Path(tempfile.mkdtemp(prefix="cmux-test-execution-registry-git-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-c", "user.email=ci@example.com", "-c", "user.name=ci", *args],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+
+        (root / "tests").mkdir()
+        git("init", "-b", "main")
+        (root / "tests" / "test_base.py").write_text("", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-m", "base")
+        stale_base_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip()
+
+        git("checkout", "-b", "feature")
+        (root / "tests" / "test_mine.py").write_text("", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-m", "mine")
+
+        git("checkout", "main")
+        (root / "tests" / "test_theirs.py").write_text("", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-m", "theirs")
+        main_tip = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
+        ).strip()
+
+        git("checkout", "feature")
+        git("merge", "main")
+
+        # This is correct for a stale base input. It documents why the workflow
+        # must resolve and pass main's current tip instead.
+        self.assertEqual(
+            validator.newly_added_tests(stale_base_sha, root),
+            {"tests/test_mine.py", "tests/test_theirs.py"},
+        )
+        self.assertEqual(
+            validator.newly_added_tests(main_tip, root),
             {"tests/test_mine.py"},
         )
 
