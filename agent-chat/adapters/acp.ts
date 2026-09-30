@@ -73,18 +73,18 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
         if (sess.internal.acpDisposed) return;
         const cancelled = () => sequence <= Number(sess.internal.acpCancelledSequence ?? 0);
         if (cancelled()) {
-          sess.emit({ kind: "done", generation } as any);
+          sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
         } else {
           try {
             const st = await ensureAcp(sess, def);
             if (!st || sess.internal.acpDisposed) return;
             if (cancelled()) {
-              sess.emit({ kind: "done", generation } as any);
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
             } else {
               await applyInitialOptions(sess, st, def);
               if (sess.internal.acpDisposed) return;
               if (cancelled()) {
-                sess.emit({ kind: "done", generation } as any);
+                sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
               } else {
                 const res = await st.request("session/prompt", {
                   sessionId: st.acpSessionId,
@@ -108,7 +108,12 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
     stop(sess) {
       sess.internal.acpCancelledSequence = Number(sess.internal.acpTurnSequence ?? 0);
       const st = sess.internal.acp as AcpState | undefined;
+      // A cancel during startup has no session to notify, and the queued turn
+      // only reaches its own idle/done handling after ensureAcp settles, so
+      // settle the status here instead of leaving it running until startup
+      // times out.
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
+      else sess.setStatus("idle");
     },
     dispose(sess) {
       sess.internal.acpDisposed = true;
