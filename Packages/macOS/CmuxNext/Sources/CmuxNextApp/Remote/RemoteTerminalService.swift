@@ -234,17 +234,27 @@ final class RemoteTerminalService {
         }
     }
 
-    /// The user closed remote-terminal `tab`, its terminal's only view: the
-    /// terminal's session may end it after its reap grace period (Reopen
-    /// Closed Tab window), like a closed terminal tab. A session that is not
-    /// connected keeps the terminal until it is closed there.
+    /// The user closed remote-terminal `tab`. When the terminal has no tab
+    /// on its own session this was its only view, so the terminal ends
+    /// (`close-terminal`; a remote-terminal tab has no Reopen Closed Tab,
+    /// and a daemon may not reap). When it also has a tab there, it only
+    /// stops being kept. A session that is not connected keeps the terminal
+    /// until it is closed there.
     func viewClosed(_ tab: TabModel) {
         forget(tabID: tab.id)
         services.cache.discardTerminal(tab.id)
-        guard let ref = tab.remote, let connection = services.machines.daemon(session: ref.sessionID)?.connection else { return }
+        guard let ref = tab.remote, let daemon = services.machines.daemon(session: ref.sessionID),
+              let connection = daemon.connection else { return }
         let terminal = ref.terminalID
-        // task-owner: fire-and-forget release; the terminal's session reaps it after its grace period
-        Task { _ = try? await connection.setTerminalKeep(.terminal(terminal), keep: false) }
+        let placed = daemon.store.tab(terminal: terminal) != nil
+        // task-owner: fire-and-forget end of a terminal whose only view closed
+        Task {
+            if placed {
+                _ = try? await connection.setTerminalKeep(.terminal(terminal), keep: false)
+            } else {
+                try? await connection.closeTerminal(terminal)
+            }
+        }
     }
 
     /// A workspace is closing: each remote-terminal tab in it was its
