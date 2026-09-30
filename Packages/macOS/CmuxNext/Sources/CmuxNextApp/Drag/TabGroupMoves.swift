@@ -17,6 +17,15 @@ enum TabGroupMoves {
 
     static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices,
                            transaction: ClientTransactionID, completion: @escaping Completion) {
+        switch services.splitRoom(for: pane, edge: edge) {
+        case .split:
+            break
+        case .newColumn(let afterColumn, _):
+            return toNewColumn(group, anchor: pane, afterColumn: afterColumn, services: services, transaction: transaction, completion: completion)
+        case .refused(let reason):
+            services.registry.refuse(reason)
+            return completion(false)
+        }
         let target = pane.handle
         run("move-tab-group-to-split", services: services, transaction: transaction, completion: completion) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)

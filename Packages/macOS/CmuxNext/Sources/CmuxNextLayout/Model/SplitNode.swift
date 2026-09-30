@@ -90,4 +90,27 @@ public nonisolated indirect enum SplitNode: Hashable, Sendable {
         let b = Double(node.b.cellCount(along: node.axis))
         return a / (a + b)
     }
+
+    /// A copy with the leaf `pane` replaced by `transform(leaf)`.
+    public func replacingLeaf(_ pane: PaneID, with transform: (SplitNode) -> SplitNode) -> SplitNode {
+        switch self {
+        case let .leaf(leaf):
+            return leaf == pane ? transform(self) : self
+        case let .split(id, axis, ratio, a, b):
+            return .split(id, axis: axis, ratio: ratio, a: a.replacingLeaf(pane, with: transform), b: b.replacingLeaf(pane, with: transform))
+        }
+    }
+
+    /// A copy without the leaf `pane`; its sibling takes the parent's place.
+    /// Nil when `pane` was the only leaf. Unchanged when `pane` is absent.
+    public func removing(_ pane: PaneID) -> SplitNode? {
+        switch self {
+        case let .leaf(leaf):
+            return leaf == pane ? nil : self
+        case let .split(id, axis, ratio, a, b):
+            guard let first = a.removing(pane) else { return b }
+            guard let second = b.removing(pane) else { return a }
+            return .split(id, axis: axis, ratio: ratio, a: first, b: second)
+        }
+    }
 }

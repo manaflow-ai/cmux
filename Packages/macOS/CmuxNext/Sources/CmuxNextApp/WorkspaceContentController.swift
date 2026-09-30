@@ -124,7 +124,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         panes.removeValue(forKey: pane)?.teardown()
     }
 
-    func paneVisibilityDidChange(_ pane: LayoutPaneID, isVisible: Bool) {
-        panes[pane]?.setVisible(isVisible)
+    func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {
+        let surfacePresence: SurfacePresence = switch presence {
+        case .visible: .visible
+        case .keepAlive: .keepAlive
+        case .hidden: .hidden
+        }
+        panes[pane]?.setPresence(surfacePresence)
     }
 }
