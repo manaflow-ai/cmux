@@ -40,19 +40,35 @@ private final class TimeoutInserter: DictationTextInserting {
     func endSession() { endCount += 1 }
 }
 
+private actor TimeoutFinishGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            if isReleased {
+                continuation.resume()
+            } else {
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// Test-only fake; the test drives its continuations serially from the main actor.
 private final class NeverFinishingTranscriber: SpeechTranscribing, @unchecked Sendable {
-    private let releaseStream: AsyncStream<Void>
-    private let releaseContinuation: AsyncStream<Void>.Continuation
+    private let finishGate = TimeoutFinishGate()
     private var eventContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private(set) var finishStarted = false
+    private(set) var finishCompleted = false
+    private(set) var finishWasCancelled = false
     private(set) var transcribeCount = 0
-
-    init() {
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
-        releaseStream = stream
-        releaseContinuation = continuation
-    }
 
     func transcribe(
         locale: Locale
@@ -65,12 +81,14 @@ private final class NeverFinishingTranscriber: SpeechTranscribing, @unchecked Se
 
     func finishTranscribing() async {
         finishStarted = true
-        for await _ in releaseStream {}
+        await finishGate.wait()
+        finishWasCancelled = Task.isCancelled
         eventContinuation?.finish()
         eventContinuation = nil
+        finishCompleted = true
     }
 
-    func release() { releaseContinuation.finish() }
+    func release() async { await finishGate.release() }
 }
 
 @MainActor
@@ -106,6 +124,8 @@ struct DictationControllerTimeoutTests {
 
         // Let the cancelled finish task unwind so this test does not leave a
         // deliberately wedged fake alive beyond the test boundary.
-        transcriber.release()
+        await transcriber.release()
+        #expect(await dictationWaitUntil { transcriber.finishCompleted })
+        #expect(transcriber.finishWasCancelled)
     }
 }
