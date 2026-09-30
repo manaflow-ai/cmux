@@ -5,7 +5,10 @@ public import Foundation
 ///
 /// Filtering remains active only while input consists entirely of recognized
 /// terminal replies or EOT bytes. The first ordinary key byte ends filtering,
-/// and that byte plus all later input passes through unchanged.
+/// and that byte plus all later input passes through unchanged. An OSC 52
+/// reply that has started is always discarded through its terminator, even
+/// when ``stopFiltering()`` arrives mid-reply; only
+/// ``stopFilteringAtDeadline()`` abandons it.
 public struct SSHPTYReconnectInputByteFilter: Sendable {
     private static let escape: UInt8 = 0x1B
     private static let endOfTransmission: UInt8 = 0x04
@@ -33,8 +36,9 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     ///
     /// Clipboard replies carry the user's clipboard and can exceed the
     /// pending-probe bound, so their bytes are dropped as they stream in
-    /// instead of being buffered and later flushed to the remote PTY. See
-    /// ``hasPendingInput`` for how long discarding may last.
+    /// instead of being buffered and later flushed to the remote PTY. It
+    /// survives ``stopFiltering()`` and ends at BEL/ST or at
+    /// ``stopFilteringAtDeadline()``.
     private var discardingClipboardReply = false
 
     /// Creates a reconnect-input filter.
@@ -54,7 +58,7 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     /// - Parameter data: Raw bytes read from the reconnecting terminal.
     /// - Returns: Bytes that should be forwarded to the remote PTY.
     public mutating func filter(_ data: Data) -> Data {
-        guard isFiltering, !data.isEmpty else {
+        guard isFiltering || discardingClipboardReply, !data.isEmpty else {
             return data
         }
 
@@ -71,6 +75,11 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
             }
             discardingClipboardReply = false
             index = end
+            guard isFiltering else {
+                // Filtering stopped mid-reply: only the reply was discarded.
+                output.append(contentsOf: bytes[end...])
+                return output
+            }
         }
         while index < bytes.count {
             if bytes[index] == Self.endOfTransmission {
@@ -118,6 +127,8 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
 
     /// Returns any incomplete escape sequence retained by the filter.
     ///
+    /// A clipboard reply being discarded is dropped, never returned.
+    ///
     /// - Returns: Pending bytes in their original order.
     public mutating func finish() -> Data {
         if discardingClipboardReply {
@@ -134,10 +145,29 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         return data
     }
 
-    /// Ends filtering and returns any retained incomplete sequence.
+    /// Ends probe filtering and returns any retained incomplete sequence.
+    ///
+    /// If an OSC 52 clipboard reply is being discarded, the rest of that reply
+    /// is still discarded through its BEL/ST, so it never reaches the remote
+    /// PTY as typed input; ``isFilteringActive`` stays true until then and
+    /// the caller must keep routing input through ``filter(_:)``. Input after
+    /// the terminator passes through unchanged.
     ///
     /// - Returns: Pending bytes that must be forwarded before live input.
     public mutating func stopFiltering() -> Data {
+        isFiltering = false
+        guard !discardingClipboardReply else { return Data() }
+        return finish()
+    }
+
+    /// Ends filtering unconditionally when the reconnect deadline expires.
+    ///
+    /// Unlike ``stopFiltering()``, a clipboard reply whose terminator never
+    /// arrived is abandoned (its retained bytes are dropped), so a lost
+    /// terminator cannot swallow input past the deadline.
+    ///
+    /// - Returns: Retained probe bytes that must be forwarded before live input.
+    public mutating func stopFilteringAtDeadline() -> Data {
         let input = finish()
         isFiltering = false
         return input
@@ -150,10 +180,10 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     /// A clipboard reply being discarded is deliberately excluded: a pause in
     /// the middle of one must not end filtering, or the rest of the clipboard
     /// would reach the remote PTY. Discarding therefore lasts until BEL/ST
-    /// arrives or filtering stops (the caller's reconnect deadline,
-    /// ``finish()`` or ``stopFiltering()``), and nothing retained is forwarded.
-    /// The trade-off: if the terminator is lost, input typed before that
-    /// deadline is discarded with the reply.
+    /// arrives, ``finish()`` or ``stopFilteringAtDeadline()`` (the caller's
+    /// reconnect deadline); ``stopFiltering()`` does not end it, and nothing
+    /// retained is forwarded. The trade-off: if the terminator is lost, input
+    /// typed before that deadline is discarded with the reply.
     public var hasPendingInput: Bool {
         isFiltering && !pending.isEmpty && !discardingClipboardReply
     }
@@ -163,9 +193,12 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         isFiltering && pending.isEmpty && !discardingClipboardReply
     }
 
-    /// Whether recognized reconnect-time replies are still being removed.
+    /// Whether input must still be routed through ``filter(_:)``.
+    ///
+    /// True while probe filtering is on, and after ``stopFiltering()`` until
+    /// a clipboard reply that was mid-discard reaches its terminator.
     public var isFilteringActive: Bool {
-        isFiltering
+        isFiltering || discardingClipboardReply
     }
 
     private static func reconnectProbeReplySequence(

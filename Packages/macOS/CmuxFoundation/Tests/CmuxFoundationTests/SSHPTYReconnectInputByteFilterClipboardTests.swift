@@ -64,12 +64,12 @@ struct SSHPTYReconnectInputByteFilterClipboardTests {
         #expect(output == normalInput)
     }
 
-    @Test("stopping mid-reply does not forward the partial clipboard reply")
-    func stopFilteringDropsPartialClipboardReply() {
+    @Test("the reconnect deadline mid-reply drops the partial clipboard reply")
+    func deadlineDropsPartialClipboardReply() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
         #expect(filter.filter(Data("\u{1B}]52;c;c2VjcmV0".utf8)) == Data())
 
-        #expect(filter.stopFiltering() == Data())
+        #expect(filter.stopFilteringAtDeadline() == Data())
         let normalInput = Data("ls\n".utf8)
         #expect(filter.filter(normalInput) == normalInput)
     }
