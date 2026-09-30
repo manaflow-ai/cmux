@@ -669,6 +669,8 @@
 		846600000000000000000001 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */; };
 		C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */; };
 		C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */; };
+		C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */; };
+		C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
 		FBA17843EE21A7F33B4BD0AD /* CLIWorkspaceRefResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99CD6A76F75825E105715C8C /* CLIWorkspaceRefResolutionTests.swift */; };
 		799100000000000000000001 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
 		C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
@@ -1169,6 +1171,7 @@
 		A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
+		C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000003 /* RemotesArgumentParser.swift */; };
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
 		925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000001 /* CMUXCLI+Restore.swift */; };
 		110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */; };
@@ -4990,6 +4993,7 @@
 		C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
 		846600000000000000000002 /* CLIWorkspaceGroupSafetyMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyTests.swift; sourceTree = "<group>"; };
+		C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemotesArgumentValidationTests.swift; sourceTree = "<group>"; };
 		99CD6A76F75825E105715C8C /* CLIWorkspaceRefResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIWorkspaceRefResolutionTests.swift"; sourceTree = "<group>"; };
 		799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDTests.swift; sourceTree = "<group>"; };
@@ -5469,6 +5473,7 @@
 		0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PromptSubmit.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
+		C15873000000000000000003 /* RemotesArgumentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesArgumentParser.swift; sourceTree = "<group>"; };
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
 		925800000000000000000001 /* CMUXCLI+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Restore.swift"; sourceTree = "<group>"; };
 		110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreAdmission.swift"; sourceTree = "<group>"; };
@@ -8623,6 +8628,7 @@
 				C117570000000000000000A1 /* CLIPasteCommandTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
 				C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */,
+				C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */,
 				C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */,
 				C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */,
 				C11757000000000000000020 /* CampfireHookNotificationTests.swift */,
@@ -11364,6 +11370,7 @@
 				C11218000000000000000051 /* CLIError.swift */,
 				D96971000000000000000001 /* CMUXCLI+Sudo.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
+				C15873000000000000000003 /* RemotesArgumentParser.swift */,
 				C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */,
 				13019F000000000000000001 /* CMUXCLI+AuthTeam.swift */,
 				330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */,
@@ -13519,6 +13526,8 @@
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */,
 				C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */,
+				C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */,
+				C15873000000000000000005 /* RemotesArgumentParser.swift in Sources */,
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
 				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
@@ -16172,6 +16181,7 @@
 				A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
+					C15873000000000000000004 /* RemotesArgumentParser.swift in Sources */,
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
 				925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */,
 				110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */,
