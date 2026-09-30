@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ภาพรวม",
       "team": "ทีม",
       "mobileDevices": "อุปกรณ์มือถือ",
@@ -361,7 +361,7 @@
       "teams": "ทีม"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
       "coderouterLink": "เปิด coderouter",
       "iosAppName": "แอป iOS",
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "จัดการบัญชี AI ที่แชร์และกำหนดเส้นทางคำขอด้วย coderouter",
-      "title": "coderouter",
-      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
+      "title": "Coderouter",
+      "description": "Coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
       "machines": {
         "title": "เครื่อง",
         "description": "การใช้งาน coderouter แยกตามเครื่องของ {team} ในช่วง {days} วันที่ผ่านมา",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "สร้างทีม"
-      }
+      },
+      "title": "แพ็กเกจและการเรียกเก็บเงิน"
     },
     "mobileDevices": {
       "title": "อุปกรณ์มือถือ",
@@ -488,7 +489,10 @@
         "account": "บัญชี",
         "billing": "การเรียกเก็บเงิน",
         "teamsGroup": "ทีม",
-        "createTeam": "สร้างทีม"
+        "createTeam": "สร้างทีม",
+        "accountGroup": "บัญชี",
+        "billingGroup": "การเรียกเก็บเงิน",
+        "planBilling": "แพ็กเกจและการเรียกเก็บเงิน"
       },
       "ui": {
         "save": "บันทึก",

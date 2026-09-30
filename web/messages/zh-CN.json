@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
       "mobileDevices": "移动设备",
@@ -361,7 +361,7 @@
       "teams": "团队"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "coderouterLink": "打开 coderouter",
       "iosAppName": "iOS 应用",
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
-      "title": "coderouter",
-      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "title": "Coderouter",
+      "description": "Coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
       "machines": {
         "title": "机器",
         "description": "{team} 在过去 {days} 天内每台机器的 coderouter 使用情况。",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "创建团队"
-      }
+      },
+      "title": "套餐与账单"
     },
     "mobileDevices": {
       "title": "移动设备",
@@ -488,7 +489,10 @@
         "account": "账户",
         "billing": "账单",
         "teamsGroup": "团队",
-        "createTeam": "创建团队"
+        "createTeam": "创建团队",
+        "accountGroup": "账户",
+        "billingGroup": "账单",
+        "planBilling": "套餐与账单"
       },
       "ui": {
         "save": "保存",

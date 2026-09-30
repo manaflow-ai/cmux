@@ -353,17 +353,17 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "oversikt",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Oversikt",
+      "team": "Team",
       "mobileDevices": "Mobile enheter",
-      "settings": "innstillinger",
-      "teams": "team"
+      "settings": "Innstillinger",
+      "teams": "Team"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter",
+      "coderouterLink": "Åpne coderouter",
       "iosAppName": "iOS-app",
       "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
       "iosLink": "Åpne iOS-appen"
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
-      "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "title": "Coderouter",
+      "description": "Coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
       "machines": {
         "title": "Maskiner",
         "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Opprett et team"
-      }
+      },
+      "title": "Plan og fakturering"
     },
     "mobileDevices": {
       "title": "Mobile enheter",
@@ -467,7 +468,7 @@
       "relaySettings": "Relay-innstillinger",
       "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
       "saveRelaySettings": "Lagre relay-innstillinger",
-      "eyebrow": "sky / enheter",
+      "eyebrow": "Sky / enheter",
       "scopeActive": "Viser dette teamet",
       "emptyTitle": "Ingen tilkoblede enheter ennå",
       "emptyDescription": "Når en cmux-enhet pares med dette teamet, vises den her med plattform, versjon og tilgangskontroller.",
@@ -488,7 +489,10 @@
         "account": "Konto",
         "billing": "Fakturering",
         "teamsGroup": "Team",
-        "createTeam": "Opprett team"
+        "createTeam": "Opprett team",
+        "accountGroup": "Konto",
+        "billingGroup": "Fakturering",
+        "planBilling": "Plan og fakturering"
       },
       "ui": {
         "save": "Lagre",

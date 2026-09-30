@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
       "mobileDevices": "ឧបករណ៍ចល័ត",
@@ -361,7 +361,7 @@
       "teams": "ក្រុម"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "coderouterLink": "បើក coderouter",
       "iosAppName": "កម្មវិធី iOS",
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
-      "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "title": "Coderouter",
+      "description": "Coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "machines": {
         "title": "ម៉ាស៊ីន",
         "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "បង្កើតក្រុម"
-      }
+      },
+      "title": "គម្រោង និងការចេញវិក្កយបត្រ"
     },
     "mobileDevices": {
       "title": "ឧបករណ៍ចល័ត",
@@ -488,7 +489,10 @@
         "account": "គណនី",
         "billing": "ការទូទាត់",
         "teamsGroup": "ក្រុម",
-        "createTeam": "បង្កើតក្រុម"
+        "createTeam": "បង្កើតក្រុម",
+        "accountGroup": "គណនី",
+        "billingGroup": "ការចេញវិក្កយបត្រ",
+        "planBilling": "គម្រោង និងការចេញវិក្កយបត្រ"
       },
       "ui": {
         "save": "រក្សាទុក",

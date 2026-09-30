@@ -107,16 +107,16 @@ beforeEach(() => {
 describe("dashboard router", () => {
   test.each([
     ["/dashboard", "/shell/dashboard"],
-    ["/dashboard/billing", "/shell/dashboard/billing"],
+    ["/dashboard/billing", "/shell/hub/dashboard/billing"],
     ["/dashboard/testflight", "/shell/dashboard/testflight"],
     ["/dashboard/coderouter", "/shell/dashboard/coderouter"],
     ["/dashboard/cloud", "/shell/dashboard/cloud"],
     ["/dashboard/mobile-devices", "/shell/dashboard/mobile-devices"],
-    ["/dashboard/settings", "/shell/dashboard/settings/"],
-    ["/dashboard/settings/api-keys", "/shell/dashboard/settings/api-keys"],
-    ["/dashboard/teams", "/shell/dashboard/teams"],
-    ["/dashboard/teams/new", "/shell/dashboard/teams/new"],
-    ["/dashboard/teams/abc/members", "/shell/dashboard/teams/$teamId/members"],
+    ["/dashboard/settings", "/shell/hub/dashboard/settings/"],
+    ["/dashboard/settings/api-keys", "/shell/hub/dashboard/settings/api-keys"],
+    ["/dashboard/teams", "/shell/hub/dashboard/teams"],
+    ["/dashboard/teams/new", "/shell/hub/dashboard/teams/new"],
+    ["/dashboard/teams/abc/members", "/shell/hub/dashboard/teams/$teamId/members"],
     ["/dashboard/team/accept", "/shell/dashboard/team/accept"],
     ["/dashboard/vault", "/shell/dashboard/vault"],
     ["/dashboard/vault/sessions", "/shell/dashboard/vault/sessions"],
@@ -131,7 +131,7 @@ describe("dashboard router", () => {
     const { router } = await loadRouter("/ja/dashboard/settings", "ja");
     expect(router.options.basepath).toBe("/ja");
     expect(router.state.location.pathname).toBe("/dashboard/settings");
-    expect(leafRouteId(router)).toBe("/shell/dashboard/settings/");
+    expect(leafRouteId(router)).toBe("/shell/hub/dashboard/settings/");
     expect(router.buildLocation({ to: "/dashboard/billing" }).href).toBe("/ja/dashboard/billing");
   });
 

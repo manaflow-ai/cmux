@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
       "mobileDevices": "行動裝置",
@@ -361,7 +361,7 @@
       "teams": "團隊"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
       "coderouterLink": "開啟 coderouter",
       "iosAppName": "iOS 應用程式",
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
-      "title": "coderouter",
-      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "title": "Coderouter",
+      "description": "Coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
       "machines": {
         "title": "機器",
         "description": "{team} 在過去 {days} 天內每台機器的 coderouter 使用情況。",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "建立團隊"
-      }
+      },
+      "title": "方案與帳單"
     },
     "mobileDevices": {
       "title": "行動裝置",
@@ -488,7 +489,10 @@
         "account": "帳號",
         "billing": "帳單",
         "teamsGroup": "團隊",
-        "createTeam": "建立團隊"
+        "createTeam": "建立團隊",
+        "accountGroup": "帳戶",
+        "billingGroup": "帳單",
+        "planBilling": "方案與帳單"
       },
       "ui": {
         "save": "儲存",

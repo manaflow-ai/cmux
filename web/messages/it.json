@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "panoramica",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Panoramica",
+      "team": "Team",
       "mobileDevices": "Dispositivi mobili",
-      "settings": "impostazioni",
-      "teams": "team"
+      "settings": "Impostazioni",
+      "teams": "Team"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
-      "coderouterLink": "apri coderouter",
-      "iosAppName": "app iOS",
+      "coderouterLink": "Apri coderouter",
+      "iosAppName": "App iOS",
       "iosAppDescription": "Installa l'app iOS di cmux tramite TestFlight (accesso beta).",
       "iosLink": "Apri l'app iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gestisci gli account IA condivisi e instrada le richieste con coderouter.",
-      "title": "coderouter",
-      "description": "coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
+      "title": "Coderouter",
+      "description": "Coderouter instrada le richieste LLM tra gli account dei provider con failover e pianificazione basata sull’utilizzo.",
       "machines": {
         "title": "Macchine",
         "description": "Utilizzo di coderouter per macchina per {team} negli ultimi {days} giorni.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Crea un team"
-      }
+      },
+      "title": "Piano e fatturazione"
     },
     "mobileDevices": {
       "title": "Dispositivi mobili",
@@ -467,7 +468,7 @@
       "relaySettings": "Impostazioni relay",
       "relaySettingsDescription": "Scegli i server relay usati da questo team. Inserisci un URL per riga.",
       "saveRelaySettings": "Salva impostazioni relay",
-      "eyebrow": "cloud / dispositivi",
+      "eyebrow": "Cloud / dispositivi",
       "scopeActive": "Visualizzazione di questo team",
       "emptyTitle": "Nessun dispositivo connesso",
       "emptyDescription": "Quando un dispositivo cmux viene associato a questo team, apparirà qui con piattaforma, versione e controlli di accesso.",
@@ -488,7 +489,10 @@
         "account": "Account",
         "billing": "Fatturazione",
         "teamsGroup": "Team",
-        "createTeam": "Crea team"
+        "createTeam": "Crea team",
+        "accountGroup": "Account",
+        "billingGroup": "Fatturazione",
+        "planBilling": "Piano e fatturazione"
       },
       "ui": {
         "save": "Salva",

@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
       "mobileDevices": "Mobile Geräte",
@@ -361,9 +361,9 @@
       "teams": "Teams"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten verteilen.",
-      "coderouterLink": "coderouter öffnen",
+      "coderouterLink": "Coderouter öffnen",
       "iosAppName": "iOS-App",
       "iosAppDescription": "Installiere die cmux iOS-App über TestFlight (Beta-Zugang).",
       "iosLink": "iOS-App öffnen"
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
-      "title": "coderouter",
-      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
+      "title": "Coderouter",
+      "description": "Coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
       "machines": {
         "title": "Maschinen",
         "description": "coderouter-Nutzung pro Maschine für {team} in den letzten {days} Tagen.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Team erstellen"
-      }
+      },
+      "title": "Plan & Abrechnung"
     },
     "mobileDevices": {
       "title": "Mobile Geräte",
@@ -488,7 +489,10 @@
         "account": "Konto",
         "billing": "Abrechnung",
         "teamsGroup": "Teams",
-        "createTeam": "Team erstellen"
+        "createTeam": "Team erstellen",
+        "accountGroup": "Konto",
+        "billingGroup": "Abrechnung",
+        "planBilling": "Plan & Abrechnung"
       },
       "ui": {
         "save": "Speichern",

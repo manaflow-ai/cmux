@@ -353,25 +353,25 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "visão geral",
-      "team": "equipe",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Visão geral",
+      "team": "Equipe",
       "mobileDevices": "Dispositivos móveis",
-      "settings": "configurações",
-      "teams": "equipes"
+      "settings": "Configurações",
+      "teams": "Equipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Distribua solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
-      "coderouterLink": "abrir coderouter",
-      "iosAppName": "app iOS",
+      "coderouterLink": "Abrir coderouter",
+      "iosAppName": "App iOS",
       "iosAppDescription": "Instale o aplicativo iOS do cmux via TestFlight (acesso beta).",
       "iosLink": "Abrir app iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
-      "title": "coderouter",
+      "title": "Coderouter",
       "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
       "machines": {
         "title": "Máquinas",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Criar uma equipe"
-      }
+      },
+      "title": "Plano e cobrança"
     },
     "mobileDevices": {
       "title": "Dispositivos móveis",
@@ -467,7 +468,7 @@
       "relaySettings": "Configurações de relay",
       "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
       "saveRelaySettings": "Salvar configurações de relay",
-      "eyebrow": "nuvem / dispositivos",
+      "eyebrow": "Nuvem / dispositivos",
       "scopeActive": "Exibindo esta equipe",
       "emptyTitle": "Nenhum dispositivo conectado ainda",
       "emptyDescription": "Quando um dispositivo cmux for pareado com esta equipe, ele aparecerá aqui com plataforma, versão e controles de acesso.",
@@ -488,7 +489,10 @@
         "account": "Conta",
         "billing": "Cobrança",
         "teamsGroup": "Equipes",
-        "createTeam": "Criar equipe"
+        "createTeam": "Criar equipe",
+        "accountGroup": "Conta",
+        "billingGroup": "Cobrança",
+        "planBilling": "Plano e cobrança"
       },
       "ui": {
         "save": "Salvar",

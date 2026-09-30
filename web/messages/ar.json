@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "نظرة عامة",
       "team": "الفريق",
       "mobileDevices": "الأجهزة المحمولة",
@@ -361,7 +361,7 @@
       "teams": "الفرق"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "توجيه طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
       "coderouterLink": "فتح coderouter",
       "iosAppName": "تطبيق iOS",
@@ -371,7 +371,7 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
-      "title": "coderouter",
+      "title": "Coderouter",
       "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
       "machines": {
         "title": "الأجهزة",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "إنشاء فريق"
-      }
+      },
+      "title": "الخطة والفوترة"
     },
     "mobileDevices": {
       "title": "الأجهزة المحمولة",
@@ -488,7 +489,10 @@
         "account": "الحساب",
         "billing": "الفوترة",
         "teamsGroup": "الفرق",
-        "createTeam": "إنشاء فريق"
+        "createTeam": "إنشاء فريق",
+        "accountGroup": "الحساب",
+        "billingGroup": "الفوترة",
+        "planBilling": "الخطة والفوترة"
       },
       "ui": {
         "save": "حفظ",

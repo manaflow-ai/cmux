@@ -95,7 +95,7 @@ async function renderCoderouter(data: Overview, url = "/dashboard/coderouter?tea
 describe("coderouter screen", () => {
   test("renders the header, team metrics, accounts, and owned machines", async () => {
     const html = await renderCoderouter(overview());
-    expect(html).toContain("coderouter routes llm requests");
+    expect(html).toContain("Coderouter routes llm requests");
     expect(html).toContain("30-day usage");
     expect(html).toContain("Team aggregate for Team One");
     expect(html).toContain("Last 30 days");

@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "огляд",
-      "team": "команда",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Огляд",
+      "team": "Команда",
       "mobileDevices": "Мобільні пристрої",
-      "settings": "налаштування",
-      "teams": "команди"
+      "settings": "Налаштування",
+      "teams": "Команди"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Розподіляйте LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
-      "coderouterLink": "відкрити coderouter",
-      "iosAppName": "застосунок iOS",
+      "coderouterLink": "Відкрити coderouter",
+      "iosAppName": "Застосунок iOS",
       "iosAppDescription": "Установіть застосунок cmux для iOS через TestFlight (бета-доступ).",
       "iosLink": "Відкрити застосунок iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Керуйте спільними ШІ-обліковими записами та розподіляйте запити за допомогою coderouter.",
-      "title": "coderouter",
-      "description": "coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
+      "title": "Coderouter",
+      "description": "Coderouter розподіляє LLM-запити між обліковими записами провайдерів із відмовостійкістю та плануванням за навантаженням.",
       "machines": {
         "title": "Машини",
         "description": "Використання coderouter за машинами для {team} за останні {days} днів.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Створити команду"
-      }
+      },
+      "title": "Тариф і оплата"
     },
     "mobileDevices": {
       "title": "Мобільні пристрої",
@@ -467,7 +468,7 @@
       "relaySettings": "Налаштування ретрансляції",
       "relaySettingsDescription": "Виберіть сервери ретрансляції для цієї команди. Вводьте по одному URL у рядку.",
       "saveRelaySettings": "Зберегти налаштування ретрансляції",
-      "eyebrow": "хмара / пристрої",
+      "eyebrow": "Хмара / пристрої",
       "scopeActive": "Показано цю команду",
       "emptyTitle": "Підключених пристроїв ще немає",
       "emptyDescription": "Після сполучення пристрою cmux із цією командою тут з’являться його платформа, версія та налаштування доступу.",
@@ -488,7 +489,10 @@
         "account": "Обліковий запис",
         "billing": "Оплата",
         "teamsGroup": "Команди",
-        "createTeam": "Створити команду"
+        "createTeam": "Створити команду",
+        "accountGroup": "Обліковий запис",
+        "billingGroup": "Оплата",
+        "planBilling": "Тариф і оплата"
       },
       "ui": {
         "save": "Зберегти",

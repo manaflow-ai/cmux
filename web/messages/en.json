@@ -348,37 +348,37 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
-      "cloudGroup": "cloud",
+      "cloudGroup": "Cloud",
       "cloudDevices": "Mac access",
-      "vaultGroup": "vault",
-      "vaultOverview": "overview",
-      "vaultSessions": "sessions",
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "overview",
+      "vaultGroup": "Vault",
+      "vaultOverview": "Overview",
+      "vaultSessions": "Sessions",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Overview",
       "remoteControlGroup": "Remote control",
-      "accountGroup": "account",
-      "billing": "billing",
-      "team": "team",
+      "accountGroup": "Account",
+      "billing": "Billing",
+      "team": "Team",
       "testflight": "iOS TestFlight",
       "mobileDevices": "Mobile devices",
-      "settings": "settings",
-      "teams": "teams"
+      "settings": "Settings",
+      "teams": "Teams"
     },
     "home": {
-      "title": "dashboard",
-      "description": "choose a product dashboard.",
+      "title": "Dashboard",
+      "description": "Choose a product dashboard.",
       "cloudName": "Cloud Mac access",
-      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
-      "cloudLink": "manage Mac access",
-      "vaultName": "vault",
-      "vaultDescription": "browse synced agent sessions and manage cli access.",
-      "vaultLink": "open vault",
-      "coderouterName": "coderouter",
-      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter",
+      "cloudDescription": "Review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "Manage Mac access",
+      "vaultName": "Vault",
+      "vaultDescription": "Browse synced agent sessions and manage cli access.",
+      "vaultLink": "Open vault",
+      "coderouterName": "Coderouter",
+      "coderouterDescription": "Route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "Open coderouter",
       "iosAppName": "iOS app",
-      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
-      "iosLink": "open iOS app"
+      "iosAppDescription": "Install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "Open iOS app"
     },
     "cloud": {
       "title": "Cloud Mac access",
@@ -409,8 +409,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
-      "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "title": "Coderouter",
+      "description": "Coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
       "machines": {
         "title": "Machines",
         "description": "Per-machine coderouter usage for {team} over the last {days} days.",
@@ -571,9 +571,9 @@
       "personal": "Personal"
     },
     "billing": {
-      "eyebrow": "account",
-      "title": "billing",
-      "description": "review your cmux plan and manage subscription billing.",
+      "eyebrow": "Account",
+      "title": "Plan & billing",
+      "description": "Review your cmux plan and manage subscription billing.",
       "banners": {
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
@@ -676,9 +676,9 @@
       }
     },
     "testflight": {
-      "eyebrow": "account",
+      "eyebrow": "Account",
       "title": "iOS TestFlight",
-      "description": "join the cmux iOS beta from your active subscription.",
+      "description": "Join the cmux iOS beta from your active subscription.",
       "banners": {
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
@@ -745,7 +745,7 @@
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
       "savingRelaySettings": "Saving…",
-      "eyebrow": "cloud / devices"
+      "eyebrow": "Cloud / devices"
     },
     "settings": {
       "nav": {
@@ -758,7 +758,10 @@
         "account": "Account",
         "billing": "Billing",
         "teamsGroup": "Teams",
-        "createTeam": "Create team"
+        "createTeam": "Create team",
+        "accountGroup": "Account",
+        "billingGroup": "Billing",
+        "planBilling": "Plan & billing"
       },
       "ui": {
         "save": "Save",

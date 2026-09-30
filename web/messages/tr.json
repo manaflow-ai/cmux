@@ -353,17 +353,17 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "genel bakış",
-      "team": "ekip",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Genel bakış",
+      "team": "Ekip",
       "mobileDevices": "Mobil cihazlar",
-      "settings": "ayarlar",
-      "teams": "ekipler"
+      "settings": "Ayarlar",
+      "teams": "Ekipler"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
-      "coderouterLink": "coderouter'ı aç",
+      "coderouterLink": "Coderouter'ı aç",
       "iosAppName": "iOS uygulaması",
       "iosAppDescription": "cmux iOS uygulamasını TestFlight üzerinden yükleyin (beta erişimi).",
       "iosLink": "iOS uygulamasını aç"
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
-      "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "title": "Coderouter",
+      "description": "Coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
       "machines": {
         "title": "Makineler",
         "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Ekip oluştur"
-      }
+      },
+      "title": "Plan ve faturalandırma"
     },
     "mobileDevices": {
       "title": "Mobil cihazlar",
@@ -467,7 +468,7 @@
       "relaySettings": "Aktarma ayarları",
       "relaySettingsDescription": "Bu ekibin kullandığı aktarma sunucularını seçin. Her satıra bir URL girin.",
       "saveRelaySettings": "Aktarma ayarlarını kaydet",
-      "eyebrow": "bulut / cihazlar",
+      "eyebrow": "Bulut / cihazlar",
       "scopeActive": "Bu takım gösteriliyor",
       "emptyTitle": "Henüz bağlı cihaz yok",
       "emptyDescription": "Bir cmux cihazı bu takımla eşleştirildiğinde platformu, sürümü ve erişim denetimleriyle birlikte burada görünür.",
@@ -488,7 +489,10 @@
         "account": "Hesap",
         "billing": "Faturalandırma",
         "teamsGroup": "Ekipler",
-        "createTeam": "Ekip oluştur"
+        "createTeam": "Ekip oluştur",
+        "accountGroup": "Hesap",
+        "billingGroup": "Faturalandırma",
+        "planBilling": "Plan ve faturalandırma"
       },
       "ui": {
         "save": "Kaydet",

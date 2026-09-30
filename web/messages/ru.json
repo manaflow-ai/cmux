@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "обзор",
-      "team": "команда",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Обзор",
+      "team": "Команда",
       "mobileDevices": "Мобильные устройства",
-      "settings": "настройки",
-      "teams": "команды"
+      "settings": "Настройки",
+      "teams": "Команды"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Распределяйте LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
-      "coderouterLink": "открыть coderouter",
-      "iosAppName": "приложение iOS",
+      "coderouterLink": "Открыть coderouter",
+      "iosAppName": "Приложение iOS",
       "iosAppDescription": "Установите приложение cmux для iOS через TestFlight (бета-доступ).",
       "iosLink": "Открыть приложение iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Управляйте общими ИИ-аккаунтами и распределяйте запросы с помощью coderouter.",
-      "title": "coderouter",
-      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
+      "title": "Coderouter",
+      "description": "Coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
       "machines": {
         "title": "Машины",
         "description": "Использование coderouter по машинам для {team} за последние {days} дней.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Создать команду"
-      }
+      },
+      "title": "Тариф и оплата"
     },
     "mobileDevices": {
       "title": "Мобильные устройства",
@@ -467,7 +468,7 @@
       "relaySettings": "Настройки ретрансляторов",
       "relaySettingsDescription": "Выберите серверы ретрансляции для этой команды. Введите по одному URL в строке.",
       "saveRelaySettings": "Сохранить настройки ретрансляторов",
-      "eyebrow": "облако / устройства",
+      "eyebrow": "Облако / устройства",
       "scopeActive": "Показаны данные этой команды",
       "emptyTitle": "Подключённых устройств пока нет",
       "emptyDescription": "После сопряжения устройства cmux с этой командой здесь появятся его платформа, версия и настройки доступа.",
@@ -488,7 +489,10 @@
         "account": "Аккаунт",
         "billing": "Оплата",
         "teamsGroup": "Команды",
-        "createTeam": "Создать команду"
+        "createTeam": "Создать команду",
+        "accountGroup": "Аккаунт",
+        "billingGroup": "Оплата",
+        "planBilling": "Тариф и оплата"
       },
       "ui": {
         "save": "Сохранить",

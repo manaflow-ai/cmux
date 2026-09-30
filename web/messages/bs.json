@@ -353,17 +353,17 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "pregled",
-      "team": "tim",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Pregled",
+      "team": "Tim",
       "mobileDevices": "Mobilni uređaji",
-      "settings": "postavke",
-      "teams": "timovi"
+      "settings": "Postavke",
+      "teams": "Timovi"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
-      "coderouterLink": "otvori coderouter",
+      "coderouterLink": "Otvori coderouter",
       "iosAppName": "iOS aplikacija",
       "iosAppDescription": "Instalirajte cmux iOS aplikaciju putem TestFlight-a (beta pristup).",
       "iosLink": "Otvori iOS aplikaciju"
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
-      "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "title": "Coderouter",
+      "description": "Coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
       "machines": {
         "title": "Mašine",
         "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Kreiraj tim"
-      }
+      },
+      "title": "Plan i naplata"
     },
     "mobileDevices": {
       "title": "Mobilni uređaji",
@@ -467,7 +468,7 @@
       "relaySettings": "Postavke releja",
       "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
       "saveRelaySettings": "Sačuvaj postavke releja",
-      "eyebrow": "oblak / uređaji",
+      "eyebrow": "Oblak / uređaji",
       "scopeActive": "Prikazan je ovaj tim",
       "emptyTitle": "Još nema povezanih uređaja",
       "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
@@ -488,7 +489,10 @@
         "account": "Račun",
         "billing": "Naplata",
         "teamsGroup": "Timovi",
-        "createTeam": "Kreiraj tim"
+        "createTeam": "Kreiraj tim",
+        "accountGroup": "Račun",
+        "billingGroup": "Naplata",
+        "planBilling": "Plan i naplata"
       },
       "ui": {
         "save": "Sačuvaj",

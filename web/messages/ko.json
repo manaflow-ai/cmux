@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "개요",
       "team": "팀",
       "mobileDevices": "모바일 기기",
@@ -361,9 +361,9 @@
       "teams": "팀"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
-      "coderouterLink": "coderouter 열기",
+      "coderouterLink": "Coderouter 열기",
       "iosAppName": "iOS 앱",
       "iosAppDescription": "TestFlight(베타 액세스)를 통해 cmux iOS 앱을 설치하세요.",
       "iosLink": "iOS 앱 열기"
@@ -371,8 +371,8 @@
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
-      "title": "coderouter",
-      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "title": "Coderouter",
+      "description": "Coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
       "machines": {
         "title": "머신",
         "description": "최근 {days}일 동안 {team}의 머신별 coderouter 사용량입니다.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "팀 만들기"
-      }
+      },
+      "title": "요금제 및 결제"
     },
     "mobileDevices": {
       "title": "모바일 기기",
@@ -488,7 +489,10 @@
         "account": "계정",
         "billing": "결제",
         "teamsGroup": "팀",
-        "createTeam": "팀 만들기"
+        "createTeam": "팀 만들기",
+        "accountGroup": "계정",
+        "billingGroup": "결제",
+        "planBilling": "요금제 및 결제"
       },
       "ui": {
         "save": "저장",

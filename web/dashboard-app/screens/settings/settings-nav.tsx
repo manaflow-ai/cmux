@@ -41,7 +41,6 @@ export function settingsNavGroups({
     item({ to: "/dashboard/settings/sessions" }, "sessions"),
     ...(allowUserApiKeys ? [item({ to: "/dashboard/settings/api-keys" }, "apiKeys")] : []),
     item({ to: "/dashboard/settings/account" }, "account"),
-    item({ to: "/dashboard/billing" }, "billing"),
   ];
   const teamItems: SettingsSubnavItem[] = [
     ...teams.map((team) => ({
@@ -55,7 +54,8 @@ export function settingsNavGroups({
     item({ to: "/dashboard/teams/new" }, "createTeam"),
   ];
   return [
-    { id: "account", items: account },
+    { id: "account", label: label("accountGroup"), items: account },
+    { id: "billing", label: label("billingGroup"), items: [item({ to: "/dashboard/billing" }, "planBilling")] },
     { id: "teams", label: label("teamsGroup"), items: teamItems },
   ];
 }

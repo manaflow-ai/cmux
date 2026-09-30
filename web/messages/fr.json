@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "aperçu",
-      "team": "équipe",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Aperçu",
+      "team": "Équipe",
       "mobileDevices": "Appareils mobiles",
-      "settings": "réglages",
-      "teams": "équipes"
+      "settings": "Réglages",
+      "teams": "Équipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
-      "coderouterLink": "ouvrir coderouter",
-      "iosAppName": "application iOS",
+      "coderouterLink": "Ouvrir coderouter",
+      "iosAppName": "Application iOS",
       "iosAppDescription": "Installez l'application iOS cmux via TestFlight (accès bêta).",
       "iosLink": "Ouvrir l'application iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
-      "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "title": "Coderouter",
+      "description": "Coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
       "machines": {
         "title": "Machines",
         "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Créer une équipe"
-      }
+      },
+      "title": "Forfait et facturation"
     },
     "mobileDevices": {
       "title": "Appareils mobiles",
@@ -467,7 +468,7 @@
       "relaySettings": "Paramètres du relais",
       "relaySettingsDescription": "Choisissez les serveurs relais utilisés par cette équipe. Saisissez une URL par ligne.",
       "saveRelaySettings": "Enregistrer les paramètres du relais",
-      "eyebrow": "cloud / appareils",
+      "eyebrow": "Cloud / appareils",
       "scopeActive": "Affichage de cette équipe",
       "emptyTitle": "Aucun appareil connecté pour le moment",
       "emptyDescription": "Lorsqu’un appareil cmux est associé à cette équipe, il apparaît ici avec sa plateforme, sa version et ses contrôles d’accès.",
@@ -488,7 +489,10 @@
         "account": "Compte",
         "billing": "Facturation",
         "teamsGroup": "Équipes",
-        "createTeam": "Créer une équipe"
+        "createTeam": "Créer une équipe",
+        "accountGroup": "Compte",
+        "billingGroup": "Facturation",
+        "planBilling": "Forfait et facturation"
       },
       "ui": {
         "save": "Enregistrer",

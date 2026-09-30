@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "przegląd",
-      "team": "zespół",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Przegląd",
+      "team": "Zespół",
       "mobileDevices": "Urządzenia mobilne",
-      "settings": "ustawienia",
-      "teams": "zespoły"
+      "settings": "Ustawienia",
+      "teams": "Zespoły"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
-      "coderouterLink": "otwórz coderouter",
-      "iosAppName": "aplikacja iOS",
+      "coderouterLink": "Otwórz coderouter",
+      "iosAppName": "Aplikacja iOS",
       "iosAppDescription": "Zainstaluj aplikację cmux na iOS przez TestFlight (dostęp beta).",
       "iosLink": "Otwórz aplikację iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
-      "title": "coderouter",
-      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "title": "Coderouter",
+      "description": "Coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
       "machines": {
         "title": "Maszyny",
         "description": "Użycie coderouter na maszynę dla {team} w ciągu ostatnich {days} dni.",
@@ -447,7 +447,8 @@
       },
       "team": {
         "createCta": "Utwórz zespół"
-      }
+      },
+      "title": "Plan i rozliczenia"
     },
     "mobileDevices": {
       "title": "Urządzenia mobilne",
@@ -467,7 +468,7 @@
       "relaySettings": "Ustawienia przekaźnika",
       "relaySettingsDescription": "Wybierz serwery przekaźnikowe używane przez ten zespół. Wpisz jeden URL w wierszu.",
       "saveRelaySettings": "Zapisz ustawienia przekaźnika",
-      "eyebrow": "chmura / urządzenia",
+      "eyebrow": "Chmura / urządzenia",
       "scopeActive": "Wyświetlanie tego zespołu",
       "emptyTitle": "Brak połączonych urządzeń",
       "emptyDescription": "Gdy urządzenie cmux zostanie sparowane z tym zespołem, pojawi się tutaj wraz z platformą, wersją i ustawieniami dostępu.",
@@ -488,7 +489,10 @@
         "account": "Konto",
         "billing": "Rozliczenia",
         "teamsGroup": "Zespoły",
-        "createTeam": "Utwórz zespół"
+        "createTeam": "Utwórz zespół",
+        "accountGroup": "Konto",
+        "billingGroup": "Rozliczenia",
+        "planBilling": "Plan i rozliczenia"
       },
       "ui": {
         "save": "Zapisz",
