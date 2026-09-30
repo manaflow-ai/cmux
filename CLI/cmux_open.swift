@@ -528,7 +528,7 @@ extension CMUXCLI {
         }
 
         static func localized() -> DiffViewerLabels {
-            DiffViewerLabels(values: [
+            DiffViewerLabels(values: reviewParityLabels.merging([
                 "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
                 "addComment": CMUXDiffViewerLocalization.string("diffViewer.addComment", defaultValue: "Add comment"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
@@ -607,7 +607,7 @@ extension CMUXCLI {
                 "switchToSplitDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToSplitDiff", defaultValue: "Switch to split diff"),
                 "switchToUnifiedDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
                 "untitled": CMUXDiffViewerLocalization.string("diffViewer.untitled", defaultValue: "Untitled"),
-            ])
+            ], uniquingKeysWith: { $1 }))
         }
     }
 

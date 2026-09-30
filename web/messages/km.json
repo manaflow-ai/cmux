@@ -353,7 +353,7 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
       "mobileDevices": "ឧបករណ៍ចល័ត",
@@ -361,7 +361,7 @@
       "teams": "ក្រុម"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "coderouterLink": "បើក coderouter",
       "iosAppName": "កម្មវិធី iOS",
@@ -369,10 +369,10 @@
       "iosLink": "បើកកម្មវិធី iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
-      "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "title": "Coderouter",
+      "description": "Coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "machines": {
         "title": "ម៉ាស៊ីន",
         "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
@@ -407,7 +407,8 @@
       "signingOut": "កំពុងចាកចេញ…",
       "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
       "organizationSwitchError": "មិនអាចប្ដូរអង្គការបានទេ។ សូមព្យាយាមម្តងទៀត។",
-      "signIn": "ចូល"
+      "signIn": "ចូល",
+      "upgrade": "ដំឡើង"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "បង្កើតក្រុម"
+      },
+      "title": "គម្រោង និងការចេញវិក្កយបត្រ",
+      "picker": {
+        "current": "គម្រោងបច្ចុប្បន្ន",
+        "upgradeTo": "ដំឡើងទៅ {plan}",
+        "switchTo": "ប្ដូរទៅ {plan}",
+        "cancelPlan": "បោះបង់គម្រោង",
+        "resume": "បន្ត {plan}",
+        "renewsOn": "បន្តនៅ {date}",
+        "endsOn": "បញ្ចប់នៅ {date}",
+        "perMonth": "ក្នុងមួយខែ",
+        "perSeatMonth": "ក្នុងមួយកៅអីក្នុងមួយខែ",
+        "paymentMethod": "គ្រប់គ្រងវិធីបង់ប្រាក់",
+        "invoices": "វិក្កយបត្រ",
+        "heading": "គម្រោង",
+        "actionError": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "unavailable": {
+          "cancelScheduled": "សូមបន្តគម្រោងរបស់អ្នកជាមុនសិន ដើម្បីប្ដូរវា។",
+          "granted": "ផ្ដល់ដោយ cmux។ គ្មានអ្វីត្រូវប្ដូរទេ។",
+          "adminOnly": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះ ដែលអាចប្ដូរគម្រោងបាន។"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "ស្ថានីយ cmux ពេញលេញសម្រាប់ macOS",
+            "ភ្នាក់ងារ CLI ណាមួយជាមួយសោផ្ទាល់ខ្លួនរបស់អ្នក",
+            "ប្រវត្តិវគ្គក្នុងម៉ាស៊ីន"
+          ],
+          "go": [
+            "Cloud VM សកម្ម 1",
+            "40 ម៉ោង VM ក្នុងមួយខែ",
+            "VM ដែលបានរក្សាទុក 2"
+          ],
+          "pro": [
+            "ភ្នាក់ងារពពកនៅលើ Cloud VMs",
+            "RAM 24 GB និង vCPU 6 ចែករំលែកគ្រប់ VM",
+            "កម្មវិធី cmux សម្រាប់ iOS"
+          ],
+          "max": [
+            "RAM 64 GB និង vCPU 16 ចែករំលែកគ្រប់ VM",
+            "ម៉ាស៊ីនធំជាងមុន",
+            "អ្វីៗទាំងអស់ក្នុង Pro"
+          ],
+          "team": [
+            "អ្វីៗទាំងអស់ក្នុង Pro សម្រាប់សមាជិកគ្រប់រូប",
+            "វិក្កយបត្រតែមួយសម្រាប់ក្រុមទាំងមូល",
+            "ការគាំទ្រអាទិភាព"
+          ]
+        },
+        "billedAnnually": "គិតប្រាក់ប្រចាំឆ្នាំ"
+      },
+      "change": {
+        "title": "ប្ដូរទៅ {plan}?",
+        "upgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ថ្ងៃនេះអ្នកបង់ {amount} សម្រាប់រយៈពេលនៅសល់នៃវដ្ដវិក្កយបត្រនេះ។ ចាប់ពី {date} អ្នកបង់ {price} ក្នុងមួយខែ។",
+        "downgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ផ្នែកមិនបានប្រើនៃគម្រោងបច្ចុប្បន្ន {credit} នឹងកាត់កងក្នុងវិក្កយបត្របន្ទាប់។ វិក្កយបត្របន្ទាប់នៅ {date} គឺ {amount}។",
+        "confirm": "ប្ដូរទៅ {plan}",
+        "keep": "រក្សាគម្រោងបច្ចុប្បន្ន",
+        "switching": "កំពុងប្ដូរ…",
+        "previewError": "មិនអាចគណនាតម្លៃបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "paymentFailed": "កាតរបស់អ្នកត្រូវបានបដិសេធ។ សូមធ្វើបច្ចុប្បន្នភាពវិធីបង់ប្រាក់ រួចព្យាយាមម្ដងទៀត។",
+        "error": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+      },
+      "cancelDialog": {
+        "title": "បោះបង់ {plan}?",
+        "body": "អ្នកនៅតែប្រើ {plan} រហូតដល់ {date}។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "bodyNoDate": "អ្នកនៅតែប្រើ {plan} រហូតដល់ចុងវដ្ដវិក្កយបត្រនេះ។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "reasonLabel": "ហេតុអ្វីអ្នកបោះបង់? (ស្រេចចិត្ត)",
+        "otherPlaceholder": "ប្រាប់យើងបន្ថែម (ស្រេចចិត្ត)",
+        "confirm": "បោះបង់គម្រោង",
+        "keep": "រក្សា {plan}",
+        "error": "មិនអាចបោះបង់គម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "resumeError": "មិនអាចបន្តគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "reasons": {
+          "too_expensive": "ថ្លៃពេក",
+          "missing_feature": "ខ្វះមុខងារដែលខ្ញុំត្រូវការ",
+          "not_using": "មិនសូវប្រើ",
+          "other": "ផ្សេងទៀត"
+        }
+      },
+      "welcome": {
+        "title": "សូមស្វាគមន៍មកកាន់ {plan}",
+        "body": "គម្រោងរបស់អ្នកសកម្មហើយ។ សាកល្បងទាំងនេះមុន៖",
+        "ios": "ដំឡើងកម្មវិធី iOS",
+        "cloud": "បើក Cloud",
+        "team": "បង្កើតក្រុម",
+        "banner": "ឥឡូវនេះអ្នកកំពុងប្រើ {plan}។",
+        "bannerLink": "គម្រោង និងការចេញវិក្កយបត្រ"
       }
     },
     "mobileDevices": {
@@ -488,7 +582,10 @@
         "account": "គណនី",
         "billing": "ការទូទាត់",
         "teamsGroup": "ក្រុម",
-        "createTeam": "បង្កើតក្រុម"
+        "createTeam": "បង្កើតក្រុម",
+        "accountGroup": "គណនី",
+        "billingGroup": "ការចេញវិក្កយបត្រ",
+        "planBilling": "គម្រោង និងការចេញវិក្កយបត្រ"
       },
       "ui": {
         "save": "រក្សាទុក",
@@ -1030,7 +1127,9 @@
       "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
       "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។",
       "apiKeysEmptyTitle": "មិនទាន់មាន API key នៅឡើយទេ",
-      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។"
+      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
+      "unavailableTitle": "គណនីដែលបានចែករំលែកមិនអាចប្រើបានទេ",
+      "unavailableBody": "cmux មិនអាចភ្ជាប់ទៅសេវាគណនីចែករំលែកបានទេពេលនេះ។ គណនីដែលបន្ថែមដោយ cr add និងគណនី Anthropic និង Bedrock នៅតែដំណើរការ។"
     },
     "notFound": {
       "title": "រកមិនឃើញទំព័រ",
@@ -1050,6 +1149,14 @@
       },
       "retry": "ព្យាយាមម្តងទៀត",
       "retrying": "កំពុងព្យាយាមម្តងទៀត…"
+    },
+    "upgrade": {
+      "title": "ត្រូវការ Pro",
+      "cloud": "Cloud VMs និងភ្នាក់ងារពពកជាផ្នែកមួយនៃ Pro។",
+      "testflight": "កម្មវិធី cmux សម្រាប់ iOS ជាផ្នែកមួយនៃ Pro។",
+      "mobileDevices": "ការភ្ជាប់ទូរសព្ទ និងថេប្លេតរបស់អ្នកជាផ្នែកមួយនៃ Pro។",
+      "action": "ដំឡើងទៅ Pro",
+      "comparePlans": "ប្រៀបធៀបគម្រោង"
     }
   },
   "community": {
@@ -2041,6 +2148,8 @@
       "customActionsDesc": "<actions>actions</actions> គឺជាធាតុដែល cmux រត់ឡើងវិញបាន។ ប្រើ actions នៅពេល behavior ដូចគ្នាត្រូវមានពី Command Palette, surface tab bar, shortcuts ឬ menu របស់ plus button។ ទុក <commands>commands</commands> សម្រាប់ shell commands និង workspace layouts ដែលប្រើឡើងវិញ។ ដាក់ <palette>palette</palette> ជា false នៅពេល action មិនគួរបង្ហាញក្នុង Command Palette។",
       "actionTypes": "ប្រភេទ action",
       "actionTypeBuiltin": "Alias ទៅ built-in cmux action ដូចជា cmux.newTerminal, cmux.newBrowser, cmux.splitRight ឬ cmux.splitDown។",
+      "actionTypeBuiltinCopy": "សកម្មភាពចម្លងដែលមានស្រាប់៖ cmux.copyWorkingDirectory ចម្លងថតធ្វើការរបស់ terminal, cmux.copyProjectRoot ចម្លងឫសនៃ git repository របស់វា (ឬថតធ្វើការ នៅពេលនៅក្រៅ repository) ហើយ cmux.copyScreen ចម្លងអេក្រង់ដែលមើលឃើញ។",
+      "actionTypeBuiltinCopyRemote": "នៅក្នុង workspace SSH, cloud ឬ tmux ពីចម្ងាយ cmux.copyProjectRoot ចម្លងថតធ្វើការពីចម្ងាយ ព្រោះ cmux មិនអាចរក git repository នៅលើ host ផ្សេងបានទេ។",
       "actionTypeCommand": "រត់ shell text ក្នុង terminal។ ប្រើ target ដើម្បីជ្រើស terminal បច្ចុប្បន្ន ឬ tab ថ្មីក្នុង pane បច្ចុប្បន្ន។",
       "actionTypeAgent": "ចាប់ផ្តើម coding agent ដែលគាំទ្រ។ បច្ចុប្បន្នគាំទ្រ codex និង claude ជាមួយ args ជម្រើស។",
       "actionTypeWorkspaceCommand": "រត់ named workspace definition ពី commands។ ប្រើវាសម្រាប់ multi-pane layouts, working directories ផ្ទាល់ខ្លួន និង startup commands។",

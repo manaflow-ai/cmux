@@ -2011,7 +2011,16 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
+        let handled = workspaceReordering.reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation
+        )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
     }
 
     func sidebarReorderWorkspaceIds(
@@ -2060,13 +2069,18 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspace(
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
+        let handled = workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
     }
 
     @discardableResult
@@ -2078,7 +2092,8 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspaces(
+        let previousMemberships = workspaceGroupMemberships(for: tabIds)
+        let handled = workspaceReordering.reorderSidebarWorkspaces(
             tabIds: tabIds,
             draggedTabId: draggedTabId,
             toIndex: targetIndex,
@@ -2086,6 +2101,36 @@ class TabManager: ObservableObject {
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
+    }
+
+    private func workspaceGroupMemberships(for workspaceIds: [UUID]) -> [UUID: UUID] {
+        let requestedIds = Set(workspaceIds)
+        return Dictionary(uniqueKeysWithValues: tabs.compactMap { workspace in
+            guard requestedIds.contains(workspace.id), let groupId = workspace.groupId else {
+                return nil
+            }
+            return (workspace.id, groupId)
+        })
+    }
+
+    private func cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+        previousMemberships: [UUID: UUID]
+    ) {
+        let removedMemberships = previousMemberships.filter { workspaceId, groupId in
+            workspacesById[workspaceId]?.groupId != groupId
+        }
+        for groupId in Set(removedMemberships.values) {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: groupId,
+                additionalMovedWorkspaceIds: removedMemberships.compactMap { workspaceId, previousGroupId in
+                    previousGroupId == groupId ? workspaceId : nil
+                }
+            )
+        }
     }
 
     func sidebarReorderUsesTopLevelRows(
@@ -2135,7 +2180,10 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, before: beforeId, after: afterId, isDragOperation: isDragOperation)
+        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else {
+            return false
+        }
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
@@ -2278,6 +2326,21 @@ class TabManager: ObservableObject {
         return anchor
     }
 
+    /// Resolves the target for a group header click. A generated anchor that
+    /// has never received explicit input is only an empty shell, so a header
+    /// click should select the first real member instead of exposing it.
+    func workspaceGroupHeaderTarget(for groupId: UUID) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }),
+              let anchor = workspaceGroupAnchor(for: groupId) else {
+            return nil
+        }
+        guard group.anchorWorkspaceProvenance == .generated,
+              workspaceGroupGeneratedAnchorIsUntouched(anchor) else {
+            return anchor
+        }
+        return tabs.first { $0.groupId == groupId && $0.id != anchor.id } ?? anchor
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
@@ -2372,6 +2435,21 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false,
             normalizeWorkspaceGroupsAfterInsert: false
         )
+    }
+
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Workspace) -> Bool {
+        guard anchor.customTitle == nil || anchor.customTitleSource == .auto,
+              anchor.customDescription == nil,
+              anchor.panels.count == 1,
+              let panel = anchor.panels.values.first as? TerminalPanel,
+              !panel.hasReceivedExplicitInput,
+              panel.surface.initialCommand == nil,
+              panel.surface.initialInput == nil,
+              panel.surface.tmuxStartCommand == nil,
+              anchor._dockSplit?.panels.isEmpty ?? true else {
+            return false
+        }
+        return true
     }
 
     func createWorkspaceForGroup(
@@ -2540,6 +2618,10 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            let closedWorkspaceGroupId = workspace.groupId
+            let closedWorkspaceWasGroupAnchor = closedWorkspaceGroupId.flatMap { groupId in
+                workspaces.workspaceGroups.first(where: { $0.id == groupId })?.liveAnchorWorkspaceId
+            } == workspace.id
             // Real-close path: if the closed workspace anchored a group, keep
             // the group by promoting its first remaining member (in tabs order)
             // to anchor so closing one workspace only closes that workspace and
@@ -2549,6 +2631,14 @@ class TabManager: ObservableObject {
             // didSet) so transient remove/insert reorders never trigger the
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+
+            if let closedWorkspaceGroupId,
+               !closedWorkspaceWasGroupAnchor {
+                _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                    groupId: closedWorkspaceGroupId,
+                    additionalMovedWorkspaceIds: [workspace.id]
+                )
+            }
 
             if selectedTabId == workspace.id,
                let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
@@ -2654,10 +2744,17 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
+        let removedWorkspaceGroupId = removed.groupId
         // Same anchor-close lifecycle as closeWorkspace: an unpinned group's
         // anchor dissolves it, while a pinned group promotes a remaining member
         // or retains an empty header.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
+        if let removedWorkspaceGroupId {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: removedWorkspaceGroupId,
+                additionalMovedWorkspaceIds: [removed.id]
+            )
+        }
         // Clear the detached workspace's own group membership so the
         // destination window — which has no matching WorkspaceGroup — doesn't
         // render it as an orphaned indented row with stale grouping state.
@@ -2730,8 +2827,17 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults)
-            .warningKinds(requiresConfirmation: true, source: .shortcut)
+        let warningStore = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+        let hasActiveProcess = plan.panelIds.contains {
+            plan.workspace.panelNeedsConfirmClose(panelId: $0)
+        }
+        var warningKinds = warningStore.warningKinds(
+            requiresConfirmation: true,
+            source: .shortcut
+        )
+        if hasActiveProcess {
+            warningKinds.insert(.safety)
+        }
         if !warningKinds.isEmpty {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
@@ -2849,19 +2955,28 @@ class TabManager: ObservableObject {
         // "Don't ask again": no setting may silence the protection pinning
         // asked for.
         let containsPinned = plan.workspaces.contains(where: \.isPinned)
+        let windowDockNeedsConfirmation = plan.willCloseWindow
+            && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
+        let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
+            || windowDockNeedsConfirmation
         let showsBatchConfirmation: Bool
-        let dontAskAgain: CloseWarningKinds
+        var dontAskAgain: CloseWarningKinds
         if containsPinned {
-            showsBatchConfirmation = shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+                .shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut)
             dontAskAgain = []
         } else if plan.willCloseWindow {
             // A batch that closes the whole window follows the window warning
             // policy. The tab warning must not suppress this prompt.
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+                || hasActiveProcess
             dontAskAgain = .window
+            if hasActiveProcess { dontAskAgain.insert(.safety) }
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+                || hasActiveProcess
             dontAskAgain = .workspace
+            if hasActiveProcess { dontAskAgain.insert(.safety) }
         }
         if showsBatchConfirmation {
             guard confirmClose(
@@ -3147,15 +3262,24 @@ class TabManager: ObservableObject {
         // grouped instead of scattering to root. No special anchor prompt is
         // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
+        let windowDockNeedsConfirmation = willCloseWindow
+            && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
+            || windowDockNeedsConfirmation
         let showsCloseConfirmation = requiresConfirmation
-            && shouldConfirmWorkspaceClose(requiresConfirmation: needsCloseConfirmation, source: source)
+            && (needsCloseConfirmation
+                || shouldConfirmWorkspaceClose(
+                    requiresConfirmation: needsCloseConfirmation,
+                    source: source
+                ))
+        var dontAskAgain: CloseWarningKinds = .workspace
+        if needsCloseConfirmation { dontAskAgain.insert(.safety) }
         if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
                acceptCmdD: willCloseWindow,
-               dontAskAgain: .workspace
+               dontAskAgain: dontAskAgain
            ) {
             return false
         }
@@ -3183,12 +3307,12 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: requiresConfirmation,
                 source: .shortcut
             )
         case .tabCloseButton:
-            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: requiresConfirmation,
                 source: .tabCloseButton
             )
@@ -3201,7 +3325,30 @@ class TabManager: ObservableObject {
     /// never removes the protection a user asked for by pinning.
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
-            && shouldConfirmClose(requiresConfirmation: requiresConfirmation, source: source)
+            && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// Applies the user-configured warning toggles without turning the
+    /// `requiresConfirmation` argument into a safety warning. Workspace and
+    /// batch gates use this seam before they have established whether any
+    /// panel contains a live process; the actual close path uses
+    /// `shouldConfirmClose`, which also includes the non-suppressible safety
+    /// gate.
+    private func shouldConfirmConfiguredClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
+        switch source {
+        case .workspace:
+            return requiresConfirmation
+        case .tabClose:
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .shortcut
+            )
+        case .tabCloseButton:
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            )
+        }
     }
 
     /// Whether the Close Window command should ask before closing this
@@ -3209,10 +3356,15 @@ class TabManager: ObservableObject {
     /// closes with the window needs close confirmation, either in a workspace
     /// or in the window Dock (which the caller owns and checks).
     func shouldConfirmWindowClose(windowDockNeedsConfirmation: Bool) -> Bool {
-        CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmWindowClose(
-            anyPanelNeedsConfirmation: windowDockNeedsConfirmation
-                || tabs.contains(where: workspaceNeedsConfirmClose)
-        )
+        let anyPanelNeedsConfirmation = windowDockNeedsConfirmation
+            || tabs.contains(where: workspaceNeedsConfirmClose)
+        if anyPanelNeedsConfirmation {
+            // A live foreground process must always get a chance to survive a
+            // window close, even when the ordinary window warning is disabled.
+            return true
+        }
+        return CloseTabWarningStore(defaults: closeTabWarningDefaults)
+            .shouldConfirmWindowClose(anyPanelNeedsConfirmation: false)
     }
 
     private enum PinnedWorkspaceCloseConfirmation {
@@ -3358,7 +3510,7 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         )
@@ -3537,13 +3689,17 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
+    func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] == "1" {
             return true
         }
 #endif
         return workspace.needsConfirmClose()
+    }
+
+    func workspaceNeedsConfirmCloseForClose(_ workspace: Workspace) -> Bool {
+        workspaceNeedsConfirmClose(workspace)
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
@@ -3978,6 +4134,17 @@ class TabManager: ObservableObject {
     @discardableResult
     func dismissNotificationOnDirectInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
         notificationDismissal.dismissNotificationOnDirectInteraction(workspaceId: tabId, surfaceId: surfaceId)
+    }
+
+    /// A rendered pane is a visible read, even when it is a non-focused split
+    /// surface. Keep the selection guard and active-app policy in the shared
+    /// dismissal model while targeting that concrete panel.
+    func dismissNotificationOnVisiblePanel(tabId: UUID, panelId: UUID) {
+        notificationDismissal.dismissPanelNotificationOnFocus(
+            workspaceId: tabId,
+            panelId: panelId,
+            explicitFocusIntent: false
+        )
     }
 
     @discardableResult
@@ -7260,7 +7427,7 @@ enum WelcomeBannerDelivery: Equatable {
 /// button closes the dialog, like the Cmd+Q warning's checkbox.
 enum CloseDontAskAgainCheckbox {
     static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
-        guard !kinds.isEmpty else { return }
+        guard !kinds.subtracting(.safety).isEmpty else { return }
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = String(
             localized: "dialog.close.dontAskAgain",
@@ -7269,7 +7436,8 @@ enum CloseDontAskAgainCheckbox {
     }
 
     static func apply(from alert: NSAlert, offering kinds: CloseWarningKinds, defaults: UserDefaults) {
-        guard !kinds.isEmpty, alert.suppressionButton?.state == .on else { return }
-        CloseTabWarningStore(defaults: defaults).disableWarnings(kinds)
+        let dismissibleKinds = kinds.subtracting(.safety)
+        guard !dismissibleKinds.isEmpty, alert.suppressionButton?.state == .on else { return }
+        CloseTabWarningStore(defaults: defaults).disableWarnings(dismissibleKinds)
     }
 }
