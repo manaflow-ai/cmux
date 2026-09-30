@@ -147,7 +147,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testVMRunConcurrentBindingsKeepBothDirectories() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-run-bindings-(UUID().uuidString.prefix(8))")
+            .appendingPathComponent("cmux-vm-run-bindings-\(UUID().uuidString.prefix(8))")
         let storeURL = root.appendingPathComponent("vm-run-bindings.json")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

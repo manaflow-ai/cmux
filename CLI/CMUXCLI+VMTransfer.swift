@@ -1234,11 +1234,11 @@ extension CMUXCLI {
         let lockPath = storeURL.path + ".lock"
         let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard lockFD >= 0 else {
-            throw CLIError(message: "vm run: could not open the binding lock at (lockPath): (String(cString: strerror(errno)))")
+            throw CLIError(message: "vm run: could not open the binding lock at \(lockPath): \(String(cString: strerror(errno)))")
         }
         defer { close(lockFD) }
         guard flock(lockFD, LOCK_EX) == 0 else {
-            throw CLIError(message: "vm run: could not lock the binding store at (lockPath): (String(cString: strerror(errno)))")
+            throw CLIError(message: "vm run: could not lock the binding store at \(lockPath): \(String(cString: strerror(errno)))")
         }
         defer { _ = flock(lockFD, LOCK_UN) }
         var store = loadVMRunBindings(from: storeURL)
