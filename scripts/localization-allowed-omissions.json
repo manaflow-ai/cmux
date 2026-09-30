@@ -64,6 +64,12 @@
       "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "update.pill.update": {
+    "source": "Update",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale (matches update.available.short \"Update verfügbar\"); a translated entry is still required."
+    }
+  },
   "agent.codex.error.subtitle.generic": {
     "source": "Error",
     "identityLocales": {

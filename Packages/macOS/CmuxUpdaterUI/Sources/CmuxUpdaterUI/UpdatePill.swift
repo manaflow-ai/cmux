@@ -52,7 +52,7 @@ public struct UpdatePill: View {
                 UpdateBadge(model: model, appearance: appearance)
                     .frame(width: 14, height: 14)
 
-                Text(model.text)
+                Text(model.pillText)
                     .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -97,7 +97,7 @@ public struct UpdatePill: View {
     private var textWidth: CGFloat? {
         _ = globalFontPercent
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
-        let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
+        let size = (model.pillMaxWidthText as NSString).size(withAttributes: attributes)
         return size.width
     }
 }
