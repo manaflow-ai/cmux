@@ -142,6 +142,42 @@ import Testing
         }
     }
 
+    /// A clip's encoded size is fixed by its first frame, so a window that grows
+    /// past the gif pixel ceiling mid-clip has to be cropped into that size
+    /// rather than ending the recording over a size nothing encodes.
+    @Test func aMidClipCropIgnoresTheGIFPixelCeiling() throws {
+        let request = try WindowRecordingRequest(
+            format: .gif,
+            scale: 1,
+            maximumWidth: .some(WindowRecordingRequest.gifMaximumWidth)
+        )
+
+        let planned = try WindowRecordingFrameGeometry.planCrop(
+            windowPixelWidth: 1280,
+            windowPixelHeight: 4000,
+            pointPixelScale: 1,
+            request: request
+        )
+
+        #expect(planned.cropWidth == 1280)
+        #expect(planned.cropHeight == 4000)
+    }
+
+    /// The one resize that still ends a clip: a region the window has shrunk
+    /// out of has no rectangle left to sample.
+    @Test func aMidClipCropStillFailsForARegionOutsideTheWindow() throws {
+        let request = try WindowRecordingRequest.make(params: ["region": "900,20,200,100"])
+
+        #expect(throws: WindowRecordingFrameGeometry.Failure.regionOutsideWindow) {
+            try WindowRecordingFrameGeometry.planCrop(
+                windowPixelWidth: 400,
+                windowPixelHeight: 300,
+                pointPixelScale: 1,
+                request: request
+            )
+        }
+    }
+
     @Test func anEmptyWindowFails() throws {
         #expect(throws: WindowRecordingFrameGeometry.Failure.emptyWindow) {
             try plan(windowPixelWidth: 0)
