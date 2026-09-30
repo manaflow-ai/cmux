@@ -2204,7 +2204,8 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerNextFile",
               "diffViewerPreviousFile",
               "diffViewerNextHunk",
-              "diffViewerPreviousHunk"
+              "diffViewerPreviousHunk",
+              "diffViewerToggleViewed"
             ]
           },
           "properties": {
@@ -2251,6 +2252,9 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerToggleViewed": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
