@@ -751,17 +751,5 @@
     "arguments": [
       2
     ]
-  },
-  "cloudInvite.recipients.many": {
-    "source": "%d people",
-    "arguments": [
-      1
-    ]
-  },
-  "cloudInvite.send.count": {
-    "source": "Send %d Invites",
-    "arguments": [
-      1
-    ]
   }
 }
