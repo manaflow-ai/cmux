@@ -33,8 +33,8 @@ struct CoderouterAccountsPanel: View {
                     accountsSection
                 }
                 .padding(.bottom, 8)
-                .frame(height: 238)
                 }
+                .frame(height: 238)
             }
         }
         .background(Color(nsColor: chromeBackgroundColor).opacity(0.18))
