@@ -1,11 +1,14 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// Agent actions. Forks read the agent session the daemon reports for the
 /// focused terminal (`TabModel.agent`, from `list-agents` state) and start
 /// `claude --resume <session> --fork-session` in a new terminal placed by
-/// daemon commands. Chat, Teams, and Computer Use are typed-unavailable.
+/// daemon commands. New Agent Chat opens the React acpmux pane in a tab
+/// (CmuxNextAgentPane). Terminal-as-chat, Teams, and Computer Use are
+/// typed-unavailable.
 enum AgentHandlers {
     enum Placement {
         case right, left, above, below, newTab, newWorkspace
@@ -22,7 +25,11 @@ enum AgentHandlers {
         }
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
-        registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
+        AgentPaneActions.bind(into: registry) { invocation in
+            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            pane.newAgentTab()
+        }
+        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],

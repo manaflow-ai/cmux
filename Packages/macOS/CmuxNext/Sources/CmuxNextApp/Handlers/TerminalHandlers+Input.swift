@@ -11,6 +11,8 @@ extension TerminalHandlers {
         registry.bind("find", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             switch content {
+            case .agent:
+                return ctx.refuse(RefusalStrings.notATerminal)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
@@ -55,6 +57,8 @@ extension TerminalHandlers {
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (_, content) = ctx.visibleContent(invocation) else { return }
         switch content {
+        case .agent:
+            return ctx.refuse(RefusalStrings.notATerminal)
         case .browser(let entry):
             entry.chrome.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):

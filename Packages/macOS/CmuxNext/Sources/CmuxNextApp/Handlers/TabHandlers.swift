@@ -50,6 +50,8 @@ enum TabHandlers {
                 pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
+            } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+                pane.newAgentTab()
             } else {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }

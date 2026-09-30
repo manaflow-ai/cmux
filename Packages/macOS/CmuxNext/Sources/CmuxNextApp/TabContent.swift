@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
@@ -7,11 +8,14 @@ import CmuxNextTerminal
 enum TabContent {
     case terminal(TerminalEntry)
     case browser(BrowserEntry)
+    /// An agent chat tab (`LocalAgentTab`), the React pane in a web view.
+    case agent(AgentPaneView)
 
     var view: NSView {
         switch self {
         case .terminal(let entry): entry.session.view
         case .browser(let entry): entry.chrome
+        case .agent(let view): view
         }
     }
 
@@ -20,6 +24,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
+        case .agent(let view): view.webView
         }
     }
 }

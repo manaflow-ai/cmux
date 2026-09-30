@@ -83,6 +83,8 @@ final class AppServices {
     let popups = BrowserPopupPanels()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// Agent chat tabs and their shared acpmux host (New Agent Chat).
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag)
 
     init(environment: AppEnvironment) {
         self.environment = environment

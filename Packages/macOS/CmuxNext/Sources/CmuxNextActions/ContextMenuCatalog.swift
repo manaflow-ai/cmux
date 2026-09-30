@@ -60,7 +60,7 @@ public enum ContextMenuCatalog {
     /// The + button: one entry per tab kind. Chromium shows disabled, with
     /// its reason, when this build has no CEF runtime.
     static let newTab: [ContextMenuEntry] =
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab")
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab", "palette.newAgentChat")
 
     static let tab: [ContextMenuEntry] =
         actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]

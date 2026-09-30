@@ -132,6 +132,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.isDormant = services.cache.dormantTabs.contains(local.id)
             items.append(item)
         }
+        for key in services.agentTabs.tabIDs(in: paneKey) where !pendingClosed.contains(key) {
+            items.append(services.agentTabs.stripItem(key))
+        }
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
@@ -214,6 +217,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func content(for key: String) -> TabContent? {
+        if key.hasPrefix(LocalAgentTab.prefix) { return services.agentTabs.view(for: key).map(TabContent.agent) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
@@ -240,6 +244,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// `key`'s live content, if its surface or page exists.
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
+        if let view = services.agentTabs.existingView(key) { return .agent(view) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
 
@@ -247,6 +252,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var selectedContentIsAlive: Bool {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
+            || services.agentTabs.existingView(key) != nil
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.
