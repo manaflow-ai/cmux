@@ -38,6 +38,7 @@ hyper.workspace = true
 hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
+notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

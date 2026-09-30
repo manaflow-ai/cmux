@@ -103,6 +103,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
         private var lastContentRevision: Int = -1
+        /// Git status arrives separately from listings (Cloud and SSH run it remotely),
+        /// so a status-only change must still redraw the visible rows.
+        private var lastGitStatusByPath: [String: GitFileStatus] = [:]
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -212,6 +215,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             let newCount = store.rootNodes.count
             let newContentRevision = store.contentRevision
+            let gitStatusChanged = store.gitStatusByPath != lastGitStatusByPath
+            lastGitStatusByPath = store.gitStatusByPath
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount || newContentRevision != lastContentRevision {
                     lastRootNodeCount = newCount
@@ -221,6 +226,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     restoreExpansionState(expandedPaths, in: outlineView)
                 } else {
                     refreshLoadedNodes(in: outlineView)
+                    if gitStatusChanged, outlineView.numberOfRows > 0 {
+                        outlineView.reloadData(
+                            forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
+                            columnIndexes: IndexSet(integer: 0)
+                        )
+                    }
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }

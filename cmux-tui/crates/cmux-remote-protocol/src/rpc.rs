@@ -156,6 +156,8 @@ pub enum RemoteCapability {
     ProcessTerminalSnapshotV1,
     RequestControlV1,
     ComputerUseV1,
+    /// `watch-directories`, `watch-poll`, and `unwatch` are available.
+    WorkspaceWatchV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -387,6 +389,20 @@ pub enum WorkspaceRequest {
     CancelComputerUse {
         invocation: ComputerUseInvocationId,
     },
+    /// Watch the direct entries of workspace-relative directories.
+    WatchDirectories {
+        workspace: WorkspaceId,
+        paths: Vec<String>,
+    },
+    /// Long-poll for watched directories that changed after `after`.
+    WatchPoll {
+        watch: String,
+        after: u64,
+        timeout_ms: u32,
+    },
+    Unwatch {
+        watch: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -522,6 +538,15 @@ pub enum WorkspaceResponse {
         invocation: ComputerUseInvocationId,
         accepted: bool,
     },
+    WatchStarted {
+        watch: String,
+    },
+    WatchChanges {
+        sequence: u64,
+        paths: Vec<String>,
+        overflow: bool,
+    },
+    Unwatched,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1004,6 +1029,58 @@ mod tests {
         let encoded = serde_json::to_value(Service::TerminalBytes).unwrap();
         assert_eq!(encoded, "terminal-bytes-v1");
         assert_eq!(serde_json::from_value::<Service>(encoded).unwrap(), Service::TerminalBytes);
+    }
+
+    #[test]
+    fn workspace_watch_wire_shapes_are_stable() {
+        assert_eq!(
+            serde_json::to_value(RemoteCapability::WorkspaceWatchV1).unwrap(),
+            "workspace-watch-v1"
+        );
+        let cases = [
+            (
+                serde_json::to_value(WorkspaceRequest::WatchDirectories {
+                    workspace: WorkspaceId("w".into()),
+                    paths: vec![String::new(), "src".into()],
+                })
+                .unwrap(),
+                serde_json::json!({"type":"watch-directories","workspace":"w","paths":["","src"]}),
+            ),
+            (
+                serde_json::to_value(WorkspaceRequest::WatchPoll {
+                    watch: "x".into(),
+                    after: 3,
+                    timeout_ms: 25_000,
+                })
+                .unwrap(),
+                serde_json::json!({"type":"watch-poll","watch":"x","after":3,"timeout_ms":25000}),
+            ),
+            (
+                serde_json::to_value(WorkspaceRequest::Unwatch { watch: "x".into() }).unwrap(),
+                serde_json::json!({"type":"unwatch","watch":"x"}),
+            ),
+            (
+                serde_json::to_value(WorkspaceResponse::WatchStarted { watch: "x".into() })
+                    .unwrap(),
+                serde_json::json!({"type":"watch-started","watch":"x"}),
+            ),
+            (
+                serde_json::to_value(WorkspaceResponse::WatchChanges {
+                    sequence: 4,
+                    paths: vec!["src".into()],
+                    overflow: false,
+                })
+                .unwrap(),
+                serde_json::json!({"type":"watch-changes","sequence":4,"paths":["src"],"overflow":false}),
+            ),
+            (
+                serde_json::to_value(WorkspaceResponse::Unwatched).unwrap(),
+                serde_json::json!({"type":"unwatched"}),
+            ),
+        ];
+        for (encoded, expected) in cases {
+            assert_eq!(encoded, expected);
+        }
     }
 
     #[test]

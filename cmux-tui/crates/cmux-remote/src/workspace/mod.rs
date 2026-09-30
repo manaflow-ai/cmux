@@ -6,6 +6,7 @@
 
 mod blocking;
 mod codex_patch;
+mod directory_watch;
 mod files;
 mod git;
 mod patch;
@@ -25,6 +26,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{Notify, RwLock, watch};
 
 use blocking::WorkspaceBlockingPool;
+use directory_watch::{WatchManager, WatchSelection};
 use path::WorkspaceRoot;
 use process::{ProcessManager, ProcessSpawnOptions};
 pub use process::{ProcessSubscription, ProcessSubscriptionError};
@@ -43,6 +45,7 @@ struct WorkspaceServiceInner {
     processes: ProcessManager,
     queries: Arc<WorkspaceQueryService>,
     routes: RouteManager,
+    watches: Arc<WatchManager>,
     computer_capabilities: Vec<ComputerUseCapability>,
     request_control: StdMutex<RequestControlState>,
     activity_changed: Notify,
@@ -198,6 +201,7 @@ impl WorkspaceService {
                 processes: ProcessManager::default(),
                 queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
+                watches: Arc::default(),
                 computer_capabilities,
                 request_control: StdMutex::new(RequestControlState::default()),
                 activity_changed: Notify::new(),
@@ -215,6 +219,7 @@ impl WorkspaceService {
                 processes: ProcessManager::default(),
                 queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
+                watches: Arc::default(),
                 computer_capabilities: Vec::new(),
                 request_control: StdMutex::new(RequestControlState::default()),
                 activity_changed: Notify::new(),
@@ -469,6 +474,7 @@ impl WorkspaceService {
                     RemoteCapability::ProcessHandlesV2,
                     RemoteCapability::ProcessCatalogV1,
                     RemoteCapability::RequestControlV1,
+                    RemoteCapability::WorkspaceWatchV1,
                 ];
                 #[cfg(unix)]
                 let capabilities = {
@@ -649,7 +655,84 @@ impl WorkspaceService {
             WorkspaceRequest::CancelComputerUse { invocation } => {
                 Ok(WorkspaceResponse::ComputerUseCanceled { invocation, accepted: false })
             }
+            WorkspaceRequest::WatchDirectories { workspace, paths } => {
+                self.watch_directories(scope, workspace, paths).await
+            }
+            WorkspaceRequest::WatchPoll { watch, after, timeout_ms } => {
+                self.inner.watches.poll(&watch, after, timeout_ms).await
+            }
+            WorkspaceRequest::Unwatch { watch } => {
+                let watches = Arc::clone(&self.inner.watches);
+                self.inner
+                    .blocking
+                    .run("unwatch", move || {
+                        watches.remove_id(&watch);
+                        Ok(())
+                    })
+                    .await?;
+                Ok(WorkspaceResponse::Unwatched)
+            }
         }
+    }
+
+    async fn watch_directories(
+        &self,
+        scope: &ClientScope,
+        workspace: WorkspaceId,
+        paths: Vec<String>,
+    ) -> Result<WorkspaceResponse, RpcError> {
+        if paths.len() > directory_watch::MAX_WATCH_PATHS {
+            return Err(directory_watch::limit_exceeded_paths());
+        }
+        let root = self.workspace_for(scope, &workspace).await?;
+        let mut directories = Vec::with_capacity(paths.len());
+        for requested in paths {
+            // Resolve exactly like list-directory: no escape through `..` or
+            // symlinks, and the target must be an existing directory.
+            let normalized = path::normalize_protocol_path(&requested)?;
+            let resolved = root.resolve_existing(&requested).await?;
+            let metadata = tokio::fs::metadata(&resolved)
+                .await
+                .map_err(|error| path::io_error("watch-directories", &resolved, error))?;
+            if !metadata.is_dir() {
+                return Err(RpcError::new(
+                    "not-a-directory",
+                    format!("watch-directories {normalized:?}: not a directory"),
+                ));
+            }
+            directories.push((normalized, resolved));
+        }
+        let watches = Arc::clone(&self.inner.watches);
+        let owner = scope.clone();
+        let leased = workspace.clone();
+        let watch = self
+            .inner
+            .blocking
+            .run("watch-directories", move || watches.watch(&owner, workspace, directories))
+            .await?;
+        // A close-workspace or client close that ran while the watch was being
+        // registered has already released this scope's watches; do not leave
+        // this one behind.
+        let still_open = {
+            let catalog = self.inner.catalog.read().await;
+            catalog.leases.get(scope).is_some_and(|leases| leases.contains(&leased))
+        };
+        if !still_open {
+            let watches = Arc::clone(&self.inner.watches);
+            let orphan = watch.clone();
+            let _ = tokio::task::spawn_blocking(move || watches.remove_id(&orphan)).await;
+            return Err(unknown_workspace(&leased));
+        }
+        Ok(WorkspaceResponse::WatchStarted { watch })
+    }
+
+    /// Drop watches and their kernel registrations off the async thread.
+    async fn release_watches(&self, selection: WatchSelection) {
+        if !self.inner.watches.contains(&selection) {
+            return;
+        }
+        let watches = Arc::clone(&self.inner.watches);
+        let _ = tokio::task::spawn_blocking(move || watches.remove(&selection)).await;
     }
 
     /// Subscribe to retained and live process events. The remote session layer
@@ -733,6 +816,8 @@ impl WorkspaceService {
         }
         self.inner.processes.close_workspace(scope, workspace).await;
         self.inner.routes.close_workspace(scope, workspace).await;
+        self.release_watches(WatchSelection::OwnerWorkspace(scope.clone(), workspace.clone()))
+            .await;
         Ok(())
     }
 
@@ -873,12 +958,14 @@ impl WorkspaceService {
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
         self.inner.queries.close_client(scope);
+        self.release_watches(WatchSelection::Owner(scope.clone())).await;
         self.wait_for_requests(Some(scope)).await;
         // A mutation that was already active when closure began can publish a
-        // process, route, or lease after the first cleanup snapshot.
+        // process, route, watch, or lease after the first cleanup snapshot.
         self.inner.processes.close_client(scope).await;
         self.inner.routes.close_client(scope).await;
         self.inner.queries.close_client(scope);
+        self.release_watches(WatchSelection::Owner(scope.clone())).await;
         let mut catalog = self.inner.catalog.write().await;
         // Workspace roots belong to the daemon, like tmux sessions. A client
         // disconnect releases only that client's lease; another authorized
@@ -918,6 +1005,7 @@ impl WorkspaceService {
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
         self.inner.queries.clear();
+        self.release_watches(WatchSelection::All).await;
         self.wait_for_requests(None).await;
         let blocking_jobs = self.inner.blocking.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
         let codec_jobs = self.inner.codec.close_and_drain(REQUEST_QUIESCE_TIMEOUT).await;
@@ -926,6 +1014,7 @@ impl WorkspaceService {
         self.inner.processes.shutdown().await;
         self.inner.routes.shutdown().await;
         self.inner.queries.clear();
+        self.release_watches(WatchSelection::All).await;
         let mut catalog = self.inner.catalog.write().await;
         catalog.leases.clear();
         catalog.workspaces.clear();
@@ -975,6 +1064,7 @@ pub(crate) fn request_supports_cancellation(request: &WorkspaceRequest) -> bool 
             | WorkspaceRequest::SnapshotProcessTerminal { .. }
             | WorkspaceRequest::ComputerUseCapabilities
             | WorkspaceRequest::ComputerUseCapabilitiesV1
+            | WorkspaceRequest::WatchPoll { .. }
     )
 }
 
@@ -1744,6 +1834,359 @@ mod tests {
             )
             .await;
         assert_eq!(response.result.unwrap_err().code, "session-closed");
+    }
+
+    async fn open_watch_workspace(
+        service: &WorkspaceService,
+        scope: &ClientScope,
+        root: &std::path::Path,
+    ) -> WorkspaceId {
+        let opened = service
+            .handle_request_for(
+                scope,
+                WorkspaceRequest::OpenWorkspace { root: root.to_string_lossy().into_owned() },
+            )
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id, .. } = opened else { panic!() };
+        id
+    }
+
+    async fn start_watch(
+        service: &WorkspaceService,
+        scope: &ClientScope,
+        workspace: &WorkspaceId,
+        paths: &[&str],
+    ) -> Result<String, RpcError> {
+        let response = service
+            .handle_request_for(
+                scope,
+                WorkspaceRequest::WatchDirectories {
+                    workspace: workspace.clone(),
+                    paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+                },
+            )
+            .await?;
+        let WorkspaceResponse::WatchStarted { watch } = response else { panic!() };
+        Ok(watch)
+    }
+
+    fn watch_poll(watch: &str, after: u64, timeout_ms: u32) -> WorkspaceRequest {
+        WorkspaceRequest::WatchPoll { watch: watch.to_owned(), after, timeout_ms }
+    }
+
+    async fn wait_until_active(service: &WorkspaceService, scope: &ClientScope, id: RequestId) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !service
+                .inner
+                .request_control
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .active
+                .contains_key(&(scope.clone(), id))
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("request never became active");
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_capability_is_advertised() {
+        let service = WorkspaceService::new();
+        let response = service.handle_request(WorkspaceRequest::Capabilities).await.unwrap();
+        let WorkspaceResponse::Capabilities { capabilities } = response else { panic!() };
+        assert!(capabilities.contains(&RemoteCapability::WorkspaceWatchV1));
+        assert!(request_supports_cancellation(&watch_poll("w", 0, 0)));
+        assert!(!request_supports_cancellation(&WorkspaceRequest::Unwatch { watch: "w".into() }));
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_reports_created_entry_in_watched_directory() {
+        let directory = tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("src")).unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::local();
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        let watch = start_watch(&service, &scope, &workspace, &["", "./src"]).await.unwrap();
+
+        let started = std::time::Instant::now();
+        let pending = tokio::spawn({
+            let service = service.clone();
+            let watch = watch.clone();
+            async move { service.handle_request(watch_poll(&watch, 0, 20_000)).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        std::fs::write(directory.path().join("src/foo"), b"").unwrap();
+        let changed = tokio::time::timeout(std::time::Duration::from_secs(10), pending)
+            .await
+            .expect("watch-poll did not observe the new entry")
+            .unwrap()
+            .unwrap();
+        let WorkspaceResponse::WatchChanges { sequence, paths, overflow } = changed else {
+            panic!()
+        };
+        assert!(sequence > 0);
+        assert!(!overflow);
+        assert!(paths.contains(&"src".to_owned()), "unexpected changed paths {paths:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+
+        // A poll behind the current sequence answers immediately with the
+        // same changes, deduplicated and sorted.
+        let replay = service.handle_request(watch_poll(&watch, 0, 20_000)).await.unwrap();
+        let WorkspaceResponse::WatchChanges { sequence: replayed, paths: again, .. } = replay
+        else {
+            panic!()
+        };
+        assert!(replayed >= sequence);
+        let mut sorted = again.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(again, sorted);
+        assert!(again.contains(&"src".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_poll_without_changes_times_out_empty() {
+        let directory = tempdir().unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::local();
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        let watch = start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        // FSEvents (macOS) can report the temp directory's own creation after the
+        // watch starts; absorb it so the quiet poll below measures a quiet tree.
+        let WorkspaceResponse::WatchChanges { sequence: settled, .. } =
+            service.handle_request(watch_poll(&watch, 0, 300)).await.unwrap()
+        else {
+            panic!("expected watch changes");
+        };
+
+        let started = std::time::Instant::now();
+        let response = service.handle_request(watch_poll(&watch, settled, 150)).await.unwrap();
+        assert!(started.elapsed() >= std::time::Duration::from_millis(140));
+        assert_eq!(
+            response,
+            WorkspaceResponse::WatchChanges {
+                sequence: settled,
+                paths: Vec::new(),
+                overflow: false
+            }
+        );
+        let immediate = service.handle_request(watch_poll(&watch, settled, 0)).await.unwrap();
+        assert_eq!(
+            immediate,
+            WorkspaceResponse::WatchChanges {
+                sequence: settled,
+                paths: Vec::new(),
+                overflow: false
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_unknown_watch_is_rejected() {
+        let directory = tempdir().unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::local();
+        let error = service.handle_request(watch_poll("missing", 0, 10)).await.unwrap_err();
+        assert_eq!(error.code, "unknown-watch");
+        assert_eq!(
+            service
+                .handle_request(WorkspaceRequest::Unwatch { watch: "missing".into() })
+                .await
+                .unwrap(),
+            WorkspaceResponse::Unwatched
+        );
+
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        let watch = start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        let pending = tokio::spawn({
+            let service = service.clone();
+            let watch = watch.clone();
+            async move { service.handle_request(watch_poll(&watch, 0, 20_000)).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            service.handle_request(WorkspaceRequest::Unwatch { watch: watch.clone() }).await,
+            Ok(WorkspaceResponse::Unwatched)
+        );
+        let removed = tokio::time::timeout(std::time::Duration::from_secs(5), pending)
+            .await
+            .expect("unwatch did not end the pending poll")
+            .unwrap();
+        assert_eq!(removed.unwrap_err().code, "unknown-watch");
+        let error = service.handle_request(watch_poll(&watch, 0, 10)).await.unwrap_err();
+        assert_eq!(error.code, "unknown-watch");
+        assert!(!service.inner.watches.contains(&WatchSelection::All));
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_validates_paths_like_list_directory() {
+        let directory = tempdir().unwrap();
+        std::fs::write(directory.path().join("file.txt"), b"x").unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::local();
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        for (path, code) in [
+            ("missing", "not-found"),
+            ("file.txt", "not-a-directory"),
+            ("../outside", "invalid-path"),
+        ] {
+            let error = start_watch(&service, &scope, &workspace, &["", path]).await.unwrap_err();
+            assert_eq!(error.code, code, "path {path:?}");
+        }
+        assert!(!service.inner.watches.contains(&WatchSelection::All));
+        let error =
+            start_watch(&service, &scope, &WorkspaceId("nope".into()), &[""]).await.unwrap_err();
+        assert_eq!(error.code, "unknown-workspace");
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_enforces_path_and_live_watch_limits() {
+        let directory = tempdir().unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::new("watch-limit-a", SessionId([40; 16]));
+        let other = ClientScope::new("watch-limit-b", SessionId([41; 16]));
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+
+        let too_many = [""; directory_watch::MAX_WATCH_PATHS + 1];
+        let error = start_watch(&service, &scope, &workspace, &too_many).await.unwrap_err();
+        assert_eq!(error.code, "limit-exceeded");
+        let at_limit = [""; directory_watch::MAX_WATCH_PATHS];
+        let first = start_watch(&service, &scope, &workspace, &at_limit).await.unwrap();
+
+        for _ in 1..directory_watch::MAX_WATCHES_PER_CLIENT {
+            start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        }
+        let error = start_watch(&service, &scope, &workspace, &[""]).await.unwrap_err();
+        assert_eq!(error.code, "limit-exceeded");
+        start_watch(&service, &other, &workspace, &[""]).await.unwrap();
+
+        service
+            .handle_request_for(&scope, WorkspaceRequest::Unwatch { watch: first })
+            .await
+            .unwrap();
+        start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_pending_poll_does_not_block_list_directory() {
+        let directory = tempdir().unwrap();
+        std::fs::write(directory.path().join("a.txt"), b"a").unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::new("watch-concurrency", SessionId([42; 16]));
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        let watch = start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        let poll_id = RequestId::from_u128(400);
+        let pending = tokio::spawn({
+            let service = service.clone();
+            let scope = scope.clone();
+            async move {
+                service
+                    .handle_rpc_for(
+                        scope,
+                        RpcRequest {
+                            id: poll_id,
+                            timeout_ms: None,
+                            request: watch_poll(&watch, 0, 30_000),
+                        },
+                    )
+                    .await
+            }
+        });
+        wait_until_active(&service, &scope, poll_id).await;
+
+        let listed = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            service.handle_request_for(
+                &scope,
+                WorkspaceRequest::ListDirectory {
+                    workspace,
+                    path: String::new(),
+                    include_hidden: false,
+                    limit: 16,
+                    cursor: None,
+                },
+            ),
+        )
+        .await
+        .expect("list-directory waited behind a pending watch-poll")
+        .unwrap();
+        let WorkspaceResponse::Directory { entries, .. } = listed else { panic!() };
+        assert!(entries.iter().any(|entry| entry.name == "a.txt"));
+        assert!(!pending.is_finished());
+
+        let canceled = service
+            .handle_rpc_for(
+                scope,
+                RpcRequest {
+                    id: RequestId::from_u128(401),
+                    timeout_ms: None,
+                    request: WorkspaceRequest::CancelRequest { request: poll_id },
+                },
+            )
+            .await;
+        assert_eq!(
+            canceled.result.unwrap(),
+            WorkspaceResponse::RequestCanceled { request: poll_id, accepted: true }
+        );
+        let canceled = tokio::time::timeout(std::time::Duration::from_secs(2), pending)
+            .await
+            .expect("cancel did not free the pending watch-poll")
+            .unwrap();
+        assert_eq!(canceled.result.unwrap_err().code, "canceled");
+    }
+
+    #[tokio::test]
+    async fn workspace_watch_close_client_removes_watches() {
+        let directory = tempdir().unwrap();
+        let service = WorkspaceService::new();
+        let scope = ClientScope::new("watch-close-a", SessionId([43; 16]));
+        let other = ClientScope::new("watch-close-b", SessionId([44; 16]));
+        let workspace = open_watch_workspace(&service, &scope, directory.path()).await;
+        let owned = start_watch(&service, &scope, &workspace, &[""]).await.unwrap();
+        let kept = start_watch(&service, &other, &workspace, &[""]).await.unwrap();
+        let poll_id = RequestId::from_u128(410);
+        let pending = tokio::spawn({
+            let service = service.clone();
+            let scope = scope.clone();
+            let owned = owned.clone();
+            async move {
+                service
+                    .handle_rpc_for(
+                        scope,
+                        RpcRequest {
+                            id: poll_id,
+                            timeout_ms: None,
+                            request: watch_poll(&owned, 0, 30_000),
+                        },
+                    )
+                    .await
+            }
+        });
+        wait_until_active(&service, &scope, poll_id).await;
+
+        service.close_client(&scope).await;
+        service.finish_client_close(&scope);
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(5), pending)
+            .await
+            .expect("closing the client left its watch-poll pending")
+            .unwrap();
+        assert!(ended.result.is_err());
+        assert!(!service.inner.watches.contains(&WatchSelection::Owner(scope)));
+        let error =
+            service.handle_request_for(&other, watch_poll(&owned, 0, 10)).await.unwrap_err();
+        assert_eq!(error.code, "unknown-watch");
+        assert!(service.inner.watches.contains(&WatchSelection::Owner(other.clone())));
+        let quiet = service.handle_request_for(&other, watch_poll(&kept, 0, 0)).await.unwrap();
+        assert!(matches!(quiet, WorkspaceResponse::WatchChanges { .. }));
+
+        service
+            .handle_request_for(&other, WorkspaceRequest::CloseWorkspace { workspace })
+            .await
+            .unwrap();
+        assert!(!service.inner.watches.contains(&WatchSelection::All));
     }
 
     #[tokio::test]

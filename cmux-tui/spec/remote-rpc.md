@@ -27,7 +27,7 @@ A client normally keeps four `workspace-rpc` streams open:
 | Purpose | Open metadata | Requests |
 | --- | --- | --- |
 | Interactive | `{"lane":"interactive"}` | `write-process`, `resize-process`, `signal-process` |
-| Control | `{"lane":"control"}` | Workspace, process lifecycle, route, capability, and computer-use control |
+| Control | `{"lane":"control"}` | Workspace, process lifecycle, route, capability, directory watch, and computer-use control |
 | Cancellation | `{"lane":"control","purpose":"cancellation"}` | `cancel-request` only |
 | Bulk | `{"lane":"bulk"}` | File, search, patch, Git, diff, and retained process-event reads |
 
@@ -45,7 +45,7 @@ A direct service request is:
 }
 ```
 
-`id` is an opaque UUID string allocated synchronously by the client and never reused during one authenticated session. Its JSON representation is safe for JavaScript clients. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, `list-processes`, `snapshot-process-terminal`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
+`id` is an opaque UUID string allocated synchronously by the client and never reused during one authenticated session. Its JSON representation is safe for JavaScript clients. `timeout_ms` is optional. A timeout is accepted only for cancel-safe requests: `capabilities`, `list-workspaces`, `stat`, `read-file`, `list-directory`, `search`, `git-status`, `diff`, `wait-process`, `read-process-events`, `list-processes`, `snapshot-process-terminal`, `watch-poll`, and both computer-use capability queries. A mutating request with `timeout_ms` returns `deadline-unsupported`.
 
 A successful direct service response uses Rust `Result` encoding:
 
@@ -131,6 +131,9 @@ Every field in the table is required unless marked optional or given a default.
 | `computer-use-capabilities-v1` | none | `computer-use-capabilities-v1` |
 | `invoke-computer-use` | `invocation:ComputerUseInvocation` | unavailable in protocol 5 |
 | `cancel-computer-use` | `invocation:ComputerUseInvocationId` | `computer-use-canceled` with `accepted:false` |
+| `watch-directories` | `workspace`, `paths:[string]` | `watch-started` |
+| `watch-poll` | `watch:string`, `after:u64`, `timeout_ms:u32` | `watch-changes` |
+| `unwatch` | `watch:string` | `unwatched` |
 
 Common response objects have these fields:
 
@@ -167,8 +170,11 @@ Common response objects have these fields:
 | `computer-use-accepted` | `invocation:ComputerUseInvocationId` |
 | `computer-use-result` | `result:ComputerUseResult` |
 | `computer-use-canceled` | `invocation:ComputerUseInvocationId`, `accepted:bool` |
+| `watch-started` | `watch:string` |
+| `watch-changes` | `sequence:u64`, `paths:[string]`, `overflow:bool` |
+| `unwatched` | no fields |
 
-Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
+Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, `request-control-v1`, and `workspace-watch-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
 
 ## Files, search, patch, and diff
 
@@ -206,6 +212,23 @@ Request a typed diff with:
 ```
 
 `unified` returns `{"type":"diff","data":"<base64>","format":"unified",...}`. Legacy `structured` returns base64-encoded JSON in the same `diff` shape. `structured-v1` returns `{"type":"structured-diff","diff":{"version":1,"files":[...]},...}`. Each typed file has optional `old_path`, optional `new_path`, `metadata`, and `hunks`; each hunk has `header` and `lines`; each line has `kind` (`context`, `add`, `delete`, or `metadata`) and `text`. All diff responses may include `next_cursor`.
+
+## Directory watches
+
+`workspace-watch-v1` adds non-recursive directory watches. `watch-directories` resolves each path exactly like `list-directory` (`""` is the root) and returns an opaque `watch` id. A missing path returns `not-found`, a non-directory `not-a-directory`, and an escaping path `invalid-path` or `path-outside-workspace`. One watch names at most 512 paths, and one client session holds at most 16 live watches; either limit returns `limit-exceeded`, as does a full kernel watch table.
+
+A watch reports creation, deletion, rename, and modification of each directory's direct entries. Each change increments the watch's `sequence`. `watch-poll` returns at once when `sequence > after`; otherwise it waits up to `min(timeout_ms, 30000)` ms, then batches for about 50 ms after the first change. `paths` lists the watched directories, in normalized protocol form, that changed after `after`, deduplicated and sorted. It is empty when the wait timed out. `overflow:true` means changes may have been lost, so the client reloads every watched directory. Start with `after:0` and pass the returned `sequence` to the next poll:
+
+```json
+{"type":"watch-directories","workspace":"w:abc","paths":["","src"]}
+{"type":"watch-started","watch":"5b1c9a0e-0f4e-4f3a-9d77-3f1f5d0c2a10"}
+{"type":"watch-poll","watch":"5b1c9a0e-0f4e-4f3a-9d77-3f1f5d0c2a10","after":0,"timeout_ms":25000}
+{"type":"watch-changes","sequence":3,"paths":["src"],"overflow":false}
+{"type":"unwatch","watch":"5b1c9a0e-0f4e-4f3a-9d77-3f1f5d0c2a10"}
+{"type":"unwatched"}
+```
+
+`watch-poll` is cancel-safe, so the daemon runs it concurrently with other requests on the same stream and `cancel-request` ends it with `canceled`. An unknown or removed watch returns `unknown-watch`, including to a poll that was waiting when the watch was removed. `unwatch` of an unknown id succeeds. Closing the workspace or the client session removes that session's watches.
 
 ## Processes
 

@@ -242,6 +242,7 @@ struct ConnectFlags {
     forward_listen: Option<std::net::SocketAddr>,
     forward_scheme: String,
     rpc_request: Option<String>,
+    rpc_stream: bool,
 }
 
 enum InvitationArg {
@@ -494,6 +495,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             }
             "--scheme" => flags.forward_scheme = value("--scheme")?,
             "--request" => flags.rpc_request = Some(value("--request")?),
+            "--stream" => flags.rpc_stream = true,
             "-h" | "--help" => {
                 return Err(anyhow!(catalog().remote_client.help_invalid_options));
             }
@@ -1057,6 +1059,9 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 mod remote_browser_proxy;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
 
+#[path = "remote_rpc_stream.rs"]
+mod remote_rpc_stream;
+
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {
     Line(String),
@@ -1163,6 +1168,10 @@ async fn next_rpc_input(
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
+    let stream = flags.rpc_stream;
+    if stream && single.is_some() {
+        return Err(anyhow!(catalog().remote_client.rpc_stream_with_request));
+    }
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
@@ -1176,6 +1185,9 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
         }
         let mut input = spawn_rpc_stdin_reader()?;
         let mut finished = connected.runtime.subscribe_finished();
+        if stream {
+            return remote_rpc_stream::serve_rpc_stream(client, &mut input, &mut finished).await;
+        }
         while let RpcInputEvent::Line(line) = next_rpc_input(&mut input, &mut finished).await? {
             if line.trim().is_empty() {
                 continue;
@@ -1981,7 +1993,8 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
+pub const PROBE_CAPABILITIES: &[&str] =
+    &["direct-ws-user-agent", "wireguard-hub", "browser-proxy", "rpc-stream"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
