@@ -2137,12 +2137,15 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm/provider-vm-team-1"),
       context,
     );
-    expect(getVm).toHaveBeenCalledWith({
+    // objectContaining, not an exact shape: the route also passes a model-plane
+    // revoker, which is a function and not worth pinning here. The file already
+    // uses this form for createVm.
+    expect(getVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
-    });
+    }));
 
     runVmWorkflow.mockResolvedValue(undefined);
     await DELETE(

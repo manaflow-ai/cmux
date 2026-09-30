@@ -548,10 +548,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "App appearance mode."
         },
         "accentColor": {
-          "type": "string",
-          "enum": ["cmux", "system"],
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["cmux", "system"]
+            },
+            {
+              "$ref": "#/$defs/colorHex"
+            }
+          ],
           "default": "cmux",
-          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes; a \"#RRGGBB\" hex uses that color in light and dark mode. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
         },
         "appIcon": {
           "type": "string",
@@ -827,13 +834,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
-          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+          "description": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
-          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "description": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {
           "type": "object",
@@ -1563,7 +1570,7 @@ enum CmuxEmbeddedConfigSchema {
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {
@@ -1855,6 +1862,18 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["subtree", "oneLevel"],
           "default": "subtree",
           "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
+        },
+        "browserTunnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The iOS \"On iPhone\" browser for this Mac's workspaces, which loads pages on the phone through this Mac.",
+          "properties": {
+            "allowOtherHosts": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow the iOS browser to reach hosts other than this Mac's own localhost through this Mac (LAN, VPN, and internet hosts, resolved on this Mac). When off, only this Mac's localhost is reachable and the phone loads other sites over its own network. Link-local and cloud metadata addresses are always refused."
+            }
+          }
         }
       }
     },
@@ -2096,6 +2115,7 @@ enum CmuxEmbeddedConfigSchema {
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "pasteLastScreenshot",
+              "sizeTerminalToMyWindow",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",
@@ -2176,7 +2196,9 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk"
             ]
           },
           "properties": {
@@ -2217,6 +2239,12 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

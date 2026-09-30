@@ -54,6 +54,25 @@ Controls which files and folders cmux on iOS may browse after a chat references 
 
 Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
 
+## `mobile.browserTunnel.allowOtherHosts`
+
+Controls where the iOS "On iPhone" browser can reach through this Mac. The browser loads pages on the phone, and connections for this Mac's workspaces leave from this Mac.
+
+```json
+{
+  "mobile": {
+    "browserTunnel": {
+      "allowOtherHosts": false
+    }
+  }
+}
+```
+
+- `false` (default): only this Mac's `localhost` (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) is reachable through the Mac. Other sites load over the phone's own network.
+- `true`: LAN, VPN, and internet hosts are also reachable through this Mac, with names resolved on this Mac.
+
+Link-local addresses, including the cloud metadata service at `169.254.169.254`, never go through this Mac either way; the phone loads those over its own network, as it does any host this Mac refuses. Only a phone signed in to the same account and admitted to this Mac can open connections, and they end when that phone disconnects. Turning off the embedded browser by configuration profile turns this off too.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.
@@ -88,7 +107,7 @@ Supported placeholders:
 - `{windowToken}`: the first 8 characters of the persisted window UUID.
 - `{activeWorkspace}`: the active workspace title, falling back to the default title when the workspace title is blank.
 - `{activeDirectory}`: the active workspace's current directory.
-- `{defaultTitle}`: the title cmux would have used without a template.
+- `{defaultTitle}`: the title cmux would have used without a template. For `cmux ssh` and Cloud workspaces it ends with the host, as in `build · big-red`.
 - `{appName}`: `cmux`.
 
 For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.

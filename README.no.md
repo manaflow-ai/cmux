@@ -367,7 +367,7 @@ cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte 
 
 ### Jeg har en funksjonsforespørsel eller fant en feil?
 
-Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send oss en e-post](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send oss en e-post](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Stjernehistorikk
 
@@ -420,4 +420,4 @@ cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte ut
 
 cmux er åpen kildekode under [GPL-3.0-or-later](LICENSE). cmux-serverprogramvaren (`web/`, Cloudflare-workerne og relétjenestene i [LICENSE](LICENSE)) bruker i stedet [Business Source License 1.1](web/LICENSE): du kan lese, endre og kjøre den til ikke-produksjonsbruk, mens produksjonsbruk eller selvhosting krever en kommersiell lisens.
 
-Hvis organisasjonen din ikke kan overholde GPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.
+Hvis organisasjonen din ikke kan overholde GPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@cmux.com](mailto:founders@cmux.com) for detaljer.
