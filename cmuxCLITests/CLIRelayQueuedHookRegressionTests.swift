@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -690,6 +691,21 @@ struct CLIRelayQueuedHookRegressionTests {
 
 private final class RelayQueuedHookMockServer: @unchecked Sendable {
     static let relayID = "relay-hook-regression"
+    /// Token the tests pass in `CMUX_RELAY_TOKEN` (64 hex `a`s).
+    static let relayToken = Data(repeating: 0xAA, count: 32)
+
+    /// Success line proving the token over the client's nonce, as the app's
+    /// relay does; the CLI sends nothing further without it.
+    static func authResult(authLine: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(authLine.utf8)) as? [String: Any],
+              let clientNonce = object["client_nonce"] as? String else {
+            return #"{"ok":true}"#
+        }
+        let message = "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=relay-nonce\nversion=1"
+        let proof = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: relayToken))
+        let proofHex = Data(proof).map { String(format: "%02x", $0) }.joined()
+        return #"{"ok":true,"relay_mac":"\#(proofHex)"}"#
+    }
 
     private let listenerFD: Int32
     private let port: UInt16
@@ -776,8 +792,8 @@ private final class RelayQueuedHookMockServer: @unchecked Sendable {
             #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(Self.relayID)","nonce":"relay-nonce"}"#,
             to: clientFD
         )
-        guard readLine(from: clientFD) != nil else { return }
-        writeLine(#"{"ok":true}"#, to: clientFD)
+        guard let authLine = readLine(from: clientFD) else { return }
+        writeLine(Self.authResult(authLine: authLine), to: clientFD)
 
         while let line = readLine(from: clientFD) {
             captured.append(line)

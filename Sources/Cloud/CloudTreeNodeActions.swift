@@ -65,9 +65,23 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
+    /// Creates a workspace on the remembered/selected Cloud machine, falling back to the existing machine-selection flow when none is available.
+    var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
+
+    /// Binds the existing resolved-machine Cloud workspace creation flow to a tree action.
+    @MainActor
+    static func resolvedWorkspaceCreationAction(tabManager: TabManager?) -> @MainActor () -> Void {
+        { [weak tabManager] in
+            _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(
+                tabManager: tabManager,
+                preferredWindow: tabManager?.window,
+                debugSource: "cloudTree.cloudMachinesSection.newWorkspace"
+            )
+        }
+    }
 
     @MainActor
     static func bound(

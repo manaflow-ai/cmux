@@ -1375,8 +1375,8 @@
           "sessionContentAlignment": "Poziome położenie zawartości terminala i wbudowanego czatu agenta po włączeniu sessionContentMaxWidth.",
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Określa, jak daleko terminal przesuwa się przy każdym zdarzeniu przewijania kółkiem myszy lub gładzikiem. Wartości powyżej 1 przyspieszają przewijanie, a poniżej 1 je spowalniają.",
-          "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
-          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
+          "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
+          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Odtwarzaj dźwięk powiadomienia nawet wtedy, gdy panel, który je wysłał, jest już aktywny. Domyślnie wyłączone, więc aktywny panel pokazuje tylko obwódkę i błysk.",
@@ -1870,7 +1870,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "Aplikacja iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Przegląd",
@@ -2033,11 +2033,10 @@
       "daemonPath": "Plik binarny demona jest przechowywany pod adresem ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na zdalnym hoście i weryfikowany w oparciu o manifest SHA-256 osadzony w aplikacji."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Skonfiguruj wejście TextBox beta w cmux dla nowych kart terminala, podziałów i obszarów roboczych.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Skonfiguruj wejście TextBox w cmux dla nowych kart terminala, podziałów i obszarów roboczych.",
       "intro": "TextBox to rozbudowana powierzchnia wejściowa terminala w cmux do układania promptów przed wysłaniem ich do terminala.",
-      "betaCallout": "TextBox jest funkcją beta. Domyślne ustawienia i zachowanie mogą się zmienić podczas testów.",
       "defaultsTitle": "Domyślne ustawienia",
       "defaultsDesc": "Ustawienia TextBox znajdują się w Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals otwiera nowe obszary robocze, karty terminala i podziały z widocznym TextBox, pozostawiając fokus w terminalu.",

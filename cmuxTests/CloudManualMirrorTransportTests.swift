@@ -62,6 +62,34 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func replayFramesCarryTheDaemonParsersPendingSequence() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let pending = Data("\u{1B}[1;3".utf8)
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(snapshot == .snapshot(
+            surfaceID: 17, columns: 80, rows: 24, bytes: Data("screen".utf8), pending: pending
+        ))
+        let resized = try #require(decoder.decode(try Self.line([
+            "event": "resized", "surface": 17, "cols": 100, "rows": 30,
+            "replay": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(resized == .resized(
+            surfaceID: 17, columns: 100, rows: 30, bytes: Data("screen".utf8), pending: pending
+        ))
+        // A malformed pending sequence is a malformed replay, not an empty one.
+        #expect(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": 7,
+        ])) == nil)
+    }
+
+    @Test
     func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let snapshot = try #require(decoder.decode(try Self.line([
@@ -80,7 +108,7 @@ struct CloudManualMirrorTransportTests {
                 "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
             ],
         ])))
-        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+        guard case let .snapshot(surfaceID, _, _, bytes, colors, _) = snapshot else {
             Issue.record("expected a snapshot frame, got \(snapshot)")
             return
         }
@@ -259,7 +287,7 @@ struct CloudManualMirrorTransportTests {
             ],
         ])
         let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error) = frame else {
+        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, _) = frame else {
             Issue.record("expected a response frame")
             return
         }
