@@ -1,3 +1,5 @@
+import CmuxSettings
+
 struct SurfaceTabBarButtonConfiguration {
     let buttons: [CmuxSurfaceTabBarButton]
     let sourcePath: String?
