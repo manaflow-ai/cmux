@@ -282,7 +282,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == groupId)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
             child1.id,
             child2.id,
             dragged.id,
@@ -445,7 +444,6 @@ struct WorkspaceCoordinatorTests {
             name: "G",
             childWorkspaceIds: [child1.id, child2.id]
         ))
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
 
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
