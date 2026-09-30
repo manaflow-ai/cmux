@@ -1,3 +1,4 @@
+import CmuxMobileHost
 import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
@@ -15,6 +16,7 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    var settledSessionCount: Int = 0
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -142,7 +144,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
+            settledSessionCount: settledSessionCount
         )
     }
 

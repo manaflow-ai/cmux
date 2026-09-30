@@ -12,6 +12,7 @@ import Foundation
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
+    static let sessionsDidChangeNotification = Notification.Name("cmux.agentChatSessionsDidChange")
     nonisolated private static let proseStreamingSnapshotMaxRows = 240
 
     let registry: AgentChatSessionRegistry
@@ -474,6 +475,11 @@ final class AgentChatTranscriptService {
         return page
     }
 
+    /// Records a keystroke or paste delivered to a session's terminal.
+    func noteTerminalInput(surfaceID: UUID, at timestamp: Date = Date()) {
+        registry.noteUserInput(surfaceID: surfaceID.uuidString, at: timestamp)
+    }
+
     /// Debug-socket dump of every registry record plus tailer liveness.
     func debugSessionDump() -> [[String: Any]] {
         registry.sessions(workspaceID: nil).map { record in
@@ -570,6 +576,11 @@ final class AgentChatTranscriptService {
         if !batch.updated.isEmpty {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
         }
+        for message in batch.appended + batch.updated {
+            guard message.role == .agent,
+                  case .prose(let prose) = message.kind else { continue }
+            registry.noteAgentOutput(sessionID: sessionID, text: prose.text, at: message.timestamp)
+        }
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
@@ -612,6 +623,11 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        NotificationCenter.default.post(
+            name: Self.sessionsDidChangeNotification,
+            object: self,
+            userInfo: ["workspace_id": record.workspaceID as Any]
+        )
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -664,6 +680,11 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        NotificationCenter.default.post(
+            name: Self.sessionsDidChangeNotification,
+            object: self,
+            userInfo: ["workspace_id": record.workspaceID as Any]
+        )
         publishSidebarChange(liveChanged: true, historyChanged: false)
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)

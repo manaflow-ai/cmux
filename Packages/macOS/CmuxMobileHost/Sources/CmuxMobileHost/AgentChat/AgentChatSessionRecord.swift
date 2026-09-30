@@ -45,6 +45,28 @@ public struct AgentChatSessionRecord: Sendable {
     /// Conversation title (first user prompt), filled by the tailer.
     public var title: String?
 
+    /// Most recent assistant prose or terminal fallback preview.
+    public var lastOutput: String?
+
+    /// Last user prompt delivered to this session.
+    public var lastUserInputAt: Date?
+
+    /// Last hook or transcript output observed for this session.
+    public var lastAgentOutputAt: Date?
+
+    /// Whether cmux has evidence that the current turn ended.
+    public var hasFinishedTurn: Bool
+
+    /// Git checkout metadata, when cmux resolved it.
+    public var branch: String?
+    public var worktree: String?
+
+    /// Pull requests associated with this checkout, refreshed in batches.
+    public var linkedPullRequests: [AgentSessionPullRequest]
+
+    /// Whether the latest batched PR refresh completed for this checkout.
+    public var pullRequestsResolved: Bool
+
     /// The agent process id, for liveness sweeps.
     public var pid: Int?
 
@@ -69,6 +91,14 @@ public struct AgentChatSessionRecord: Sendable {
         lastActivityAt: Date,
         children: [AgentChatChildRun] = [],
         title: String? = nil,
+        lastOutput: String? = nil,
+        lastUserInputAt: Date? = nil,
+        lastAgentOutputAt: Date? = nil,
+        hasFinishedTurn: Bool = false,
+        branch: String? = nil,
+        worktree: String? = nil,
+        linkedPullRequests: [AgentSessionPullRequest] = [],
+        pullRequestsResolved: Bool = false,
         pid: Int? = nil,
         hookStoreSessionID: String? = nil,
         version: Int = 0
@@ -85,6 +115,14 @@ public struct AgentChatSessionRecord: Sendable {
         self.lastActivityAt = lastActivityAt
         self.children = children
         self.title = title
+        self.lastOutput = lastOutput
+        self.lastUserInputAt = lastUserInputAt
+        self.lastAgentOutputAt = lastAgentOutputAt
+        self.hasFinishedTurn = hasFinishedTurn
+        self.branch = branch
+        self.worktree = worktree
+        self.linkedPullRequests = linkedPullRequests
+        self.pullRequestsResolved = pullRequestsResolved
         self.pid = pid
         self.hookStoreSessionID = hookStoreSessionID
         self.version = version

@@ -3,6 +3,7 @@ import AppKit
 extension GhosttyNSView {
     func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
+        TerminalController.shared.agentChatTranscriptService?.noteTerminalInput(surfaceID: terminalSurface.id)
         GhosttyApp.terminalSurfaceRuntimeDependencies
             .hibernationRecorder.recordTerminalInput(
                 workspaceId: terminalSurface.tabId,

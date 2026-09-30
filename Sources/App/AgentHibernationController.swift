@@ -61,6 +61,7 @@ final class AgentHibernationController {
     static let shared = AgentHibernationController()
     static let unableToProtectRetrySeconds: TimeInterval = 120
     private var timer: DispatchSourceTimer?
+    private var settledAutoCloseTimer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     var evaluationPhase: EvaluationPhase = .idle
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -87,6 +88,7 @@ final class AgentHibernationController {
         AgentHibernationTrackingGate.setEnabled(true)
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
+            updateSettledAutoCloseTimer()
             return
         }
         settingsObserver = NotificationCenter.default.addObserver(
@@ -99,11 +101,14 @@ final class AgentHibernationController {
             }
         }
         updateTimerForCurrentSettings()
+        updateSettledAutoCloseTimer()
     }
 
     func stop() {
         timer?.cancel()
         timer = nil
+        settledAutoCloseTimer?.cancel()
+        settledAutoCloseTimer = nil
         memoryPressureEvaluation?.task.cancel()
         memoryPressureEvaluation = nil
         AgentHibernationTrackingGate.setEnabled(false)
@@ -164,6 +169,7 @@ final class AgentHibernationController {
         confirmations = confirmations.filter { $0.value.trigger.isMemoryPressure }
         unableToProtectByPanel.removeAll(keepingCapacity: false)
         updateTimerForCurrentSettings()
+        updateSettledAutoCloseTimer()
     }
 
     private func updateTimerForCurrentSettings() {
@@ -184,6 +190,29 @@ final class AgentHibernationController {
         }
         timer.resume()
         self.timer = timer
+    }
+
+    /// Keeps the opt-in settled-session cleanup on the same main-thread owner
+    /// as the hibernation controller. The cleanup coordinator rechecks its
+    /// candidates immediately before closing each panel.
+    private func updateSettledAutoCloseTimer() {
+        guard AgentHibernationSettings.settledAutoCloseEnabled() else {
+            settledAutoCloseTimer?.cancel()
+            settledAutoCloseTimer = nil
+            return
+        }
+        guard settledAutoCloseTimer == nil else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 60, repeating: 60)
+        timer.setEventHandler {
+            Task { @MainActor in
+                guard AgentHibernationSettings.settledAutoCloseEnabled() else { return }
+                _ = AppDelegate.shared?.closeSettledSessions(automatic: true)
+            }
+        }
+        timer.resume()
+        settledAutoCloseTimer = timer
     }
 
     @discardableResult

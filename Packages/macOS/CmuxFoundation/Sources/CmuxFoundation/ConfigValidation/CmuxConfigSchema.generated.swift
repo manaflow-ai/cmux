@@ -906,6 +906,25 @@ enum CmuxEmbeddedConfigSchema {
             }
           }
         },
+        "settledSessionAutoClose": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in cleanup for settled agent sessions. Sessions are eligible only after their turn finishes, the configured idle window elapses, linked pull requests are closed or merged, and terminal input and process safety checks pass.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable automatic closing of eligible settled agent sessions. Off by default."
+            },
+            "idleHours": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 168,
+              "default": 2,
+              "description": "Minimum idle time in hours before an eligible settled session can close."
+            }
+          }
+        },
         "rendererRealization": {
           "type": "object",
           "additionalProperties": false,

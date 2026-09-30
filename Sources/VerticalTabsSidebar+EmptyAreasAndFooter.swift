@@ -30,6 +30,8 @@ struct SidebarFooterCircularIconStyle: Equatable {
 
 enum SidebarFooterButtonMetrics {
     static let buttonSize: CGFloat = 22
+    static let footerBottomPadding: CGFloat = 6
+    static let settledActionBottomPadding = buttonSize + footerBottomPadding
     static let accountAndHelpVisualSize = SidebarFooterCircularIconStyle.standard.pointSize
     static let profilePictureSize = accountAndHelpVisualSize
     static let profileIconSize = accountAndHelpVisualSize

@@ -1,0 +1,62 @@
+{
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Agent A", "initial_input": "clear; mkdir -p /tmp/parity-a; cd /tmp/parity-a; echo '{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"cwd\":\"/tmp/parity-a\"}' | cmux hooks enqueue claude session-start; echo '{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"cwd\":\"/tmp/parity-a\",\"message\":\"Which of these two files should I edit?\"}' | cmux hooks enqueue claude notification\n", "focus": false}, "save": "agentA"},
+    {"wait": 4},
+    {"socket": "workspace.create", "params": {"title": "Agent B", "initial_input": "clear; mkdir -p /tmp/parity-b; cd /tmp/parity-b; echo '{\"session_id\":\"22222222-2222-4222-8222-222222222222\",\"cwd\":\"/tmp/parity-b\"}' | cmux hooks enqueue codex session-start; echo '{\"session_id\":\"22222222-2222-4222-8222-222222222222\",\"cwd\":\"/tmp/parity-b\",\"prompt\":\"Summarize every file under docs/\"}' | cmux hooks enqueue codex prompt-submit\n", "focus": false}, "save": "agentB"},
+    {"wait": 2},
+    {"socket": "workspace.create", "params": {"title": "Agent C", "initial_input": "clear; mkdir -p /tmp/parity-c; cd /tmp/parity-c; echo '{\"session_id\":\"33333333-3333-4333-8333-333333333333\",\"cwd\":\"/tmp/parity-c\"}' | cmux hooks enqueue claude session-start\n", "focus": false}, "save": "agentC"},
+    {"wait": 2},
+    {"socket": "workspace.create", "params": {"title": "Agent D", "initial_input": "clear; mkdir -p /tmp/parity-d; cd /tmp/parity-d; echo '{\"session_id\":\"44444444-4444-4444-8444-444444444444\",\"cwd\":\"/tmp/parity-d\"}' | cmux hooks enqueue claude session-start; echo '{\"session_id\":\"44444444-4444-4444-8444-444444444444\",\"cwd\":\"/tmp/parity-d\"}' | cmux hooks enqueue claude session-end\n", "focus": false}, "save": "agentD"},
+    {"wait": 2},
+    {"socket": "workspace.create", "params": {"title": "Triage", "initial_input": "clear\n", "focus": true}, "save": "triage"},
+    {"wait": 2},
+    {"shot": "00-four-agent-workspaces"},
+
+    {"socket": "agent.sessions.list", "save": "socketList"},
+
+    {"type": "cmux sessions live\n"},
+    {"wait": 2},
+    {"shot": "01-live-triage-order"},
+
+    {"type": "clear; cmux sessions live --json\n"},
+    {"wait": 2},
+    {"shot": "02-live-json"},
+
+    {"type": "clear; cmux sessions list\n"},
+    {"wait": 2},
+    {"shot": "03-list-saved-control"},
+
+    {"type": "clear; cmux sessions live --needs-me\n"},
+    {"wait": 2},
+    {"shot": "04-live-needs-me"},
+
+    {"type": "clear; cmux sessions live --limit 1\n"},
+    {"wait": 2},
+    {"shot": "05-live-limit-truncation"},
+
+    {"type": "clear; cmux sessions live --agent claude-code\n"},
+    {"wait": 2},
+    {"shot": "06-live-agent-alias"},
+
+    {"type": "clear; cmux sessions live --state ended\n"},
+    {"wait": 2},
+    {"shot": "07-live-state-ended"},
+
+    {"type": "clear; cmux sessions live --agent --needs-me; echo exit=$?\n"},
+    {"wait": 2},
+    {"shot": "08-live-flag-as-value-error"},
+
+    {"type": "clear; cmux sessions live --state blorp; echo exit=$?\n"},
+    {"wait": 2},
+    {"shot": "09-live-unknown-state-error"},
+
+    {"type": "clear; echo '{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"cwd\":\"/tmp/parity-a\",\"prompt\":\"The first one.\"}' | cmux hooks enqueue claude prompt-submit\n"},
+    {"wait": 3},
+    {"type": "clear; cmux sessions live\n"},
+    {"wait": 2},
+    {"shot": "10-live-after-answering-a"},
+
+    {"socket": "agent.sessions.list", "save": "socketListAfter"},
+    {"shot": "99-end", "screen": true}
+  ]
+}

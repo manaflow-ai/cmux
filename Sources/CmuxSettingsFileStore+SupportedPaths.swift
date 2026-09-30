@@ -62,6 +62,8 @@ extension CmuxSettingsFileStore {
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
+        "terminal.settledSessionAutoClose.enabled",
+        "terminal.settledSessionAutoClose.idleHours",
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",

@@ -50,6 +50,7 @@ extension TerminalController {
             "caffeine.status",
             "caffeine.set",
             "comments.list",
+            "agent.sessions.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",

@@ -3207,6 +3207,9 @@ class TerminalController {
         // Diff review comments
         case "comments.list": return v2Result(id: id, self.v2CommentsList(params: params))
 
+        // Live agent sessions
+        case "agent.sessions.list": return v2Result(id: id, self.v2AgentSessionsList(params: params))
+
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
         // Browser

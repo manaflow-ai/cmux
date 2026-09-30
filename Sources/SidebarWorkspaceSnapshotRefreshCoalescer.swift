@@ -15,7 +15,14 @@ final class SidebarWorkspaceSnapshotRefreshCoalescer {
         workspaceId: UUID,
         flush: @MainActor @escaping (Set<UUID>) -> Void
     ) {
-        pendingWorkspaceIds.insert(workspaceId)
+        schedule(workspaceIds: [workspaceId], flush: flush)
+    }
+
+    func schedule(
+        workspaceIds: some Collection<UUID>,
+        flush: @MainActor @escaping (Set<UUID>) -> Void
+    ) {
+        pendingWorkspaceIds.formUnion(workspaceIds)
         guard scheduledGeneration == nil else { return }
 
         generation &+= 1

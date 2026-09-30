@@ -116,6 +116,10 @@ extension CmuxSettingsFileStore {
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
                         "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
                     ],
+                    "settledSessionAutoClose": [
+                        "enabled": false,
+                        "idleHours": 2,
+                    ],
                     "rendererRealization": [
                         "enabled": RendererRealizationSettings.defaultEnabled,
                         "idleSeconds": Int(RendererRealizationSettings.defaultIdleSeconds),

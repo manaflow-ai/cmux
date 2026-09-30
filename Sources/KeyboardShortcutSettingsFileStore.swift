@@ -554,6 +554,23 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
 
+        if let rawSettledAutoClose = section["settledSessionAutoClose"],
+           let settledAutoClose = rawSettledAutoClose as? [String: Any] {
+            if let value = jsonBool(settledAutoClose["enabled"]) {
+                snapshot.managedUserDefaults[AgentHibernationSettings.settledAutoCloseEnabledKey] = .bool(value)
+            } else if settledAutoClose.keys.contains("enabled") {
+                logInvalid("terminal.settledSessionAutoClose.enabled", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(settledAutoClose["idleHours"]) {
+                let clamped = min(max(Double(value), 1), 168)
+                snapshot.managedUserDefaults[AgentHibernationSettings.settledAutoCloseIdleHoursKey] = .double(clamped)
+            } else if settledAutoClose.keys.contains("idleHours") {
+                logInvalid("terminal.settledSessionAutoClose.idleHours", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("settledSessionAutoClose") {
+            logInvalid("terminal.settledSessionAutoClose", sourcePath: sourcePath)
+        }
+
         if let rawRendererRealization = section["rendererRealization"],
            let rendererRealization = rawRendererRealization as? [String: Any] {
             if let value = jsonBool(rendererRealization["enabled"]) {
@@ -1605,7 +1622,9 @@ final class CmuxSettingsFileStore {
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
                     change.defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
-                    change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey {
+                    change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey ||
+                    change.defaultsKey == AgentHibernationSettings.settledAutoCloseEnabledKey ||
+                    change.defaultsKey == AgentHibernationSettings.settledAutoCloseIdleHoursKey {
                     agentHibernationDidChange = true
                 }
                 if change.defaultsKey == RendererRealizationSettings.enabledKey ||

@@ -930,6 +930,8 @@ struct ContentView: View {
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
+    @State private var settledSessionCount = 0
+    @State private var settledSessionCountsByWorkspaceId: [UUID: Int] = [:]
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
@@ -7639,6 +7641,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.closeSettledSessions",
+                title: constant(String(localized: "command.closeSettledSessions.title", defaultValue: "Close Settled Sessions")),
+                subtitle: constant(String(localized: "command.closeSettledSessions.subtitle", defaultValue: "Sessions")),
+                keywords: ["close", "settled", "sessions", "agent"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
                 title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
@@ -8982,6 +8992,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.closeWorkspace") {
             tabManager.closeCurrentWorkspaceWithConfirmation()
+        }
+        registry.register(commandId: "palette.closeSettledSessions") {
+            _ = AppDelegate.shared?.closeSettledSessions()
         }
         registry.register(commandId: "palette.closeWindow") {
             guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
@@ -11196,6 +11209,11 @@ extension SidebarDragState {
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View, Equatable {
+    private static let settledSessionRefreshTimer = Timer.publish(
+        every: 60,
+        on: .main,
+        in: .common
+    ).autoconnect()
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
@@ -11833,6 +11851,26 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if isPresented && settledSessionCount > 0 {
+                Button {
+                    _ = AppDelegate.shared?.closeSettledSessions()
+                    refreshSettledSessionCounts()
+                    refreshWorkspaceSnapshots()
+                } label: {
+                    Label(
+                        String(localized: "sidebar.closeSettledSessions", defaultValue: "Close settled sessions") + " (\(settledSessionCount))",
+                        systemImage: "checkmark.circle"
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.leading, 8)
+                .padding(.bottom, SidebarFooterButtonMetrics.settledActionBottomPadding)
+                .accessibilityIdentifier("SidebarCloseSettledSessions")
+            }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -11849,7 +11887,10 @@ struct VerticalTabsSidebar: View, Equatable {
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            if isPresented { activateSidebarInteractions() }
+            if isPresented {
+                activateSidebarInteractions()
+                refreshSettledSessionCounts()
+            }
         }
         .onDisappear {
             deactivateSidebarInteractions()
@@ -11904,6 +11945,18 @@ struct VerticalTabsSidebar: View, Equatable {
             sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func refreshSettledSessionCounts() {
+        let counts = AppDelegate.shared?.settledSessionCloseCandidateCounts() ?? [:]
+        settledSessionCountsByWorkspaceId = counts
+        settledSessionCount = counts.values.reduce(0, +)
+    }
+
+    private func scheduleSettledSessionSnapshotRefresh() {
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceIds: tabManager.tabs.map(\.id)) { workspaceIds in
+            refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
+        }
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -11961,6 +12014,14 @@ struct VerticalTabsSidebar: View, Equatable {
             for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AgentChatTranscriptService.sessionsDidChangeNotification)) { _ in
+            guard isPresented else { return }
+            scheduleSettledSessionSnapshotRefresh()
+        }
+        .onReceive(Self.settledSessionRefreshTimer) { _ in
+            guard isPresented else { return }
+            scheduleSettledSessionSnapshotRefresh()
         }
         .onAppear {
             if isPresented {
@@ -12997,6 +13058,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
+        refreshSettledSessionCounts()
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
@@ -13010,6 +13072,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func refreshWorkspaceSnapshots() {
+        refreshSettledSessionCounts()
         let tabs = tabManager.tabs
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
@@ -13041,7 +13104,8 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            settledSessionCount: settledSessionCountsByWorkspaceId[workspace.id, default: 0]
         ).makeSnapshot()
     }
 
@@ -16141,6 +16205,12 @@ struct TabItemView: View, Equatable {
                         .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace"))
                 }
 
+                if workspaceSnapshot.settledSessionCount > 0 {
+                    CmuxSystemSymbolImage(magnified: "checkmark.circle.fill", pointSize: scaledFontSize(9), weight: .semibold, tint: activeSecondaryColor(0.65))
+                        .safeHelp(String(localized: "sidebar.settledSessions.tooltip", defaultValue: "Settled agent session"))
+                        .accessibilityLabel(String(localized: "sidebar.settledSessions.label", defaultValue: "Settled agent session"))
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
@@ -16497,7 +16567,7 @@ struct TabItemView: View, Equatable {
         }
         // Done rows read as settled: dim the row content (not the selection
         // background) to ~60%; hit-testing is unaffected by opacity.
-        .opacity(workspaceSnapshot.taskStatus == .done ? 0.6 : 1)
+        .opacity(workspaceSnapshot.taskStatus == .done || workspaceSnapshot.settledSessionCount > 0 ? 0.6 : 1)
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
         // every frame of the 0.2s curve, and with dozens of agent sessions some

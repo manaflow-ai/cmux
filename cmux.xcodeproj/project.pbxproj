@@ -198,6 +198,7 @@
 		A9F200000000000000000003 /* AgentSessionDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000003 /* AgentSessionDebugMenuButtons.swift */; };
 		A9F20000000000000000001B /* AgentSessionInputWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000001B /* AgentSessionInputWriter.swift */; };
 		A9F200000000000000000004 /* AgentSessionLaunchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */; };
+		4B8A171A362BEB88A310957D /* AgentSessionMetadataResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCDBEDF439FD89173360E1A /* AgentSessionMetadataResolver.swift */; };
 		A9F20000000000000000000E /* AgentSessionOutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */; };
 		B11371000000000000000021 /* AgentSessionOwnedProcessLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11371000000000000000022 /* AgentSessionOwnedProcessLauncher.swift */; };
 		A9E020000000000000000002 /* AgentSessionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000002 /* AgentSessionPanel.swift */; };
@@ -647,6 +648,7 @@
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
 		AE55B7F6000000000000A002 /* CLISendDraftGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55B7F6000000000000A001 /* CLISendDraftGuardTests.swift */; };
 		FE89827F4FAB9F7524A38B41 /* CLISendQueuedOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A183D9426E08846D029219 /* CLISendQueuedOutputTests.swift */; };
+		C117570000000000000000C2 /* CLISessionsLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000C1 /* CLISessionsLiveTests.swift */; };
 		B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
 		B900004CA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
 		C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12985000000000000000001 /* CLISocketSentryTelemetry.swift */; };
@@ -1056,6 +1058,7 @@
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		AC4A6E7C4A700001AC4A0005 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */; };
+		AC4A6E7C4A700001AC4A0006 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */; };
 		C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */; };
 		C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */; };
 		C1175700000000000000004E /* CmuxAgentJournal in Frameworks */ = {isa = PBXBuildFile; productRef = A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */; };
@@ -1203,6 +1206,7 @@
 		C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */; };
 		C0DE64960000000000000003 /* CMUXCLI+SessionsListForkStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000004 /* CMUXCLI+SessionsListForkStartupInput.swift */; };
 		C0DE64960000000000000001 /* CMUXCLI+SessionsListProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */; };
+		C0DE64950000000000000A01 /* CMUXCLI+SessionsLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000A02 /* CMUXCLI+SessionsLive.swift */; };
 		C12984000000000000000002 /* CMUXCLI+SIGPIPEProbes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */; };
 		C51A73000000000000000001 /* CMUXCLI+Simulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000002 /* CMUXCLI+Simulator.swift */; };
 		C51A73000000000000000005 /* CMUXCLI+SimulatorAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */; };
@@ -3044,6 +3048,8 @@
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
+		47465D51F19B705C7C07D848 /* SettledSessionAutoCloseSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10BACF62A9A3AD2E6D2141A /* SettledSessionAutoCloseSettingsTests.swift */; };
+		7F7BBCE5EAA6F02D5B94AF39 /* SettledSessionCloseCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198D347276A7F1DE430D68A7 /* SettledSessionCloseCoordinator.swift */; };
 		D96970000000000000000008 /* setup-pam-tid.sh in Copy CLI */ = {isa = PBXBuildFile; fileRef = D96971000000000000000003 /* setup-pam-tid.sh */; };
 		91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
@@ -3534,6 +3540,7 @@
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */; };
 		1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */; };
+		CC0033E15A1B2C3D4E5F0A01 /* TerminalController+AgentSessionsCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0A02 /* TerminalController+AgentSessionsCommands.swift */; };
 		2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */; };
 		13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019E000000000000000001 /* TerminalController+AuthTeam.swift */; };
 		A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106490B0000000000000001 /* TerminalController+Automation.swift */; };
@@ -4596,6 +4603,7 @@
 		A9F100000000000000000003 /* AgentSessionDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionDebugMenuButtons.swift; sourceTree = "<group>"; };
 		A9F10000000000000000001B /* AgentSessionInputWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionInputWriter.swift; sourceTree = "<group>"; };
 		A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLaunchPlan.swift; sourceTree = "<group>"; };
+		FDCDBEDF439FD89173360E1A /* AgentSessionMetadataResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionMetadataResolver.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionOutputLineBuffer.swift; sourceTree = "<group>"; };
 		B11371000000000000000022 /* AgentSessionOwnedProcessLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionOwnedProcessLauncher.swift; sourceTree = "<group>"; };
 		A9E010000000000000000002 /* AgentSessionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanel.swift; sourceTree = "<group>"; };
@@ -5030,6 +5038,7 @@
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
 		AE55B7F6000000000000A001 /* CLISendDraftGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISendDraftGuardTests.swift; sourceTree = "<group>"; };
 		85A183D9426E08846D029219 /* CLISendQueuedOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISendQueuedOutputTests.swift; sourceTree = "<group>"; };
+		C117570000000000000000C1 /* CLISessionsLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISessionsLiveTests.swift; sourceTree = "<group>"; };
 		B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketPathResolver.swift; sourceTree = "<group>"; };
 		C12985000000000000000001 /* CLISocketSentryTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketSentryTelemetry.swift; sourceTree = "<group>"; };
 		D0F102000000000000000003 /* CLISSHPTYAttachBridgeServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHPTYAttachBridgeServer.swift; sourceTree = "<group>"; };
@@ -5561,6 +5570,7 @@
 		C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkDiagnostics.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000004 /* CMUXCLI+SessionsListForkStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListForkStartupInput.swift"; sourceTree = "<group>"; };
 		C0DE64960000000000000002 /* CMUXCLI+SessionsListProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsListProcessArguments.swift"; sourceTree = "<group>"; };
+		C0DE64950000000000000A02 /* CMUXCLI+SessionsLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SessionsLive.swift"; sourceTree = "<group>"; };
 		C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SIGPIPEProbes.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000002 /* CMUXCLI+Simulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Simulator.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorAgent.swift"; sourceTree = "<group>"; };
@@ -7277,6 +7287,8 @@
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
+		A10BACF62A9A3AD2E6D2141A /* SettledSessionAutoCloseSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettledSessionAutoCloseSettingsTests.swift"; sourceTree = "<group>"; };
+		198D347276A7F1DE430D68A7 /* SettledSessionCloseCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettledSessionCloseCoordinator.swift; sourceTree = "<group>"; };
 		D96971000000000000000003 /* setup-pam-tid.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "scripts/setup-pam-tid.sh"; sourceTree = SOURCE_ROOT; };
 		226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+ScheduledHibernation.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
@@ -7759,6 +7771,7 @@
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreAdmission.swift"; sourceTree = "<group>"; };
 		8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreRecovery.swift"; sourceTree = "<group>"; };
+		CC0033E15A1B2C3D4E5F0A02 /* TerminalController+AgentSessionsCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentSessionsCommands.swift"; sourceTree = "<group>"; };
 		0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentTitle.swift"; sourceTree = "<group>"; };
 		13019E000000000000000001 /* TerminalController+AuthTeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AuthTeam.swift"; sourceTree = "<group>"; };
 		A106490B0000000000000001 /* TerminalController+Automation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Automation.swift"; sourceTree = "<group>"; };
@@ -8632,6 +8645,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AC4A6E7C4A700001AC4A0006 /* CmuxAgentChat in Frameworks */,
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */,
@@ -8731,6 +8745,7 @@
 				C11757000000000000000016 /* CLIHookNoResponseTests.swift */,
 				C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */,
 				C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */,
+				C117570000000000000000C1 /* CLISessionsLiveTests.swift */,
 				C11757000000000000000070 /* CLIRestoreSessionTransferTests.swift */,
 				C11757000000000000000019 /* CLISSHPTYResizeInputTests.swift */,
 				C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */,
@@ -8942,6 +8957,7 @@
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
 				C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */,
 				A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */,
+				FDCDBEDF439FD89173360E1A /* AgentSessionMetadataResolver.swift */,
 			);
 			name = AgentChat;
 			path = AgentChat;
@@ -11375,6 +11391,7 @@
 				FEED0000000000000000F003 /* Feed */,
 				C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */,
 				CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */,
+				CC0033E15A1B2C3D4E5F0A02 /* TerminalController+AgentSessionsCommands.swift */,
 				8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
@@ -11468,6 +11485,7 @@
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
+				198D347276A7F1DE430D68A7 /* SettledSessionCloseCoordinator.swift */,
 				A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */,
 				DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */,
 				A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */,
@@ -11720,6 +11738,7 @@
 				A10240070000000000000001 /* OwnedProcessSupervisor.swift */,
 				A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */,
 					C0DE64950000000000000002 /* CMUXCLI+SessionsList.swift */,
+					C0DE64950000000000000A02 /* CMUXCLI+SessionsLive.swift */,
 					C0DE5E5500000000000000A2 /* CMUXCLI+SessionMove.swift */,
 					C0DE64960000000000000006 /* CMUXCLI+SessionsListClaudeWorkflow.swift */,
 					C0DE64950000000000000008 /* CMUXCLI+SessionsListForkDiagnostics.swift */,
@@ -12924,6 +12943,7 @@
 				14ED028255308F9B421D2ABF /* CloudWorkspaceRowOpenProvider.swift */,
 				C038464D085920513576A927 /* CloudWorkspaceRowOpenTests.swift */,
 				34A1987FFA112D2457B20A9C /* LocalTerminalSizingHostLifecycleTests.swift */,
+				A10BACF62A9A3AD2E6D2141A /* SettledSessionAutoCloseSettingsTests.swift */,
 				78F253D557E6B9613AC4DB5C /* CloudLinkFailureMessageTests.swift */,
 				C7A99CD111C8F6166A22186B /* SidebarBoundedDisplayStringTests.swift */,
 				1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */,
@@ -13149,6 +13169,7 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
+				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				5CA7A1060000000000000002 /* CmuxSurfaceCatalogModel */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
@@ -13685,6 +13706,7 @@
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C11757000000000000000071 /* CLIRestoreSessionTransferTests.swift in Sources */,
 				AE55B7F6000000000000A002 /* CLISendDraftGuardTests.swift in Sources */,
+				C117570000000000000000C2 /* CLISessionsLiveTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
 				C11757000000000000000045 /* CLITestBundleAnchor.swift in Sources */,
@@ -13849,6 +13871,7 @@
 				A9F200000000000000000003 /* AgentSessionDebugMenuButtons.swift in Sources */,
 				A9F20000000000000000001B /* AgentSessionInputWriter.swift in Sources */,
 				A9F200000000000000000004 /* AgentSessionLaunchPlan.swift in Sources */,
+				4B8A171A362BEB88A310957D /* AgentSessionMetadataResolver.swift in Sources */,
 				A9F20000000000000000000E /* AgentSessionOutputLineBuffer.swift in Sources */,
 				B11371000000000000000021 /* AgentSessionOwnedProcessLauncher.swift in Sources */,
 				A9E020000000000000000002 /* AgentSessionPanel.swift in Sources */,
@@ -15355,6 +15378,7 @@
 				D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */,
 				D37777070000000000000001 /* SettingsWindowNavigationDelivery.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
+				7F7BBCE5EAA6F02D5B94AF39 /* SettledSessionCloseCoordinator.swift in Sources */,
 				91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,
@@ -15684,6 +15708,7 @@
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */,
 				1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */,
+				CC0033E15A1B2C3D4E5F0A01 /* TerminalController+AgentSessionsCommands.swift in Sources */,
 				2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */,
 				13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */,
 				A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */,
@@ -16408,6 +16433,7 @@
 					C0DE64950000000000000007 /* CMUXCLI+SessionsListForkDiagnostics.swift in Sources */,
 					C0DE64960000000000000003 /* CMUXCLI+SessionsListForkStartupInput.swift in Sources */,
 					C0DE64960000000000000001 /* CMUXCLI+SessionsListProcessArguments.swift in Sources */,
+					C0DE64950000000000000A01 /* CMUXCLI+SessionsLive.swift in Sources */,
 					C12984000000000000000002 /* CMUXCLI+SIGPIPEProbes.swift in Sources */,
 				C51A73000000000000000001 /* CMUXCLI+Simulator.swift in Sources */,
 				C51A73000000000000000005 /* CMUXCLI+SimulatorAgent.swift in Sources */,
@@ -17522,6 +17548,7 @@
 				D37777010000000000000001 /* SettingsWindowOpenRegressionTests.swift in Sources */,
 				D37777060000000000000001 /* SettingsWindowPresentationContractTests.swift in Sources */,
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
+				47465D51F19B705C7C07D848 /* SettledSessionAutoCloseSettingsTests.swift in Sources */,
 				F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */,
 				EE45396CAC0142289F52DCA0 /* ShellIntegrationSendTransportTests.swift in Sources */,
 				C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */,

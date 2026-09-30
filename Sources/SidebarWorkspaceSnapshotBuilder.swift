@@ -79,15 +79,17 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// The single leading status glyph when `sidebar.compactAgentStatus`
         /// is on (agent status entries then leave `metadataEntries`).
         var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        /// Number of settled agent sessions hosted by this workspace.
+        var settledSessionCount: Int = 0
 
         var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
         var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
-            let position = String(
+            let position = String(format: String(
                 localized: "accessibility.workspacePosition",
-                defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
-            )
+                defaultValue: "%1$@, workspace %2$lld of %3$lld"
+            ), title, Int64(index + 1), Int64(workspaceCount))
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
             return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")

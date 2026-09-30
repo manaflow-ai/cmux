@@ -15,6 +15,13 @@ final class AgentChatSessionRegistry {
     /// Latest authoritative Codex hook/store binding per terminal surface.
     var codexHookBindingBySurfaceID: [String: (sessionID: String, updatedAt: Date)] = [:]
     private let hookStore: AgentChatHookSessionStore
+    private let metadataResolver: AgentSessionMetadataResolver
+    private var metadataRefreshInFlight = false
+    private var metadataRefreshPending = false
+    private var metadataRefreshLastStartedAt: Date?
+    private let metadataRefreshMinimumInterval: TimeInterval = 15
+    private let metadataRefreshPeriodicInterval: Duration = .seconds(15 * 60)
+    private var metadataRefreshPeriodicTask: Task<Void, Never>?
 
     /// Called after a record mutation with the previous value (nil for a
     /// brand-new record), so the owner derives state/descriptor deltas in
@@ -56,9 +63,11 @@ final class AgentChatSessionRegistry {
     ///   - restoredRecords: Records restored before live observation begins.
     init(
         hookStore: AgentChatHookSessionStore = AgentChatHookSessionStore(),
-        restoredRecords: [AgentChatSessionRecord] = []
+        restoredRecords: [AgentChatSessionRecord] = [],
+        metadataResolver: AgentSessionMetadataResolver = AgentSessionMetadataResolver()
     ) {
         self.hookStore = hookStore
+        self.metadataResolver = metadataResolver
         for record in restoredRecords {
             records[record.sessionID] = record
             versionBySessionID[record.sessionID] = record.version
@@ -124,6 +133,7 @@ final class AgentChatSessionRegistry {
     /// hook-derived state.
     func applyObservedSessions(_ observed: [ObservedAgentSession]) {
         let now = Date()
+        var checkoutChanged = false
         for session in observed {
             let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
             let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
@@ -138,6 +148,7 @@ final class AgentChatSessionRegistry {
             )
             #endif
             if records[targetSessionID] == nil {
+                checkoutChanged = true
                 var record = AgentChatSessionRecord(
                     sessionID: targetSessionID,
                     agentKind: session.agentKind,
@@ -172,6 +183,9 @@ final class AgentChatSessionRegistry {
                             && current.hookStoreSessionID != session.sessionID
                     )
                 guard needsBackfill else { continue }
+                if current.workingDirectory == nil, session.workingDirectory != nil {
+                    checkoutChanged = true
+                }
                 update(sessionID: targetSessionID) { rec in
                     if observedHasRealHookStoreIdentity, targetSessionID != session.sessionID {
                         rec.rememberHookStoreSessionID(session.sessionID)
@@ -183,6 +197,9 @@ final class AgentChatSessionRegistry {
                     if rec.pid == nil { rec.pid = session.pid }
                 }
             }
+        }
+        if checkoutChanged {
+            scheduleMetadataRefresh(force: true)
         }
     }
 
@@ -353,6 +370,33 @@ final class AgentChatSessionRegistry {
             if timestamp > record.lastActivityAt {
                 record.lastActivityAt = timestamp
             }
+            record.hasFinishedTurn = true
+        }
+    }
+
+    /// Stores the latest assistant prose for the live session projection.
+    func noteAgentOutput(sessionID: String, text: String, at timestamp: Date) {
+        guard let previous = records[sessionID],
+              let output = AgentSessionOutputPreview().cleaned(text),
+              !output.isEmpty else { return }
+        var record = previous
+        let isNewer = record.lastOutput == nil || timestamp >= (record.lastAgentOutputAt ?? .distantPast)
+        if isNewer {
+            record.lastOutput = output
+            record.lastAgentOutputAt = timestamp
+        }
+        if timestamp > record.lastActivityAt { record.lastActivityAt = timestamp }
+        stampVersion(&record)
+        storeRecord(record, replacing: previous)
+    }
+
+    /// Records physical terminal input even when no prompt hook has landed.
+    func noteUserInput(surfaceID: String, at timestamp: Date) {
+        guard let record = liveSession(surfaceID: surfaceID) else { return }
+        update(sessionID: record.sessionID) { current in
+            current.lastUserInputAt = timestamp
+            current.hasFinishedTurn = false
+            if timestamp > current.lastActivityAt { current.lastActivityAt = timestamp }
         }
     }
 
@@ -415,6 +459,7 @@ final class AgentChatSessionRegistry {
                 storeRecord(record, replacing: nil)
             }
         }
+        scheduleMetadataRefresh(force: true)
     }
 
     /// Ingests one hook event: creates or refreshes the session record and
@@ -501,6 +546,15 @@ final class AgentChatSessionRegistry {
             record.transcriptPath = transcriptPath
         }
         record.lastActivityAt = event.receivedAt
+        if event.hookEventName == .userPromptSubmit {
+            record.lastUserInputAt = event.receivedAt
+            record.hasFinishedTurn = false
+        } else if event.hookEventName != .sessionStart {
+            record.lastAgentOutputAt = event.receivedAt
+        }
+        if event.hookEventName == .stop || event.hookEventName == .sessionEnd {
+            record.hasFinishedTurn = true
+        }
         Self.applyChildRunEvent(&record, event: event)
 
         let previous = records[sessionID]
@@ -508,6 +562,14 @@ final class AgentChatSessionRegistry {
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         storeRecord(record, replacing: previous)
+        let checkoutIdentityChanged = previous == nil
+            || previous?.workingDirectory != record.workingDirectory
+            || event.hookEventName == .sessionStart
+            || event.hookEventName == .stop
+            || event.hookEventName == .sessionEnd
+        if checkoutIdentityChanged {
+            scheduleMetadataRefresh()
+        }
         if shouldConsultStore {
             backfillBindingsFromStore(
                 sessionID: sessionID,
@@ -516,6 +578,97 @@ final class AgentChatSessionRegistry {
             )
         }
         return record
+    }
+
+    private func scheduleMetadataRefresh(force: Bool = false) {
+        guard !metadataRefreshInFlight else {
+            metadataRefreshPending = true
+            return
+        }
+        if !force,
+           let lastStartedAt = metadataRefreshLastStartedAt,
+           Date().timeIntervalSince(lastStartedAt) < metadataRefreshMinimumInterval {
+            metadataRefreshPending = true
+            return
+        }
+        metadataRefreshPending = false
+        metadataRefreshInFlight = true
+        metadataRefreshLastStartedAt = Date()
+        let snapshot = Array(records.values)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let metadata = await self.metadataResolver.refresh(records: snapshot)
+            let snapshotByID = Dictionary(uniqueKeysWithValues: snapshot.compactMap { record in
+                record.workingDirectory.map { (record.sessionID, $0) }
+            })
+            let resolvedIDs = Set(metadata.keys)
+            // Apply and clear only while the session still points at the same
+            // checkout captured before the async Git/GitHub work. Do not clear
+            // branch first: retaining it lets us reject a result when the
+            // checkout changed branch in the meantime.
+            for (sessionID, snapshotDirectory) in snapshotByID {
+                guard let current = self.records[sessionID],
+                      current.workingDirectory == snapshotDirectory else {
+                    continue
+                }
+                if let value = metadata[sessionID] {
+                    guard current.branch == nil || current.branch == value.branch else {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = nil
+                            record.worktree = nil
+                            record.linkedPullRequests.removeAll()
+                            record.pullRequestsResolved = false
+                        }
+                        continue
+                    }
+                    if current.branch != value.branch ||
+                        current.worktree != value.worktree ||
+                        current.linkedPullRequests != value.pullRequests ||
+                        current.pullRequestsResolved != value.pullRequestsResolved {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = value.branch
+                            record.worktree = value.worktree
+                            record.linkedPullRequests = value.pullRequests
+                            record.pullRequestsResolved = value.pullRequestsResolved
+                        }
+                    }
+                } else if !resolvedIDs.contains(sessionID) {
+                    if current.branch != nil || current.worktree != nil ||
+                        !current.linkedPullRequests.isEmpty || current.pullRequestsResolved {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = nil
+                            record.worktree = nil
+                            record.linkedPullRequests.removeAll()
+                            record.pullRequestsResolved = false
+                        }
+                    }
+                }
+            }
+            self.metadataRefreshInFlight = false
+            if self.metadataRefreshPending {
+                let elapsed = self.metadataRefreshLastStartedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+                let delay = max(0, self.metadataRefreshMinimumInterval - elapsed)
+                self.metadataRefreshPending = false
+                Task { @MainActor [weak self] in
+                    if delay > 0 {
+                        try? await Task.sleep(for: .seconds(delay))
+                    }
+                    self?.scheduleMetadataRefresh(force: true)
+                }
+            } else {
+                self.schedulePeriodicMetadataRefresh()
+            }
+        }
+    }
+
+    private func schedulePeriodicMetadataRefresh() {
+        metadataRefreshPeriodicTask?.cancel()
+        metadataRefreshPeriodicTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: self.metadataRefreshPeriodicInterval)
+            guard !Task.isCancelled, !self.records.isEmpty else { return }
+            self.scheduleMetadataRefresh(force: true)
+        }
     }
 
     private func canonicalClaudeSessionID(

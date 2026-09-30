@@ -36,6 +36,8 @@ public struct TerminalSection: View {
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
+    @State private var settledAutoClose: DefaultsValueModel<Bool>
+    @State private var settledAutoCloseHours: DefaultsValueModel<Double>
     @State private var rendererReclaim: DefaultsValueModel<Bool>
     @State private var rendererIdleSeconds: DefaultsValueModel<Double>
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
@@ -80,6 +82,8 @@ public struct TerminalSection: View {
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+        _settledAutoClose = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.settledSessionAutoCloseEnabled))
+        _settledAutoCloseHours = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.settledSessionAutoCloseIdleHours))
         _rendererReclaim = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationEnabled))
         _rendererIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationIdleSeconds))
         _rendererMaxWarm = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationMaxWarmRenderers))
@@ -119,6 +123,8 @@ public struct TerminalSection: View {
             hibernation,
             idleSeconds,
             maxLive,
+            settledAutoClose,
+            settledAutoCloseHours,
             rendererReclaim,
             rendererIdleSeconds,
             rendererMaxWarm,
@@ -279,6 +285,47 @@ public struct TerminalSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.settledSessionAutoClose.enabled"),
+                String(localized: "settings.terminal.settledSessionAutoClose", defaultValue: "Auto-close Settled Sessions"),
+                subtitle: String(localized: "settings.terminal.settledSessionAutoClose.subtitle", defaultValue: "Off by default. Closes sessions only after their turn finished, their output is idle, and linked pull requests are closed or merged.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { settledAutoClose.current },
+                    set: {
+                        settledAutoClose.set($0) {
+                            NotificationCenter.default.post(
+                                name: Notification.Name.cmuxAgentHibernationSettingsDidChange,
+                                object: nil
+                            )
+                        }
+                    }
+                ))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalSettledAutoCloseToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.settledSessionAutoClose.idleHours"),
+                String(localized: "settings.terminal.settledSessionAutoClose.idleHours", defaultValue: "Close After Idle Hours"),
+                subtitle: String(localized: "settings.terminal.settledSessionAutoClose.idleHours.subtitle", defaultValue: "The minimum idle time before a settled session can be closed."),
+                controlWidth: 110
+            ) {
+                Stepper("\(Int(settledAutoCloseHours.current))", value: Binding(
+                    get: { settledAutoCloseHours.current },
+                    set: {
+                        settledAutoCloseHours.set($0) {
+                            NotificationCenter.default.post(
+                                name: Notification.Name.cmuxAgentHibernationSettingsDidChange,
+                                object: nil
+                            )
+                        }
+                    }
+                ), in: 1...168, step: 1)
+                    .accessibilityIdentifier("SettingsTerminalSettledAutoCloseIdleHoursStepper")
             }
             SettingsCardDivider()
             SettingsCardRow(
