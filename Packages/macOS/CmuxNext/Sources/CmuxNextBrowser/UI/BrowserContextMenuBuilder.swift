@@ -16,6 +16,9 @@ public enum BrowserContextMenuBuilder {
     /// `view` (the tab's content view). Runs the menu's tracking loop and
     /// completes the request afterwards (nil when nothing was chosen).
     public static func present(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem] = []) {
+        // A background tab's view is in no window; AppKit cannot anchor a
+        // menu there (it raises). Dismiss the request instead.
+        guard view.window != nil else { return request.complete(nil) }
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in items(for: request) { menu.addItem(item) }
