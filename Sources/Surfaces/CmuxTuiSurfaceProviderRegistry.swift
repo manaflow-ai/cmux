@@ -429,7 +429,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             return id
         })
     }
-
     /// Another team's machines that still back an open surface (a projected
     /// pane, a restoring pane, or a Cloud workspace bound to the machine).
     private func retainedForeignTeamMachineIDs(activeTeamID active: String?) -> Set<String> {

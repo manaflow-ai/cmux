@@ -96,14 +96,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.portDiscoveryState = portDiscovery.state
         catalog.updateMachine(info, from: self)
     }
-
     @discardableResult
     func requestPortDiscovery() -> UInt64 {
         let request = portDiscovery.request()
         publishPortDiscovery()
         return request
     }
-
     func abandonPortDiscoveryRequest(_ request: UInt64) {
         let previousState = portDiscovery.state
         portDiscovery.abandonRequest(request)
