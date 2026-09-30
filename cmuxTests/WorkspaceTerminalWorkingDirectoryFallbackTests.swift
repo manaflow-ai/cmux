@@ -35,6 +35,19 @@ import Testing
 
         #expect(resolved == root.path)
         #expect(resolved != selectedWorkspaceDirectory.path)
+
+        let rescuedDirectory = root.appendingPathComponent("rescued-agent", isDirectory: true)
+        try FileManager.default.createDirectory(at: rescuedDirectory, withIntermediateDirectories: true)
+        let rescued = RemoteTerminalWorkingDirectoryResolver.resolve(
+            requested: missingSavedDirectory,
+            preserveExact: false,
+            rescued: rescuedDirectory.path,
+            panelDirectory: missingSavedDirectory,
+            requestedPanelDirectory: nil,
+            remoteInitialDirectory: nil,
+            currentDirectory: selectedWorkspaceDirectory.path
+        )
+        #expect(rescued == rescuedDirectory.path)
     }
 
     @Test func remoteRestorePreservesAnExactMissingDirectory() {
