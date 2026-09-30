@@ -203,6 +203,21 @@ struct CLISendDraftGuardTests {
         #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
     }
 
+    @Test func sendSubmitUsesEnterForMultilineClaude() throws {
+        let claude: [String: Any] = [
+            "state": "empty", "agent": true, "terminal": true,
+            "agent_kind": "claude", "blocks_typing": false,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "one\ntwo"],
+            inputStates: [claude, Self.draft, Self.empty]
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "return")
+    }
+
     @Test func sendSubmitRetriesSlashPopupWithAnExtraSubmit() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "/goal resume"],
