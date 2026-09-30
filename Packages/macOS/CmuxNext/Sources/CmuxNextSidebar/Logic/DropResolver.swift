@@ -36,7 +36,8 @@ public nonisolated enum DropResolver {
         y: CGFloat,
         payload: DragPayload,
         base: SidebarLayout,
-        sections: [SidebarSection]
+        sections: [SidebarSection],
+        ungroupedFirst: Bool = false
     ) -> DropTarget? {
         guard !base.rows.isEmpty else { return nil }
         let (row, fraction) = hit(y: y, layout: base)
