@@ -31,6 +31,7 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     /// Derived storage must not publish when a SwiftUI read rebuilds it.
     @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
+    @ObservationIgnored var diagProjectReuseCount = 0
     private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndex = nil; noteProjectionChanges(from: oldValue) } }
     var projectionVersions: [SurfaceMachineID: UInt64] = [:]; var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
@@ -669,6 +670,8 @@ final class SurfaceCatalog {
             if let loadingReservation, existing.panelID != loadingReservation.panelID {
                 guard Workspace.liveWorkspace(id: loadingReservation.workspaceID)?.discardCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) == true else { throw CancellationError() }
             }
+            diagProjectReuseCount += 1
+            if diagProjectReuseCount <= 12 || diagProjectReuseCount % 5000 == 0 { NSLog("DIAGPROJECT reuse n=\(diagProjectReuseCount)  id=\(id.rawValue) existing=\(existing.remoteWorkspaceID ?? "nil")/\(existing.remoteTabID ?? "nil") panel=\(existing.panelID.uuidString.prefix(8)) ws=\(existing.workspaceID.uuidString.prefix(8)) view=\(resolvedRemoteView?.workspace.id ?? "nil")/\(resolvedRemoteView?.tabID ?? "nil") count=\(projections.count)") }
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
             if resource.kind != .terminal,
                let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,

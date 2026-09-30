@@ -12,6 +12,7 @@ final class CloudWorkspaceProjectionCoordinator {
     private var requested: Set<SurfaceMachineID> = []
     private var localMutations: [SurfaceMachineID: Set<UUID>] = [:]
     private(set) var failures: [UUID: String] = [:]
+    private var diagIterations = 0
 
     init() {
         self.environment = CloudWorkspaceProjectionEnvironment()
@@ -130,6 +131,12 @@ final class CloudWorkspaceProjectionCoordinator {
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
             let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
+            diagIterations += 1
+            if diagIterations <= 12 || diagIterations % 5000 == 0 {
+                func d(_ p: SurfaceResourcePlacement) -> String { "\(p.resource.rawValue)|\(p.remoteWorkspaceID ?? "nil")|\(p.remoteTabID ?? "nil")|\(p.cloudDisplayMembershipViewID ?? "nil")" }
+                func e(_ p: SurfaceProjection) -> String { "\(p.resource.rawValue)|\(p.remoteWorkspaceID ?? "nil")|\(p.remoteTabID ?? "nil")|panel=\(p.panelID.uuidString.prefix(8))" }
+                NSLog("DIAGRECON iter=\(diagIterations) ws=\(workspaceID.uuidString.prefix(8)) remote=\(remoteID) desired=\(desired.map(d)) existing=\(existing.map(e)) missing=\(plan.missing.map(d)) obsolete=\(plan.obsolete.map(e)) allProjections=\(catalog.projections.filter { $0.resource.machine == machine }.map(e)) views=\(desired.map { (try? catalog.remoteView(for: $0, fallbackWorkspaceID: remoteID)).map { "\($0?.workspace.id ?? "nil")/\($0?.tabID ?? "nil")" } ?? "throw" })")
+            }
             do {
                 for placement in plan.missing {
                     guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
