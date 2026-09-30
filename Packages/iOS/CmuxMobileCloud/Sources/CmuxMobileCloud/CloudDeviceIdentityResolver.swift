@@ -31,19 +31,12 @@ public struct CloudDeviceIdentityResolver: Sendable {
 
     /// The stored identity, or a newly minted one that is now stored.
     public func resolve() async throws -> CloudDeviceIdentity {
-        switch await store.read() {
-        case .found(let identity):
-            return identity
-        case .unavailable:
+        do {
+            return try await store.resolve()
+        } catch CloudDeviceIdentityStoreError.unavailable {
             throw Failure.storeUnavailable
-        case .absent:
-            let minted = CloudDeviceIdentity.mint()
-            do {
-                try await store.write(minted)
-            } catch {
-                throw Failure.persistFailed(String(describing: error))
-            }
-            return minted
+        } catch {
+            throw Failure.persistFailed(String(describing: error))
         }
     }
 }

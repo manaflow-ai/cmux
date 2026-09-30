@@ -156,4 +156,42 @@ import Testing
 
         #expect(service.calls.list == 1)
     }
+
+    @Test func provisioningPollStopsWithRetryableFailureAfterItsBudget() async {
+        let service = FakeCloudVMService()
+        service.machines = .success([
+            CloudMachine(id: "vm-1", provider: "freestyle", status: "provisioning")
+        ])
+        let clock = TestClock()
+        let controller = CloudSessionController(
+            service: service,
+            identityStore: InMemoryCloudDeviceIdentityStore(),
+            tunnelStarter: FakeTunnelStarter(),
+            connector: FakeConnector(),
+            stateDirectory: Fixtures.stateDirectory(),
+            deviceName: "iPhone",
+            approvalClock: clock,
+            provisioningPollLimit: 2
+        )
+
+        controller.refreshMachines()
+        for _ in 0 ..< 500 where clock.sleepers == 0 { await Task.yield() }
+        clock.advance(by: CloudSessionController.provisioningPollInterval)
+        for _ in 0 ..< 500 where service.calls.list < 2 || clock.sleepers == 0 { await Task.yield() }
+        clock.advance(by: CloudSessionController.provisioningPollInterval)
+        for _ in 0 ..< 500 {
+            if case .failed = controller.machines { break }
+            await Task.yield()
+        }
+
+        guard case .failed(let failure, let previous) = controller.machines else {
+            Issue.record("expected provisioning to stop with a failure")
+            return
+        }
+        #expect(previous.count == 1)
+        #expect(failure.kind == .other)
+        #expect(failure.action == "Refresh to check again.")
+        #expect(service.calls.list == 3)
+        #expect(clock.sleepers == 0)
+    }
 }

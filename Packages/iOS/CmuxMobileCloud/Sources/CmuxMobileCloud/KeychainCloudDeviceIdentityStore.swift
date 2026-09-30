@@ -13,6 +13,7 @@ public final class KeychainCloudDeviceIdentityStore: CloudDeviceIdentityStoring,
     private let service: String
     private let account = "cloud-device-identity"
     private let accessGroup: String?
+    private static let accessLock = NSLock()
 
     /// Creates a store.
     /// - Parameters:
@@ -44,6 +45,21 @@ public final class KeychainCloudDeviceIdentityStore: CloudDeviceIdentityStoring,
             return .absent
         default:
             return .unavailable
+        }
+    }
+
+    public func resolve() async throws -> CloudDeviceIdentity {
+        try Self.accessLock.withLock {
+            switch read() {
+            case .found(let identity):
+                return identity
+            case .absent:
+                let identity = CloudDeviceIdentity.mint()
+                try write(identity)
+                return identity
+            case .unavailable:
+                throw CloudDeviceIdentityStoreError.unavailable
+            }
         }
     }
 

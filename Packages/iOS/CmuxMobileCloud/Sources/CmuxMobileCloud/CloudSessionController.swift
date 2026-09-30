@@ -59,6 +59,12 @@ public final class CloudSessionController {
     private var nextListReadTask: Task<Void, Never>?
     /// How often the list is re-read while a machine is provisioning.
     static let provisioningPollInterval: Duration = .seconds(5)
+    /// How many successful provisioning polls are allowed before the list
+    /// shows a retryable failure instead of polling forever.
+    static let defaultProvisioningPollLimit = 60
+    private let tunnelStartupTimeout: Duration
+    private let provisioningPollLimit: Int
+    private var provisioningPollCount = 0
     private var connections: [String: CloudMachineConnection] = [:]
     private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
 
@@ -72,6 +78,10 @@ public final class CloudSessionController {
     ///     client's device identity and known daemons.
     ///   - deviceName: This phone's name, sent on enroll and attach.
     ///   - approvalClock: Paces first-contact approval polling; tests inject a test clock.
+    ///   - tunnelStartupTimeout: Bounds identity, enrollment, config, and
+    ///     tunnel startup as one recoverable operation.
+    ///   - provisioningPollLimit: Bounds the number of five-second reads made
+    ///     while a machine remains in `provisioning`.
     public init(
         service: any CloudVMServing,
         identityStore: any CloudDeviceIdentityStoring,
@@ -80,7 +90,9 @@ public final class CloudSessionController {
         stateDirectory: URL,
         deviceName: String,
         approvalClock: any Clock<Duration> = ContinuousClock(),
-        visibilityDefaults: UserDefaults = .standard
+        visibilityDefaults: UserDefaults = .standard,
+        tunnelStartupTimeout: Duration = .seconds(30),
+        provisioningPollLimit: Int = 60
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
@@ -90,6 +102,8 @@ public final class CloudSessionController {
         self.deviceName = deviceName
         self.approvalClock = approvalClock
         self.visibilityDefaults = visibilityDefaults
+        self.tunnelStartupTimeout = max(.milliseconds(1), tunnelStartupTimeout)
+        self.provisioningPollLimit = max(1, provisioningPollLimit)
     }
 
     // MARK: - Lifecycle
@@ -144,6 +158,7 @@ public final class CloudSessionController {
         nextListReadTask?.cancel()
         nextListReadTask = nil
         listFailureCount = 0
+        provisioningPollCount = 0
         stopTunnel()
         tunnel = .idle
         identity = nil
@@ -264,17 +279,25 @@ public final class CloudSessionController {
         startTask = Task { [weak self] in
             guard let self else { return }
             let result: Result<(CloudDeviceIdentity, any CloudTunnel), CloudSessionFailure>
-            do {
-                let identity = try await identityResolver.resolve()
-                let enrollment = try await service.enrollTunnel(
+            let startup = Task<(CloudDeviceIdentity, any CloudTunnel), any Error> { @MainActor [weak self] in
+                guard let self else { throw CancellationError() }
+                let identity = try await self.identityResolver.resolve()
+                let enrollment = try await self.service.enrollTunnel(
                     clientPublicKey: identity.keyPair.publicKey,
                     deviceFingerprint: identity.fingerprint,
                     tunnelPurpose: .terminal,
-                    deviceName: deviceName
+                    deviceName: self.deviceName
                 )
-                let config = try WireGuardQuickConfig.make(enrollment: enrollment, privateKey: identity.keyPair.privateKey)
-                let live = try await tunnelStarter.start(wgQuickConfig: config.text)
-                result = .success((identity, live))
+                let config = try WireGuardQuickConfig.make(
+                    enrollment: enrollment,
+                    privateKey: identity.keyPair.privateKey
+                )
+                let live = try await self.tunnelStarter.start(wgQuickConfig: config.text)
+                return (identity, live)
+            }
+            do {
+                let value = try await CloudSystemVPNTaskTimeout(timeout: tunnelStartupTimeout).value(startup)
+                result = .success(value)
             } catch {
                 result = .failure(CloudSessionFailure.classify(error, stage: .tunnel))
             }
@@ -328,6 +351,13 @@ public final class CloudSessionController {
 
     /// Reload the machine list.
     public func refreshMachines() {
+        refreshMachines(resetProvisioningPollBudget: true)
+    }
+
+    private func refreshMachines(resetProvisioningPollBudget: Bool) {
+        if resetProvisioningPollBudget {
+            provisioningPollCount = 0
+        }
         listTask?.cancel()
         machines = .loading(previous: machines.elements)
         listTask = Task { [weak self] in
@@ -361,12 +391,28 @@ public final class CloudSessionController {
     }
 
     /// Schedules one more list read while any machine is still provisioning
-    /// and the app is in the foreground. Each read reschedules only if it is
-    /// still needed, so the poll ends by itself once every machine settles.
+    /// and the app is in the foreground. A bounded budget turns a provider
+    /// that never settles into the same retryable failure row used by other
+    /// list errors.
     private func scheduleProvisioningPollIfNeeded() {
         nextListReadTask?.cancel()
         nextListReadTask = nil
-        guard machines.elements.contains(where: { $0.lifecycle == .provisioning }) else { return }
+        guard machines.elements.contains(where: { $0.lifecycle == .provisioning }) else {
+            provisioningPollCount = 0
+            return
+        }
+        guard provisioningPollCount < provisioningPollLimit else {
+            machines = .failed(
+                CloudSessionFailure(
+                    kind: .other,
+                    detail: "The machine is still provisioning after the retry window.",
+                    action: "Refresh to check again."
+                ),
+                previous: machines.elements
+            )
+            return
+        }
+        provisioningPollCount += 1
         scheduleListRead(after: Self.provisioningPollInterval)
     }
 
@@ -393,7 +439,7 @@ public final class CloudSessionController {
                 return
             }
             guard !Task.isCancelled else { return }
-            self?.refreshMachines()
+            self?.refreshMachines(resetProvisioningPollBudget: false)
         }
     }
 

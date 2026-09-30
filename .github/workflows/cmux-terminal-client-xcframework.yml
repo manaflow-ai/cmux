@@ -77,6 +77,8 @@ jobs:
       - name: Resolve version
         id: version
         shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
           crate_version="$(python3 - <<'PY'
@@ -86,7 +88,8 @@ jobs:
           PY
           )"
           short_sha="$(git rev-parse --short=12 HEAD)"
-          if [[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)" == "main" ]]; then
+          source_ref="${REQUESTED_REF:-${GITHUB_REF_NAME:-}}"
+          if [[ "$source_ref" == "main" || "$source_ref" == "refs/heads/main" ]]; then
             version="$crate_version"
           else
             version="${crate_version}+${short_sha}"

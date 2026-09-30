@@ -275,6 +275,29 @@ import Testing
         #expect(failure.detail.contains("handshake timeout"))
     }
 
+    @Test func tunnelStartupTimeoutBecomesRetryableFailure() async {
+        let controller = CloudSessionController(
+            service: FakeCloudVMService(),
+            identityStore: InMemoryCloudDeviceIdentityStore(),
+            tunnelStarter: HangingTunnelStarter(),
+            connector: FakeConnector(),
+            stateDirectory: Fixtures.stateDirectory(),
+            deviceName: "phone",
+            tunnelStartupTimeout: .milliseconds(20)
+        )
+
+        controller.sectionDidAppear()
+        try? await Task.sleep(for: .milliseconds(50))
+        await settle { if case .failed = controller.tunnel { return true } else { return false } }
+
+        guard case .failed(let failure) = controller.tunnel else {
+            Issue.record("expected the hung startup to fail")
+            return
+        }
+        #expect(failure.kind == .tunnel)
+        #expect(failure.isRetryable)
+    }
+
     @Test func lockedIdentityStoreNeverMintsAndReportsIdentityFailure() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
         let service = FakeCloudVMService()
@@ -431,6 +454,14 @@ final class GatedTunnelStarter: CloudTunnelStarting, @unchecked Sendable {
     func release() {
         let c = lock.withLock { continuation }
         c?.resume()
+    }
+}
+
+/// A tunnel starter that only completes when cancellation reaches its sleep.
+final class HangingTunnelStarter: CloudTunnelStarting, @unchecked Sendable {
+    func start(wgQuickConfig: String) async throws -> any CloudTunnel {
+        try await Task.sleep(for: .seconds(3_600))
+        return FakeTunnel(config: wgQuickConfig)
     }
 }
 

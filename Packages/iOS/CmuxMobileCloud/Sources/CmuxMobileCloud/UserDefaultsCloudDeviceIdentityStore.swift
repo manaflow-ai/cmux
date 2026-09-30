@@ -16,6 +16,7 @@ public final class UserDefaultsCloudDeviceIdentityStore: CloudDeviceIdentityStor
 
     private let defaults: UserDefaults
     private let key: String
+    private static let accessLock = NSLock()
 
     /// Creates a store.
     /// - Parameters:
@@ -34,6 +35,21 @@ public final class UserDefaultsCloudDeviceIdentityStore: CloudDeviceIdentityStor
             return .absent
         }
         return .found(CloudDeviceIdentity(fingerprint: payload.fingerprint, keyPair: keyPair))
+    }
+
+    public func resolve() async throws -> CloudDeviceIdentity {
+        try Self.accessLock.withLock {
+            switch read() {
+            case .found(let identity):
+                return identity
+            case .absent:
+                let identity = CloudDeviceIdentity.mint()
+                try write(identity)
+                return identity
+            case .unavailable:
+                throw CloudDeviceIdentityStoreError.unavailable
+            }
+        }
     }
 
     public func write(_ identity: CloudDeviceIdentity) throws {

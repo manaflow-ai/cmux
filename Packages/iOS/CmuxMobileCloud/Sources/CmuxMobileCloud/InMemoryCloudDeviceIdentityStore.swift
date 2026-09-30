@@ -24,6 +24,16 @@ public actor InMemoryCloudDeviceIdentityStore: CloudDeviceIdentityStoring {
         return .absent
     }
 
+    public func resolve() throws -> CloudDeviceIdentity {
+        if state.unavailable {
+            throw CloudDeviceIdentityStoreError.unavailable
+        }
+        if let identity = state.identity { return identity }
+        let identity = CloudDeviceIdentity.mint()
+        state.identity = identity
+        return identity
+    }
+
     public func write(_ identity: CloudDeviceIdentity) throws {
         state.identity = identity
     }

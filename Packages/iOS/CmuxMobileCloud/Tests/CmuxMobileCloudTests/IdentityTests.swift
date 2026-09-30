@@ -37,6 +37,19 @@ import Testing
         #expect(await store.stored == first)
     }
 
+    @Test func concurrentResolversShareOneFreshIdentity() async throws {
+        let store = InMemoryCloudDeviceIdentityStore()
+        let firstResolver = CloudDeviceIdentityResolver(store: store)
+        let secondResolver = CloudDeviceIdentityResolver(store: store)
+
+        async let first = firstResolver.resolve()
+        async let second = secondResolver.resolve()
+        let (firstIdentity, secondIdentity) = try await (first, second)
+
+        #expect(firstIdentity == secondIdentity)
+        #expect(await store.stored == firstIdentity)
+    }
+
     @Test func resolverCanReadWithoutMintingOnFreshInstall() async throws {
         let store = InMemoryCloudDeviceIdentityStore()
         let resolver = CloudDeviceIdentityResolver(store: store)

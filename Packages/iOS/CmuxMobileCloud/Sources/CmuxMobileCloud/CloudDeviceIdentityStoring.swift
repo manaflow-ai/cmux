@@ -9,6 +9,11 @@ public protocol CloudDeviceIdentityStoring: Sendable {
     /// The stored identity, `.absent` on a fresh install, `.unavailable` when
     /// the store cannot be read now.
     func read() async -> CloudDeviceIdentityReadResult
+    /// Reads the identity or atomically mints and persists one.
+    ///
+    /// Implementations must serialize the read-and-create sequence across
+    /// every resolver that can share the store.
+    func resolve() async throws -> CloudDeviceIdentity
     /// Persist `identity`, overwriting any previous value.
     func write(_ identity: CloudDeviceIdentity) async throws
 }
@@ -25,6 +30,8 @@ public enum CloudDeviceIdentityReadResult: Sendable, Equatable {
 
 /// Failures of an identity store.
 public enum CloudDeviceIdentityStoreError: Error, Equatable, Sendable {
+    /// The store is temporarily unavailable, for example before first unlock.
+    case unavailable
     /// The Keychain refused the write with the given `OSStatus`.
     case keychain(Int32)
     /// A stored value could not be decoded.
