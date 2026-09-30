@@ -788,6 +788,8 @@ final class FileExplorerStore: ObservableObject {
 
     /// In-flight load tasks keyed by path
     private var loadTasks: [String: Task<Void, Never>] = [:]
+    /// Silent watch-driven re-lists, one per directory; a newer change replaces it.
+    private var refreshTasks: [String: Task<Void, Never>] = [:]
 
     /// Cache of path -> node for quick lookup
     private var nodesByPath: [String: FileExplorerNode] = [:]
@@ -978,7 +980,8 @@ final class FileExplorerStore: ObservableObject {
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    self.reload()
+                    // FSEvents here carries no paths; re-list what is on screen.
+                    self.refreshDirectories(self.displayedDirectories())
                     self.refreshGitStatus()
                 }
             }
@@ -993,9 +996,9 @@ final class FileExplorerStore: ObservableObject {
                 // A failed channel ends the watch; the next root change, expand or
                 // collapse starts a new one, and the refresh button still works.
                 do {
-                    for try await _ in changes {
+                    for try await changed in changes {
                         guard let self else { break }
-                        self.reload()
+                        self.refreshDirectories(changed)
                         self.refreshGitStatus()
                     }
                 } catch {}
@@ -1232,11 +1235,103 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    /// The root plus every expanded directory whose children are loaded.
+    private func displayedDirectories() -> [String] {
+        guard !rootPath.isEmpty else { return [] }
+        return [rootPath] + expandedPaths.filter { nodesByPath[$0]?.children != nil }.sorted()
+    }
+
+    /// Re-lists `paths` in place after a file-system change: no loading state, and
+    /// unchanged entries keep their node (so expansion, loaded children and selection
+    /// survive). A directory that is not on screen is skipped; its parent's refresh
+    /// covers additions and removals.
+    func refreshDirectories(_ paths: [String]) {
+        guard provider != nil, !rootPath.isEmpty else { return }
+        for path in Set(paths) {
+            let parent: FileExplorerNode?
+            if path == rootPath {
+                parent = nil
+            } else if let node = nodesByPath[path], node.children != nil, expandedPaths.contains(path) {
+                parent = node
+            } else {
+                continue
+            }
+            // A full load of this directory is already running; it will be current.
+            guard loadTasks[path] == nil else { continue }
+            refreshTasks[path]?.cancel()
+            refreshTasks[path] = Task { [weak self] in
+                await self?.refreshChildren(of: parent, at: path)
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshChildren(of parent: FileExplorerNode?, at path: String) async {
+        guard let provider else { return }
+        let context = resourceContextID
+        let entries: [FileExplorerEntry]
+        do {
+            entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
+        } catch {
+            // Keep what is shown; a vanished directory is removed by its parent's refresh.
+            refreshTasks.removeValue(forKey: path)
+            return
+        }
+        guard !Task.isCancelled, context == resourceContextID, provider === self.provider else { return }
+        refreshTasks.removeValue(forKey: path)
+        let previous = parent?.children ?? rootNodes
+        let previousByPath = Dictionary(previous.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let children = entries.map { entry -> FileExplorerNode in
+            if let existing = previousByPath[entry.path], existing.isDirectory == entry.isDirectory {
+                return existing
+            }
+            let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
+            node.resourceContextID = resourceContextID
+            nodesByPath[entry.path] = node
+            return node
+        }.sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+        let kept = Set(children.map(\.path))
+        guard kept != Set(previous.map(\.path)) || children.count != previous.count ||
+              zip(children, previous).contains(where: { $0 !== $1 }) else { return }
+        let expandedBefore = expandedPaths
+        for removed in previous where !kept.contains(removed.path) {
+            forgetSubtree(removed)
+        }
+        if expandedPaths != expandedBefore {
+            // A watched folder disappeared; watch the remaining set.
+            updateDirectoryWatcher()
+        }
+        if let parent {
+            parent.children = children
+        } else {
+            rootNodes = children
+            // Root rows are only rebuilt on a revision change; the preserved node
+            // objects keep expansion and selection across that rebuild.
+            contentRevision &+= 1
+        }
+        if let selectedPath, nodesByPath[selectedPath] == nil {
+            self.selectedPath = nil
+            selectedPaths = []
+        }
+        objectWillChange.send()
+    }
+
+    private func forgetSubtree(_ node: FileExplorerNode) {
+        nodesByPath.removeValue(forKey: node.path)
+        expandedPaths.remove(node.path)
+        for child in node.children ?? [] { forgetSubtree(child) }
+    }
+
     private func cancelAllLoads() {
         for (_, task) in loadTasks {
             task.cancel()
         }
         loadTasks.removeAll()
+        for (_, task) in refreshTasks { task.cancel() }
+        refreshTasks.removeAll()
         loadingPaths.removeAll()
         pendingDescendIntoFirstChildPath = nil
         for scheduler in prefetchSchedulers.values {
