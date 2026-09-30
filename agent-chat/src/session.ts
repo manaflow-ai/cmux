@@ -27,6 +27,7 @@ export type AgentEvent =
   | { kind: "user"; text: string }
   | { kind: "agent-message"; id: string; from: string; body: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string }
@@ -63,6 +64,8 @@ export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
 export interface SessionActions { fork?: boolean; handoff?: boolean; }
 export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
+export type AgentPlanStatus = "pending" | "in_progress" | "completed" | "unknown";
+export interface AgentPlanEntry { text: string; status: AgentPlanStatus; priority?: string; }
 
 const diffKeySeparator = "\0";
 
@@ -91,6 +94,7 @@ export type Block =
   | { kind: "thinking"; text: string; open: boolean }
   | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "error"; text: string }
   | { kind: "footer"; text: string }
   | { kind: "files"; files: ChangedFile[]; revision?: string };
@@ -216,6 +220,27 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
     case "status":
       return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
+    case "plan": {
+      const closed = closeStreaming(blocks);
+      let currentTurnStart = 0;
+      for (let index = closed.length - 1; index >= 0; index -= 1) {
+        if (closed[index]?.kind === "user") {
+          currentTurnStart = index + 1;
+          break;
+        }
+      }
+      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
+      const plan = { kind: "plan" as const, entries: evt.entries };
+      if (existingIndex < 0) return [...closed, plan];
+      return closed.reduce<Block[]>((next, block, index) => {
+        if (block.kind === "plan") {
+          if (index === existingIndex) next.push(plan);
+        } else {
+          next.push(block);
+        }
+        return next;
+      }, []);
+    }
     default:
       return blocks;
   }
