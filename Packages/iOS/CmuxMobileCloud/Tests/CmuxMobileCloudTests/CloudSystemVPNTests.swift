@@ -308,6 +308,17 @@ import Testing
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
     }
 
+    @Test func signOutWithoutAnyEnrollmentNeedsNoServerCleanup() async {
+        let rig = Rig()
+        await signedIn(rig)
+
+        await rig.controller.serverTeardown()("captured-access", "captured-refresh")
+
+        #expect(rig.controller.phase == .off)
+        #expect(rig.service.calls.revoke.isEmpty)
+        #expect(await pendingFingerprints(rig.pendingRevocationStore, scope: "user-1/team-1").isEmpty)
+    }
+
     @Test func signOutSurfacesUnavailableIdentityInsteadOfSilentlySkippingRevocation() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
         let controller = CloudSystemVPNController(
