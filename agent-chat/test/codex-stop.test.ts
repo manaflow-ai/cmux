@@ -90,6 +90,10 @@ async function deliverTurnId(state: CodexTestState, id: string | null) {
   if (sent.length > 0) {
     throw new Error(`Stop must not interrupt before the turn ID is known: ${JSON.stringify(sent)}`);
   }
+  // Codex's turn/start request remains live for 30 seconds. Stop must survive
+  // the old five-second waiter deadline while the app server is still
+  // starting the turn.
+  await Bun.sleep(5_100);
   await deliverTurnId(state, "turn-2");
   if (sent.length !== 1 || JSON.stringify(sent[0].params) !== JSON.stringify({ threadId: "thread-2", turnId: "turn-2" })) {
     throw new Error(`A late turn ID must produce one complete interrupt: ${JSON.stringify(sent)}`);
