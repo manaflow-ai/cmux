@@ -47,6 +47,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The only installed daemon graph for this machine. The catalog receives the
     /// same immutable value with its derived rows in one transaction.
     private(set) var cloudState: CloudVMState?
+    /// Completeness for the accepted graph and its resource rows. Rebuilt only
+    /// when placement relationships change, then reused by every cleanup pass.
+    private var cloudGraphCompleteness: CloudVMGraphCompleteness?
     /// Local ordering fence for concurrent snapshot commands and the event
     /// reader. Remote generations are opaque, so a response from an older
     /// request must not replace a generation installed later in the same turn.
@@ -750,6 +753,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
+        cloudGraphCompleteness = CloudVMGraphCompleteness(
+            state: state, resources: catalog.authoritativeSnapshot.resources(on: machine)
+        )
         if reconcileTitles {
             catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
@@ -787,6 +793,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info: info,
             observation: acceptedObservation
         )
+        if impact.requiresFullResourceRebuild || cloudGraphCompleteness == nil {
+            cloudGraphCompleteness = CloudVMGraphCompleteness(
+                state: state, resources: catalog.authoritativeSnapshot.resources(on: machine)
+            )
+        }
         if reconcileTitles {
             catalog.cloudWorkspaceRenameService.reconcileRemoteState(
                 machine: machine,
@@ -839,9 +850,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
             freshness: observation.freshness,
-            graphComplete: cloudState.map {
-                CloudVMGraphCompleteness(state: $0, resources: resources).isComplete()
-            } ?? false
+            graphComplete: cloudGraphCompleteness?.isComplete() ?? false
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }
