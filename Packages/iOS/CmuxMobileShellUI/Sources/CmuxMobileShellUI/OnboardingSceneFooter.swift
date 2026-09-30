@@ -43,6 +43,9 @@ struct OnboardingSceneFooter: View {
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
         }
 
+        // Onboarding rule: every regular-height page with a primary action
+        // reserves the secondary-action slot so primary buttons share one
+        // vertical guide across the full flow.
         if secondaryTitle != nil || (primaryTitle != nil && verticalSizeClass != .compact) {
             // Reserve the actual control's size, including system button
             // padding, to keep primary actions aligned across every page.
