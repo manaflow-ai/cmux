@@ -392,7 +392,12 @@ export class AcpmuxDirectClient {
         this.rows.delete("typing");
         const turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
         const summaryKey = turnId ?? "__current";
-        const summaryId = this.turnSummaryIds.get(summaryKey) ?? `summary-${turnId ?? event.seq}`;
+        let summaryId = this.turnSummaryIds.get(summaryKey);
+        if (!summaryId && event.kind === "turn_result") {
+          const pendingSummary = this.turnSummaryIds.get("__current");
+          if (pendingSummary) { summaryId = pendingSummary; this.turnSummaryIds.set(summaryKey, pendingSummary); }
+        }
+        summaryId ??= `summary-${turnId ?? event.seq}`;
         const existing = this.rows.get(summaryId);
         this.rows.set(summaryId, { id: summaryId, version: (existing?.version ?? 0) + 1, at: event.at, kind: "turnSummary", durationMs: this.turnStartedAt === undefined ? existing?.durationMs : Math.max(0, event.at - this.turnStartedAt), toolCount: this.turnToolCount || existing?.toolCount, status: String(msg.status ?? existing?.status ?? "completed"), error: msg.errorText ?? existing?.error });
         this.turnSummaryIds.set(summaryKey, summaryId);
