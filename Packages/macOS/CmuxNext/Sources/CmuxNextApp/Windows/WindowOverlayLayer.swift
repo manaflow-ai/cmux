@@ -70,9 +70,13 @@ final class WindowOverlayLayer {
                      NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let child = note.object as? NSWindow
+                let moved = note.name == NSWindow.didMoveNotification || note.name == NSWindow.didResizeNotification
                 MainActor.assumeIsolated {
                     guard let self, let child, child !== self.window, child.parent === self.window else { return }
                     self.evaluate()
+                    if moved {
+                        self.pageWindowDidChangeFrame(child)
+                    }
                 }
             })
         }
@@ -225,6 +229,17 @@ final class WindowOverlayLayer {
         updateInteractiveRects()
         requestPageUpdate()
         pageUpdateAfterLayout = true
+    }
+
+    /// Something other than the fork moved or resized a page window (an
+    /// Accessibility client that addressed the page window directly): the
+    /// page must stay on its pane, so its host re-places it. A frame the
+    /// fork set itself matches a host and changes nothing.
+    private func pageWindowDidChangeFrame(_ child: NSWindow) {
+        guard Self.isContent(child), child.isVisible, let controller = window.windowController as? WindowController else { return }
+        let hosts = ChildPageGeometry.sample(controller).hosts
+        guard !hosts.contains(where: { ChildPageGeometry.distance($0.screenRect, child.frame) <= ChildPageGeometry.tolerance }) else { return }
+        requestPageUpdate()
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and

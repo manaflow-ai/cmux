@@ -55,21 +55,30 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     // MARK: Accessibility windows
 
     /// The window Accessibility clients see as this app's focused or main
-    /// window when `window` is key or main.
+    /// window when `window` is key or main. A Chromium page is a child
+    /// `NSWindow` that becomes key while the page has the keyboard; window
+    /// managers (Rectangle) move the AX focused window, so they must get the
+    /// cmux window that owns the page, which carries the page with it. App
+    /// panels (palette, editors) stay their own windows.
     static func accessibilityWindow(for window: NSWindow?) -> NSWindow? {
-        window
+        var current = window
+        while let child = current, !(child is NSPanel), let parent = child.parent { current = parent }
+        return current
     }
 
+    /// AppKit reports the key window, or with none the frontmost ordered
+    /// window, which is a Chromium page window when a page is in front.
     override func accessibilityFocusedWindow() -> Any? {
-        guard let window = Self.accessibilityWindow(for: keyWindow), window !== keyWindow else { return super.accessibilityFocusedWindow() }
-        return window
+        Self.redirect(super.accessibilityFocusedWindow())
     }
 
     override func accessibilityMainWindow() -> Any? {
-        guard let window = Self.accessibilityWindow(for: keyWindow ?? mainWindow), window !== (keyWindow ?? mainWindow) else {
-            return super.accessibilityMainWindow()
-        }
-        return window
+        Self.redirect(super.accessibilityMainWindow())
+    }
+
+    private static func redirect(_ value: Any?) -> Any? {
+        guard let window = value as? NSWindow else { return value }
+        return accessibilityWindow(for: window)
     }
 
     // MARK: Activation
