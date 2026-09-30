@@ -56,6 +56,10 @@ test("an unchanged browser integration does not repeat MIME setup on create or a
   await run(guestBrowserInstallCommand());
   expect(calls()).toHaveLength(12);
   expect(readFileSync(join(root, opener.path), "utf8")).toBe(opener.content);
+  rmSync(join(root, "usr/local/bin/xclip"));
+  await run(guestBrowserInstallCommand());
+  expect(calls()).toHaveLength(12);
+  expect(readFileSync(join(root, "usr/local/bin/xclip"), "utf8")).toContain("\\x1b]52;c;");
 }));
 
 test("an unchanged running reporter needs no systemd mutation on attach", () => fixture(async (root, run, calls) => {

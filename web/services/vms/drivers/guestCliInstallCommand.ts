@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { GUEST_BROWSER_FILES, guestBrowserInstallCommand } from "../guestBrowser";
-import { GUEST_CLIPBOARD_FILES, guestClipboardInstallCommand } from "../guestClipboard";
+import { GUEST_CLIPBOARD_FILES } from "../guestClipboard";
 import {
   defaultGuestCliDistribution,
   guestCliDistributionCommand,
@@ -314,7 +314,6 @@ export function guestCliInstallCommand(
   }) : "";
   const transactionToken = temporaryPath.replace(/[^A-Za-z0-9_-]/g, "_");
   const browser = guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`);
-  const clipboard = guestClipboardInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`);
   const distribution = guestCliDistributionCommand(false, manifest, undefined, undefined, false);
   const cleanup = guestCliDistributionPruneCommand(manifest);
   const paths = manifest === defaultGuestCliDistribution
@@ -323,5 +322,5 @@ export function guestCliInstallCommand(
         ...installPaths.filter((path) => !path.startsWith("/usr/local/libexec/cmux-cloud-")),
         ...distributionPaths(manifest),
       ];
-  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(`${browser} && ${clipboard}`)} ${shellQuote(distribution)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(paths))} ${shellQuote(transactionToken)} ${shellQuote(cleanup)}`;
+  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(distribution)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(paths))} ${shellQuote(transactionToken)} ${shellQuote(cleanup)}`;
 }

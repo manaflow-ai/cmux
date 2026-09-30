@@ -98,7 +98,7 @@ extension Workspace {
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
             keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine),
-            allowsRemoteClipboardWrites: !projection.resource.machine.isDevice
+            allowsRemoteClipboardWrites: projection.resource.machine.cloudMachineID != nil
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         do {
@@ -144,7 +144,7 @@ extension Workspace {
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
             keyNameResolver: Self.reservationKeyNameResolver(for: machine),
-            allowsRemoteClipboardWrites: !machine.isDevice
+            allowsRemoteClipboardWrites: machine.cloudMachineID != nil
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(
