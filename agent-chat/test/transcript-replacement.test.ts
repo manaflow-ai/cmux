@@ -119,7 +119,31 @@ describe("transcript file replacement", () => {
       replace(path, JSON.stringify(record("new", "new content after replacement")) + "\n");
       await tail.poll();
       expect(sess.events).toEqual([
-        { kind: "user", text: "old" }, { kind: "user", text: "new content after replacement" },
+        { kind: "user", text: "new content after replacement" },
+      ]);
+    } finally {
+      transcriptAdapter.dispose(sess);
+    }
+  });
+
+  test.each(["claude", "codex"] as const)("%s replaces copied history without duplicating the open view", async (agent) => {
+    const path = fixture();
+    const row = (id: string, text: string) => agent === "claude"
+      ? { type: "user", uuid: id, message: { role: "user", content: text } }
+      : { type: "event_msg", payload: { type: "user_message", message: text } };
+    const original = [row("old-1", "first"), row("old-2", "second")].map(JSON.stringify).join("\n") + "\n";
+    writeFileSync(path, original);
+    const sess = {
+      events: [] as AgentEvent[], internal: {} as Record<string, unknown>,
+      emit(event: AgentEvent) { this.events.push(event); }, setStatus() {},
+    } as unknown as SessionCtx;
+    const tail = attachTranscript(sess, agent, path, undefined, { pollMs: 10_000 });
+    try {
+      await tail.poll();
+      replace(path, original + JSON.stringify(row("new", "third")) + "\n");
+      await tail.poll();
+      expect(sess.events).toEqual([
+        { kind: "user", text: "first" }, { kind: "user", text: "second" }, { kind: "user", text: "third" },
       ]);
     } finally {
       transcriptAdapter.dispose(sess);
