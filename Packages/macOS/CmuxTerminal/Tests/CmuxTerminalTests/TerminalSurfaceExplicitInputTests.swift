@@ -3,6 +3,21 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
+@_silgen_name("cmux_test_ghostty_surface_key_reset")
+private func cmuxTestGhosttySurfaceKeyReset()
+
+@_silgen_name("cmux_test_ghostty_surface_key_was_called")
+private func cmuxTestGhosttySurfaceKeyWasCalled() -> Bool
+
+@_silgen_name("cmux_test_ghostty_surface_key_mods")
+private func cmuxTestGhosttySurfaceKeyMods() -> Int32
+
+@_silgen_name("cmux_test_ghostty_surface_key_unshifted_codepoint")
+private func cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() -> UInt32
+
+@_silgen_name("cmux_test_ghostty_surface_key_text")
+private func cmuxTestGhosttySurfaceKeyText() -> UnsafePointer<CChar>
+
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExplicitInputTests {
@@ -87,6 +102,34 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(
             fixture.nativeView.deferredRuntimeInputBytes.allSatisfy { $0 > 0 }
         )
+    }
+
+    @Test func genericCtrlLetterParserRecognizesPlusAndDashForms() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        for spelling in ["ctrl+p", "ctrl-p", "control+p"] {
+            let event = fixture.surface.pendingKeyEvent(for: spelling)
+            #expect(event?.keycode == UInt32(kVK_ANSI_P))
+            #expect(event?.mods.rawValue == GHOSTTY_MODS_CTRL.rawValue)
+        }
+        #expect(fixture.surface.pendingKeyEvent(for: "ctrl+1") == nil)
+    }
+
+    @Test func syntheticCtrlLetterProvidesGhosttyEncoderTextAndCodepoint() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        cmuxTestGhosttySurfaceKeyReset()
+
+        #expect(fixture.surface.sendNamedKey("ctrl+p") == .sent)
+        #expect(cmuxTestGhosttySurfaceKeyWasCalled())
+        #expect(cmuxTestGhosttySurfaceKeyMods() == Int32(GHOSTTY_MODS_CTRL.rawValue))
+        #expect(cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() == UInt32(Character("p").asciiValue!))
+        #expect(String(cString: cmuxTestGhosttySurfaceKeyText()) == "p")
     }
 
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
