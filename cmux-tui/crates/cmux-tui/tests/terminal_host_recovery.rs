@@ -3854,6 +3854,82 @@ fn unplaced_terminal_host_is_reaped_unless_kept() {
     wait_for_host_records(&harness.host_root(), 1);
 }
 
+/// A burst of `new-tab` requests pipelined on one connection starts their
+/// hosts in parallel. Every host launch here takes at least 400 ms, so a
+/// serial start of eight tabs takes at least 3.2 s. A request queued after
+/// the creates is answered before them, the creates reply in request order,
+/// and the tabs land in the pane in request order.
+#[test]
+fn pipelined_new_tabs_start_hosts_in_parallel_in_request_order() {
+    const TABS: u64 = 8;
+    let harness = RecoveryHarness::start_with_host_ready_delay("parallel-new-tabs", 400);
+    let anchor = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "anchor",
+        }),
+    );
+    let pane = anchor["pane"].as_u64().expect("run omitted its pane");
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let started = Instant::now();
+    for index in 0..TABS {
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({"id": 100 + index, "cmd": "new-tab", "pane": pane})
+        )
+        .unwrap();
+    }
+    writeln!(writer, "{}", serde_json::json!({"id": 999, "cmd": "identify"})).unwrap();
+    let mut replies = Vec::new();
+    while replies.len() < (TABS + 1) as usize {
+        let mut line = String::new();
+        assert!(reader.read_line(&mut line).unwrap() > 0, "daemon closed the connection");
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message.get("id").is_some() {
+            assert_eq!(message["ok"], true, "request failed: {message}");
+            replies.push(message);
+        }
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(400 * TABS),
+        "{TABS} pipelined new-tabs took {elapsed:?}; their hosts started one at a time"
+    );
+    let order: Vec<u64> = replies.iter().map(|reply| reply["id"].as_u64().unwrap()).collect();
+    let identify = order.iter().position(|id| *id == 999).unwrap();
+    assert!(identify < TABS as usize, "identify waited behind the creates: {order:?}");
+    let creates: Vec<u64> = order.iter().copied().filter(|id| *id != 999).collect();
+    assert_eq!(creates, (0..TABS).map(|index| 100 + index).collect::<Vec<_>>());
+    let surfaces: Vec<u64> = replies
+        .iter()
+        .filter(|reply| reply["id"] != 999)
+        .map(|reply| reply["data"]["surface"].as_u64().unwrap())
+        .collect();
+
+    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let tabs: Vec<u64> = tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .filter(|candidate| candidate["id"].as_u64() == Some(pane))
+        .flat_map(|candidate| candidate["tabs"].as_array().into_iter().flatten())
+        .filter_map(|tab| tab["surface"].as_u64())
+        .filter(|surface| surfaces.contains(surface))
+        .collect();
+    assert_eq!(tabs, surfaces, "tabs did not land in request order");
+    wait_for_host_records(&harness.host_root(), 1 + TABS as usize);
+}
+
 /// Every placement command starts its terminal with a caller-chosen id
 /// already in the child's environment (`terminal-placement-env-v1`).
 #[test]
