@@ -16795,10 +16795,14 @@ impl Mux {
         // the runtime terminal emulator is alive: after a daemon restart the
         // in-memory VT is gone, so reconciliation degrades a kept-exited
         // terminal to the normal detach below.
-        let keep_live_views = terminal.on_exit == TerminalOnExit::Keep
-            && public_terminal_id
-                .as_ref()
-                .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id));
+        // A kept-layout end (`end_all_terminals_keeping_layout`) keeps the
+        // tabs regardless of the runtime: they outlive the owner and a
+        // frontend starts a new shell in each.
+        let keep_live_views = terminal_reap::exit_outcome_keeps_layout(&exit.outcome)
+            || (terminal.on_exit == TerminalOnExit::Keep
+                && public_terminal_id
+                    .as_ref()
+                    .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned

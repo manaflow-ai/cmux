@@ -168,6 +168,11 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
+/// every terminal ends but the placed ones keep their tabs, so the next
+/// owner shows the same screens, splits and tabs, each dead until a
+/// frontend starts a new shell in it.
+pub const END_TERMINALS_KEEP_LAYOUT_CAPABILITY: &str = "end-terminals-keep-layout-v1";
 /// Advertises `close-tabs` and `end_terminals` on `close-pane`,
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
@@ -370,6 +375,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -1033,6 +1039,10 @@ enum Command {
         /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
         #[serde(default)]
         end_terminals: bool,
+        /// With `end_terminals`, keep the tabs of placed terminals so the
+        /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
+        #[serde(default)]
+        keep_layout: bool,
     },
     Ping,
     SetClientInfo {
@@ -11559,9 +11569,12 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart; its identity is the index's.
             let tab_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| &identity.tab_id);
+                .map(|identity| &identity.tab_id)
+                .or_else(|| state.resource_indexes.tab_ids.get(sid));
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
@@ -13294,7 +13307,11 @@ fn handle_command_with_cancellation(
                 "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+            anyhow::ensure!(
+                end_terminals || !keep_layout,
+                "bad request: keep_layout requires end_terminals"
+            );
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
@@ -13303,7 +13320,12 @@ fn handle_command_with_cancellation(
             // can start while the hosts end. A failure releases it and keeps
             // this daemon serving.
             let ended_terminals = if end_terminals {
-                match mux.end_all_terminals() {
+                let ended = if keep_layout {
+                    mux.end_all_terminals_keeping_layout()
+                } else {
+                    mux.end_all_terminals()
+                };
+                match ended {
                     Ok(ended) => Some(ended.len()),
                     Err(error) => {
                         mux.cancel_daemon_handoff(client);
@@ -24361,6 +24383,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
@@ -24383,6 +24406,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )

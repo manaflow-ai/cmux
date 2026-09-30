@@ -3202,6 +3202,11 @@ impl Mux {
             terminal.lifecycle == TerminalLifecycle::Exited,
             "terminal {terminal_id} is not exited"
         );
+        // A kept-layout end keeps its tabs across owner restarts
+        // (`end-terminals-keep-layout-v1`); a frontend relaunches them.
+        if super::terminal_reap::exit_receipt_keeps_layout(terminal.exit.as_ref()) {
+            return Ok(false);
+        }
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
