@@ -112,8 +112,7 @@ export function Chat() {
     const t = text.trim();
     if (!t) return;
     stickRef.current = true;
-    reply(t);
-    setText("");
+    if (reply(t)) setText("");
   };
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
@@ -145,6 +144,11 @@ export function Chat() {
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
+        {!ready ? (
+          <div className="connection-notice" role="status">
+            {connectionEpoch > 0 ? "Connection lost. Reconnecting… Your draft stays here." : "Connecting to cmux…"}
+          </div>
+        ) : null}
         <Blocks
           blocks={blocks}
           status={session?.status}

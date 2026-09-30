@@ -16,22 +16,6 @@ struct CloudTreeRowContentView: View {
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     var resources: CloudTreeMachineResourceSection? = nil
 
-    private static func nonEmptyTrimmed(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func displayTitle(for resource: SurfaceResource) -> String {
-        let prefix = "display:"
-        if resource.id.key.hasPrefix(prefix),
-           let number = Int(resource.id.key.dropFirst(prefix.count)) {
-            return CloudGuestDisplay.title(for: number)
-        }
-        return resource.title.isEmpty
-            ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
-            : resource.title
-    }
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -65,6 +49,8 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+        case .createAction(let action):
+            CloudTreeCreateActionLabel(action: action, style: style)
         case .devicesEmpty:
             EmptyView()
         case .terminalsPool:
@@ -99,8 +85,7 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
-            let title = Self.nonEmptyTrimmed(remoteView?.name)
-                ?? Self.displayTitle(for: resource)
+            let title = CloudTreeResourceName(resource: resource, remoteView: remoteView).displayName
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -113,11 +98,12 @@ struct CloudTreeRowContentView: View {
         case .browsersGroup:
             groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
         case .browser(let row):
+            let title = CloudTreeResourceName(resource: row.resource, remoteView: row.remoteView).browserName
             CloudTreeLeafRow(
                 style: style,
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
-                title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
+                title: title,
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:

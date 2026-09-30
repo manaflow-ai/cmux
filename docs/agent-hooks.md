@@ -79,7 +79,7 @@ Agent Hibernation kills idle background agent processes to free their RAM and CP
 
 For routine hibernation, a live terminal is only a candidate when all of these hold:
 
-- it has a saved restorable agent session, and the saved launch data can build a resume command
+- it has a saved restorable agent session, and the saved launch data can relaunch it the way it was started (a Claude session needs its captured launch arguments, so a `sr claude proxy` launch resumes through `sr`; a declared `agents.launchers` entry must still resolve)
 - the agent lifecycle is `idle` (not running, not waiting on input)
 - the terminal is in the background (its panel is not currently visible)
 - you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
@@ -99,6 +99,8 @@ Under memory pressure, cmux can run the same protected teardown path independent
 ### What gets killed and how it comes back
 
 cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
+
+After a wake, cmux checks that the agent actually came back. The wake counts as working as soon as either the agent's own hooks report in for that terminal or a live process of that agent is found running in it (cmux looks every few seconds, which covers agents without hooks). If the resume command exits before either happens, or neither happens within 90 seconds, the terminal shows a banner saying the agent didn't resume, with **Retry** (types the resume command again), **Show command** (shows the command so you can copy it) and a close button. The workspace's sidebar row shows "Agent didn't resume" until the failure is retried, dismissed, or the agent reports in, and one entry is added to the notification feed. The sidebar row is not saved with the session.
 
 ### Enable and configure
 

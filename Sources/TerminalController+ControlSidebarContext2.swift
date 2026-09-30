@@ -439,7 +439,10 @@ extension TerminalController {
                     color: $0.color,
                     urlAbsoluteString: $0.url?.absoluteString,
                     priority: $0.priority,
-                    format: ControlSidebarMetadataFormat(rawValue: $0.format.rawValue) ?? .plain
+                    format: ControlSidebarMetadataFormat(rawValue: $0.format.rawValue) ?? .plain,
+                    workState: $0.workState.flatMap { state in
+                        ControlSidebarAgentWorkState(rawValue: state.rawValue)
+                    }
                 )
             },
             metadataBlocks: tab.sidebarMetadataBlocksInDisplayOrder().map {
