@@ -116,11 +116,15 @@ extension WebKitTab: PageInfoProviding {
     }
 
     /// Whether a document may run JavaScript under the per-site setting;
-    /// nil leaves WebKit's default.
+    /// nil leaves WebKit's default. A frame runs no script when its own
+    /// origin is blocked or when the top-level site is (Chrome keys the
+    /// setting on the top-level site; WebKit applies preferences per frame
+    /// navigation, so each frame is decided here).
     static func allowsJavaScript(isMainFrame: Bool, frameOrigin: String?, topOrigin: String?,
                                  store: SitePermissionStore) -> Bool? {
-        guard isMainFrame, let origin = frameOrigin else { return nil }
-        return store.setting(.javascript, for: origin) != .block
+        let origins = [frameOrigin, isMainFrame ? nil : topOrigin].compactMap { $0 }
+        guard !origins.isEmpty else { return nil }
+        return !origins.contains { store.setting(.javascript, for: $0) == .block }
     }
 
     /// Records the server's certificate when WebKit's own evaluation fails,
