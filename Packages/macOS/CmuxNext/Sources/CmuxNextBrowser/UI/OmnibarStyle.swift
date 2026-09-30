@@ -69,29 +69,20 @@ enum OmnibarStyle {
 
     // MARK: Colors
 
-    /// Helium toolbar: white in light, `#1F1F1F` in dark.
-    static let toolbarBackground = dynamic(light: 1.0, dark: 0.122)
-    /// Idle bar fill: Neutral92 `#E8E8E8`; dark measured `#3C3C3C`.
-    static let barFill = dynamic(light: 0.910, dark: 0.235)
-    /// Hover: idle plus black 6% (light) or white 16% (dark).
-    static let barHoverFill = dynamic(light: 0.855, dark: 0.357)
-    /// Editing fill and popup card: white, dark `#3A3C3C`.
-    static let cardFill = dynamic(light: 1.0, dark: 0.231)
+    // Helium's geometry, the terminal theme's colors (`Palette`): the
+    // toolbar is the same surface as the tab strip and terminal, the bar a
+    // faint lift of it, the popup a floating card.
+    static var toolbarBackground: NSColor { Palette.windowBackground }
+    static var barFill: NSColor { Palette.chromeBackground }
+    static var barHoverFill: NSColor { Palette.elevatedBackground }
+    /// Editing fill and popup card.
+    static var cardFill: NSColor { Palette.elevatedBackground }
     /// Neutral ring while editing with the popup closed (Helium: blue).
-    static let ring = dynamic(light: 0.0, dark: 1.0, alpha: 0.22)
-    /// Selected and hovered rows: black 6% / white 10%.
-    static let rowSelectedFill = dynamic(light: 0.0, dark: 1.0, alpha: 0.06, darkAlpha: 0.10)
-    /// Chip hover.
-    static let chipHoverFill = dynamic(light: 0.0, dark: 1.0, alpha: 0.06, darkAlpha: 0.10)
+    static var ring: NSColor { Palette.focusRing }
+    static var rowSelectedFill: NSColor { Palette.selectionFill }
+    static var chipHoverFill: NSColor { Palette.hoverFill }
     /// Text selection inside the field (Helium: blue tint).
-    static let selection = dynamic(light: 0.0, dark: 1.0, alpha: 0.16, darkAlpha: 0.26)
+    static var selection: NSColor { Palette.textSelection }
     static var textPrimary: NSColor { Palette.textPrimary }
     static var textSecondary: NSColor { Palette.textSecondary }
-
-    private static func dynamic(light: CGFloat, dark: CGFloat, alpha: CGFloat = 1, darkAlpha: CGFloat? = nil) -> NSColor {
-        NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor(white: isDark ? dark : light, alpha: isDark ? (darkAlpha ?? alpha) : alpha)
-        }
-    }
 }

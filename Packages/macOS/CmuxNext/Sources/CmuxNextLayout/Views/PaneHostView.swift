@@ -90,7 +90,7 @@ private final class PaneOverlayView: NSView {
     private func applyColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             ring.borderColor = Palette.focusRing.withAlphaComponent(0.55).cgColor
-            dimLayer.backgroundColor = NSColor.black.cgColor
+            dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
         }
     }
 }

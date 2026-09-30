@@ -26,6 +26,7 @@ public final class UpdateSheetController {
         guard panel == nil else { return }
         let panel = UpdateSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: [.borderless],
                                      backing: .buffered, defer: true)
+        ThemeStore.shared.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextTerminal
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
@@ -16,6 +17,8 @@ enum SettingsHandlers {
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         registry.bind("reloadConfiguration", run: { _ in
             let settings = try requireSettings(context)
+            // The Ghostty config too: terminal colors and the chrome theme follow it.
+            GhosttyRuntime.shared.reloadConfig()
             Task { await settings.reload() }
         })
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })

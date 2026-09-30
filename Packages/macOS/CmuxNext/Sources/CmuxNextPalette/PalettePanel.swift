@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// Borderless floating panel that can become key without activating other
 /// windows' chrome, and routes key-downs to the palette first.
@@ -13,6 +14,7 @@ final class PalettePanel: NSPanel {
             backing: .buffered,
             defer: true
         )
+        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

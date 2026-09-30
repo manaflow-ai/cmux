@@ -81,6 +81,10 @@ final class PaneContentView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        themeDidChange()
+    }
+
+    func themeDidChange() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = Palette.contentBackground.cgColor
         }

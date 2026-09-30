@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         control.startWatchdog()
+        // Chrome colors derive from the Ghostty theme; load it before any window.
+        ThemeBridge.start()
         let services = AppServices(environment: environment)
         self.services = services
         AppActions.bind(services)

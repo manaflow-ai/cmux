@@ -37,7 +37,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live status (agent status line, hook `set_status`). The only text
     /// that earns the row a second line.
     public var status: String?
-    public var icon: WorkspaceIcon
+    /// Set only when the user chose an icon or color. Rows are text-first:
+    /// nil shows no icon (icons-only mode shows the title's first letter).
+    public var icon: WorkspaceIcon?
     public var unread: UnreadState
     public var activity: AgentActivity
 
@@ -47,7 +49,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         title: String,
         subtitle: String? = nil,
         status: String? = nil,
-        icon: WorkspaceIcon = .symbol("terminal"),
+        icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
         activity: AgentActivity = .idle
     ) {

@@ -44,9 +44,9 @@ public enum Metrics {
     // MARK: Rows and tabs
 
     /// Sidebar workspace row with one line of text.
-    public static var sidebarRowHeight: CGFloat { pick(26, 32, .sidebarRowHeight) }
+    public static var sidebarRowHeight: CGFloat { pick(24, 32, .sidebarRowHeight) }
     /// Sidebar workspace row with a subtitle line (cwd, branch, agent status).
-    public static var sidebarRowHeightWithSubtitle: CGFloat { pick(38, 46) }
+    public static var sidebarRowHeightWithSubtitle: CGFloat { pick(36, 46) }
     /// Sidebar group / machine section header.
     public static var sidebarHeaderHeight: CGFloat { pick(22, 26) }
 

@@ -97,9 +97,18 @@ public final class GhosttyRuntime {
         onConfigChange?()
     }
 
+    /// Test hook: when set, only this file (plus its `config-file` includes)
+    /// is loaded instead of the user's default Ghostty config files, so
+    /// visual checks can run a tagged build under another theme.
+    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+
     private static func loadConfig(diagnostics: inout [String]) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
-        ghostty_config_load_default_files(config)
+        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
+            ghostty_config_load_file(config, path)
+        } else {
+            ghostty_config_load_default_files(config)
+        }
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
         let count = ghostty_config_diagnostics_count(config)
@@ -137,7 +146,7 @@ public final class GhosttyRuntime {
     }
 
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
-    private static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
+    static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
         withUnsafeMutablePointer(to: &value) { valuePointer in
             key.withCString { keyPointer in
                 ghostty_config_get(config, valuePointer, keyPointer, UInt(key.utf8.count))

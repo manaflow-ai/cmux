@@ -14,7 +14,7 @@ final class PaletteKeycapsView: NSView {
     override var isFlipped: Bool { true }
 
     private var attributes: [NSAttributedString.Key: Any] {
-        [.font: Typography.shortcut, .foregroundColor: NSColor.secondaryLabelColor]
+        [.font: Typography.shortcut, .foregroundColor: Palette.textSecondary]
     }
 
     private func capWidth(_ cap: String) -> CGFloat {
@@ -74,8 +74,8 @@ final class PaletteRowCell: NSTableCellView {
 
     private let icon = NSImageView()
     private let title = PaletteText.label(Typography.body)
-    private let subtitle = PaletteText.label(Typography.caption, color: .secondaryLabelColor)
-    private let accessory = PaletteText.label(Typography.caption, color: .tertiaryLabelColor)
+    private let subtitle = PaletteText.label(Typography.caption, color: Palette.textSecondary)
+    private let accessory = PaletteText.label(Typography.caption, color: Palette.textTertiary)
     private let keycaps = PaletteKeycapsView()
     private var symbolName: String?
 
@@ -96,7 +96,7 @@ final class PaletteRowCell: NSTableCellView {
             symbolName = item.symbol
             icon.image = PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        icon.contentTintColor = isSelected ? .labelColor : .secondaryLabelColor
+        icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
         title.attributedStringValue = Self.highlighted(item.title, row.highlights)
         subtitle.stringValue = item.subtitle ?? ""
         subtitle.isHidden = item.subtitle == nil
@@ -110,7 +110,7 @@ final class PaletteRowCell: NSTableCellView {
     }
 
     func setSelected(_ selected: Bool) {
-        icon.contentTintColor = selected ? .labelColor : .secondaryLabelColor
+        icon.contentTintColor = selected ? Palette.textPrimary : Palette.textSecondary
     }
 
     override func layout() {
@@ -152,11 +152,11 @@ final class PaletteRowCell: NSTableCellView {
     static func highlighted(_ text: String, _ positions: [Int]) -> NSAttributedString {
         let base: [NSAttributedString.Key: Any] = [
             .font: Typography.body,
-            .foregroundColor: positions.isEmpty ? NSColor.labelColor : NSColor.labelColor.withAlphaComponent(0.78),
+            .foregroundColor: positions.isEmpty ? Palette.textPrimary : Palette.textPrimary.withAlphaComponent(0.78),
         ]
         let result = NSMutableAttributedString(string: text, attributes: base)
         guard !positions.isEmpty else { return result }
-        let emphasized: [NSAttributedString.Key: Any] = [.font: Typography.bodyEmphasized, .foregroundColor: NSColor.labelColor]
+        let emphasized: [NSAttributedString.Key: Any] = [.font: Typography.bodyEmphasized, .foregroundColor: Palette.textPrimary]
         let wanted = Set(positions)
         var utf16Offset = 0
         for (offset, scalar) in text.unicodeScalars.enumerated() {

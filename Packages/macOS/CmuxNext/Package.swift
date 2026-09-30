@@ -145,6 +145,12 @@ let package = Package(
             name: "CmuxNextDesign",
             swiftSettings: uiSwiftSettings
         ),
+        // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
+        .testTarget(
+            name: "CmuxNextDesignTests",
+            dependencies: ["CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextActions",
             swiftSettings: uiSwiftSettings

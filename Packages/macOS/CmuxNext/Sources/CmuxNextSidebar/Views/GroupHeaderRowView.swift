@@ -2,28 +2,32 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Group header: a color dot and the name. The dot is filled while the group
-/// is expanded and a ring while collapsed; the child count appears on hover.
-/// A collapsed group also surfaces its children's activity and unread total.
+/// Group header: quiet text. The name aligns with workspace titles in the
+/// secondary text color; a small dot follows it only when the user chose a
+/// color. The disclosure chevron and child count appear on hover (the
+/// chevron stays while collapsed). A collapsed group also surfaces its
+/// children's activity and unread total.
 final class GroupHeaderRowView: SidebarRowView {
     private let dot = CAShapeLayer()
-    private let name = SidebarRowView.label(font: SidebarStyle.groupFont, color: Palette.textPrimary)
-    private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textSecondary)
+    private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textTertiary)
+    private let chevron = NSImageView()
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
     private var pinned = false
     private var color: GroupColor = .grey
     private var collapsed = false
-    private var dotFrame: CGRect = .zero
+    private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(dot)
         count.alignment = .right
-        pin.contentTintColor = Palette.textSecondary
-        [name, pin, count, activity, badge].forEach(addSubview)
+        pin.contentTintColor = Palette.textTertiary
+        chevron.contentTintColor = Palette.textTertiary
+        [name, pin, count, chevron, activity, badge].forEach(addSubview)
     }
 
     override func prepareForReuse(key: SidebarRowKey) {
@@ -44,19 +48,21 @@ final class GroupHeaderRowView: SidebarRowView {
     func configure(_ group: SidebarGroup, row: SidebarRow, compact: Bool, animated: Bool) {
         let content = Content(
             group: group, childCount: row.childCount, collapsed: row.isCollapsed, compact: compact,
-            fontSize: SidebarStyle.groupFont.pointSize, dotSize: SidebarStyle.groupDotSize
+            fontSize: SidebarStyle.headerFont.pointSize, dotSize: SidebarStyle.dotSize
         )
         guard needsConfigure(content) else { return }
         self.compact = compact
         color = group.color
         name.stringValue = group.name
-        name.font = SidebarStyle.groupFont
+        name.font = SidebarStyle.headerFont
         count.font = SidebarStyle.subtitleFont
         count.stringValue = "\(row.childCount)"
         pinned = group.isPinned
         pin.image = pinned ? NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(SidebarStyle.chevronConfig) : nil
         collapsed = row.isCollapsed
+        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(SidebarStyle.chevronConfig)
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
@@ -70,7 +76,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     override var titleFrame: NSRect { name.frame }
-    override var titleFont: NSFont { SidebarStyle.groupFont }
+    override var titleFont: NSFont { SidebarStyle.headerFont }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
@@ -82,20 +88,22 @@ final class GroupHeaderRowView: SidebarRowView {
         let tint = SidebarStyle.color(color)
         // Fills only: a drop onto the group tints the row in its color.
         if isDropTarget {
-            layer.backgroundColor = tint.withAlphaComponent(0.16).cgColor
+            layer.backgroundColor = resolvedCGColor(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
         } else {
             layer.backgroundColor = isHovered ? resolvedCGColor(Palette.hoverFill) : nil
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        dot.fillColor = collapsed ? nil : tint.cgColor
-        dot.strokeColor = tint.cgColor
+        // A chosen color shows as a small dot: filled expanded, a ring collapsed.
+        dot.isHidden = color == .grey && !compact
+        dot.fillColor = collapsed ? nil : resolvedCGColor(tint)
+        dot.strokeColor = resolvedCGColor(tint)
         dot.lineWidth = collapsed ? Metrics.dividerThickness * 1.5 : 0
         CATransaction.commit()
     }
 
-    /// The color dot: a click here toggles immediately.
-    var disclosureFrame: NSRect { dotFrame.insetBy(dx: -Metrics.space3, dy: -bounds.height) }
+    /// The disclosure chevron: a click here toggles immediately.
+    var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space3, dy: -bounds.height) }
 
     override func layout() {
         super.layout()
@@ -103,23 +111,26 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let side = compact ? SidebarStyle.groupDotSize + Metrics.space1 : SidebarStyle.groupDotSize
-        // The dot sits in the workspace icon column so names align with titles.
-        let box = SidebarStyle.iconBox
-        let boxX = compact ? (b.width - box) / 2 : Metrics.space3
-        dotFrame = CGRect(x: boxX + (box - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-        dot.frame = dotFrame
         let inset = Metrics.dividerThickness
-        dot.path = CGPath(ellipseIn: CGRect(origin: .zero, size: dotFrame.size).insetBy(dx: inset, dy: inset), transform: nil)
-        needsDisplay = true
+        let chevronSide = Metrics.smallIconSize
 
         if compact {
-            [name, pin, count, badge, activity].forEach { $0.isHidden = true }
+            // Icons-only: the group is a colored (or neutral) dot.
+            [name, pin, count, badge, activity, chevron].forEach { $0.isHidden = true }
+            let side = SidebarStyle.dotSize + Metrics.space1
+            let frame = CGRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
+            dot.frame = frame
+            dot.path = CGPath(ellipseIn: CGRect(origin: .zero, size: frame.size).insetBy(dx: inset, dy: inset), transform: nil)
+            chevronFrame = frame
             return
         }
         name.isHidden = renaming
 
         var trailing = b.width - Metrics.space3
+        chevronFrame = CGRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        chevron.frame = chevronFrame
+        chevron.isHidden = !(isHovered || collapsed)
+        trailing = chevronFrame.minX - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth
@@ -141,14 +152,22 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }
-        let nx = boxX + box + Metrics.space3
+        let nx = SidebarStyle.horizontalInset
         let nh = ceil(name.intrinsicContentSize.height)
+        let dotSide = SidebarStyle.dotSize
+        let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3
         let pinSide = Metrics.smallIconSize - Metrics.space2
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
-        let nameWidth = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nx - pinRoom))
+        let nameWidth = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nx - pinRoom - dotRoom))
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
+        var x = name.frame.maxX + Metrics.space1
+        let dotFrame = CGRect(x: x, y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
+        dot.frame = dotFrame
+        dot.path = CGPath(ellipseIn: CGRect(origin: .zero, size: dotFrame.size).insetBy(dx: inset, dy: inset), transform: nil)
+        x += dotRoom
         pin.isHidden = !pinned
-        pin.frame = NSRect(x: name.frame.maxX + Metrics.space1, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        pin.frame = NSRect(x: x, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        needsDisplay = true
     }
 
     override func hoverChanged() {

@@ -14,8 +14,6 @@ enum SidebarStyle {
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
     /// Color swatch and monogram square inside the icon frame.
     static var swatchSize: CGFloat { Metrics.smallIconSize }
-    /// Group header color dot (filled expanded, ring collapsed).
-    static var groupDotSize: CGFloat { Metrics.space4 }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
@@ -32,21 +30,9 @@ enum SidebarStyle {
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
     static var headerFont: NSFont { Typography.header }
-    static var groupFont: NSFont { Typography.bodyEmphasized }
     static var badgeFont: NSFont { Typography.shortcut }
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular) }
     static var chevronConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold) }
-
-    /// Fill for multi-selected rows that are not the active one.
-    static let secondarySelectionFill = NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return NSColor(white: dark ? 1 : 0, alpha: 0.07)
-    }
-
-    static let badgeFill = NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return NSColor(white: dark ? 1 : 0, alpha: dark ? 0.16 : 0.10)
-    }
 
     /// Muted tint for a user color, shared with tab groups (`GroupColor`).
     static func color(_ color: GroupColor) -> NSColor {

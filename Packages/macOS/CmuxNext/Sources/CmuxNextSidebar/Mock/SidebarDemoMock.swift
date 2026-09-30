@@ -11,7 +11,7 @@ public enum SidebarDemoMock {
 
     public static func makeSections() -> [SidebarSection] {
         func ws(
-            _ n: Int, _ title: String, cwd: String, status: String? = nil, icon: WorkspaceIcon = .symbol("terminal"),
+            _ n: Int, _ title: String, cwd: String, status: String? = nil, icon: WorkspaceIcon? = nil,
             unread: UnreadState = .none, activity: AgentActivity = .idle
         ) -> SidebarWorkspace {
             SidebarWorkspace(

@@ -2,10 +2,11 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row being dragged: a live row view on a glass card with a shadow.
+/// The row being dragged: a live row view on a flat themed card with a
+/// shadow (the sidebar has no glass).
 /// Multi-item drags show stacked cards behind it and a count badge.
 final class DragLiftView: NSView {
-    private let card: NSGlassEffectView
+    private let card = NSView()
     private let content: SidebarRowView
     private var stack: [NSView] = []
     private let countBadge = NSTextField(labelWithString: "")
@@ -14,10 +15,11 @@ final class DragLiftView: NSView {
 
     init(content: SidebarRowView, count: Int) {
         self.content = content
-        let holder = NSView()
-        card = Glass.makePanel(content: holder, cornerRadius: SidebarStyle.rowCornerRadius)
-        card.translatesAutoresizingMaskIntoConstraints = true
         super.init(frame: .zero)
+        card.wantsLayer = true
+        card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        card.layer?.cornerCurve = .continuous
+        card.layer?.masksToBounds = true
         wantsLayer = true
         layer?.masksToBounds = false
 
@@ -32,7 +34,7 @@ final class DragLiftView: NSView {
             stack.append(back)
         }
         addSubview(card)
-        holder.addSubview(content)
+        card.addSubview(content)
         content.autoresizingMask = [.width, .height]
 
         if count > 1 {
@@ -41,11 +43,11 @@ final class DragLiftView: NSView {
             countBadge.stringValue = "\(count)"
             countBadge.font = SidebarStyle.badgeFont
             countBadge.alignment = .center
-            countBadge.textColor = Palette.windowBackground
+            countBadge.textColor = Palette.textOnPrimary
             addSubview(badgeBackground)
             addSubview(countBadge)
         }
-        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowColor = Palette.shadow.cgColor
         layer?.shadowOpacity = 0
         layer?.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         layer?.shadowRadius = Metrics.space2
@@ -61,7 +63,7 @@ final class DragLiftView: NSView {
     override func layout() {
         super.layout()
         card.frame = bounds
-        content.frame = card.contentView?.bounds ?? bounds
+        content.frame = card.bounds
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
             back.frame = bounds.insetBy(dx: Metrics.space2 * depth, dy: 0).offsetBy(dx: 0, dy: Metrics.space2 * depth)
@@ -81,8 +83,10 @@ final class DragLiftView: NSView {
     }
 
     private func updateColors() {
+        card.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground)
+        layer?.shadowColor = resolvedCGColor(Palette.shadow)
         for back in stack {
-            back.layer?.backgroundColor = resolvedCGColor(Palette.windowBackground.withAlphaComponent(0.85))
+            back.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground.withAlphaComponent(0.85))
             back.layer?.borderColor = resolvedCGColor(Palette.separator)
         }
         badgeBackground.layer?.backgroundColor = resolvedCGColor(Palette.textPrimary)

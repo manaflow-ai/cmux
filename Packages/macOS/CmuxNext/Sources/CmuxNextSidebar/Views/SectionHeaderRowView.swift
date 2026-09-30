@@ -4,7 +4,7 @@ import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
     private let glyph = NSImageView()
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textSecondary)
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
     private let status = CALayer()
     private let chevron = NSImageView()
     private let separator = CALayer()
@@ -16,7 +16,7 @@ final class SectionHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         glyph.contentTintColor = Palette.textSecondary
-        chevron.contentTintColor = Palette.textSecondary
+        chevron.contentTintColor = Palette.textTertiary
         layer?.addSublayer(status)
         layer?.addSublayer(separator)
         [glyph, name, chevron, addButton].forEach(addSubview)
@@ -59,9 +59,9 @@ final class SectionHeaderRowView: SidebarRowView {
             title = machine.name
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusColor = nil
-            case (_, .connected): statusColor = .systemGreen
-            case (_, .connecting): statusColor = .systemOrange
-            case (_, .offline): statusColor = .systemGray
+            case (_, .connected): statusColor = Palette.success
+            case (_, .connecting): statusColor = Palette.attention
+            case (_, .offline): statusColor = Palette.textTertiary
             }
             var label = machine.name
             switch machine.status {
@@ -92,7 +92,7 @@ final class SectionHeaderRowView: SidebarRowView {
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        status.backgroundColor = statusColor?.cgColor
+        status.backgroundColor = statusColor.map(resolvedCGColor)
         status.isHidden = statusColor == nil || compact
         separator.backgroundColor = resolvedCGColor(Palette.separator)
         separator.isHidden = !compact
@@ -112,10 +112,10 @@ final class SectionHeaderRowView: SidebarRowView {
             needsDisplay = true
             return
         }
-        glyph.isHidden = false
+        // Quiet text header: no glyph, the name aligns with row titles.
+        glyph.isHidden = true
         name.isHidden = false
-        let glyphSide = Metrics.smallIconSize
-        glyph.frame = NSRect(x: Metrics.space3, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        let nameX = SidebarStyle.horizontalInset
         var trailing = b.width - Metrics.space2
         addButton.isHidden = !(isHovered && allowsAdd)
         let control = SidebarStyle.controlSize
@@ -127,9 +127,9 @@ final class SectionHeaderRowView: SidebarRowView {
         let chevronSide = Metrics.smallIconSize
         chevron.frame = NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         trailing -= chevronSide + Metrics.space2
-        let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - glyph.frame.maxX - Metrics.space5))
+        let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: glyph.frame.maxX + Metrics.space3, y: (b.height - nh) / 2, width: nw, height: nh)
+        name.frame = NSRect(x: nameX, y: (b.height - nh) / 2, width: nw, height: nh)
         let dot = SidebarStyle.dotSize
         status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2
