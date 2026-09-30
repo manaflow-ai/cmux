@@ -11029,6 +11029,14 @@ struct ContentView: View {
               !workspace.isRemoteTerminalSurface(focusedPanelId) else {
             return nil
         }
+        let foregroundProcessPath = workspace.terminalPanel(for: focusedPanelId)
+            .flatMap { $0.surface.foregroundProcessID() }
+            .flatMap { CmuxTopProcessSnapshot.processPath(pid: Int($0)) }
+        guard TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(
+            processPath: foregroundProcessPath
+        ) else {
+            return nil
+        }
         return workspace.liveForegroundProcessWorkingDirectory(panelId: focusedPanelId)
     }
 

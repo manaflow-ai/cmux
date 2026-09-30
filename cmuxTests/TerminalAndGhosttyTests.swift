@@ -7246,6 +7246,14 @@ struct TerminalForegroundDirectoryPreferenceTests {
         #expect(selector("", "/repo/.claude/worktrees/wt") == "")
     }
 
+    @Test("does not use the cwd of a terminal multiplexer client")
+    func skipsMultiplexerClientDirectory() {
+        #expect(!TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/opt/homebrew/bin/tmux"))
+        #expect(!TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/usr/bin/screen"))
+        #expect(TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/usr/bin/claude"))
+        #expect(TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: nil))
+    }
+
     @Test("preserves a symlinked shell cwd instead of its realpath")
     func preservesSymlinkedShellDirectory() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())

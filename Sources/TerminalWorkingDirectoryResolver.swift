@@ -36,6 +36,16 @@ struct TerminalWorkingDirectoryResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// A terminal multiplexer owns the PTY foreground process group while its
+    /// pane's shell reports the pane cwd separately. Reading the multiplexer
+    /// client's cwd would therefore replace a trustworthy pane directory with
+    /// the directory where the client was launched.
+    nonisolated static func shouldUseForegroundDirectory(processPath: String?) -> Bool {
+        guard let processPath else { return true }
+        let executable = URL(fileURLWithPath: processPath).lastPathComponent
+        return executable != "tmux" && executable != "screen"
+    }
+
     /// Chooses between a terminal's shell-reported cwd and its foreground
     /// job's cwd, preferring the foreground job.
     ///
