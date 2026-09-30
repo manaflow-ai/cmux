@@ -49,8 +49,10 @@ public struct ACPIncomingMessage {
         case notJSON
         /// Valid JSON, but not an object (JSON-RPC requires an object).
         case notAnObject
-        /// Missing or wrong `jsonrpc` member.
-        case wrongVersion(String?)
+        /// Missing or wrong `jsonrpc` member. Carries the id when the line had
+        /// a usable one, because JSON-RPC allows a null id in a reply only when
+        /// the request's id could not be determined.
+        case wrongVersion(String?, id: ACPRequestIdentifier?)
         /// No `method`, or a `method` that is not a string.
         case missingMethod(ACPRequestIdentifier?)
         /// `params` present but not an object. ACP only ever sends objects,
@@ -60,7 +62,8 @@ public struct ACPIncomingMessage {
         /// The id to answer with, when the line carried a usable one.
         public var identifier: ACPRequestIdentifier? {
             switch self {
-            case .notJSON, .notAnObject, .wrongVersion: return nil
+            case .notJSON, .notAnObject: return nil
+            case .wrongVersion(_, let id): return id
             case .missingMethod(let id), .paramsNotAnObject(let id): return id
             }
         }
@@ -92,7 +95,7 @@ public struct ACPIncomingMessage {
         guard let object = parsed as? [String: Any] else { return .failure(.notAnObject) }
         let id = ACPRequestIdentifier.from(object["id"])
         let version = object["jsonrpc"] as? String
-        guard version == "2.0" else { return .failure(.wrongVersion(version)) }
+        guard version == "2.0" else { return .failure(.wrongVersion(version, id: id)) }
         guard let method = object["method"] as? String, !method.isEmpty else {
             return .failure(.missingMethod(id))
         }
@@ -119,20 +122,23 @@ public enum ACPErrorCode: Int, CaseIterable, Sendable {
     case requestCancelled = -32800
     /// Source: `agent-client-protocol-schema/src/v1/error.rs`.
     case authRequired = -32000
+    /// Also the code for a session id this host does not know: a client can
+    /// match `ResourceNotFound`, where it would see a cmux-only code as an
+    /// opaque `Other(_)`.
     case resourceNotFound = -32002
     /// cmux extension code, unused by ACP.
     case hostUnavailable = -32001
-    /// cmux extension code, unused by ACP.
-    case sessionNotFound = -32003
 }
 
 /// Builds the envelopes this host writes back to the client.
 ///
-/// Payload dictionaries contain decoded Foundation JSON and are serialized
-/// synchronously before a value crosses an actor boundary. The unchecked
-/// conformance is limited to this immutable envelope value; callers must not
-/// mutate a payload dictionary while it is being serialized.
-public enum ACPOutgoingMessage: @unchecked Sendable {
+/// Deliberately not `Sendable`. The payloads are `[String: Any]` holding
+/// decoded Foundation JSON, which cannot be checked, and an `@unchecked`
+/// conformance would promise thread safety this type does not have. Only
+/// `jsonLine`, a `String`, is meant to cross an actor boundary, and no caller
+/// sends the value itself across one. `ACPRouterOutcome` carries the same
+/// payload type under the same rule.
+public enum ACPOutgoingMessage {
     /// A successful response. `result` is always an object, never bare `null`,
     /// so a client can add fields to its handling later without special-casing.
     case result(id: ACPRequestIdentifier, [String: Any])

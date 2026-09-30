@@ -159,6 +159,62 @@ struct ACPSessionUpdateMapperTests {
         #expect((content["content"] as? [String: Any])?["text"] as? String == "@@ -1 +0,0 @@")
     }
 
+    @Test("Resolves a relative file edit path against the session cwd")
+    func resolvesRelativeFileEditLocation() throws {
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": [
+                "type": "file_edit",
+                "file_path": "Sources/App.swift",
+                "operation": "edit",
+            ],
+        ]))
+        #expect((value["locations"] as? [[String: Any]])?.first?["path"] as? String
+            == "/tmp/session/Sources/App.swift")
+        #expect(value["title"] as? String == "edit Sources/App.swift")
+        #expect((value["rawInput"] as? [String: Any])?["path"] as? String == "Sources/App.swift")
+    }
+
+    @Test("Drops a relative file edit location when the session cwd is unknown")
+    func dropsRelativeFileEditLocationWithoutCWD() throws {
+        let value = try update(mapper.mapping(for: [
+            "kind": ["type": "file_edit", "file_path": "Sources/App.swift"],
+        ]))
+        #expect(value.keys.contains("locations") == false)
+    }
+
+    @Test("A file edit with no recorded path gets no location")
+    func fileEditWithoutPathHasNoLocation() throws {
+        // The title falls back to a placeholder. A location must not, or the
+        // client is handed `<cwd>/(file)`, a path that does not exist.
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": ["type": "file_edit", "operation": "edit"],
+        ]))
+        #expect(value["title"] as? String == "edit (file)")
+        #expect(value.keys.contains("locations") == false)
+        #expect((value["rawInput"] as? [String: Any])?.keys.contains("path") == false)
+    }
+
+    @Test("Drops paths that escape the session cwd or name an unknown home")
+    func dropsPathsOutsideTheSessionRoot() throws {
+        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
+        let value = try update(mapper.mapping(for: [
+            "kind": [
+                "type": "tool_use",
+                "referenced_paths": [
+                    "../../../../etc/passwd",
+                    "~/.ssh/id_rsa",
+                    "nested/../kept.swift",
+                ],
+            ],
+        ]))
+        // Only the path that stays inside the session survives, and it is
+        // reported in standardized form.
+        #expect((value["locations"] as? [[String: Any]])?.map { $0["path"] as? String }
+            == ["/tmp/session/kept.swift"])
+    }
+
     @Test("Maps a path attachment to a resource link")
     func mapsPathAttachment() throws {
         let value = try update(mapper.mapping(for: [
@@ -236,32 +292,5 @@ struct ACPSessionUpdateMapperTests {
     func skipsUnsupportedEvents() {
         skipped(mapper.mapping(for: ["kind": ["type": "future_event"]]), reason: "unsupported")
         skipped(mapper.mapping(for: [:]), reason: "unsupported")
-    }
-
-    @Test("A file edit with no recorded path gets no location")
-    func fileEditWithoutPathHasNoLocation() throws {
-        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
-        let value = try update(mapper.mapping(for: [
-            "kind": ["type": "file_edit", "operation": "edit"],
-        ]))
-        #expect(value["title"] as? String == "edit (file)")
-        #expect(value.keys.contains("locations") == false)
-    }
-
-    @Test("Drops paths that escape the session cwd or name an unknown home")
-    func dropsPathsOutsideTheSessionRoot() throws {
-        let mapper = ACPSessionUpdateMapper(sessionID: "session-1", cwd: "/tmp/session")
-        let value = try update(mapper.mapping(for: [
-            "kind": [
-                "type": "tool_use",
-                "referenced_paths": [
-                    "../../../../etc/passwd",
-                    "~/.ssh/id_rsa",
-                    "nested/../kept.swift",
-                ],
-            ],
-        ]))
-        #expect((value["locations"] as? [[String: Any]])?.map { $0["path"] as? String }
-            == ["/tmp/session/kept.swift"])
     }
 }

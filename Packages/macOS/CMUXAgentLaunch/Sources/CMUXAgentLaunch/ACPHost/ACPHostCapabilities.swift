@@ -12,8 +12,8 @@ import Foundation
 ///
 /// Second, the cmux-specific flags live under `_meta`, not under a top-level
 /// `_cmux` key. ACP reserves underscore prefixes on *method* names for
-/// extensions and `_meta` on *objects*, so `_meta.cmux` is the sanctioned
-/// place for a capability a client has to feature-detect.
+/// extensions and `_meta` on *objects*, so `_meta.cmux` is where a capability
+/// a client has to feature-detect belongs.
 public struct ACPHostCapabilities: Sendable {
     /// The protocol version this host speaks.
     public let protocolVersion: Int
@@ -87,15 +87,21 @@ public enum ACPHostMethod: String, CaseIterable, Sendable {
     case cmuxSessionList = "_cmux/session/list"
 
     /// The extension methods this build answers, advertised at `initialize`.
-    public static let extensionMethodNames = [cmuxSessionList.rawValue]
+    ///
+    /// Derived from the case list rather than written out, so a new underscore
+    /// method is advertised by adding the case. ACP reserves the underscore
+    /// prefix on method names for extensions, which makes the prefix the test.
+    public static let extensionMethodNames = allCases
+        .map(\.rawValue)
+        .filter { $0.hasPrefix("_") }
 
     /// Methods ACP defines that this phase does not implement yet, each with
     /// the phase that owns it. A client gets that phase back in the error, so
     /// "not implemented" is actionable instead of just a refusal.
-    public static let deferredMethods: [String: String] = [
-        sessionNew.rawValue: "phase 2",
-        sessionPrompt.rawValue: "phase 2",
-        sessionCancel.rawValue: "phase 2",
-        sessionSetMode.rawValue: "phase 3",
+    public static let deferredMethods: [ACPHostMethod: String] = [
+        .sessionNew: "phase 2",
+        .sessionPrompt: "phase 2",
+        .sessionCancel: "phase 2",
+        .sessionSetMode: "phase 3",
     ]
 }

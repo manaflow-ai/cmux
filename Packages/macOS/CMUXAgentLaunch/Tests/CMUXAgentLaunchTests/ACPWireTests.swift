@@ -33,10 +33,22 @@ struct ACPWireTests {
             Issue.record("A JSON array should be reported as notAnObject")
             return
         }
-        guard case .failure(.wrongVersion("1.0")) = ACPIncomingMessage.decode(
+        guard case .failure(.wrongVersion("1.0", nil)) = ACPIncomingMessage.decode(
             line: #"{"jsonrpc":"1.0","method":"x"}"#
         ) else {
             Issue.record("Wrong protocol versions should be reported")
+            return
+        }
+        guard case .failure(.wrongVersion("1.0", .number(4))) = ACPIncomingMessage.decode(
+            line: #"{"jsonrpc":"1.0","id":4,"method":"x"}"#
+        ) else {
+            Issue.record("A wrong version must keep the id it could read")
+            return
+        }
+        guard case .failure(.wrongVersion(nil, .string("z"))) = ACPIncomingMessage.decode(
+            line: #"{"id":"z","method":"x"}"#
+        ) else {
+            Issue.record("A missing jsonrpc member must keep the id it could read")
             return
         }
         guard case .failure(.missingMethod(nil)) = ACPIncomingMessage.decode(
@@ -59,6 +71,11 @@ struct ACPWireTests {
         let assignedByACP: Set<Int> = [
             -32700, -32600, -32601, -32602, -32603, -32800, -32000, -32002,
         ]
+        // -32000 to -32099 is JSON-RPC 2.0's range for implementation-defined
+        // server errors, not a range ACP defines. ACP takes -32000 and -32002
+        // from it; cmux's own codes take free values in the same range so they
+        // cannot collide with a future ACP assignment outside it.
+        let jsonRPCServerErrors = -32099 ... -32000
         #expect(ACPErrorCode.parseError.rawValue == -32700)
         #expect(ACPErrorCode.invalidRequest.rawValue == -32600)
         #expect(ACPErrorCode.methodNotFound.rawValue == -32601)
@@ -68,26 +85,53 @@ struct ACPWireTests {
         #expect(ACPErrorCode.authRequired.rawValue == -32000)
         #expect(ACPErrorCode.resourceNotFound.rawValue == -32002)
         #expect(ACPErrorCode.hostUnavailable.rawValue == -32001)
-        #expect(ACPErrorCode.sessionNotFound.rawValue == -32003)
-        let values = ACPErrorCode.allCases.map(\.rawValue)
-        #expect(Set(values).count == values.count)
 
-        // cmux's own codes sit in the -32000 to -32099 block ACP reserves for
-        // agent-defined failures, on values ACP itself does not use.
-        for code in [ACPErrorCode.hostUnavailable, .sessionNotFound] {
+        // An unknown session answers with ACP's resourceNotFound. A cmux-only
+        // code would reach a client as an opaque `Other(_)` it cannot match.
+        #expect(ACPErrorCode.allCases.map(\.rawValue).contains(-32003) == false)
+
+        // cmux's own codes take values ACP itself does not use, inside
+        // JSON-RPC's server-error range.
+        let cmuxCodes: [ACPErrorCode] = [.hostUnavailable]
+        for code in cmuxCodes {
             #expect(
                 assignedByACP.contains(code.rawValue) == false,
                 "\(code) took a code ACP has already assigned"
             )
-        }
-
-        // Nothing may sit outside both sets.
-        for code in ACPErrorCode.allCases {
             #expect(
-                assignedByACP.contains(code.rawValue) || (-32099 ... -32000).contains(code.rawValue),
-                "\(code) is neither an ACP assignment nor inside ACP's reserved range"
+                jsonRPCServerErrors.contains(code.rawValue),
+                "\(code) sits outside JSON-RPC's implementation-defined range"
             )
         }
+
+        // Every remaining code is one ACP assigns. This is the check that
+        // reddens if a cmux code is added without being listed above, rather
+        // than one a new ACP code outside the range would break.
+        for code in ACPErrorCode.allCases where cmuxCodes.contains(code) == false {
+            #expect(
+                assignedByACP.contains(code.rawValue),
+                "\(code) is neither an ACP assignment nor a listed cmux code"
+            )
+        }
+    }
+
+    @Test("A notification envelope carries no id")
+    func notificationEnvelopeHasNoIdentifier() throws {
+        // This is the shape of every session/update the host sends, so the
+        // envelope is pinned even though the replay path builds its own params.
+        let message = ACPOutgoingMessage.notification(
+            method: ACPHostMethod.sessionUpdate.rawValue,
+            params: ["sessionId": "session-1"]
+        )
+        let envelope = message.envelope
+        #expect(envelope["jsonrpc"] as? String == "2.0")
+        #expect(envelope["method"] as? String == "session/update")
+        #expect((envelope["params"] as? [String: Any])?["sessionId"] as? String == "session-1")
+        #expect(envelope.keys.contains("id") == false)
+        // Sorted keys and unescaped slashes, the same framing rules the
+        // response line test pins.
+        #expect(try #require(message.jsonLine)
+            == #"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1"}}"#)
     }
 
     @Test("Outgoing envelopes serialize as one stable JSON line")

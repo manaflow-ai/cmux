@@ -13,10 +13,13 @@ public enum ACPRouterOutcome {
     /// Read the live session registry, then answer.
     case listSessions(id: ACPRequestIdentifier)
     /// Replay this session's transcript as `session/update` notifications,
-    /// then answer.
-    case loadSession(id: ACPRequestIdentifier, sessionID: String)
-    /// Answer with a JSON-RPC error.
-    case fail(id: ACPRequestIdentifier?, code: Int, message: String)
+    /// then answer. `cwd` is the absolute directory ACP requires on
+    /// `session/load` and is the base for resolving relative paths in the
+    /// replayed updates.
+    case loadSession(id: ACPRequestIdentifier, sessionID: String, cwd: String)
+    /// Answer with a JSON-RPC error. The code is typed, so the caller cannot
+    /// be handed an integer that is not one of the codes this host sends.
+    case fail(id: ACPRequestIdentifier?, code: ACPErrorCode, message: String)
     /// A notification, or a request that must produce no reply. The method is
     /// carried so the caller can log what it dropped.
     case ignore(method: String)
@@ -55,18 +58,31 @@ public struct ACPHostRouter {
             guard let sessionID = Self.nonEmptyString(message.params["sessionId"]) else {
                 return .fail(
                     id: id,
-                    code: ACPErrorCode.invalidParams.rawValue,
+                    code: .invalidParams,
                     message: "session/load needs a non-empty sessionId. "
                         + "Use _cmux/session/list to get the live session ids."
                 )
             }
-            return .loadSession(id: id, sessionID: sessionID)
-
-        case .some(let method):
-            if let phase = ACPHostMethod.deferredMethods[method.rawValue] {
+            // ACP requires an absolute cwd on session/load and makes it the
+            // base for every relative path in the session. Rejecting a relative
+            // one here is what keeps the replayed locations absolute, which ACP
+            // also requires, instead of silently dropping them later.
+            guard let cwd = Self.nonEmptyString(message.params["cwd"]),
+                  cwd.hasPrefix("/")
+            else {
                 return .fail(
                     id: id,
-                    code: ACPErrorCode.methodNotFound.rawValue,
+                    code: .invalidParams,
+                    message: "session/load needs an absolute cwd."
+                )
+            }
+            return .loadSession(id: id, sessionID: sessionID, cwd: cwd)
+
+        case .some(let method):
+            if let phase = ACPHostMethod.deferredMethods[method] {
+                return .fail(
+                    id: id,
+                    code: .methodNotFound,
                     message: "\(message.method) is not implemented in this build. "
                         + "It lands in \(phase); this host is read-only."
                 )
@@ -76,13 +92,13 @@ public struct ACPHostRouter {
             // calling it has the direction backwards.
             return .fail(
                 id: id,
-                code: ACPErrorCode.methodNotFound.rawValue,
+                code: .methodNotFound,
                 message: "\(message.method) is not a request this host answers."
             )
         case .none:
             return .fail(
                 id: id,
-                code: ACPErrorCode.methodNotFound.rawValue,
+                code: .methodNotFound,
                 message: "Unknown method \(message.method)."
             )
         }
@@ -90,9 +106,10 @@ public struct ACPHostRouter {
 
     /// The JSON-RPC answer for a line that could not be decoded.
     ///
-    /// Returns a JSON-RPC error with a null id when the problem left no id to
-    /// answer. The caller can report it and keep reading the next line.
-    public func failure(for problem: ACPIncomingMessage.Problem) -> [String: Any]? {
+    /// Every problem has an answer, so this is not optional. The id is null
+    /// only when the line left none to answer with, which is what JSON-RPC
+    /// requires. The caller can report it and keep reading the next line.
+    public func failure(for problem: ACPIncomingMessage.Problem) -> [String: Any] {
         switch problem {
         case .notJSON:
             return ACPOutgoingMessage.failure(
@@ -108,10 +125,10 @@ public struct ACPHostRouter {
                 message: "JSON-RPC message must be an object.",
                 data: nil
             ).envelope
-        case .wrongVersion(let found):
+        case .wrongVersion(let found, let id):
             let seen = found.map { "'\($0)'" } ?? "nothing"
             return ACPOutgoingMessage.failure(
-                id: nil,
+                id: id,
                 code: .invalidRequest,
                 message: "Expected \"jsonrpc\": \"2.0\", found \(seen).",
                 data: nil
