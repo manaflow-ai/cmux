@@ -41133,7 +41133,10 @@ export default {
         // The synchronous Codex hook lane preserves agent order for
         // telemetry-only progress events too. Detached wrapper telemetry does
         // not carry this ordered marker or a send stamp.
-        if source == "codex", !isActionable {
+        let isOrderedCodexProgress = [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if source == "codex", !isActionable, isOrderedCodexProgress {
             eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
             request["params"] = [
                 "event": eventDict,
