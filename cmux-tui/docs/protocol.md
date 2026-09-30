@@ -155,6 +155,13 @@ attaches or spawns anything for these tabs. They report
 `kind:"remote-terminal"` with a `remote` object and move, pin, group, and
 close like any tab. The TUI shows them as a labeled placeholder.
 
+`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
+creates a kept terminal with no workspace, pane, screen, or tab and returns
+its public `terminal_resource_id`, so another session's frontend can show it
+as a remote-terminal tab and attach by that id. Send it only to a daemon that
+advertises the capability; an older daemon ignores the field and creates a
+tab.
+
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
 `move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
