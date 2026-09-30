@@ -101,6 +101,24 @@ struct InputBugRegressionTests {
         #expect(Self.noViolation([.openPalette, .clickSidebar(window: 0, field: false)]) == nil)
     }
 
+    // MARK: B9 palette opened while the app is inactive
+
+    /// The palette panel is nonactivating: made key while the app was not
+    /// active (a CLI request, a CMUX_NEXT_NO_ACTIVATE=1 run), it took the
+    /// system keyboard from the user's frontmost app, and the user's typing
+    /// ran palette commands in cmux. It must show without the keys.
+    @Test func b9PaletteOpenedWhileInactiveNeverTakesTheKeys() {
+        let world = InputWorld(windows: 1, reportsRemoval: false)
+        world.perform(.appActive(false))
+        world.perform(.openPalette)
+        #expect(world.paletteOpen)
+        #expect(world.key == .none)
+        world.perform(.closePalette)
+        #expect(!world.paletteOpen)
+        #expect(world.key == .none)
+        #expect(Self.noViolation([.appActive(false), .openPalette, .frame, .clickPane(window: 0, pane: 0), .closePalette]) == nil)
+    }
+
     // MARK: F4 chrome target normalization
 
     /// An expectation or restore could leave `target == .addressBar` on a
