@@ -738,14 +738,18 @@ final class SidebarHeaderGlyphButton: NSButton {
 }
 
 /// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
-/// the shadow while the inner view clips the opaque ``ShortcutHintPalette``
-/// fill to the capsule; putting both on one unclipped layer squares it off.
+/// the shadow while the inner view clips its fill to the capsule; putting both
+/// on one unclipped layer squares it off. The fill is Liquid Glass tinted
+/// with ``ShortcutHintPalette/glassTint(for:)`` where `NSGlassEffectView`
+/// exists (macOS 26), the opaque palette background before that. The glass
+/// class is looked up at runtime so the file still builds with Swift 6.0.
 @MainActor
 final class SidebarShortcutHintPillView: NSView {
     private static let horizontalPadding: CGFloat = 4
     private static let visibilityAnimationKey = "shortcutHintVisibility"
 
-    private let materialView = NSView()
+    private let materialView: NSView
+    private let usesGlass: Bool
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
@@ -759,6 +763,13 @@ final class SidebarShortcutHintPillView: NSView {
         }
     ) {
         self.reduceMotionProvider = reduceMotionProvider
+        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
+            materialView = glassClass.init(frame: .zero)
+            usesGlass = true
+        } else {
+            materialView = NSView()
+            usesGlass = false
+        }
         super.init(frame: .zero)
         wantsLayer = true
         layer?.shadowOpacity = 1
@@ -772,7 +783,8 @@ final class SidebarShortcutHintPillView: NSView {
 
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        materialView.addSubview(label)
+        // A sibling above the fill, so glass never re-renders or dims the text.
+        addSubview(label)
         layer?.opacity = 0
         isHidden = true
     }
@@ -798,7 +810,14 @@ final class SidebarShortcutHintPillView: NSView {
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         label.textColor = ShortcutHintPalette.foreground(for: colorScheme)
-        materialView.layer?.backgroundColor = ShortcutHintPalette.background(for: colorScheme).cgColor
+        if usesGlass {
+            let tintSelector = NSSelectorFromString("setTintColor:")
+            if materialView.responds(to: tintSelector) {
+                materialView.perform(tintSelector, with: ShortcutHintPalette.glassTint(for: colorScheme))
+            }
+        } else {
+            materialView.layer?.backgroundColor = ShortcutHintPalette.background(for: colorScheme).cgColor
+        }
         materialView.layer?.borderColor = ShortcutHintPalette.border(for: colorScheme).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
         setRevealed(true, animated: !identityChanged)
@@ -818,7 +837,10 @@ final class SidebarShortcutHintPillView: NSView {
         let radius = bounds.height / 2
         materialView.frame = bounds
         materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+        if usesGlass {
+            materialView.setValue(radius, forKey: "cornerRadius")
+        }
+        label.frame = bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
         layer?.shadowPath = CGPath(
             roundedRect: bounds,
             cornerWidth: radius,

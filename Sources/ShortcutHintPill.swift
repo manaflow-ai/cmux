@@ -88,6 +88,13 @@ enum ShortcutHintPalette {
             : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
     }
 
+    /// Tint for the Liquid Glass pill on macOS 26 and later: the opaque
+    /// background at 72%, so the glass stays in the pill's scheme and the
+    /// text keeps its contrast over whatever the glass refracts.
+    static func glassTint(for colorScheme: ColorScheme) -> NSColor {
+        background(for: colorScheme).withAlphaComponent(0.72)
+    }
+
     static func border(for colorScheme: ColorScheme) -> NSColor {
         colorScheme == .dark
             ? NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.18)
@@ -100,13 +107,36 @@ struct ShortcutHintPillBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Capsule(style: .continuous)
-            .fill(Color(nsColor: ShortcutHintPalette.background(for: colorScheme)))
+        fill
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(Color(nsColor: ShortcutHintPalette.border(for: colorScheme)), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.22 * emphasis), radius: 2, x: 0, y: 1)
+    }
+
+    /// Liquid Glass tinted with the pill palette where the OS has it, the
+    /// opaque palette fill before macOS 26.
+    @ViewBuilder
+    private var fill: some View {
+        #if compiler(>=6.3)
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(
+                    .regular.tint(Color(nsColor: ShortcutHintPalette.glassTint(for: colorScheme))),
+                    in: Capsule(style: .continuous)
+                )
+        } else {
+            opaqueFill
+        }
+        #else
+        opaqueFill
+        #endif
+    }
+
+    private var opaqueFill: some View {
+        Capsule(style: .continuous)
+            .fill(Color(nsColor: ShortcutHintPalette.background(for: colorScheme)))
     }
 }
 

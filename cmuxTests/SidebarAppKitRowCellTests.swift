@@ -2049,7 +2049,11 @@ struct SidebarAppKitRowCellTests {
         let capsule = try #require(pill.subviews.first)
         #expect(capsule.layer?.masksToBounds == true)
         #expect(capsule.layer?.cornerRadius == pill.bounds.height / 2)
-        #expect(capsule.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        if capsule.className == "NSGlassEffectView" {
+            #expect((capsule.value(forKey: "tintColor") as? NSColor) == ShortcutHintPalette.glassTint(for: .dark))
+        } else {
+            #expect(capsule.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        }
     }
 
     @Test
