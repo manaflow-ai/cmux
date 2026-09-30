@@ -150,6 +150,25 @@ repository variables `TS_E2E_OIDC_CLIENT_ID` and `TS_E2E_OIDC_AUDIENCE`.
 | `CMUX_E2E_TLS_CERT` / `CMUX_E2E_TLS_KEY` | environment `ios-e2e` | `backend` | Certificate chain and key for the backend's fixed name ([TLS](#tls)). Its key can only impersonate that name, which no real service uses. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | repository | `mac-ios-e2e` | The CI Stack account both apps sign into. |
 
+## Runners that already run Tailscale
+
+Both jobs join the tailnet as ephemeral CI nodes and log out at the end, so
+they must run on ephemeral runners (Blacksmith today, through `LINUX_RUNNER`
+and `MACOS_RUNNER_IOS`). On a host that already runs Tailscale, such as a
+self-hosted fleet Mac mini, the join would re-register that host's own node
+under the CI tag, and the logout would drop the host from the tailnet. Each job
+therefore runs `scripts/e2e/require-fresh-tailnet-host.sh` first and fails,
+labeled `[infra-preflight]`, if it finds a `tailscaled`, the Tailscale app or
+a running backend.
+
+Moving the macOS job to fleet minis (for warm DerivedData) needs a second,
+isolated client, not the action: a userspace `tailscaled` with its own socket
+and state directory joined as the CI tag, a loopback forwarder per backend
+port through `tailscale --socket=<sock> nc`, and the backend name mapped to
+127.0.0.1. The host's own node and routes stay untouched. Everything here is
+one tailnet, so the address collisions of running two tailnets on one host do
+not arise.
+
 ## Tailscale ACL requirements
 
 The policy is cmuxterm-hq `skills/infra/tsadmin/acl.manaflow.hujson`, with a

@@ -231,6 +231,11 @@ jobs:
           path: ${{ runner.temp }}/iroh-relay-archive
           key: iroh-relay-${{ env.IROH_RELAY_VERSION }}-${{ env.IROH_RELAY_SHA256 }}
 
+      # A runner that already runs Tailscale (a self-hosted fleet host) would
+      # have its own node re-registered and then logged out by the join below.
+      - name: Refuse a runner that already runs Tailscale
+        run: ./scripts/e2e/require-fresh-tailnet-host.sh
+
       - name: Join tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
@@ -357,6 +362,11 @@ jobs:
             printf 'CMUX_UITEST_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      # A runner that already runs Tailscale (a self-hosted fleet host) would
+      # have its own node re-registered and then logged out by the join below.
+      - name: Refuse a runner that already runs Tailscale
+        run: ./scripts/e2e/require-fresh-tailnet-host.sh
 
       - name: Join tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
