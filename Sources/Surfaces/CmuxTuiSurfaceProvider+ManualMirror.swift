@@ -5,6 +5,44 @@ import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
 
+/// Bridges a shared projection task to one caller without making that caller
+/// wait for a cancellation-deaf remote RPC. The shared task keeps running for
+/// other panes; only this waiter is resumed with CancellationError.
+private final class CloudProjectionWaiter<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var result: Result<Value, Error>?
+
+    func install(_ continuation: CheckedContinuation<Value, Error>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resolve(_ result: Result<Value, Error>) {
+        lock.lock()
+        guard self.result == nil else {
+            lock.unlock()
+            return
+        }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        guard let continuation else { return }
+        continuation.resume(with: result)
+    }
+
+    func cancel() {
+        resolve(.failure(CancellationError()))
+    }
+}
+
 @MainActor
 extension CmuxTuiSurfaceProvider {
     /// Creates a native manual-I/O pane and attaches it to the remote PTY.
@@ -224,8 +262,10 @@ extension CmuxTuiSurfaceProvider {
         // pane opens first. Each accepted pane then submits its bound destination via
         // the catalog's shared placement lane.
         let key = socketPath + "\u{0}" + terminalID
-        if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
-        let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
+        if let shared = remoteTerminalProjectionTasks[key] {
+            return try await awaitProjection(shared.task)
+        }
+        let shared = CloudTerminalProjectionTask(task: Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
             guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
             let snapshot = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
@@ -235,10 +275,34 @@ extension CmuxTuiSurfaceProvider {
                 SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
                 preferringRemoteWorkspace: destination.target.workspaceID
             )
+        })
+        remoteTerminalProjectionTasks[key] = shared
+        defer {
+            if remoteTerminalProjectionTasks[key]?.token == shared.token {
+                remoteTerminalProjectionTasks[key] = nil
+            }
         }
-        remoteTerminalProjectionTasks[key] = task
-        defer { remoteTerminalProjectionTasks[key] = nil }
-        return try await task.value
+        return try await awaitProjection(shared.task)
+    }
+
+    private func awaitProjection(
+        _ task: Task<SurfaceRemotePlacement, Error>
+    ) async throws -> SurfaceRemotePlacement {
+        let waiter = CloudProjectionWaiter<SurfaceRemotePlacement>()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SurfaceRemotePlacement, Error>) in
+                waiter.install(continuation)
+                Task {
+                    do {
+                        waiter.resolve(.success(try await task.value))
+                    } catch {
+                        waiter.resolve(.failure(error))
+                    }
+                }
+            }
+        }, onCancel: {
+            waiter.cancel()
+        })
     }
 
     /// Refreshes attachment identities and repairs a backing placement that

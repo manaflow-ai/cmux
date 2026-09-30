@@ -6,6 +6,13 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
+
+/// A coalesced Cloud projection operation carries a generation token so a late
+/// completion from an old transport cannot clear a newer retry in the provider.
+struct CloudTerminalProjectionTask {
+    let token = UUID()
+    let task: Task<SurfaceRemotePlacement, Error>
+}
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
@@ -135,7 +142,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
-    var remoteTerminalProjectionTasks: [String: Task<SurfaceRemotePlacement, Error>] = [:]
+    var remoteTerminalProjectionTasks: [String: CloudTerminalProjectionTask] = [:]
     /// User labels from the last authoritative snapshot, used to compensate a
     /// multi-view rename if a later tab mutation fails.
     private var tabNameByID: [String: String] = [:]
@@ -236,7 +243,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
-        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        for task in remoteTerminalProjectionTasks.values { task.task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
     }
 
