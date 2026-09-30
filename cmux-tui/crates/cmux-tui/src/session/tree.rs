@@ -1610,6 +1610,34 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_remote_terminal_tab_parses_as_a_placeholder_never_a_pty() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "tabs": [
+                {"surface": 4, "kind": "pty", "title": "zsh"},
+                {
+                    "surface": 5,
+                    "kind": "remote-terminal",
+                    "title": "Terminal on build-box",
+                    "remote": {
+                        "session_id": "0b7f2c1e-4d3a-4f6b-9c8d-1a2b3c4d5e6f",
+                        "terminal_id": "5f0c3a9e2b7d4c1a8e6f0b3d2c1a9e8f",
+                        "session_name": "build-box"
+                    }
+                }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs[0].kind, SurfaceKind::Pty);
+        assert!(!pane.tabs[0].remote_terminal);
+        // Never attached as a PTY; the pane shows a labeled placeholder.
+        assert_eq!(pane.tabs[1].kind, SurfaceKind::Browser);
+        assert!(pane.tabs[1].remote_terminal);
+        assert_eq!(pane.tabs[1].title, "Terminal on build-box");
+    }
+
+    #[test]
     fn tree_parser_preserves_browser_source_and_rejects_unknown_values() {
         let pane = parse_pane(&json!({
             "id": 3,
