@@ -48,7 +48,7 @@ struct CloudFeatureFlagTests {
         let flags = CmuxFeatureFlags(
             defaults: defaults,
             overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
-            remoteFlagValueProvider: { nil }
+            remoteFlagValueProvider: { _ in nil }
         )
         flags.applyLoadedFlags()
         #expect(!flags.isAgentInboxQuickViewEnabled)
