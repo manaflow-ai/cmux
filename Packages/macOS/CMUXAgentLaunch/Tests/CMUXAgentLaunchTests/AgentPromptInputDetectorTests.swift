@@ -252,4 +252,22 @@ struct AgentPromptInputDetectorTests {
         #expect(snapshot.agentKind == .codex)
         #expect(snapshot.busy)
     }
+
+    @Test("Real Claude and Codex prompt shapes identify hookless panes")
+    func realPromptShapesWithoutBanner() {
+        let claude = AgentPromptSubmissionSnapshot(screenText: "✻ Welcome to Claude Code!\n\u{276F}\u{00A0}")
+        #expect(claude.agentKind == .claude)
+        #expect(claude.state == .empty)
+
+        let codex = AgentPromptSubmissionSnapshot(screenText: "│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything")
+        #expect(codex.agentKind == .codex)
+        #expect(codex.state == .empty)
+    }
+
+    @Test("Real Codex bullet status reports busy")
+    func realCodexBulletStatusIsBusy() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› Ask Codex to do anything")
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+    }
 }

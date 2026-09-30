@@ -271,6 +271,65 @@ struct CLISendDraftGuardTests {
         #expect(params["key"] as? String == "return")
     }
 
+    @Test func sendSubmitForceStillReadsInputStateForAgentKeySelection() throws {
+        let busyCodex: [String: Any] = [
+            "state": "empty", "agent": true, "terminal": true,
+            "agent_kind": "codex", "lifecycle": "running", "busy": true,
+        ]
+        let run = try runCLI(
+            arguments: ["send", "--force", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [busyCodex, ["state": "draft", "agent": true, "agent_kind": "codex"], Self.empty],
+            screenText: "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› Ask Codex to do anything"
+        )
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.requests.first?["method"] as? String == "surface.input_state")
+        let key = try #require(run.requests.first { $0["method"] as? String == "surface.send_key" })
+        #expect((key["params"] as? [String: Any])?["key"] as? String == "tab")
+    }
+
+    @Test func sendSubmitDoesNotRetryHumanEditBehindSlashPopup() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "/model"],
+            inputStates: [Self.empty, Self.draft, Self.draft],
+            screenTexts: [
+                "Claude Code\n❯\u{00A0}/model\n/model\nEnter to select · Esc to cancel",
+                "Claude Code\n❯\u{00A0}/other\n/model\nEnter to select · Esc to cancel",
+            ]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stderr.contains("human input"), Comment(rawValue: run.result.stderr))
+        #expect(run.requests.filter { $0["method"] as? String == "surface.send_key" }.count == 1)
+    }
+
+    @Test func sendSubmitAfterKeyDialogReportsUnconfirmedWithoutNothingWasSent() throws {
+        let run = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            inputStates: [Self.empty, Self.draft, Self.dialog]
+        )
+
+        #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"), Comment(rawValue: run.result.stdout))
+        #expect(!run.result.stderr.contains("nothing was sent"), Comment(rawValue: run.result.stderr))
+    }
+
+    @Test func sendSubmitRecognizesRealHooklessClaudeAndCodexScreens() throws {
+        let claude = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            screenTexts: ["✻ Welcome to Claude Code!\n❯\u{00A0}", "✻ Thinking…\n❯\u{00A0}hello", "✻ Welcome to Claude Code!\n❯\u{00A0}"]
+        )
+        #expect(claude.result.status == 0, Comment(rawValue: claude.result.stderr))
+        #expect(claude.requests.contains { ($0["method"] as? String) == "surface.send_key" })
+
+        let codex = try runCLI(
+            arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
+            screenTexts: ["│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything", "│ >_ OpenAI Codex (v0.154.0) │\n› hello", "│ >_ OpenAI Codex (v0.154.0) │\n› "]
+        )
+        #expect(codex.result.status == 0, Comment(rawValue: codex.result.stderr))
+        #expect(codex.requests.contains { ($0["method"] as? String) == "surface.send_key" })
+    }
+
     @Test func sendSubmitStopsWhenADialogOpensAfterSubmitKey() throws {
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],

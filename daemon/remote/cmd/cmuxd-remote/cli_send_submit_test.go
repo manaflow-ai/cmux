@@ -247,6 +247,10 @@ func TestSendSubmitForceBypassesDraftGuard(t *testing.T) {
 	if mock.request("terminal.paste") == nil {
 		t.Fatal("forced send did not paste")
 	}
+	methods := mock.methods()
+	if len(methods) == 0 || methods[0] != "surface.input_state" {
+		t.Fatalf("forced send methods = %v, want input_state first", methods)
+	}
 }
 
 func TestSendSubmitFlagsMayFollowTargetOptions(t *testing.T) {
@@ -343,6 +347,45 @@ func TestSendSubmitScreenClassifier(t *testing.T) {
 				t.Fatalf("screen state = %v", state)
 			}
 		})
+	}
+}
+
+func TestSendSubmitRealScreenShapesWithoutBanners(t *testing.T) {
+	for _, tc := range []struct {
+		name, screen, kind, state string
+	}{
+		{"claude welcome", "✻ Welcome to Claude Code!\n❯\u00a0", "claude", "empty"},
+		{"codex banner row", "│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything", "codex", "empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := sendStateFromScreen(tc.screen)
+			if stateString(state, "agent_kind") != tc.kind || stateString(state, "state") != tc.state || !sendStateAgent(state) {
+				t.Fatalf("screen state = %v", state)
+			}
+		})
+	}
+	state := sendStateFromScreen("│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› Ask Codex to do anything")
+	if !boolValue(state, "busy") {
+		t.Fatalf("real Codex busy row not detected: %v", state)
+	}
+}
+
+func TestSendSubmitOwnSlashPickerCountsAsSubmitted(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "dialog", "slash_popup": false, "agent_kind": "claude"},
+	}, []string{"❯\n", "❯ /model\nSelect a model\nEnter to select\n"})
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "/model"}); code != 0 {
+			t.Fatalf("send --submit: exit %d", code)
+		}
+	})
+	if output != "submitted\n" {
+		t.Fatalf("output = %q, want submitted", output)
+	}
+	if len(mock.keysSnapshot()) != 1 {
+		t.Fatalf("keys = %v, want one submit key", mock.keysSnapshot())
 	}
 }
 
