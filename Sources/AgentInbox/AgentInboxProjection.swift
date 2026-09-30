@@ -1,3 +1,4 @@
+import AppKit
 import CMUXAgentLaunch
 import CmuxAgentJournal
 import Foundation
@@ -27,6 +28,12 @@ enum AgentInboxReplyError: Error, Equatable, Sendable {
 enum AgentInboxInteractionPolicy {
     static func shouldMoveSelection(isReplyFieldFocused: Bool) -> Bool {
         !isReplyFieldFocused
+    }
+}
+
+enum AgentInboxReplyFieldFocusPolicy {
+    static func notificationWindow(hostingWindow: NSWindow?, keyWindow _: NSWindow?) -> NSWindow? {
+        hostingWindow
     }
 }
 

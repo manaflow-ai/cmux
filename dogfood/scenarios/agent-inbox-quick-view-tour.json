@@ -120,6 +120,15 @@
       "wait": 0.5
     },
     {
+      "key": "up"
+    },
+    {
+      "key": "down"
+    },
+    {
+      "wait": 0.25
+    },
+    {
       "shot": "inbox-reply-draft"
     },
     {

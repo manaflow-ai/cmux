@@ -16,6 +16,7 @@ struct AgentInboxView: View {
     @State private var readFinishedTurnIDs = AgentInboxReadStateStore().finishedTurnIDs
     @State private var replySubmissionGate = AgentInboxReplySubmissionGate()
     @State private var replyError: String?
+    @State private var hostingWindow: NSWindow?
     @FocusState private var isReplyFieldFocused: Bool
 
     private var visibleItems: [AgentInboxItem] {
@@ -56,6 +57,11 @@ struct AgentInboxView: View {
         }
         .frame(minWidth: 720, idealWidth: 920, minHeight: 480, idealHeight: 620)
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            WindowAccessor { window in
+                hostingWindow = window
+            }
+        )
         .onAppear {
             selectFirstIfNeeded()
             markSelectedMessageRead()
@@ -284,7 +290,10 @@ struct AgentInboxView: View {
     private func notifyReplyFieldFocus(_ focused: Bool) {
         NotificationCenter.default.post(
             name: .agentInboxReplyFieldFocusChanged,
-            object: NSApp.keyWindow,
+            object: AgentInboxReplyFieldFocusPolicy.notificationWindow(
+                hostingWindow: hostingWindow,
+                keyWindow: nil
+            ),
             userInfo: ["focused": focused]
         )
     }
