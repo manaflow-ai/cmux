@@ -20,6 +20,11 @@ enum FuzzAction: Hashable, CustomStringConvertible {
     case userCloseTab(window: Int)
     case userMoveTab(window: Int, pane: Int)
     case clickPane(window: Int, pane: Int)
+    /// The Chromium page window of `pane` becomes key without a click
+    /// (Chromium activating its page, AppKit restoring key). `placed`:
+    /// false while the page window is not over its pane yet (just created),
+    /// so the applier cannot tell which pane it is.
+    case pageTakesKey(window: Int, pane: Int, placed: Bool)
     case clickTab(window: Int, pane: Int, tab: Int)
     case clickSidebar(window: Int, field: Bool)
     case otherTextField(window: Int)
@@ -53,6 +58,7 @@ enum FuzzAction: Hashable, CustomStringConvertible {
 
     var description: String {
         switch self {
+        case .pageTakesKey(let window, let pane, let placed): "pageTakesKey(window: \(window), pane: \(pane), placed: \(placed))"
         case .daemonNewTab(let pane, let browser): "daemonNewTab(pane: \(pane), browser: \(browser))"
         case .daemonCloseTab(let tab): "daemonCloseTab(tab: \(tab))"
         case .daemonSplit(let pane, let browser): "daemonSplit(pane: \(pane), browser: \(browser))"

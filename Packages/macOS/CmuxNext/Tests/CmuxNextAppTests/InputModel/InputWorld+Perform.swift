@@ -75,6 +75,11 @@ extension InputWorld {
             pending.append(.delta(.move(tab: tab, to: target)))
         case .clickPane(let w, let n):
             clickPane(window(w), n)
+        case .pageTakesKey(let w, let n, let placed):
+            let window = window(w)
+            guard !window.hasSheet, let pane = pane(n, in: window),
+                  window.presented[pane.id].flatMap(tab)?.isChromium == true else { return }
+            setKey(.childPage(window.index, pane: pane.id), placed: placed)
         case .clickTab(let w, let n, let m):
             let window = window(w)
             guard !window.hasSheet, let pane = pane(n, in: window), !pane.tabs.isEmpty else { return }

@@ -136,4 +136,21 @@ struct InputBugRegressionTests {
         let state = R.run([.toggleBrowserFocusMode(tab: "gone")], from: R.loaded()).0
         #expect(state.browserFocusMode.isEmpty)
     }
+
+    // MARK: B10 page window takes the keys without a click
+
+    /// User feedback on nxdog9: after opening a browser tab the omnibar lost
+    /// the keyboard. A Chromium page window can become key without a click
+    /// (Chromium activating the page, AppKit restoring key), also before it
+    /// is placed over its pane; then the applier found no pane and did
+    /// nothing, and the keys went to the page while the model targeted the
+    /// omnibar. The second new tab is a Chromium tab (`DTab.isChromium`).
+    @Test func b10UnchosenPageWindowKeyNeverKeepsTheOmnibarKeys() {
+        let open: [FuzzAction] = [.userNewTab(window: 0, browser: true), .deliver(0), .deliver(0), .frame]
+        for placed in [false, true] {
+            let actions = open + open + [.pageTakesKey(window: 0, pane: 0, placed: placed), .type]
+            let violation = Self.noViolation(actions)
+            #expect(violation == nil, "placed: \(placed): \(String(describing: violation))")
+        }
+    }
 }

@@ -205,7 +205,7 @@ final class InputWorld {
 
     /// Moves AppKit key status, with the notifications AppKit sends:
     /// resign on the old window first, then become on the new one.
-    func setKey(_ new: KeyHolder, byClick: Bool = false) {
+    func setKey(_ new: KeyHolder, byClick: Bool = false, placed: Bool = true) {
         let old = key
         guard old != new else { return }
         // Only the active app has a key window: a click into an inactive
@@ -244,6 +244,8 @@ final class InputWorld {
             guard let page = window.presented[pane], tab(page)?.isChromium == true else { break }
             lastActive = index
             context = window.focus.state.context
+            // No pane under a page window that is not placed yet.
+            guard placed else { break }
             window.childPage = page
             window.focus.responderDidChange(byClick ? .content(pane: pane) : .windowOrNone, source: byClick ? .mouse : .programmatic)
             if window.responder != .windowOrNone {
