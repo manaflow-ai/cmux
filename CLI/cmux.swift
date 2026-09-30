@@ -15834,32 +15834,30 @@ struct CMUXCLI {
             suppressReplayBytes = 0
             expectedReplayFingerprint = nil
         }
-        var outputProgress = SSHPTYAttachOutputProgress(
-            replayBytes: bridgeReplayBytes,
-            suppressReplayBytes: suppressReplayBytes,
-            expectedReplayFingerprint: expectedReplayFingerprint
-        )
-        var replayStateStored = bridgeReplayBytes == 0
-        if replayStateStored {
-            replayState.storeSnapshot(
-                replayBytes: bridgeReplayBytes,
-                fingerprint: outputProgress.completedReplayFingerprint ??
-                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
-            )
-        }
         // A persistent reattach's initial bytes are historical remote PTY
         // output. Strip terminal queries before Ghostty parses them; otherwise
         // its replies can arrive after the reconnect stdin filter hands off to
         // live input and land in the remote shell.
         let filtersReplayOutput = requireExisting && command == nil
-        var replayOutputFilter = SSHPTYReplayOutputFilter(
-            replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
+        var replayOutput = SSHPTYAttachReplayOutputStream(
+            progress: SSHPTYAttachOutputProgress(
+                replayBytes: bridgeReplayBytes,
+                suppressReplayBytes: suppressReplayBytes,
+                expectedReplayFingerprint: expectedReplayFingerprint
+            ),
+            queryFilterReplayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
-        func writeReplayFilteredOutput(_ data: Data) throws {
-            guard !data.isEmpty else { return }
-            let filtered = replayOutputFilter.filter(data)
-            if !filtered.isEmpty,
-               !outputWriter.write(filtered, cancellation: signalMonitor!) {
+        var replayStateStored = bridgeReplayBytes == 0
+        if replayStateStored {
+            replayState.storeSnapshot(
+                replayBytes: bridgeReplayBytes,
+                fingerprint: replayOutput.progress.completedReplayFingerprint ??
+                    SSHPTYAttachOutputProgress.fingerprint(of: Data())
+            )
+        }
+        func writeTerminalOutput(_ output: Data) throws {
+            if !output.isEmpty,
+               !outputWriter.write(output, cancellation: signalMonitor!) {
                 // Local output failure unwinds termios while preserving the remote PTY.
                 preserveLifecycleForRecovery = true
                 try checkSSHPTYCancellation(signalMonitor)
@@ -15867,14 +15865,12 @@ struct CMUXCLI {
             }
         }
         defer {
-            let pendingReplay = outputProgress.finishPendingReplay(
-                discarding: sshPTYAttachWrapperRetryPending()
-            )
-            try? writeReplayFilteredOutput(pendingReplay)
-            _ = outputWriter.write(replayOutputFilter.finish(), cancellation: signalMonitor!)
+            try? writeTerminalOutput(replayOutput.finish(
+                discardingPendingReplay: sshPTYAttachWrapperRetryPending()
+            ))
         }
         func startInputForwardingAfterReplay() throws {
-            guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
+            guard !inputPumpStarted, replayOutput.progress.replayBytesRemaining == 0 else { return }
             if filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
                 throw sshPTYTerminalModeError()
             }
@@ -15892,10 +15888,10 @@ struct CMUXCLI {
             }
         }
         func storeReplayStateIfComplete() {
-            guard !replayStateStored, outputProgress.replayBytesRemaining == 0 else { return }
+            guard !replayStateStored, replayOutput.progress.replayBytesRemaining == 0 else { return }
             replayState.storeSnapshot(
-                replayBytes: outputProgress.deliveredReplayBytes,
-                fingerprint: outputProgress.completedReplayFingerprint ??
+                replayBytes: replayOutput.progress.deliveredReplayBytes,
+                fingerprint: replayOutput.progress.completedReplayFingerprint ??
                     SSHPTYAttachOutputProgress.fingerprint(of: Data())
             )
             replayStateStored = true
@@ -15905,8 +15901,7 @@ struct CMUXCLI {
         // forwarding off indefinitely.
         var replayDeadline = SSHPTYAttachReplayDeadline(startedAt: bridgeReadyUptime)
         func endStalledReplay() throws {
-            try writeReplayFilteredOutput(outputProgress.endReplay())
-            replayOutputFilter.endReplay()
+            try writeTerminalOutput(replayOutput.endStalledReplay())
             storeReplayStateIfComplete()
             try startInputForwardingAfterReplay()
         }
@@ -15917,7 +15912,7 @@ struct CMUXCLI {
             _ = try reconcileBridgeEnd(
                 intentionalOnly: false,
                 sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                    receivedLiveOutput: outputProgress.receivedLiveOutput,
+                    receivedLiveOutput: replayOutput.progress.receivedLiveOutput,
                     readyUptime: bridgeReadyUptime
                 ),
                 reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
@@ -15927,7 +15922,7 @@ struct CMUXCLI {
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
-            if !inputPumpStarted, outputProgress.replayBytesRemaining > 0 {
+            if !inputPumpStarted, replayOutput.progress.replayBytesRemaining > 0 {
                 let wait = replayDeadline.remainingWait(at: ProcessInfo.processInfo.systemUptime)
                 var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
                 let ready = wait > 0 ? poll(&pollFD, 1, Int32(min(wait * 1000, 60_000).rounded(.up))) : 0
@@ -15945,7 +15940,7 @@ struct CMUXCLI {
             try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
                 replayDeadline.recordOutput(at: ProcessInfo.processInfo.systemUptime)
-                let output = outputProgress.terminalOutput(
+                let output = replayOutput.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
                     suppressingReplay: suppressReplay
                 )
@@ -15953,7 +15948,7 @@ struct CMUXCLI {
                     if inputPumpStarted {
                         reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     }
-                    try writeReplayFilteredOutput(output)
+                    try writeTerminalOutput(output)
                 }
                 storeReplayStateIfComplete()
                 try startInputForwardingAfterReplay()
