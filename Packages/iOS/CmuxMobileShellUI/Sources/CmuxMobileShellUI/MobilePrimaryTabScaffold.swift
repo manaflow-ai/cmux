@@ -173,21 +173,8 @@ struct MobilePrimaryTabScaffold<
                     searchCoordinator.synchronizeSelection(selection)
                 }
 
-                if selection == .workspaces, let taskComposerAction {
-                    TaskComposerButton(
-                        action: taskComposerAction,
-                        diameter: iOS26BottomControlDiameter
-                    )
-                    .padding(.trailing, iOS26BottomControlInset)
-                    .padding(.bottom, iOS26TaskComposerBottomPadding)
-                    // Compose anchors to the screen, not the keyboard. The
-                    // only keyboard that can appear while it is visible
-                    // belongs to an overlaying sheet (the composer's
-                    // auto-focused prompt), whose inset dragged the button
-                    // toward mid-screen and stranded it there whenever the
-                    // hide update was missed.
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                if selection == .workspaces {
+                    iOS26TaskComposerButton
                 }
             }
             .ignoresSafeArea(.container, edges: .bottom)
@@ -224,6 +211,26 @@ struct MobilePrimaryTabScaffold<
     private var iOS26BottomControlSpacing: CGFloat { 12 }
     private var iOS26TaskComposerBottomPadding: CGFloat {
         iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
+    }
+
+    @ViewBuilder
+    private var iOS26TaskComposerButton: some View {
+        if let taskComposerAction {
+            TaskComposerButton(
+                action: taskComposerAction,
+                diameter: iOS26BottomControlDiameter
+            )
+            .padding(.trailing, iOS26BottomControlInset)
+            .padding(.bottom, iOS26TaskComposerBottomPadding)
+            // Compose anchors to the screen, not the keyboard. The
+            // only keyboard that can appear while it is visible
+            // belongs to an overlaying sheet (the composer's
+            // auto-focused prompt), whose inset dragged the button
+            // toward mid-screen and stranded it there whenever the
+            // hide update was missed.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+        }
     }
 
     private var iOS26TabBarInteractionHeight: CGFloat { 90 }
