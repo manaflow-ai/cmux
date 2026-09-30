@@ -49,6 +49,8 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+        case .createAction(let action):
+            CloudTreeCreateActionLabel(action: action, style: style)
         case .devicesEmpty:
             EmptyView()
         case .terminalsPool:
