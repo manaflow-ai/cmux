@@ -10,6 +10,7 @@ import SwiftUI
 @MainActor
 final class CloudTeamInviteSheetPresenter {
     static let shared = CloudTeamInviteSheetPresenter()
+    static let sheetSize = NSSize(width: 520, height: 540)
 
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
@@ -26,12 +27,21 @@ final class CloudTeamInviteSheetPresenter {
         }
         let model = CloudTeamInviteModel(accountFlow: accountFlow)
         model.onFinished = { [weak self] in self?.dismiss() }
-        let controller = NSHostingController(rootView: CloudTeamInviteSheet(model: model))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
-        window.styleMask = [.titled]
+        // A fixed-size window with an NSHostingView, not a hosting controller
+        // sized by preferred content size: that path let SwiftUI hand AppKit
+        // an unbounded constraint while the sheet animated open, which threw.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: Self.sheetSize.width, height: Self.sheetSize.height),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
         window.title = String(localized: "cloudInvite.title", defaultValue: "Invite People")
         window.isReleasedWhenClosed = false
+        let hostingView = NSHostingView(rootView: CloudTeamInviteSheet(model: model))
+        hostingView.frame = NSRect(origin: .zero, size: Self.sheetSize)
+        hostingView.autoresizingMask = [.width, .height]
+        window.contentView = hostingView
         self.model = model
         sheetWindow = window
         if NSApp.activationPolicy() == .regular {
@@ -197,7 +207,7 @@ struct CloudTeamInviteSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: CloudTeamInviteSheetPresenter.sheetSize.width, height: CloudTeamInviteSheetPresenter.sheetSize.height, alignment: .top)
         .disabled(model.isSubmitting)
         .onAppear { emailFieldFocused = true }
         .accessibilityIdentifier("CloudTeamInviteSheet")
