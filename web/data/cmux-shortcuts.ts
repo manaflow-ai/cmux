@@ -159,6 +159,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
       { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
       {
+        id: "workspace.selectLastUsed",
+        combos: [["⌃", "⌘", "`"]],
+        description: { en: "Switch to last used workspace", ja: "最後に使ったワークスペースに切り替え" },
+        note: { en: "toggles between the two most recent workspaces of the window", ja: "ウインドウで直近に使った 2 つのワークスペースを切り替え" },
+      },
+      {
         id: "focusHistoryBack",
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
