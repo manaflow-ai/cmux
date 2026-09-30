@@ -136,23 +136,44 @@ final class AgentFanOutOperationTests: XCTestCase {
         let file = directory.appendingPathComponent("operations.json")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentFanOutOperationStore(fileURL: file)
-        try await store.insertIfAbsent(operation())
+        for exitCode in [0, 2] {
+            for projectionSucceeds in [true, false] {
+                let id = "f_\(exitCode)_\(projectionSucceeds)"
+                let creator = operation(id: id)
+                try await store.insertIfAbsent(creator)
 
-        var exited = operation()
-        exited.children[0].state = .exited
-        exited.children[0].exitCode = 0
-        exited.recomputeState(now: Date(timeIntervalSince1970: 2))
-        try await store.update(exited)
+                var settled = creator
+                settled.children[0].state = exitCode == 0 ? .exited : .failed
+                settled.children[0].exitCode = exitCode
+                settled.children[0].errorCode = exitCode == 0 ? nil : "agent_exit_nonzero"
+                settled.children[0].endedAt = Date(timeIntervalSince1970: 2)
+                settled.recomputeState(now: Date(timeIntervalSince1970: 2))
+                try await store.update(settled)
 
-        var projected = exited
-        projected.children[0].localWorkspaceID = "local-child"
-        projected.children[0].projectionErrorCode = nil
-        try await store.update(projected)
-        let stored = try await store.operation(id: "f_test")
-        let current = try XCTUnwrap(stored)
-        XCTAssertEqual(current.children[0].state, .exited)
-        XCTAssertEqual(current.children[0].exitCode, 0)
-        XCTAssertEqual(current.children[0].localWorkspaceID, "local-child")
+                // The creator still holds its running snapshot while the
+                // status worker has already settled the remote terminal.
+                var projected = creator
+                projected.children[0].localWorkspaceID = projectionSucceeds ? "local-child" : nil
+                projected.children[0].projectionErrorCode = projectionSucceeds ? nil : "local_projection_failed"
+                try await store.update(projected)
+                let stored = try await store.operation(id: id)
+                let current = try XCTUnwrap(stored)
+                XCTAssertEqual(current.children[0].state, settled.children[0].state)
+                XCTAssertEqual(current.children[0].exitCode, exitCode)
+                XCTAssertEqual(current.children[0].endedAt, settled.children[0].endedAt)
+                XCTAssertEqual(current.children[0].errorCode, settled.children[0].errorCode)
+                XCTAssertEqual(current.children[0].localWorkspaceID, projected.children[0].localWorkspaceID)
+                XCTAssertEqual(current.children[0].projectionErrorCode, projected.children[0].projectionErrorCode)
+
+                // A second stale status snapshot must preserve the newly
+                // persisted local projection receipt and its failure code.
+                _ = try await store.mergeTerminalExits(creator)
+                let staleMerged = try await store.operation(id: id)
+                XCTAssertEqual(staleMerged?.children, current.children)
+                let reloaded = try await AgentFanOutOperationStore(fileURL: file).operation(id: id)
+                XCTAssertEqual(reloaded?.children, current.children)
+            }
+        }
     }
 
     func testOperationStoreRejectsCorruptLedgerInsteadOfTreatingItAsEmpty() async throws {
