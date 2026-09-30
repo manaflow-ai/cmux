@@ -73,6 +73,65 @@
     },
     {
       "click": {
+        "id": "SettingsCustomSidebarTemplateTry-panel-sessions"
+      }
+    },
+    {
+      "wait": 0.7
+    },
+    {
+      "shot": "template-panel-sessions-light"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateRevert"
+      }
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateTry-panel-subagents"
+      }
+    },
+    {
+      "wait": 0.7
+    },
+    {
+      "shot": "template-panel-subagents-light"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateRevert"
+      }
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateTry-btop-agents"
+      }
+    },
+    {
+      "wait": 0.7
+    },
+    {
+      "shot": "template-btop-agents-light"
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateRevert"
+      }
+    },
+    {
+      "click": {
+        "id": "SettingsCustomSidebarTemplateTry-panel-todo"
+      }
+    },
+    {
+      "wait": 0.7
+    },
+    {
+      "shot": "template-panel-todo-light"
+    },
+    {
+      "click": {
         "id": "SettingsCustomSidebarTemplateKeep"
       },
       "wait": 1
