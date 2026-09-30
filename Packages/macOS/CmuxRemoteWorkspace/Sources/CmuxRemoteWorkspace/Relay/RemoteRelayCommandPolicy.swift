@@ -80,8 +80,7 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
 
         let params = request["params"] as? [String: Any] ?? [:]
-        if method != "surface.resume.set",
-           let key = firstKey(in: params, matching: Self.commandKeys) {
+        if let key = firstKey(in: params, matching: Self.commandKeys) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         if method == "surface.split" {

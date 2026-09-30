@@ -548,10 +548,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "App appearance mode."
         },
         "accentColor": {
-          "type": "string",
-          "enum": ["cmux", "system"],
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["cmux", "system"]
+            },
+            {
+              "$ref": "#/$defs/colorHex"
+            }
+          ],
           "default": "cmux",
-          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes; a \"#RRGGBB\" hex uses that color in light and dark mode. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
         },
         "appIcon": {
           "type": "string",
@@ -2182,7 +2189,9 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk"
             ]
           },
           "properties": {
@@ -2223,6 +2232,12 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

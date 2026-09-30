@@ -147,6 +147,14 @@ export const navItems: NavEntry[] = [
     ],
   },
   {
+    sectionKey: "coderouterSection",
+    children: [
+      { titleKey: "coderouterOverview", href: "/docs/coderouter" },
+      { titleKey: "coderouterAgents", href: "/docs/coderouter/agents" },
+      { titleKey: "coderouterCli", href: "/docs/coderouter/cli" },
+    ],
+  },
+  {
     sectionKey: "customizeSection",
     children: [
       { titleKey: "configuration", href: "/docs/configuration" },
