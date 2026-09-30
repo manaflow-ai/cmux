@@ -33,13 +33,14 @@ enum CloudTreeCreateActionBuilder {
     }
 
     /// The section's New Workspace resolves its machine the way Cmd-N does, so it
-    /// is offered only while a listed Cloud machine can receive a workspace. A
-    /// create still in flight, a locked machine, or an empty or unloaded fleet
+    /// is offered only while a listed Cloud machine can receive a workspace, by
+    /// the same rule Cmd-N's resolver applies (``cmuxApp/cloudWorkspaceTargetMachineIDs``).
+    /// A create still in flight, a locked machine, or an empty or unloaded fleet
     /// has no destination, and the row would only end in a "no machine" alert.
     static func hasWorkspaceDestination(_ children: [CloudTreeNode]) -> Bool {
         children.contains { child in
             guard case .machine(let machine, _) = child.kind else { return false }
-            return !machine.id.isEmpty && machine.freeAccess != .expired
+            return !machine.id.isEmpty && machine.acceptsNewWorkspaces
         }
     }
 }

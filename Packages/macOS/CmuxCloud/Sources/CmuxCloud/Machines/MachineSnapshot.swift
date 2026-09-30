@@ -89,6 +89,11 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
 
+    /// Whether a new Cloud workspace can be created here. A machine past its
+    /// free-access window is locked (the backend refuses access verbs), so it
+    /// is never a workspace destination until the plan is upgraded.
+    public var acceptsNewWorkspaces: Bool { freeAccess != .expired }
+
     /// The label when set, else the generated name, else the machine id.
     public var displayName: String {
         if let label, !label.isEmpty { return label }
