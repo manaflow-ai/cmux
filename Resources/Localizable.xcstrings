@@ -571330,120 +571330,120 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not safely detach the parent session, so the fork was not started. Retry the fork from the parent pane."
+            "value": "cmux could not safely bind the new fork session. Retry the fork from the parent pane."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux は新しいフォーク セッションを安全にバインドできませんでした。親ペインからもう一度フォークしてください。"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux konnte die neue Fork-Sitzung nicht sicher binden. Starten Sie den Fork erneut im übergeordneten Pane."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux n’a pas pu lier la nouvelle session forkée en toute sécurité. Relancez le fork depuis le volet parent."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تعذر على cmux ربط جلسة التفريع الجديدة بأمان. أعد بدء التفريع من الجزء الأصلي."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux no pudo vincular de forma segura la nueva sesión bifurcada. Inicia el fork de nuevo desde el panel principal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux 無法安全繫結新的分支工作階段。請從父窗格重新開始分支。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux 无法安全绑定新的分支会话。请从父窗格重新开始分支。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux가 새 포크 세션을 안전하게 연결하지 못했습니다. 부모 패널에서 포크를 다시 시작하세요."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux nije mogao sigurno povezati novu sesiju račvanja. Ponovo pokrenite račvanje iz nadređenog okna."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux kunne ikke binde den nye forgreningssession sikkert. Start forgreningen igen fra forældreruden."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux non ha potuto associare in sicurezza la nuova sessione fork. Avvia di nuovo il fork dal riquadro principale."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux មិនអាចភ្ជាប់សម័យ fork ថ្មីដោយសុវត្ថិភាពបានទេ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux kunne ikke binde den nye forgreningsøkten på en trygg måte. Start forgreningen på nytt fra den overordnede ruten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux nie mógł bezpiecznie powiązać nowej sesji forka. Uruchom fork ponownie z panelu nadrzędnego."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "O cmux não conseguiu vincular com segurança a nova sessão bifurcada. Inicie o fork novamente no painel principal."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux не удалось безопасно привязать новый сеанс форка. Запустите форк снова из родительской панели."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux ไม่สามารถผูกเซสชันที่แยกใหม่ได้อย่างปลอดภัย เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux yeni fork oturumunu güvenli bir şekilde bağlayamadı. Fork'u üst panelden yeniden başlatın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux не вдалося безпечно прив’язати новий сеанс форка. Запустіть форк ще раз із батьківської панелі."
           }
         }
