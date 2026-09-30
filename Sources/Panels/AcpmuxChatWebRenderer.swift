@@ -219,6 +219,35 @@ final class AcpmuxChatWebRendererCoordinator: NSObject, WKNavigationDelegate, WK
             }
             model.rememberSession(sessionId: sessionId)
             return NSNull()
+        case "native.copy":
+            guard let text = request.string("text") else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 4, userInfo: [NSLocalizedDescriptionKey: "Missing clipboard text"])
+            }
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(text, forType: .string) else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 5, userInfo: [NSLocalizedDescriptionKey: "Unable to write the clipboard"])
+            }
+            return NSNull()
+        case "native.openURL":
+            guard let rawURL = request.string("url"), let url = URL(string: rawURL),
+                  ["http", "https"].contains(url.scheme?.lowercased()) else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 6, userInfo: [NSLocalizedDescriptionKey: "Only HTTP and HTTPS links can be opened"])
+            }
+            guard NSWorkspace.shared.open(url) else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 7, userInfo: [NSLocalizedDescriptionKey: "Unable to open the link"])
+            }
+            return NSNull()
+        case "native.openFile":
+            guard let path = request.string("path"), !path.isEmpty else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 8, userInfo: [NSLocalizedDescriptionKey: "Missing file path"])
+            }
+            guard NSWorkspace.shared.open(URL(fileURLWithPath: path)) else {
+                throw NSError(domain: "AcpmuxWebBridge", code: 9, userInfo: [NSLocalizedDescriptionKey: "Unable to open the file"])
+            }
+            return NSNull()
+        case "native.focus":
+            focus()
+            return NSNull()
         default:
             throw NSError(domain: "AcpmuxWebBridge", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported bridge request"])
         }

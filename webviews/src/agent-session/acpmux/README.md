@@ -1,6 +1,6 @@
 # Acpmux React pane
 
-Swift is the WKWebView host only. On `ready`, the versioned host bridge returns the authenticated loopback WebSocket endpoint, a per-launch token, and the selected session id. The React client connects directly to acpmux, initializes, watches sessions, resumes with `afterSeq`, pages older records through `_acpmux/events {beforeSeq}`, and folds the event stream into its view model. Acpmux owns session state and business logic; the bridge carries only host configuration and native-only actions.
+Swift is the WKWebView host only. On `ready`, the versioned host bridge returns the authenticated loopback WebSocket endpoint, a per-launch token, and the selected session id. The React client connects directly to acpmux, initializes, watches sessions, resumes with `afterSeq`, pages older records through `_acpmux/events {beforeSeq}`, and folds the event stream into its view model. Acpmux owns session state and business logic; the bridge carries only host configuration and native-only actions (`native.copy`, `native.openURL`, `native.openFile`, and `native.focus`).
 
 Rows are measured before paint with [Pretext](https://github.com/chenglou/pretext) using the named `Helvetica Neue` font. Prepared markdown blocks are cached by row id, content version, and text. Layout stores exact tops and heights in typed arrays and finds the visible range with binary search. React mounts only that range; row components are memoized by id and content version, so a streaming update replaces one row.
 

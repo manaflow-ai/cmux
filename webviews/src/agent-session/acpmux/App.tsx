@@ -34,29 +34,30 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   });
 }
 
-function renderInline(tokens: Token[] | undefined, fallback: string): React.ReactNode {
+function renderInline(tokens: Token[] | undefined, fallback: string, onOpenLink: (url: string) => void): React.ReactNode {
   if (!tokens?.length) return fallback;
   return tokens.map((token, index) => {
     if (token.type === "codespan") return <code key={index}>{token.text}</code>;
     if (token.type === "link") {
       let href: string | undefined;
       try { href = /^https?:$/i.test(new URL(token.href, "https://cmux.invalid").protocol) ? token.href : undefined; } catch { href = undefined; }
-      return href ? <a key={index} href={href} rel="noreferrer">{renderInline(token.tokens, token.text)}</a> : token.text;
+      return href ? <a key={index} href={href} rel="noreferrer" onClick={(event) => { event.preventDefault(); onOpenLink(href); }}>{renderInline(token.tokens, token.text, onOpenLink)}</a> : token.text;
     }
-    if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "")}</React.Fragment>;
+    if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "", onOpenLink)}</React.Fragment>;
     return token.raw ?? ("text" in token ? token.text : "");
   });
 }
 
 function MarkdownBlocks({ source }: { source: string }) {
+  const openLink = (url: string) => { void callNative("native.openURL", { url }); };
   let blocks: Token[];
   try { blocks = lexer(source, { gfm: true, breaks: true }); } catch { blocks = [{ type: "text", raw: source, text: source } as Token]; }
   return <>{blocks.map((token, index) => {
-    if (token.type === "code") return <pre key={index}><button type="button" className="acpmux-copy-code" onClick={() => void navigator.clipboard?.writeText(token.text)} aria-label="Copy code">Copy</button><code>{token.text}</code></pre>;
-    if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
-    if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
-    if (token.type === "list") return <ul key={index}>{token.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item.tokens, item.text)}</li>)}</ul>;
-    if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text)}</blockquote>;
+    if (token.type === "code") return <pre key={index}><button type="button" className="acpmux-copy-code" onClick={() => void callNative("native.copy", { text: token.text })} aria-label="Copy code">Copy</button><code>{token.text}</code></pre>;
+    if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text, openLink)}</div>;
+    if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text, openLink)}</p>;
+    if (token.type === "list") return <ul key={index}>{token.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item.tokens, item.text, openLink)}</li>)}</ul>;
+    if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text, openLink)}</blockquote>;
     if (token.type === "hr") return <hr key={index} />;
     return <p key={index}>{token.raw}</p>;
   })}</>;
