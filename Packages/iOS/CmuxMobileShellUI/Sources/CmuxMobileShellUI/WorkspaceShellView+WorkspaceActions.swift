@@ -626,7 +626,27 @@ extension WorkspaceShellView {
                 sshKinds: store.sshComputers.kindAvailability(hostID: host.id).map(WorkspaceCreateKindOption.init)
             ))
         }
-        for host in store.externalHostSummaries where !host.isHidden {
+        var cloudHosts = store.externalHostSummaries
+        let knownCloudHostIDs = Set(cloudHosts.map(\.hostID))
+        let cloudRowsByHost = Dictionary(
+            grouping: store.workspaces.compactMap { workspace -> (String, MobileWorkspacePreview)? in
+                guard let hostID = workspace.macDeviceID,
+                      store.externalHostOwnsHost(hostID),
+                      !store.externalHostIsHidden(hostID) else { return nil }
+                return (hostID, workspace)
+            },
+            by: { $0.0 }
+        )
+        for (hostID, rows) in cloudRowsByHost where !knownCloudHostIDs.contains(hostID) {
+            cloudHosts.append(MobileExternalHostSummary(
+                hostID: hostID,
+                displayName: rows.first?.1.macDisplayName,
+                status: store.externalHostIsConnected(hostID) ? .connected : .unavailable,
+                workspaceCount: rows.count,
+                isHidden: false
+            ))
+        }
+        for host in cloudHosts where !host.isHidden {
             targets.append(WorkspaceCreateComputerTarget(
                 id: host.hostID,
                 kind: .cloud(hostID: host.hostID),

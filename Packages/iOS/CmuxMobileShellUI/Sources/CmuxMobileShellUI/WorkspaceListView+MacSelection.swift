@@ -145,8 +145,17 @@ extension WorkspaceListView {
         if canCreateWorkspaceForMacSelection || !newWorkspaceComputerTargets.isEmpty {
             return true
         }
-        guard createWorkspaceOnCloudMachine != nil, scopedExternalHostID == nil else { return false }
-        return store?.externalHostSummaries.contains { !$0.isHidden } == true
+        guard createWorkspaceOnCloudMachine != nil else { return false }
+        if store?.externalHostSummaries.contains(where: { !$0.isHidden }) == true {
+            return true
+        }
+        // Keep the entrypoint alive while the host summary catches up with a
+        // catalog that is already rendering Cloud rows.
+        return workspaces.contains { workspace in
+            guard let hostID = workspace.macDeviceID,
+                  store?.externalHostOwnsHost(hostID) == true else { return false }
+            return store?.externalHostIsHidden(hostID) != true
+        }
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
