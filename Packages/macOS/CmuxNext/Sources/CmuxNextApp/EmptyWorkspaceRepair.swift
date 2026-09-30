@@ -96,7 +96,9 @@ final class EmptyWorkspaceRepair {
         observation = Task { [weak self, weak store] in
             for await _ in Observations({ () -> [String] in
                 guard let store else { return [] }
-                return store.workspaces.map { "\($0.key?.rawValue ?? ""):\(Self.hasPane($0))" }
+                // Turning live counts as a change: a tree drawn from the
+                // launch snapshot is first seen on a connection then.
+                return ["live:\(store.isLoaded)"] + store.workspaces.map { "\($0.key?.rawValue ?? ""):\(Self.hasPane($0))" }
             }) {
                 guard let self, let store else { return }
                 self.storeDidChange(store)

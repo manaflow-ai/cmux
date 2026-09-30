@@ -86,11 +86,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
                 self?.apply(result)
             }
         }
-        // An empty workspace loaded while disconnected is repaired once the
-        // daemon is back, even if the tree itself does not change.
+        // An empty workspace loaded while disconnected, or drawn from the
+        // launch snapshot, is repaired once the daemon is back and its tree
+        // is live, even if the tree itself does not change.
         let store = daemon.store
         connectionObservation = Task { [weak self] in
-            for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
+            for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
+                self?.repairIfEmpty()
+            }
         }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications
