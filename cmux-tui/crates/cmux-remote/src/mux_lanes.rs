@@ -190,6 +190,30 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn loopback_forward_lines_use_the_bulk_lane_in_both_directions() {
+        for line in [
+            &br#"{"id":1,"cmd":"loopback-open","stream":1,"host":"localhost","port":3000}"#[..],
+            br#"{"cmd":"loopback-data","stream":1,"data":"eA=="}"#,
+            br#"{"cmd":"loopback-credit","stream":1,"bytes":65536}"#,
+            br#"{"cmd":"loopback-shutdown","stream":1}"#,
+            br#"{"cmd":"loopback-close","stream":1}"#,
+        ] {
+            assert_eq!(classify_client_line(line), Lane::Bulk);
+        }
+        let tracker = MuxLaneTracker::default();
+        for line in [
+            &br#"{"event":"loopback-data","stream":1,"data":"eA=="}"#[..],
+            br#"{"event":"loopback-credit","stream":1,"bytes":65536}"#,
+            br#"{"event":"loopback-eof","stream":1}"#,
+            br#"{"event":"loopback-closed","stream":1}"#,
+        ] {
+            assert_eq!(tracker.classify_server_line(line), Some(Lane::Bulk));
+        }
+        tracker.observe_request(br#"{"id":7,"cmd":"loopback-open"}"#, Lane::Bulk);
+        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), Some(Lane::Bulk));
+    }
+
+    #[test]
     fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
         assert_eq!(
             classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),

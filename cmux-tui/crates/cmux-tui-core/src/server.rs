@@ -84,6 +84,11 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[path = "server/loopback_forward.rs"]
+mod loopback_forward;
+pub use loopback_forward::{
+    AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
+};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -4551,6 +4556,8 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
+    /// Connection-scoped loopback streams (`loopback-forward-v1`).
+    loopback: loopback_forward::LoopbackForwarder,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -4563,6 +4570,7 @@ impl ClientRegistry {
             detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            loopback: loopback_forward::LoopbackForwarder::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4808,6 +4816,7 @@ impl ClientRegistry {
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+                    || capability == LOOPBACK_FORWARD_CAPABILITY
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
@@ -5485,6 +5494,7 @@ impl ClientRegistry {
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.loopback.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -9992,6 +10002,9 @@ fn handle_connection_message(
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
+    }
+    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
@@ -14949,6 +14962,10 @@ fn attach_overflow_json(surface: SurfaceId) -> Value {
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
+
+#[cfg(test)]
+#[path = "server/loopback_forward_tests.rs"]
+mod loopback_forward_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
