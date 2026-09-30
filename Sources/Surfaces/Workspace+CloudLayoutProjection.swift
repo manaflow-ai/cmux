@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxSurfaceCatalogModel
+import CmuxPanes
 import Foundation
 
 @MainActor
@@ -15,11 +16,18 @@ extension Workspace {
               projections.allSatisfy({ $0.remoteTabID != nil }),
               Set(projections.map(\.panelID)) == Set(panels.keys) else { return }
         var tabs: [SurfaceResourcePlacement: TabID] = [:]
+        var panelIDs: [SurfaceResourcePlacement: UUID] = [:]
         for projection in projections {
             guard let tab = surfaceIdFromPanelId(projection.panelID) else { return }
-            tabs[SurfaceResourcePlacement(resource: projection.resource, remoteWorkspaceID: projection.remoteWorkspaceID,
-                                          remoteTabID: projection.remoteTabID)] = tab
+            let placement = SurfaceResourcePlacement(
+                resource: projection.resource,
+                remoteWorkspaceID: projection.remoteWorkspaceID,
+                remoteTabID: projection.remoteTabID
+            )
+            tabs[placement] = tab
+            panelIDs[placement] = projection.panelID
         }
+        guard tabs.count == projections.count else { return }
         // A layout document is lossy when the daemon has published a tab before
         // its resource inventory (or while a delta is still being assembled). Do
         // not let that partial document turn a valid local split into a flat pane.
@@ -35,6 +43,7 @@ extension Workspace {
         })
         guard expectedPlacements.isSubset(of: Set(layout.placements)) else { return }
         guard layout.placements.allSatisfy({ tabs[$0] != nil }) else { return }
+        guard let sessionLayout = sessionLayout(for: layout, panelIDs: panelIDs) else { return }
         if cloudLayoutMatches(layout, live: bonsplitController.treeSnapshot(), tabs: tabs) {
             // External ratios suppress Bonsplit's geometry callback. Reconcile
             // AppKit and Ghostty even when the terminal membership is unchanged.
@@ -51,20 +60,44 @@ extension Workspace {
                 let wasProgrammatic = isProgrammaticSplit
                 isProgrammaticSplit = true
                 defer { isProgrammaticSplit = wasProgrammatic }
-                guard let root = bonsplitController.allPaneIds.first else { return }
-                let originalRootTabs = Set(bonsplitController.tabs(inPane: root).map(\.id))
-                for placement in layout.placements {
-                    guard let tab = tabs[placement] else { continue }
-                    if !originalRootTabs.contains(tab) {
-                        _ = bonsplitController.moveTab(tab, toPane: root)
-                    }
-                }
-                buildCloudLayout(layout, in: root, tabs: tabs)
-                applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
+                _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
+                    sessionLayout,
+                    panelIDMap: [:],
+                    tabIDForPanelID: surfaceIdFromPanelId
+                )
                 if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
             }
         }
         scheduleTerminalGeometryReconcile()
+    }
+
+    private func sessionLayout(
+        for layout: SurfaceProjectionLayout,
+        panelIDs: [SurfaceResourcePlacement: UUID]
+    ) -> SessionWorkspaceLayoutSnapshot? {
+        switch layout {
+        case .leaf(let placements):
+            let ids = placements.compactMap { panelIDs[$0] }
+            guard ids.count == placements.count else { return nil }
+            let fullWidth = placements.first
+                .flatMap { panelIDs[$0] }
+                .flatMap { paneId(forPanelId: $0) }
+                .map { bonsplitController.isFullWidthTabMode(inPane: $0) }
+            return .pane(SessionPaneLayoutSnapshot(
+                panelIds: ids,
+                selectedPanelId: nil,
+                isFullWidthTabMode: fullWidth
+            ))
+        case .split(let direction, let ratio, let first, let second):
+            guard let first = sessionLayout(for: first, panelIDs: panelIDs),
+                  let second = sessionLayout(for: second, panelIDs: panelIDs) else { return nil }
+            return .split(SessionSplitLayoutSnapshot(
+                orientation: direction == .right || direction == .left ? .horizontal : .vertical,
+                dividerPosition: ratio,
+                first: first,
+                second: second
+            ))
+        }
     }
 
     private func cloudLayoutMatches(_ layout: SurfaceProjectionLayout, live: ExternalTreeNode,
@@ -77,25 +110,6 @@ extension Workspace {
             return split.orientation == orientation && cloudLayoutMatches(first, live: split.first, tabs: tabs)
                 && cloudLayoutMatches(second, live: split.second, tabs: tabs)
         default: return false
-        }
-    }
-
-    private func buildCloudLayout(_ layout: SurfaceProjectionLayout, in pane: PaneID,
-                                  tabs: [SurfaceResourcePlacement: TabID]) {
-        switch layout {
-        case .leaf(let placements):
-            for (index, placement) in placements.enumerated() {
-                if let tab = tabs[placement] { _ = bonsplitController.moveTab(tab, toPane: pane, atIndex: index) }
-            }
-        case .split(let direction, _, let first, let second):
-            guard let placement = second.placements.first, let tab = tabs[placement],
-                  let next = bonsplitController.splitPane(pane, orientation: direction == .right || direction == .left ? .horizontal : .vertical,
-                                                         movingTab: tab, insertFirst: false) else { return }
-            for placement in second.placements.dropFirst() {
-                if let tab = tabs[placement] { _ = bonsplitController.moveTab(tab, toPane: next) }
-            }
-            buildCloudLayout(first, in: pane, tabs: tabs)
-            buildCloudLayout(second, in: next, tabs: tabs)
         }
     }
 
