@@ -113,6 +113,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
 
+    // Remote localhost (plans/cmux-next/remote-localhost.md).
+    let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
+
     enum LoadError: Error, Equatable {
         case open(String)
         case missingSymbol(String)
@@ -211,6 +216,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        setContextProxy = try r("cmux_shim_set_context_proxy")
+        contextProxyState = try r("cmux_shim_context_proxy_state")
+        setNavigationGuard = try r("cmux_shim_set_navigation_guard")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

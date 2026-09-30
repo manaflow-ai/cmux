@@ -89,6 +89,35 @@ class Client : public CefClient,
     return true;
   }
 
+  // MARK: Remote localhost
+
+  // A main-frame navigation that would leave its store (a loopback origin of
+  // a remote machine, or the reverse) is cancelled; the host re-creates the
+  // tab in the other store with the same URL.
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
+                      bool, bool is_redirect) override {
+    if (!frame->IsMain()) return false;
+    int id = browser->GetIdentifier();
+    std::string url = request->GetURL().ToString();
+    if (!NavigationViolatesGuard(id, url)) return false;
+    Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
+    return true;
+  }
+
+  // IO thread. Answers only the app's own proxy of this browser's context.
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString&, bool isProxy, const CefString& host,
+                          int port, const CefString&, const CefString&, CefRefPtr<CefAuthCallback> callback) override {
+    if (!isProxy || !browser) return false;
+    CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
+    if (!context) return false;
+    std::string username, password;
+    if (!ContextProxyCredentials(context->GetCachePath().ToString(), host.ToString(), port, &username, &password)) {
+      return false;
+    }
+    callback->Continue(username, password);
+    return true;
+  }
+
   // MARK: Renderer process failures
 
   // The host shows its own "sad tab" in the pane and reloads from it; Chrome
@@ -250,6 +279,7 @@ class Client : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    ForgetNavigationGuard(id);
     registrations_.erase(id);
     browsers().erase(id);
     ForgetDevTools(id);

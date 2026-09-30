@@ -76,6 +76,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         return view
     }()
 
+    /// The remote-localhost derived store, nil for the profile's own store.
+    @ObservationIgnored var machineStore: BrowserMachineStore?
+    @ObservationIgnored var navigationGuard: BrowserNavigationGuard = .none
+
     init(id: BrowserTabID, profile: BrowserProfileID, host: CEFPaneHost, runtime: CEFRuntime) {
         self.id = id
         self.profileID = profile
@@ -122,6 +126,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             BrowserLifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
             if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
+        if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
     }
 

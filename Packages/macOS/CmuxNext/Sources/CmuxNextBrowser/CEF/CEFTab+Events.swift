@@ -59,6 +59,8 @@ extension CEFTab {
             ))
         case .closeRequested:
             emit(.close)
+        case .navigationReroute(_, let url, _):
+            if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:

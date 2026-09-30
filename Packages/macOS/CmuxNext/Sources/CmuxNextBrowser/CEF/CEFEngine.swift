@@ -113,8 +113,11 @@ public final class CEFEngine: BrowserEngine {
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
-        let host = runtime.host(for: CEFPaneKey(pane: pane, profile: configuration.profile))
+        let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey)
+        let host = runtime.host(for: key)
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
+        tab.machineStore = configuration.machineStore
+        tab.navigationGuard = configuration.navigationGuard
         host.add(tab)
         if configuration.zoom != 1 { tab.setZoom(configuration.zoom) }
         if case .chromium(let state)? = configuration.restoreState, let shim = CEFRuntime.shared.shim,

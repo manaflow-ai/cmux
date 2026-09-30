@@ -78,6 +78,10 @@ typedef enum {
   // New Window, app windows). The shim blocked it; request = the IDC_*
   // command id (chrome/app/chrome_command_ids.h).
   CMUX_SHIM_CHROME_COMMAND = 26,
+  // The navigation guard (cmux_shim_set_navigation_guard) cancelled a
+  // main-frame navigation that would leave the tab's store. s1 = url,
+  // a = 1 for a redirect. The host re-creates the tab in the other store.
+  CMUX_SHIM_NAVIGATION_REROUTE = 27,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -297,6 +301,21 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// Remote localhost (plans/cmux-next/remote-localhost.md). Call before the
+// first window with profile_cache_path each launch: that request context
+// sends every request (loopback included) to the app's proxy at
+// 127.0.0.1:port and answers the proxy's challenge (and only it) with
+// username/password. Returns 1 when stored.
+CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* profile_cache_path, int port, const char* username,
+                                                 const char* password);
+// 2 applied to the request context, 1 pending (not initialized yet),
+// 0 none, -1 Chromium refused the preference.
+CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_path);
+// Main-frame http(s) navigations of browser_id: 0 unrestricted, 1 must stay
+// loopback (a remote machine's store), 2 must not be loopback (a normal
+// store in a remote workspace). A violation is cancelled and reported as
+// NAVIGATION_REROUTE.
+CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
 
 #ifdef __cplusplus
 }

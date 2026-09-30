@@ -25,19 +25,28 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
     /// waking from hibernation). `initialURL` is the fallback when the
     /// engine cannot restore it.
     public var restoreState: BrowserRestoreState?
+    /// The remote-localhost derived store, nil for the profile's own store
+    /// (plans/cmux-next/remote-localhost.md section 3).
+    public var machineStore: BrowserMachineStore?
+    /// Main-frame navigations this tab's store may hold.
+    public var navigationGuard: BrowserNavigationGuard
 
     public init(
         id: BrowserTabID = .random(),
         profile: BrowserProfileID = .default,
         initialURL: URL? = nil,
         zoom: Double = 1,
-        pane: BrowserPaneID? = nil
+        pane: BrowserPaneID? = nil,
+        machineStore: BrowserMachineStore? = nil,
+        navigationGuard: BrowserNavigationGuard = .none
     ) {
         self.id = id
         self.profile = profile
         self.initialURL = initialURL
         self.zoom = zoom
         self.pane = pane
+        self.machineStore = machineStore
+        self.navigationGuard = navigationGuard
     }
 }
 

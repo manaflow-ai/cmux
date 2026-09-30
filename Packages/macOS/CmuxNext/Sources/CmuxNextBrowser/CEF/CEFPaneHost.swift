@@ -110,8 +110,16 @@ final class CEFPaneHost {
             let request = runtime.makeRequestToken()
             let size = hostView.bounds.size
             // CEF refuses a request context whose cache directory is missing.
-            let cachePath = runtime.storage.cachePath(for: key.profile)
+            let cachePath = runtime.storage.cachePath(for: key.profile, machineKey: key.machineKey)
             try? FileManager.default.createDirectory(at: cachePath, withIntermediateDirectories: true)
+            // A remote-localhost store: its context must use the proxy before
+            // its first request, or localhost would reach this Mac.
+            if let store = tab.machineStore,
+               shim.setContextProxy(cachePath.path, Int32(store.proxyPort), store.username, store.password) != 1
+                || shim.contextProxyState(cachePath.path) < 0 {
+                tab.creationFailed()
+                return
+            }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
@@ -179,6 +187,10 @@ final class CEFPaneHost {
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab) {
         let opener = visibleTab ?? tabs.last
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
+        // Same window, same store: a popup of a remote machine's localhost
+        // page keeps its store and navigation guard.
+        tab.machineStore = opener?.machineStore
+        tab.navigationGuard = opener?.navigationGuard ?? .none
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)

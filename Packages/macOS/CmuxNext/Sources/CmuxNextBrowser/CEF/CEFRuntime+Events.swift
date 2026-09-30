@@ -289,7 +289,8 @@ extension CEFShimEvent {
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b):
+             .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
+             .navigationReroute(let b, _, _):
             b
         case .contextInitialized, .unknown:
             nil
