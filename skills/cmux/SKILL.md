@@ -43,7 +43,7 @@ Output defaults to short refs (`window:N`, `workspace:N`, `pane:N`, `surface:N`)
 
 ## Command palette
 
-`cmux palette list --window <id>` reports the command rows the palette would show in that window, each with its id, title, subtitle and whether it is enabled right now. It reads: nothing opens, closes or runs. Disabled rows are listed and marked disabled, so "not available yet" is distinguishable from "no such command". Switcher rows (windows, workspaces, surfaces, Find Work) are a different family and are not reported. A handful of human-only rows are excluded on purpose.
+`cmux palette list --window <id>` reports the command rows the palette would show in that window: one line each with the id, title, keyboard shortcut and a marker for a row that exists but is not available right now. `--json` prints the socket payload, which carries the same rows with the palette's subtitle and an `enabled` flag. It reads: nothing opens, closes or runs. Disabled rows are listed and marked disabled, so "not available yet" is distinguishable from "no such command". Switcher rows (windows, workspaces, surfaces, Find Work) are a different family and are not reported. A handful of human-only rows are excluded on purpose.
 
 There is no command that runs a palette entry. Use the object commands above for topology and the dedicated verbs for everything else.
 
