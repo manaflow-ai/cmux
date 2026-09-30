@@ -69,6 +69,10 @@ try {
     return originalSlice.apply(this, args);
   } as typeof Array.prototype.slice;
   for (let index = 0; index < 32; index++) await event({ kind: "delta", text: "x" });
+  await receive({ kind: "event", sessionId: "old-session", evt: { kind: "delta", text: "stale text" } });
+  await receive({ kind: "session-attention", sessionId: "old-session", attention: "stale attention" });
+  await receive({ kind: "session-status", sessionId: "old-session", status: "idle" });
+  await receive({ kind: "history", sessionId: "old-session", events: [] });
   assert.ok(copies <= 1, "a stream burst must not copy the transcript for every chunk");
   assert.equal(renders, initialRenders, "chunks should share one scheduled React update");
   await flush();
@@ -118,6 +122,12 @@ try {
   assert.deepEqual(state.blocks.slice(-2), [
     { kind: "assistant", text: "new chunk before reply", open: false }, { kind: "user", text: "my reply" },
   ], "optimistic replies must follow already-received stream text");
+
+  await event({ kind: "thinking", text: "received before stop" });
+  await update(() => state.stop());
+  assert.equal(frameTimers().length, 0);
+  assert.equal((state.blocks.at(-1) as any).text, "received before stop");
+  assert.equal(ws.sent.at(-1).op, "stop");
 
   await event({ kind: "delta", text: "abandoned text" });
   const abandonedFrame = frameTimers()[0]![1].callback;

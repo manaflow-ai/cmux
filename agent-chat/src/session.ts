@@ -427,6 +427,31 @@ export function useSession(): SessionState {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [routing, setRouting] = useState<RouteStatus | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const streamEventsRef = useRef<AgentEvent[]>([]);
+  const streamTimerRef = useRef<number | null>(null);
+  const streamGenerationRef = useRef(0);
+  const discardStream = useCallback(() => {
+    if (streamTimerRef.current !== null) window.clearTimeout(streamTimerRef.current);
+    streamTimerRef.current = null;
+    streamEventsRef.current = [];
+    streamGenerationRef.current++;
+  }, []);
+  const flushStream = useCallback((boundary?: AgentEvent) => {
+    const events = streamEventsRef.current;
+    discardStream();
+    if (boundary) events.push(boundary);
+    if (!events.length) return;
+    setBlocks((bs) => events.length === 1 ? foldEvent(bs, events[0]!) : foldEvents(bs, events));
+  }, [discardStream]);
+  const queueStream = useCallback((evt: AgentEvent) => {
+    streamEventsRef.current.push(evt);
+    if (streamTimerRef.current !== null) return;
+    const generation = streamGenerationRef.current;
+    // A timer also runs in background tabs, where animation frames may stop.
+    streamTimerRef.current = window.setTimeout(() => {
+      if (streamGenerationRef.current === generation) flushStream();
+    }, 16);
+  }, [flushStream]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
   const [commands, setCommands] = useState<CommandGroup[]>([]);
@@ -483,6 +508,7 @@ export function useSession(): SessionState {
   const failPendingStart = useCallback((message: string) => {
     const pending = pendingStartRef.current;
     if (!pending) return;
+    discardStream();
     clearPendingStartTimeout();
     pendingStartRef.current = null;
     restoreComposerDraft(sessionStorage, pending.prompt);
@@ -500,7 +526,7 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout]);
+  }, [clearPendingStartTimeout, discardStream]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
@@ -521,7 +547,10 @@ export function useSession(): SessionState {
   useEffect(() => {
     const disconnect = openSessionConnection({
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
-      onSocket: (ws) => { wsRef.current = ws; },
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) flushStream();
+      },
       onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
@@ -565,6 +594,7 @@ export function useSession(): SessionState {
               closeHandoffWindow();
               setHandoffPending(false);
             }
+            discardStream();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
@@ -586,6 +616,7 @@ export function useSession(): SessionState {
           }
           case "history":
             if (msg.sessionId !== sessionIdRef.current) break;
+            discardStream();
             if (
               pendingHandoffSourceSessionRef.current
               && pendingHandoffSourceSessionRef.current !== msg.session.id
@@ -609,6 +640,7 @@ export function useSession(): SessionState {
             break;
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
+            discardStream();
             closeHandoffWindow();
             setHandoffPending(false);
             history.replaceState(null, "", appPath("/"));
@@ -625,12 +657,14 @@ export function useSession(): SessionState {
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
+              flushStream();
               serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
             }
             break;
           case "session-attention":
             if (msg.sessionId === sessionIdRef.current) {
+              flushStream();
               setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
             }
             break;
@@ -645,9 +679,11 @@ export function useSession(): SessionState {
               const evt = msg.evt as AgentEvent;
               if (evt.kind === "routing") setRouting(normalizeRouteStatus(evt));
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
+                flushStream();
                 break;
               }
-              setBlocks((bs) => foldEvent(bs, evt));
+              if (evt.kind === "delta" || evt.kind === "thinking") queueStream(evt);
+              else flushStream(evt);
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
@@ -749,11 +785,12 @@ export function useSession(): SessionState {
       },
     });
     return () => {
+      discardStream();
       disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, discardStream, failPendingStart, flushStream, queueStream, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -762,6 +799,7 @@ export function useSession(): SessionState {
     const requestId = newClientRequestId("start");
     const conversationId = crypto.randomUUID();
     if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
+    discardStream();
     pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
@@ -787,8 +825,9 @@ export function useSession(): SessionState {
     setFileDiffs({});
     setPhase("chat");
     return true;
-  }, [armPendingStartTimeout, sendRaw]);
+  }, [armPendingStartTimeout, discardStream, sendRaw]);
   const compose = useCallback(() => {
+    discardStream();
     clearPendingStartTimeout();
     closeHandoffWindow();
     setHandoffPending(false);
@@ -805,7 +844,7 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, closeHandoffWindow]);
+  }, [clearPendingStartTimeout, closeHandoffWindow, discardStream]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -813,6 +852,7 @@ export function useSession(): SessionState {
       return;
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
+      flushStream();
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
@@ -824,18 +864,20 @@ export function useSession(): SessionState {
         // A terminal view's prompt only reaches the event log when the agent's
         // transcript records it; show it now and drop that echo when it lands.
         if (sessionModeRef.current === "transcript") {
+          flushStream();
           optimisticUsersRef.current.push(text);
           setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
         }
       }
     }
-  }, [sendRaw, start]);
+  }, [flushStream, sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
   }, [sendRaw]);
   const stop = useCallback(() => {
+    flushStream();
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
-  }, [sendRaw]);
+  }, [flushStream, sendRaw]);
   const setOption = useCallback((id: string, value: OptionValue) => {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
