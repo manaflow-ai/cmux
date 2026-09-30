@@ -5,6 +5,7 @@ import SwiftUI
 struct TaskComposerPrefetchModifier: ViewModifier {
     let store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
+    @State private var snapshotPrefetchTask: Task<Void, Never>?
     @State private var targetChangePrefetchTask: Task<Void, Never>?
 
     private var prefetchTargets: [MobileTaskModelPrefetchTarget] {
@@ -15,15 +16,35 @@ struct TaskComposerPrefetchModifier: ViewModifier {
         [target.macDeviceID, target.instanceTag ?? ""].joined(separator: "\u{1E}")
     }
 
+    private func startSnapshotPrefetch(for targets: [MobileTaskModelPrefetchTarget]) {
+        guard scenePhase == .active else { return }
+        snapshotPrefetchTask?.cancel()
+        let store = store
+        snapshotPrefetchTask = Task { @MainActor in
+            await store.prefetchTaskModels(for: targets)
+        }
+    }
+
+    private func cancelPrefetchTasks() {
+        snapshotPrefetchTask?.cancel()
+        snapshotPrefetchTask = nil
+        targetChangePrefetchTask?.cancel()
+        targetChangePrefetchTask = nil
+    }
+
     func body(content: Content) -> some View {
-        content.task(id: scenePhase == .active) {
-            guard scenePhase == .active else { return }
-            // Build the paired-Mac target snapshot once when the task starts.
+        content
+        .onAppear {
+            // Build the paired-Mac target snapshot once when the host appears.
             // Unrelated SwiftUI body passes never scan or sort the Mac list.
-            await store.prefetchTaskModels(for: prefetchTargets)
+            startSnapshotPrefetch(for: prefetchTargets)
         }
         .onChange(of: prefetchTargets) { oldTargets, newTargets in
             guard scenePhase == .active else { return }
+            snapshotPrefetchTask?.cancel()
+            snapshotPrefetchTask = nil
+            targetChangePrefetchTask?.cancel()
+            targetChangePrefetchTask = nil
             let oldTargetsByPairing = Dictionary(
                 uniqueKeysWithValues: oldTargets.map { (pairingKey(for: $0), $0) }
             )
@@ -37,12 +58,14 @@ struct TaskComposerPrefetchModifier: ViewModifier {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase != .active else { return }
-            targetChangePrefetchTask?.cancel()
-            targetChangePrefetchTask = nil
+            if phase == .active {
+                startSnapshotPrefetch(for: prefetchTargets)
+            } else {
+                cancelPrefetchTasks()
+            }
         }
         .onDisappear {
-            targetChangePrefetchTask?.cancel()
+            cancelPrefetchTasks()
         }
     }
 }

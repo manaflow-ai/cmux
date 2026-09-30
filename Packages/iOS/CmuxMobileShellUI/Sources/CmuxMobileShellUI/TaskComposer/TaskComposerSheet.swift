@@ -274,12 +274,24 @@ struct TaskComposerSheet: View {
         let restoredDraftModelID = draft == nil
             ? matchingRememberedPickers?.model?.id
             : (draft?.templateID == selectedTemplateID ? draft?.modelID : nil)
-        let initialModelID = initialModelAvailability.validatedModelID(
-            restoredDraftModelID,
-            previouslyValidModelID: restoredDraftModelID
-        )
-        let initialSelectedModel = matchingRememberedPickers?.model
-            ?? initialModelAvailability.models.first { $0.id == initialModelID }
+        let initialModelID: String?
+        let initialSelectedModel: MobileTaskAgentModel?
+        if draft == nil, let matchingRememberedPickers {
+            // A nil remembered model is an explicit Default selection. Keep the
+            // model picker empty and use the separately persisted default model
+            // for effort restoration instead of selecting the first discovered
+            // model while the host catalog is cold.
+            initialModelID = matchingRememberedPickers.model?.id
+            initialSelectedModel = matchingRememberedPickers.model
+        } else {
+            initialModelID = initialModelAvailability.validatedModelID(
+                restoredDraftModelID,
+                previouslyValidModelID: restoredDraftModelID
+            )
+            initialSelectedModel = initialModelAvailability.models.first {
+                $0.id == initialModelID
+            }
+        }
         let restoredDraftEffortID = draft == nil
             ? matchingRememberedPickers?.effortID
             : (draft?.modelID == initialModelID ? draft?.effortID : nil)
