@@ -5410,6 +5410,15 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
+        let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+        let authUsage = String(
+            localized: "cli.auth.usage",
+            defaultValue: "Usage: cmux auth <status|login|logout|team>"
+        )
+        let authSubcommand = CmuxCLIArgumentParser().parseAuthSubcommand(authArgs)
+        if ["auth", "login", "logout"].contains(command), authSubcommand == nil {
+            throw CLIError(message: authUsage)
+        }
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -5569,12 +5578,7 @@ struct CMUXCLI {
             }
 
         case "auth", "login", "logout":
-            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
-            let authUsage = String(
-                localized: "cli.auth.usage",
-                defaultValue: "Usage: cmux auth <status|login|logout|team>"
-            )
-            guard let sub = CmuxCLIArgumentParser().parseAuthSubcommand(authArgs) else {
+            guard let sub = authSubcommand else {
                 throw CLIError(message: authUsage)
             }
             switch sub {
