@@ -108,7 +108,7 @@ public final class CloudSystemVPNController {
         )
         self.operationTimeout = boundedTimeout
         self.cleanupRetryCount = max(1, cleanupRetryCount)
-        manager.onPhaseChange = { [weak self] phase in
+        manager.onPhaseChange = { @MainActor [weak self] phase in
             guard let self,
                   self.scope != nil,
                   self.operation == nil,

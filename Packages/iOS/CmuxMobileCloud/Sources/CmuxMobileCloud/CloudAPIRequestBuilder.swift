@@ -8,7 +8,10 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
     /// The cmux web API origin without a trailing slash.
     public var baseURL: String
     /// Per-request deadline in seconds.
-    public var timeout: TimeInterval
+    public private(set) var timeout: TimeInterval
+
+    private static let minimumTimeout: TimeInterval = 0.001
+    private static let maximumTimeout: TimeInterval = 15 * 60
 
     /// Creates a builder.
     /// - Parameters:
@@ -16,7 +19,11 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
     ///   - timeout: Per-request deadline; attach calls use `attachTimeout`.
     public init(baseURL: String, timeout: TimeInterval = 20) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        self.timeout = timeout
+        if timeout.isFinite {
+            self.timeout = min(max(timeout, Self.minimumTimeout), Self.maximumTimeout)
+        } else {
+            self.timeout = 20
+        }
     }
 
     /// Attach can wait on the daemon coming up, so it gets a longer deadline.

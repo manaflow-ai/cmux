@@ -5,6 +5,12 @@ import Testing
 @Suite struct CloudAPIRequestBuilderTests {
     private let builder = CloudAPIRequestBuilder(baseURL: "https://cmux.example/")
 
+    @Test func timeoutIsAlwaysFiniteAndBounded() {
+        #expect(CloudAPIRequestBuilder(baseURL: "https://cmux.example", timeout: 0).timeout == 0.001)
+        #expect(CloudAPIRequestBuilder(baseURL: "https://cmux.example", timeout: .infinity).timeout == 20)
+        #expect(CloudAPIRequestBuilder(baseURL: "https://cmux.example", timeout: 3_600).timeout == 900)
+    }
+
     private func body(_ request: URLRequest) throws -> [String: Any] {
         let data = try #require(request.httpBody)
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
