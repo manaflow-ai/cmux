@@ -103,11 +103,6 @@ final class DiffViewerViewedFilesStore: @unchecked Sendable {
         return true
     }
 
-    /// Blocks until every queued write has finished. Tests only.
-    func waitForPendingWrites() {
-        persistenceQueue.sync {}
-    }
-
     nonisolated static func scopeKey(_ scope: Scope) -> String {
         let canonical = DiffCommentStore.canonicalRepoRoot(scope.repoRoot) + "\n" + scope.source
         let digest = SHA256.hash(data: Data(canonical.utf8))

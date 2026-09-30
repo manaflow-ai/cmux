@@ -11,10 +11,12 @@ import XCTest
 /// (repository root, diff source identity, file path) with the patch
 /// fingerprint recorded at the time the file was marked viewed.
 final class DiffViewerViewedFilesStoreTests: XCTestCase {
-    private func makeStore() -> (DiffViewerViewedFilesStore, URL) {
+    /// The store writes on `queue`; `queue.sync {}` waits for queued writes.
+    private func makeStore() -> (DiffViewerViewedFilesStore, URL, DispatchQueue) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("diff-viewer-viewed-tests-\(UUID().uuidString)", isDirectory: true)
-        return (DiffViewerViewedFilesStore(directoryURL: directory), directory)
+        let queue = DispatchQueue(label: "diff-viewer-viewed-tests")
+        return (DiffViewerViewedFilesStore(directoryURL: directory, persistenceQueue: queue), directory, queue)
     }
 
     private var unstaged: DiffViewerViewedFilesStore.Scope {
@@ -22,10 +24,10 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testMarkViewedPersistsAcrossStoreInstances() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, queue) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         store.markViewed(scope: unstaged, path: "Sources/App.swift", fingerprint: "abcd1234")
-        store.waitForPendingWrites()
+        queue.sync {}
 
         let reloaded = DiffViewerViewedFilesStore(directoryURL: directory)
         let entries = reloaded.entries(scope: unstaged)
@@ -35,7 +37,7 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testScopesAreIsolatedByRepoAndSource() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, _) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let staged = DiffViewerViewedFilesStore.Scope(repoRoot: "/tmp/example-repo", source: "staged")
         let otherRepo = DiffViewerViewedFilesStore.Scope(repoRoot: "/tmp/other-repo", source: "unstaged")
@@ -51,7 +53,7 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testMarkViewedReplacesTheFingerprintAndClearRemovesTheEntry() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, queue) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         store.markViewed(scope: unstaged, path: "a.txt", fingerprint: "old")
         store.markViewed(scope: unstaged, path: "a.txt", fingerprint: "new")
@@ -59,12 +61,12 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
 
         XCTAssertTrue(store.clear(scope: unstaged, path: "a.txt"))
         XCTAssertFalse(store.clear(scope: unstaged, path: "a.txt"))
-        store.waitForPendingWrites()
+        queue.sync {}
         XCTAssertTrue(DiffViewerViewedFilesStore(directoryURL: directory).entries(scope: unstaged).isEmpty)
     }
 
     func testStoreEvictsOldestEntriesBeyondThePerScopeBound() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, _) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let bound = DiffViewerViewedFilesStore.maxEntriesPerScope
         for index in 0...bound {
@@ -82,7 +84,7 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testStoreBoundsTheNumberOfScopeFiles() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, queue) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let bound = DiffViewerViewedFilesStore.maxScopes
         for index in 0...bound {
@@ -94,7 +96,7 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
                 at: Date(timeIntervalSince1970: TimeInterval(index))
             )
         }
-        store.waitForPendingWrites()
+        queue.sync {}
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
             .filter { $0.hasSuffix(".json") }
         XCTAssertEqual(files.count, bound)
@@ -103,10 +105,10 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testCorruptFileIsTreatedAsEmpty() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, queue) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         store.markViewed(scope: unstaged, path: "a.txt", fingerprint: "1")
-        store.waitForPendingWrites()
+        queue.sync {}
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         for file in files {
             try "not json".write(to: file, atomically: true, encoding: .utf8)
@@ -115,7 +117,7 @@ final class DiffViewerViewedFilesStoreTests: XCTestCase {
     }
 
     func testJSONEntriesUseTheBridgeShape() throws {
-        let (store, directory) = makeStore()
+        let (store, directory, _) = makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         store.markViewed(scope: unstaged, path: "a.txt", fingerprint: "1")
         let json = store.jsonEntries(scope: unstaged)

@@ -59,17 +59,22 @@ import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./statu
 import { resolveToolbarOverflow } from "./toolbar-overflow";
 import { useToolbarWidth } from "./useToolbarWidth";
 import {
+  type ViewedChange,
+  type ViewedFileEntry,
+  type ViewedFileState,
+  type ViewedScope,
+  type ViewedSession,
+  applyLoadedViewed,
+  beginViewedLoad,
   formatViewedProgress,
   loadViewedFiles,
   persistViewedChange,
+  recordViewedChange,
   toggleViewedItem,
   viewedProgress,
   viewedScopeFor,
   viewedScopeKey,
   viewedStateOfItem,
-  type ViewedFileEntry,
-  type ViewedFileState,
-  type ViewedScope,
 } from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
 import { loadViewerPrefs, readLocalViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs, type ViewerPrefs } from "./viewer-prefs";
@@ -131,13 +136,16 @@ type AppState = {
   treeSource: FileTreeSource | null;
   /** Persisted "Viewed" entries for `viewedScopeKey`, keyed by file path. */
   viewedByPath: Map<string, ViewedFileEntry>;
+  /** Toggles made in this scope; they win over a later stored-marks reply. */
+  viewedLocalEdits: Map<string, ViewedFileEntry | null>;
   viewedScopeKey: string;
 };
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
   | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
-  | { type: "apply-viewed"; items: DiffItem[]; viewedByPath: Map<string, ViewedFileEntry> }
+  | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
+  | { type: "begin-viewed-load"; scopeKey: string }
   | { type: "expand-item"; itemId: string }
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
@@ -208,6 +216,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     status: initialStatus,
     treeSource: null,
     viewedByPath: new Map(),
+    viewedLocalEdits: new Map(),
     viewedScopeKey: "",
   };
 }
@@ -233,10 +242,20 @@ function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: Re
   return state.options.collapsed || reason != null || viewed ? { ...item, collapsed: true } : item;
 }
 
+function viewedSessionOf(state: AppState): ViewedSession {
+  return { scopeKey: state.viewedScopeKey, viewedByPath: state.viewedByPath, localEdits: state.viewedLocalEdits };
+}
+
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-  case "apply-viewed":
-    return { ...state, items: action.items, viewedByPath: action.viewedByPath };
+  case "apply-viewed": {
+    const session = recordViewedChange(viewedSessionOf(state), action.change);
+    return { ...state, items: action.items, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits };
+  }
+  case "begin-viewed-load": {
+    const session = beginViewedLoad(action.scopeKey);
+    return { ...state, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits, viewedScopeKey: session.scopeKey };
+  }
   case "expand-item":
     return {
       ...state,
@@ -245,14 +264,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       )),
     };
   case "replace-viewed": {
-    const viewedByPath = new Map(action.entries.map((entry) => [entry.path, entry] as const));
+    const session = applyLoadedViewed(viewedSessionOf(state), action.scopeKey, action.entries);
+    if (session == null) {
+      return state;
+    }
+    const { viewedByPath } = session;
     // Files already streamed collapse once their stored mark turns out to
     // still match, the same way a late-arriving batch would.
     const items = state.items.map((item) => {
       const viewed = viewedStateOfItem(item, viewedByPath) === "viewed";
       return viewed && !item.collapsed ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 } : item;
     });
-    return { ...state, items, viewedByPath, viewedScopeKey: action.scopeKey };
+    return { ...state, items, viewedByPath };
   }
   case "set-file-filter":
     return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
@@ -534,7 +557,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (result.change == null) {
       return;
     }
-    dispatch({ type: "apply-viewed", items: result.items, viewedByPath: result.viewedByPath });
+    dispatch({ type: "apply-viewed", items: result.items, change: result.change });
     persistViewedChange(viewedScopeRef.current, result.change);
   }, [latestState, viewedScopeRef]);
   const toggleViewedPath = useCallback((path: string) => {
@@ -1021,8 +1044,10 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
   const scopeKey = viewedScopeKey(scope);
   useEffect(() => {
     const currentScope = scope;
+    // Clear the previous scope's marks before the new diff streams in, so no
+    // file of the new source collapses on a mark that belongs to the old one.
+    dispatch({ type: "begin-viewed-load", scopeKey });
     if (currentScope == null || scopeKey === "") {
-      dispatch({ type: "replace-viewed", scopeKey: "", entries: [] });
       return;
     }
     let active = true;

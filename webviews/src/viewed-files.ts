@@ -61,6 +61,26 @@ export function fileDiffFingerprint(fileDiff: any): string {
   if (typeof fileDiff?.cmuxPatchFingerprint === "string" && fileDiff.cmuxPatchFingerprint !== "") {
     return fileDiff.cmuxPatchFingerprint;
   }
+  const cacheable = fileDiff != null && typeof fileDiff === "object";
+  const cached = cacheable ? fallbackFingerprints.get(fileDiff) : undefined;
+  if (cached != null) {
+    return cached;
+  }
+  const fingerprint = hunkStructureFingerprint(fileDiff);
+  if (cacheable) {
+    fallbackFingerprints.set(fileDiff, fingerprint);
+  }
+  return fingerprint;
+}
+
+/**
+ * Fallback fingerprints keyed by parsed file-diff identity. A parsed diff's
+ * hunks never change after parsing, and filters, progress, the tree, and the
+ * header controls all ask for the same file's fingerprint on every render.
+ */
+const fallbackFingerprints = new WeakMap<object, string>();
+
+function hunkStructureFingerprint(fileDiff: any): string {
   const hunks = Array.isArray(fileDiff?.hunks) ? fileDiff.hunks : [];
   const parts: string[] = [fileName(fileDiff ?? {}, ""), String(fileDiff?.type ?? "")];
   for (const hunk of hunks) {
@@ -70,6 +90,59 @@ export function fileDiffFingerprint(fileDiff: any): string {
     }
   }
   return fnv1a(parts.join("\n"));
+}
+
+/**
+ * The "Viewed" marks of one scope while its stored marks load. Toggles made
+ * before the stored reply arrives are kept as local edits and win over the
+ * reply, so a slow `viewedFiles.list` can never undo a mark or a clear.
+ */
+export type ViewedSession = {
+  scopeKey: string;
+  viewedByPath: Map<string, ViewedFileEntry>;
+  /** Path -> entry set locally, or `null` for a local clear. */
+  localEdits: Map<string, ViewedFileEntry | null>;
+};
+
+/** A new scope starts empty: the previous scope's marks never apply to it. */
+export function beginViewedLoad(scopeKey: string): ViewedSession {
+  return { scopeKey, viewedByPath: new Map(), localEdits: new Map() };
+}
+
+export function recordViewedChange(session: ViewedSession, change: ViewedChange): ViewedSession {
+  const viewedByPath = new Map(session.viewedByPath);
+  const localEdits = new Map(session.localEdits);
+  if (change.kind === "set") {
+    viewedByPath.set(change.entry.path, change.entry);
+    localEdits.set(change.entry.path, change.entry);
+  } else {
+    viewedByPath.delete(change.path);
+    localEdits.set(change.path, null);
+  }
+  return { ...session, viewedByPath, localEdits };
+}
+
+/**
+ * Applies a stored-marks reply for `scopeKey`, or returns `null` when the
+ * reply belongs to a scope the page already left.
+ */
+export function applyLoadedViewed(
+  session: ViewedSession,
+  scopeKey: string,
+  entries: readonly ViewedFileEntry[],
+): ViewedSession | null {
+  if (scopeKey !== session.scopeKey) {
+    return null;
+  }
+  const viewedByPath = new Map(entries.map((entry) => [entry.path, entry] as const));
+  for (const [path, entry] of session.localEdits) {
+    if (entry == null) {
+      viewedByPath.delete(path);
+    } else {
+      viewedByPath.set(path, entry);
+    }
+  }
+  return { ...session, viewedByPath };
 }
 
 export function viewedFileState(entry: ViewedFileEntry | undefined, fingerprint: string): ViewedFileState {
