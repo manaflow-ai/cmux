@@ -14,6 +14,50 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
     }
 
+    @Test("Preserves an explicit Cursor config root for restores")
+    func preservesExplicitCursorConfigRootForRestores() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+                "XDG_CONFIG_HOME": "/tmp/other-config",
+            ],
+            kind: "cursor"
+        )
+
+        #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/cursor-account"])
+    }
+
+    @Test("Resolves Cursor config from XDG without replaying unrelated XDG state")
+    func resolvesCursorConfigFromXDGWithoutReplayingUnrelatedState() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let selected = policy.selectedRestoreEnvironment(
+            from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
+            kind: "cursor"
+        )
+
+        #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/custom-config/cursor"])
+    }
+
+    @Test("Cursor config override stays scoped to Cursor restores")
+    func cursorConfigOverrideStaysScopedToCursorRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+            "XDG_CONFIG_HOME": "/tmp/custom-config",
+        ]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "cursor") == [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+        ])
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+    }
+
+    @Test("Cursor restore capture includes XDG fallback input")
+    func cursorRestoreCaptureIncludesXDGFallbackInput() {
+        #expect(AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
