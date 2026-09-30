@@ -65,7 +65,7 @@ extension CMUXCLI {
             "lines": max(lines * 4, 40),
         ])
         let text = (payload["text"] as? String) ?? (payload["viewport"] as? String) ?? ""
-        let output = AgentSessionOutputPreview.tail(text, lines: lines) ?? ""
+        let output = AgentSessionOutputPreview().tail(text, lines: lines) ?? ""
         if jsonOutput {
             print(jsonString(["session_id": session["session_id"] ?? target, "surface_id": surfaceID, "lines": lines, "last_output": output]))
         } else {
@@ -323,7 +323,7 @@ extension CMUXCLI {
                 guard let tailLines = parsed.tailLines,
                       let output = session["last_output"] as? String else { return session }
                 var copy = session
-                copy["last_output"] = AgentSessionOutputPreview.tail(output, lines: tailLines)
+                copy["last_output"] = AgentSessionOutputPreview().tail(output, lines: tailLines)
                 return copy
             }
             var out: [String: Any] = [
@@ -431,7 +431,7 @@ extension CMUXCLI {
             }
             print(line)
             if let tailLines,
-               let output = AgentSessionOutputPreview.tail(session["last_output"] as? String, lines: tailLines) {
+               let output = AgentSessionOutputPreview().tail(session["last_output"] as? String, lines: tailLines) {
                 print(output.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n"))
             }
 
