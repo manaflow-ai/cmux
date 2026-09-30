@@ -441,11 +441,18 @@ final class CloudTuiManualMirrorSession {
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
         claimGeometry()
     }
+    /// Why this attachment stopped; nil until ``stop(reason:)`` runs.
+    private(set) var stopReason: CloudTuiManualMirrorStopReason?
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
-    func stop() {
+    ///
+    /// - Parameter reason: Why the attachment ends. Unless the pane is closing,
+    ///   the pane keeps a card for `reason`, so a stop never leaves a silent
+    ///   frozen frame that drops input.
+    func stop(reason: CloudTuiManualMirrorStopReason = .paneClosed) {
         guard phase != .stopped else { return }
+        stopReason = reason
         let wasAttached = phase == .attached
         transition(to: .stopped)
         endPresentationEpisode()
@@ -477,7 +484,8 @@ final class CloudTuiManualMirrorSession {
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
-            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
+            surface.hostedView.cloudTerminalOverlay.endSession(self, presentation: reason.endedPresentation)
+            surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface.onManualSizeApplied = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil

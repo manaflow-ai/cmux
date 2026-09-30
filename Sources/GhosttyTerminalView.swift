@@ -11131,7 +11131,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     func synchronizeCloudTerminalReconnectOverlay() {
         let legacyPresentation = cloudTerminalOverlay.session == nil ? currentCloudTerminalReconnectPresentation() : nil
-        guard cloudTerminalOverlay.session != nil || legacyPresentation != nil || cloudTerminalOverlay.overlay != nil else { return }
+        guard cloudTerminalOverlay.session != nil || cloudTerminalOverlay.endedPresentation != nil
+            || legacyPresentation != nil || cloudTerminalOverlay.overlay != nil else { return }
         cloudTerminalOverlay.synchronize(
             hostedView: self,
             contentFrame: sessionContentFrame,

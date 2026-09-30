@@ -154,7 +154,14 @@ final class MachinesPanelViewModel: ObservableObject {
         wakeNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         lifecycleNotificationCenter: NotificationCenter = .default,
         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
-        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
+        // Another team's machines stay in the catalog while open surfaces use
+        // them; the sidebar lists only the selected team's fleet.
+        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = {
+            MachinesPanelViewModel.catalog(
+                SurfaceCatalog.shared.snapshot,
+                hiding: CmuxTuiSurfaceProviderRegistry.shared.foreignTeamMachineIDs
+            )
+        },
         localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
     ) {
         let networkClient = client ?? VMClient.shared
