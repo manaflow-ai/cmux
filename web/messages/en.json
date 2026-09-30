@@ -7007,6 +7007,22 @@
     "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
     "signInButton": "Sign in"
   },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "See more"
+      },
+      "search": {
+        "placeholder": "Search Feed"
+      },
+      "openWorkspace": "Open workspace",
+      "openTab": "Open tab",
+      "openFailed": {
+        "title": "Couldn’t open event",
+        "message": "The event’s computer, workspace, or tab is no longer available."
+      }
+    }
+  },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",
     "releaseLabel": "1.0.6 · September 2026",

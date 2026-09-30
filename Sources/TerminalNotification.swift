@@ -14,6 +14,10 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let body: String
     let createdAt: Date
     var isRead: Bool
+    /// Whether an agent hook produced this notification (a permission, plan,
+    /// question, or turn-completion banner). Agent events already have a
+    /// first-class row in the mobile Feed, so its merge skips these records.
+    var isAgentEvent: Bool = false
     var paneFlash: Bool = true
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
@@ -40,6 +44,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         body: String,
         createdAt: Date,
         isRead: Bool,
+        isAgentEvent: Bool = false,
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
@@ -61,6 +66,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.body = body
         self.createdAt = createdAt
         self.isRead = isRead
+        self.isAgentEvent = isAgentEvent
         self.paneFlash = paneFlash
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
