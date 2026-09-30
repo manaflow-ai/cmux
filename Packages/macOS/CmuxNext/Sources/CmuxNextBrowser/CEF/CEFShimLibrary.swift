@@ -26,7 +26,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
-        UnsafePointer<CChar>?, Int32, UnsafePointer<UnsafePointer<CChar>?>?,
+        UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+        UnsafePointer<UnsafePointer<CChar>?>?,
         UnsafeMutableRawPointer?, ScheduleFn?, EventFn?, KeyFn?
     ) -> Int32
     let doWork: @convention(c) () -> Void

@@ -59,6 +59,8 @@ bool TakeHostClose(int browser_id) {
 }
 
 static bool g_extension_developer_mode = false;
+// accept_language_list from cmux_shim_initialize, for every request context.
+static std::string g_accept_languages;
 
 namespace {
 
@@ -101,6 +103,10 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   // Chromium then restores old tabs into the first new window. The daemon
   // owns tabs; session cookies end with the app, as in Chrome's default.
   settings.persist_session_cookies = false;
+  // Each profile is its own request context with its own default list.
+  if (!g_accept_languages.empty()) {
+    CefString(&settings.accept_language_list) = g_accept_languages;
+  }
   CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ContextHandler());
   contexts[cache_path] = context;
   return context;
@@ -204,6 +210,7 @@ int cmux_shim_prepare_application(void) {
 
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,
                          const char* root_cache_path, const char* log_file, int log_severity,
+                         const char* locale, const char* accept_languages,
                          const char* const* switch_list, void* ctx, cmux_shim_schedule_fn schedule,
                          cmux_shim_event_fn event, cmux_shim_key_fn key) {
   Host& h = host();
@@ -225,6 +232,13 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   CefString(&settings.root_cache_path) = root_cache_path ?: "";
   if (log_file) {
     CefString(&settings.log_file) = log_file;
+  }
+  if (locale && *locale) {
+    CefString(&settings.locale) = locale;
+  }
+  g_accept_languages = accept_languages ? accept_languages : "";
+  if (!g_accept_languages.empty()) {
+    CefString(&settings.accept_language_list) = g_accept_languages;
   }
 
   std::vector<std::string> switches;

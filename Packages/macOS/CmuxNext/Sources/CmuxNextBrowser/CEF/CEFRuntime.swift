@@ -217,7 +217,9 @@ final class CEFRuntime {
             return .failure(.framework(text))
         }
         primeImageIO()
-        return .success(CEFLoadedLibrary(shim: shim, layout: layout, loadDuration: clock.now - started))
+        // Lists the framework's locale directories here, off the main thread.
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        return .success(CEFLoadedLibrary(shim: shim, layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 
     /// The first Chromium window decodes its first image with
@@ -257,12 +259,14 @@ final class CEFRuntime {
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         let switches = switchSet.arguments
         switchStorage = switches.map { strdup($0) } + [nil]
+        let locale = library.locale
+        logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
-                    storage.root.path, storage.logFile.path, 0, list, context,
+                    storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 )
             }

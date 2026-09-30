@@ -93,6 +93,9 @@ CMUX_SHIM_EXPORT int cmux_shim_prepare_application(void);
 //   subprocess_path   base helper executable
 //   log_file          NULL = CEF default
 //   log_severity      cef_log_severity_t, 0 = default
+//   locale            CefSettings.locale (Chromium name, "en-US"); NULL = CEF default
+//   accept_languages  accept_language_list for CefSettings and every
+//                     request context ("ja,en-US,en"); NULL = CEF default
 //   switches          "name" or "name=value", NULL terminated
 CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
                                           const char* main_bundle_path,
@@ -100,6 +103,8 @@ CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
                                           const char* root_cache_path,
                                           const char* log_file,
                                           int log_severity,
+                                          const char* locale,
+                                          const char* accept_languages,
                                           const char* const* switches,
                                           void* ctx,
                                           cmux_shim_schedule_fn schedule,
