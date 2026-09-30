@@ -41,7 +41,7 @@ struct WorkspaceDetailContainer: View {
     private func closeTerminalClosure(
         workspace: MobileWorkspacePreview
     ) -> ((MobileTerminalPreview.ID) -> Void)? {
-        guard store.supportsTerminalCloseActions else { return nil }
+        guard store.supportsTerminalCloseActions(in: workspace.id) else { return nil }
         let store = store
         return { terminalID in
             Task { await store.closeTerminal(id: terminalID, in: workspace.id) }

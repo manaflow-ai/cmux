@@ -29,6 +29,7 @@ extension MobileShellComposite {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else {
             return
         }
+        let target = workspaceMutationTarget(for: workspaceID)
         pruneTerminalOverviewPreviewCacheForLiveTerminals()
         let now = runtimeNow()
         let terminalsNeedingReplay = workspace.terminals.filter { terminal in
@@ -37,26 +38,48 @@ extension MobileShellComposite {
         guard !terminalsNeedingReplay.isEmpty else {
             return
         }
-        guard let client = remoteClient else {
+        guard let client = target.client else {
             return
         }
         for terminal in terminalsNeedingReplay {
             guard !Task.isCancelled else { return }
             do {
                 let lines = try await Self.requestTerminalOverviewPreviewLines(
-                    workspaceID: workspaceID,
+                    workspaceID: workspace.rpcWorkspaceID,
                     terminalID: terminal.id,
                     client: client
                 )
-                guard remoteClient === client, connectionState == .connected else { return }
+                guard targetStillOwnsWorkspaceMutation(target, client: client) else { return }
                 terminalOverviewPreviewLinesByID[terminal.id] = lines
                 terminalOverviewPreviewUpdatedAtByID[terminal.id] = runtimeNow()
             } catch {
-                guard remoteClient === client, connectionState == .connected else { return }
-                guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                guard targetStillOwnsWorkspaceMutation(target, client: client) else { return }
+                if target.isForeground {
+                    guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                }
                 terminalOverviewLog.error("terminal overview preview failed workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminal.id.rawValue, privacy: .private) error=\(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// Whether the owner of a workspace can accept terminal close requests.
+    /// Secondary Macs keep their own capability snapshot and route, so this
+    /// must not consult only the foreground connection.
+    public func supportsTerminalCloseActions(
+        in workspaceID: MobileWorkspacePreview.ID
+    ) -> Bool {
+        guard workspaces.contains(where: { $0.id == workspaceID }) else { return false }
+        let target = workspaceMutationTarget(for: workspaceID)
+        if target.client != nil {
+            return supportsTerminalCloseActions(for: target)
+        }
+        // The in-memory preview host has no RPC client but is intentionally
+        // interactive for previews and UI harnesses.
+        return remoteClient == nil
+            && secondaryMacSubscriptions.isEmpty
+            && activeTicket == nil
+            && activeRoute == nil
+            && connectionState == .connected
     }
 
     /// Closes a terminal from the mobile tab overview.
@@ -71,12 +94,41 @@ extension MobileShellComposite {
         id terminalID: MobileTerminalPreview.ID,
         in workspaceID: MobileWorkspacePreview.ID
     ) async {
-        guard remoteClient != nil else {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
+              terminal.canClose else {
+            return
+        }
+        let target = workspaceMutationTarget(for: workspaceID)
+        guard let client = target.client else {
+            // The preview host intentionally has no RPC client. Keep its
+            // in-memory interaction useful while refusing to mutate a retained
+            // workspace whose owning Mac is offline or otherwise unroutable.
+            guard remoteClient == nil,
+                  secondaryMacSubscriptions.isEmpty,
+                  activeTicket == nil,
+                  activeRoute == nil,
+                  connectionState == .connected else { return }
             closePreviewTerminal(id: terminalID, in: workspaceID)
             return
         }
-        guard supportsTerminalCloseActions else { return }
-        await closeRemoteTerminal(id: terminalID, in: workspaceID)
+        guard supportsTerminalCloseActions(for: target) else { return }
+        await closeRemoteTerminal(
+            id: terminalID,
+            in: workspaceID,
+            target: target,
+            client: client
+        )
+    }
+
+    private func supportsTerminalCloseActions(for target: WorkspaceMutationTarget) -> Bool {
+        if target.isForeground {
+            return supportsTerminalCloseActions
+        }
+        guard let ownerKey = target.ownerKey else { return false }
+        return secondaryMacSubscriptions[ownerKey]?
+            .supportedHostCapabilities
+            .contains(Self.terminalCloseCapability) == true
     }
 
     nonisolated static func terminalOverviewPreviewLines(from renderGrid: MobileTerminalRenderGridFrame) -> [String] {
@@ -131,20 +183,20 @@ extension MobileShellComposite {
 
     private func closeRemoteTerminal(
         id terminalID: MobileTerminalPreview.ID,
-        in workspaceID: MobileWorkspacePreview.ID
+        in workspaceID: MobileWorkspacePreview.ID,
+        target: WorkspaceMutationTarget,
+        client: MobileCoreRPCClient
     ) async {
-        guard let client = remoteClient else { return }
         terminalCloseRequestGeneration &+= 1
         let closeGeneration = terminalCloseRequestGeneration
         do {
             try await Self.requestCloseRemoteTerminal(
-                workspaceID: workspaceID,
+                workspaceID: remoteWorkspaceID(for: workspaceID),
                 terminalID: terminalID,
                 clientID: clientID,
                 client: client
             )
-            guard remoteClient === client,
-                  connectionState == .connected,
+            guard targetStillOwnsWorkspaceMutation(target, client: client),
                   closeGeneration == terminalCloseRequestGeneration,
                   !Task.isCancelled else { return }
             terminalOverviewPreviewLinesByID[terminalID] = nil
@@ -152,16 +204,29 @@ extension MobileShellComposite {
             // The close endpoint returns a small mutation receipt. Refresh the
             // authoritative list so selection, closeability, and any concurrent
             // Mac-side tab changes are reconciled in one place.
-            await refreshWorkspaces()
+            await refreshAfterWorkspaceMutation(target)
         } catch {
-            guard remoteClient === client,
+            guard targetStillOwnsWorkspaceMutation(target, client: client),
                   closeGeneration == terminalCloseRequestGeneration,
                   !Task.isCancelled else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            if target.isForeground {
+                guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
             terminalOverviewLog.error("terminal close failed workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .public)")
-            await refreshWorkspaces()
+            await refreshAfterWorkspaceMutation(target)
         }
+    }
+
+    private func targetStillOwnsWorkspaceMutation(
+        _ target: WorkspaceMutationTarget,
+        client: MobileCoreRPCClient
+    ) -> Bool {
+        if target.isForeground {
+            return remoteClient === client && connectionState == .connected
+        }
+        guard let ownerKey = target.ownerKey else { return false }
+        return secondaryMacSubscriptions[ownerKey]?.client === client
     }
 
     // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.

@@ -2,6 +2,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
+#if canImport(UIKit)
 struct TerminalTabOverviewView: View {
     let workspaceName: String
     let items: [TerminalTabOverviewItem]
@@ -79,3 +80,4 @@ struct TerminalTabOverviewView: View {
         .background(.regularMaterial)
     }
 }
+#endif

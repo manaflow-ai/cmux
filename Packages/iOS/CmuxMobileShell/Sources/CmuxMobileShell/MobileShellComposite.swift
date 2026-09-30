@@ -11,7 +11,7 @@ public import Foundation
 import Observation
 internal import OSLog
 
-nonisolated private let mobileShellLog = Logger(
+private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )

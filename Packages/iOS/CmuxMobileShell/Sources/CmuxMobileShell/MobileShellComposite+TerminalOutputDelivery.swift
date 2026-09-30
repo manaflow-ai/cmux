@@ -436,12 +436,6 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
-        if frame.full {
-            let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-            terminalOverviewPreviewLinesByID[terminalID] =
-                Self.terminalOverviewPreviewLines(from: frame)
-            terminalOverviewPreviewUpdatedAtByID[terminalID] = runtimeNow()
-        }
         let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
         recordTerminalTheme(frame)
         let deliveryFrame: MobileTerminalRenderGridFrame
@@ -459,7 +453,7 @@ extension MobileShellComposite {
         }
         // Capture admission before continuity advances; queued deltas retain it.
         let requiresVerifiedReplay = requiresVerifiedReplayApplication(for: deliveryFrame)
-        return deliverTerminalOutput(
+        let delivered = deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: deliveryFrame,
                 replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
@@ -469,6 +463,13 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
         )
+        if delivered, frame.full {
+            let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+            terminalOverviewPreviewLinesByID[terminalID] =
+                Self.terminalOverviewPreviewLines(from: frame)
+            terminalOverviewPreviewUpdatedAtByID[terminalID] = runtimeNow()
+        }
+        return delivered
     }
 
     @discardableResult

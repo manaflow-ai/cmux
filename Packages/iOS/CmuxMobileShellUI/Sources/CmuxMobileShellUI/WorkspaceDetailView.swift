@@ -44,7 +44,7 @@ struct WorkspaceDetailView: View {
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     /// Close one terminal from the tab overview. When `nil`, the Mac has not
     /// negotiated the terminal-close capability and overview cards stay safe.
-    let closeTerminal: ((MobileTerminalPreview.ID) -> Void)? = nil
+    var closeTerminal: ((MobileTerminalPreview.ID) -> Void)? = nil
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -502,12 +502,16 @@ struct WorkspaceDetailView: View {
     }
 
     private var trailingClusterToolbarContent: some View {
+        #if os(iOS)
         HStack(spacing: 0) {
             terminalOverviewToolbarButton
                 .frame(width: 44, height: 44)
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
+        #else
+        terminalPickerToolbarButton
+        #endif
             // Only the always-structural cluster wires collapse detection: a
             // conditional item's structural removal also detaches its probe
             // and would be indistinguishable from a More-menu collapse.
