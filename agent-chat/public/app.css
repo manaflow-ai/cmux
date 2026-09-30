@@ -668,7 +668,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .files-diff { padding: 0 0 6px 18px; }
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
 
-#chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
+#chat-input-row { position: relative; flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 .routing-notice {
   margin: 0 0 7px; padding: 7px 10px; border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
@@ -687,9 +687,12 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 @keyframes transcript-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .transcript-dot.running { animation: none; } }
 .terminal-attention {
-  display: flex; align-items: center; gap: 10px; margin: 0 0 7px; padding: 8px 8px 8px 12px; border-radius: 10px;
+  position: absolute; left: 24px; right: 24px; bottom: calc(100% + 7px); z-index: 2;
+  display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 8px 8px 12px; border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
   color: var(--text); font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 22%, transparent);
+  max-height: min(96px, 22vh); overflow: auto;
 }
 .terminal-attention-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .terminal-attention-btn {
