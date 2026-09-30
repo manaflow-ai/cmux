@@ -2057,6 +2057,7 @@
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
 		D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */; };
+		C75200010000000000000101 /* GhosttyNSView+LinkContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75200010000000000000102 /* GhosttyNSView+LinkContextMenu.swift */; };
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
 		C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */; };
 		124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */; };
@@ -6240,6 +6241,7 @@
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
 		D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+IMEComposition.swift"; sourceTree = "<group>"; };
+		C75200010000000000000102 /* GhosttyNSView+LinkContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+LinkContextMenu.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+PointerFocusActivation.swift"; sourceTree = "<group>"; };
 		124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/GhosttyNSView+PreparedImageTransfer.swift"; sourceTree = SOURCE_ROOT; };
@@ -10115,6 +10117,7 @@
 				47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */,
 				C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */,
 				C75200010000000000000002 /* GhosttyNSView+RevealInFinder.swift */,
+				C75200010000000000000102 /* GhosttyNSView+LinkContextMenu.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
 				D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */,
 				C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */,
@@ -14538,6 +14541,7 @@
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,
+				C75200010000000000000101 /* GhosttyNSView+LinkContextMenu.swift in Sources */,
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
 				C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */,
 				124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */,

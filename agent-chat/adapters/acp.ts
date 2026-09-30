@@ -163,7 +163,7 @@ function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionVal
     : def.defaultModel ?? def.models?.[0]?.value ?? "";
 }
 
-function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
+export function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
   const cmd = [...(def.cmd ?? [])];
   if (def.models?.length) {
     cmd.push("--model", effectiveSpawnModel(def, options));
@@ -458,7 +458,7 @@ function normalizeAcpPlanStatus(status: unknown): AgentPlanStatus {
   return status === "pending" || status === "in_progress" || status === "completed" ? status : "unknown";
 }
 
-export function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
+function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.map((entry: any) => ({
     text: typeof entry?.content === "string" ? entry.content : String(entry?.content ?? ""),
@@ -467,7 +467,7 @@ export function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
   }));
 }
 
-export function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
   const normalized = normalizeAcpPlanEntries(entries);
   return normalized.length ? { kind: "plan", entries: normalized } : null;
 }
