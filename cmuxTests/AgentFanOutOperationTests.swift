@@ -7,7 +7,7 @@ final class AgentFanOutOperationTests: XCTestCase {
             id: id, machineID: "vm", scope: "account:team", remoteWorkspaceID: "ws",
             agent: "codex", argvDigest: "digest", requestedCount: 1,
             createdAt: now, updatedAt: now, state: .running,
-            children: [AgentFanOutChild(index: 0, terminalID: "term_1", state: .running, exitCode: nil, errorCode: nil, startedAt: now, endedAt: nil)]
+            children: [AgentFanOutChild(index: 0, creationCorrelationKey: "cmux-agent-fan-out-correlation-0", terminalID: "term_1", state: .running, exitCode: nil, errorCode: nil, startedAt: now, endedAt: nil)]
         )
     }
 
@@ -128,6 +128,36 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(current?.children.first?.state, .exited)
         XCTAssertEqual(current?.children.first?.terminalID, "term_1")
         XCTAssertEqual(current?.children.first?.exitCode, 0)
+    }
+
+    func testOperationStorePreservesStartingCorrelationReceiptAcrossStaleRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-fan-out-correlation-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("operations.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = AgentFanOutOperationStore(fileURL: file)
+        var reserved = operation(id: "f_recover")
+        reserved.children[0].terminalID = nil
+        reserved.children[0].state = .starting
+        reserved.children[0].remoteWorkspaceID = "ws_recover"
+        try await store.insertIfAbsent(reserved)
+
+        // A stale creator snapshot may omit the receipt fields. It must not
+        // erase the workspace or correlation key needed for daemon recovery.
+        var stale = reserved
+        stale.children[0].remoteWorkspaceID = nil
+        stale.children[0].creationCorrelationKey = nil
+        try await store.update(stale)
+        let recoveredValue = try await store.operation(id: "f_recover")
+        let recovered = try XCTUnwrap(recoveredValue)
+        XCTAssertEqual(recovered.children[0].remoteWorkspaceID, "ws_recover")
+        XCTAssertEqual(recovered.children[0].creationCorrelationKey, "cmux-agent-fan-out-correlation-0")
+
+        let reloadedValue = try await AgentFanOutOperationStore(fileURL: file).operation(id: "f_recover")
+        let reloaded = try XCTUnwrap(reloadedValue)
+        XCTAssertEqual(reloaded.children[0].remoteWorkspaceID, "ws_recover")
+        XCTAssertEqual(reloaded.children[0].creationCorrelationKey, "cmux-agent-fan-out-correlation-0")
     }
 
     func testOperationStoreMergesLateLocalProjectionAfterExit() async throws {
