@@ -114,7 +114,10 @@ def main():
     )
     _check(triggers is not None, "the gate allow-lists github.event.workflow_run.event")
     allowed = set(json.loads(triggers.group(1))) if triggers else set()
-    _check(allowed == {"push", "workflow_dispatch"}, f"the gate admits only push and workflow_dispatch, not {sorted(allowed)}")
+    _check(
+        allowed == {"push", "workflow_dispatch"},
+        f"the gate's workflow_run.event allow-list is exactly push and workflow_dispatch (found {sorted(allowed)})",
+    )
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
