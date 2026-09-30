@@ -13,9 +13,9 @@ and presence Workers in local workerd, Postgres, and iroh-relay behind
 `tls-forward.mjs` on the runner's tailnet address, with per-phase timings in
 the step summary. `backend-up.sh hold` serves until `CMUX_E2E_BACKEND_DONE_FILE`
 appears, and `backend-up.sh down` removes everything `up` created.
-`backend-env.sh env` prints the app-side origins, `hosts` and `unhosts` map
-and unmap the fixed name in `/etc/hosts`, and `wait` blocks until both Workers
-answer. Contract:
+`backend-env.sh env` prints the app-side origins and accepts `--simctl` to add
+the simulator launch copies, `hosts` and `unhosts` map and unmap the fixed name
+in `/etc/hosts`, and `wait` blocks until both Workers answer. Contract:
 [docs/ci/ios-e2e.md](../../docs/ci/ios-e2e.md#per-run-backend).
 
 ## ios-e2e-run.sh
@@ -76,6 +76,6 @@ its coverage.
    Regression: a pre-bootstrap recovery cooldown stalled a fresh session
    ([#14124](https://github.com/manaflow-ai/cmux/pull/14124)).
 
-The workflow stops the tagged Mac app, deletes the isolated simulator, removes
-the tagged backend stack, and deletes the temporary credentials file after the
-driver exits, including on failure.
+The workflow stops the tagged Mac app, deletes the isolated simulator, releases
+the backend hold over Tailscale SSH, and deletes the temporary credentials file
+after the driver exits, including on failure.

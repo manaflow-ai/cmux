@@ -1,26 +1,32 @@
 # iOS E2E gate
 
 [.github/workflows/ios-e2e.yml](../../.github/workflows/ios-e2e.yml) builds the
-Mac app and iOS simulator app on one macOS runner while a Blacksmith Linux
-runner serves a fresh per-run backend. The apps sign into the CI Stack account,
-pair, are forced to Iroh relay-only transport through the per-run relay, and
-run the six-step streamed-terminal driver in
+Mac and iOS simulator apps on parallel macOS jobs, then installs and runs both
+on one macOS E2E runner while a Blacksmith Linux runner serves a fresh per-run
+backend. The apps sign into the CI Stack account, pair, are forced to Iroh
+relay-only transport through the per-run relay, and run the six-step
+streamed-terminal driver in
 [scripts/e2e/README.md](../../scripts/e2e/README.md).
 
 ## Topology
 
 ```
                       GitHub Actions run (environment ios-e2e, OIDC)
-  route (Linux) --+---------------------------------+
-                  |                                 |
-     backend (Linux, tag:e2e-backend)     mac-ios-e2e (macOS, tag:ci)
-     iroh-v2 + presence (workerd),        builds Mac + iOS apps,
-     Postgres, iroh-relay                 fresh simulator, 6 steps
-                  ^                                 |
-                  +-- HTTPS :8443 iroh-v2 ----------+
-                  +-- HTTPS :8444 presence ---------+
-                  +-- HTTPS :10000 relay (terminal) +
-                  +-- SSH :22 as runner (release) --+
+  route (Linux) --+----------------+----------------+
+                  |                |                |
+     backend (Linux, tag:e2e-backend)  build-mac    runner (Linux)
+     iroh-v2 + presence (workerd),      (macOS)     picks an iOS Mac
+     Postgres, iroh-relay                 |          |
+                  ^                        |          +-- ios-simulator-build
+                  |                        +----------+       (macOS)
+                  |                                             |
+                  +-- HTTPS :8443 iroh-v2 ----------------------+
+                  +-- HTTPS :8444 presence ---------------------+
+                  +-- HTTPS :10000 relay (terminal) ------------+
+                  +-- SSH :22 as runner (release) --------------+
+                                                               |
+                                             mac-ios-e2e (macOS, tag:ci)
+                                             fresh simulator, 6 steps
 ```
 
 The Mac and simulator share the runner's operating system. Their terminal
@@ -33,14 +39,19 @@ networking cannot turn this into a direct-path test.
 | --- | --- | --- | --- |
 | `route` | Linux | 5m | Chooses `run_e2e`, `run_clients` (false for a `backend_only` dispatch) and the app tag. |
 | `backend` | Linux (`LINUX_RUNNER`) | 150m | Starts the per-run backend ([Per-run backend](#per-run-backend)), then holds until the macOS job releases it. |
-| `mac-ios-e2e` | macOS (`MACOS_RUNNER_IOS`, then `MACOS_RUNNER_PR`) | 120m | Builds both apps with the backend's origins baked in, waits for the backend, boots an isolated simulator, signs in, pairs, verifies relay-only defaults, runs the six steps, uploads evidence, and releases the backend. |
+| `build-mac` | Mac pool or Blacksmith | 60m | Secret-free tagged Mac build; uploads the app artifact. |
+| `runner` | Linux | 5m | Selects an available iOS simulator build pool through `ios_runner_pool.py`. |
+| `ios-simulator-build` | Selected iOS Mac pool | 60m | Secret-free generic simulator build; uploads the iOS app artifact without touching a simulator. |
+| `mac-ios-e2e` | Mac pool or Blacksmith | 120m | Downloads both artifacts, boots an isolated simulator, signs in, pairs, verifies relay-only defaults, runs the six steps, uploads evidence, and releases the backend. |
 | `ios-e2e-status` | Linux | 5m | Always-run aggregate that reports the routed conclusion. |
 
-`backend` and `mac-ios-e2e` start together after `route`. The macOS job does
-not `needs: backend`, because the backend must stay alive for it; it polls the
-backend's health endpoints right before sign-in, by which time the app builds
-have hidden the backend's start-up. The workflow has only a `workflow_dispatch`
-trigger until the owner approves promotion.
+`backend`, `build-mac`, `runner`, and `mac-ios-e2e` start after `route` where
+their dependencies allow. `ios-simulator-build` starts after `runner` chooses
+its pool. The E2E job does not `needs: backend`, because the backend must stay
+alive for it; it waits for both app artifacts through the Actions API, polls
+the backend's health endpoints right before sign-in, and then runs the apps on
+one macOS runner. The workflow has only a `workflow_dispatch` trigger until
+the owner approves promotion.
 
 ## Per-run backend
 
