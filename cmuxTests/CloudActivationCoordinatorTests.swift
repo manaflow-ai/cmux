@@ -165,4 +165,54 @@ struct CloudActivationCoordinatorTests {
         #expect(changes == 1)
     }
 
+    @Test("Settings observers receive the shared activation state sequence")
+    func activationChangesReplayAndPublish() async throws {
+        let suite = "cmux.cloud.activation.stream.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
+        let started = AsyncStream<Void>.makeStream()
+        var release: CheckedContinuation<Void, Never>?
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {
+                started.continuation.yield(())
+                await withCheckedContinuation { release = $0 }
+            }
+        )
+        var updates = coordinator.activationChanges().makeAsyncIterator()
+        #expect(await updates.next() == .disabled)
+        coordinator.enable()
+        #expect(await updates.next() == .enabling)
+        var startedIterator = started.stream.makeAsyncIterator()
+        _ = await startedIterator.next()
+        release?.resume()
+        await coordinator.waitForActivation()
+        #expect(await updates.next() == .enabled)
+    }
+
+    @Test("Settings can disable Cloud without deleting persisted identities")
+    func disablePreservesConfiguration() async throws {
+        let suite = "cmux.cloud.activation.disable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: CloudActivationCoordinator.activationKey)
+        var cleanupCalls = 0
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {},
+            cleanup: { cleanupCalls += 1 }
+        )
+
+        coordinator.disable()
+        await coordinator.waitForActivation()
+        #expect(coordinator.state == .disabled)
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(cleanupCalls == 1)
+    }
+
 }

@@ -30,7 +30,9 @@ final class CloudActivationCoordinator {
 
     static let activationKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
 
-    private(set) var state: State
+    private(set) var state: State {
+        didSet { publishState() }
+    }
 
     private let defaults: UserDefaults
     private let notificationCenter: NotificationCenter
@@ -42,6 +44,7 @@ final class CloudActivationCoordinator {
     private var cleanupTask: Task<Void, Never>?
     private var cleanupID: UUID?
     private var observations: [NSObjectProtocol] = []
+    @ObservationIgnored private var stateContinuations: [UUID: AsyncStream<State>.Continuation] = [:]
 
     init(
         defaults: UserDefaults = .standard,
@@ -174,6 +177,38 @@ final class CloudActivationCoordinator {
         }
     }
 
+    /// Disables Cloud after preserving its identities and other persisted
+    /// configuration. Runtime owners observe the same notification used by the
+    /// former Beta Features toggle and stop active work without resetting data.
+    func disable() {
+        guard activationTask == nil else {
+            cancel()
+            return
+        }
+        guard defaults.object(forKey: Self.activationKey) as? Bool == true || state == .enabled else {
+            state = isAvailable() ? .disabled : .unavailable
+            return
+        }
+        defaults.set(false, forKey: Self.activationKey)
+        notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+        state = isAvailable() ? .disabled : .unavailable
+        scheduleCleanup(after: nil)
+    }
+
+    /// Replays the current state and then emits every transition.
+    func activationChanges() -> AsyncStream<State> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            self.stateContinuations[id] = continuation
+            continuation.yield(self.state)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.stateContinuations.removeValue(forKey: id)
+                }
+            }
+        }
+    }
+
     /// Cancels first-use setup and returns to the disabled state without
     /// touching existing Cloud identities or workspaces.
     func cancel() {
@@ -215,8 +250,10 @@ final class CloudActivationCoordinator {
     private func scheduleCleanup(after activationTask: Task<Void, Never>?) {
         let id = UUID()
         cleanupID = id
+        let previousCleanup = cleanupTask
         let cleanup = self.cleanup
         cleanupTask = Task { @MainActor [weak self] in
+            await previousCleanup?.value
             await cleanup()
             // Stop shared transports immediately, then wait for a
             // cancellation-insensitive preparation closure to unwind before
@@ -227,6 +264,18 @@ final class CloudActivationCoordinator {
             guard let self, self.cleanupID == id else { return }
             self.cleanupID = nil
             self.cleanupTask = nil
+        }
+    }
+
+    private func publishState() {
+        var terminatedIDs: [UUID] = []
+        for (id, continuation) in stateContinuations {
+            if case .terminated = continuation.yield(state) {
+                terminatedIDs.append(id)
+            }
+        }
+        for id in terminatedIDs {
+            stateContinuations.removeValue(forKey: id)
         }
     }
 

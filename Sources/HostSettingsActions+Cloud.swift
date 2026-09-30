@@ -10,6 +10,47 @@ extension HostSettingsActions {
     var isCloudMachinesEnabled: Bool {
         CloudMachinesFeature.isEnabled
     }
+    var cloudMachinesActivationState: CloudMachinesActivationState {
+        Self.settingsActivationState(from: AppDelegate.shared?.cloudActivationCoordinator.state)
+    }
+
+    func enableCloudMachines() {
+        AppDelegate.shared?.cloudActivationCoordinator.enable()
+    }
+
+    func cancelCloudMachinesActivation() {
+        AppDelegate.shared?.cloudActivationCoordinator.cancel()
+    }
+
+    func retryCloudMachinesActivation() {
+        AppDelegate.shared?.cloudActivationCoordinator.retry()
+    }
+
+    func disableCloudMachines() {
+        AppDelegate.shared?.cloudActivationCoordinator.disable()
+    }
+
+    func cloudMachinesActivationUpdates() -> AsyncStream<CloudMachinesActivationState> {
+        guard let coordinator = AppDelegate.shared?.cloudActivationCoordinator else {
+            return AsyncStream { $0.yield(.unavailable); $0.finish() }
+        }
+        return AsyncStream { continuation in
+            let source = coordinator.activationChanges()
+            let task = Task { @MainActor in
+                for await state in source {
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(Self.settingsActivationState(from: state))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func signInForCloudMachines() {
+        AppDelegate.shared?.auth?.accountFlow.startSignIn()
+    }
+
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
         guard CloudMachinesFeature.isEnabled else { return nil }
         guard let client = VMClient.shared else { return nil }
@@ -38,5 +79,24 @@ extension HostSettingsActions {
 
     func openCloudVPNSetup() {
         AppDelegate.shared?.openCloudVPNSetup(bringWindowForward: true)
+    }
+
+    private static func settingsActivationState(
+        from state: CloudActivationCoordinator.State?
+    ) -> CloudMachinesActivationState {
+        guard let state else { return .unavailable }
+        switch state {
+        case .disabled: return .disabled
+        case .enabling: return .enabling
+        case .enabled: return .enabled
+        case .cancelled: return .cancelled
+        case .unavailable: return .unavailable
+        case .failed(let failure):
+            switch failure {
+            case .requiresPro: return .failed(.requiresPro)
+            case .signInRequired: return .failed(.signInRequired)
+            case .serviceUnavailable: return .failed(.serviceUnavailable)
+            }
+        }
     }
 }
