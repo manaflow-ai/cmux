@@ -239,7 +239,9 @@ struct AgentPromptInputDetectorTests {
 
     @Test("Composer fingerprints normalize line endings and surrounding whitespace")
     func composerFingerprintNormalization() {
-        let snapshot = AgentPromptSubmissionSnapshot(screenText: "❯\u{00A0}  hello\r\n")
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: [[
+            span("\u{276F}\u{00A0}  hello\r\n  "),
+        ]])
         #expect(snapshot.composerText == "hello")
         #expect(snapshot.composerFingerprint == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
     }
