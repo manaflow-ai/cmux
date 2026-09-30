@@ -428,7 +428,20 @@ Cg==
         set -eu
         path=\"\(path)\"
         mkdir -p \"$HOME/.cmux\"
-        if [ ! -x \"$path\" ] || ! grep -q 'cmux-wallpaper' \"$path\" 2>/dev/null; then printf %s \"\(encodedSource)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
+        helper_updated=0
+        if [ ! -x \"$path\" ] || ! grep -q 'cmux-wallpaper' \"$path\" 2>/dev/null; then
+          printf %s \"\(encodedSource)\" | base64 -d > \"$path\"
+          chmod 700 \"$path\"
+          helper_updated=1
+        fi
+        if [ \"$helper_updated\" = 1 ] && pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
+          pkill -TERM -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1 || true
+          for attempt in $(seq 1 100); do
+            pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1 || break
+            sleep 0.1
+          done
+          pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1 && exit 1
+        fi
         if ! pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
           nohup \"$path\" serve > \"$HOME/.cmux/display-service.log\" 2>&1 &
         fi
