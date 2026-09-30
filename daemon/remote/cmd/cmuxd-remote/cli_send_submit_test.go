@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -98,6 +99,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, nil)
 	output := captureStdout(t, func() {
 		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
@@ -108,7 +110,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 		t.Fatalf("output = %q, want submitted", output)
 	}
 	methods := mock.methods()
-	if len(methods) < 4 || methods[0] != "surface.input_state" || methods[1] != "surface.read_text" || methods[2] != "terminal.paste" || methods[3] != "surface.send_key" {
+	if len(methods) < 5 || methods[0] != "surface.input_state" || methods[1] != "surface.read_text" || methods[2] != "terminal.paste" || methods[3] != "surface.input_state" || methods[4] != "surface.send_key" {
 		t.Fatalf("method sequence = %v", methods)
 	}
 	paste := mock.request("terminal.paste")
@@ -122,6 +124,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 
 func TestSendSubmitBusyCodexQueuesWithTab(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "lifecycle": "running", "agent_kind": "codex"},
 		{"agent": true, "state": "empty", "lifecycle": "running", "agent_kind": "codex"},
 		{"agent": true, "state": "queued", "queued": true, "lifecycle": "running", "agent_kind": "codex"},
 	}, nil)
@@ -156,6 +159,8 @@ func TestSendSubmitRefusesDraftAndDialog(t *testing.T) {
 func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
@@ -163,7 +168,7 @@ func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
 	}
-	if len(mock.methods()) != 9 { // preflight (input_state + screen) + paste + 3*(key,state)
+	if len(mock.methods()) != 10 { // preflight + paste + refresh + 3*(key,state)
 		t.Fatalf("method sequence = %v", mock.methods())
 	}
 }
@@ -182,6 +187,7 @@ func TestSendSubmitShellUsesReturnWithoutComposerCheck(t *testing.T) {
 
 func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
@@ -208,11 +214,67 @@ func TestSendSubmitForceBypassesDraftGuard(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "draft", "blocks_typing": true},
 		{"agent": true, "state": "empty"},
+		{"agent": true, "state": "empty"},
 	}, nil)
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "--force", "hello"}); code != 0 {
 		t.Fatalf("forced send --submit: exit %d", code)
 	}
 	if mock.request("terminal.paste") == nil {
 		t.Fatal("forced send did not paste")
+	}
+}
+
+func TestSendSubmitFlagsMayFollowTargetOptions(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": false, "state": "unknown"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--surface", "surface-7", "--submit", "--force", "hello"}); code != 0 {
+		t.Fatalf("send --submit after target: exit %d", code)
+	}
+	if params(mock.request("terminal.paste"))["surface_id"] != "surface-7" {
+		t.Fatalf("target params = %v", params(mock.request("terminal.paste")))
+	}
+}
+
+func TestSendSubmitMultilineClaudeUsesCtrlEnter(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "line one\nline two"}); code != 0 {
+		t.Fatalf("multiline send --submit: exit %d", code)
+	}
+	if params(mock.request("surface.send_key"))["key"] != "ctrl+enter" {
+		t.Fatalf("submit key params = %v, want ctrl+enter", params(mock.request("surface.send_key")))
+	}
+}
+
+func TestSendSubmitStopsOnNewDialog(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "dialog", "blocks_typing": true, "agent_kind": "claude"},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
+		t.Fatal("expected dialog failure")
+	}
+	mock.mu.Lock()
+	keys := len(mock.keys)
+	mock.mu.Unlock()
+	if keys != 1 {
+		t.Fatalf("sent %d submit keys after dialog, want 1", keys)
+	}
+}
+
+func TestSendSubmitRejectsOversizedText(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, nil, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", strings.Repeat("x", sendMaximumEncodedTextBytes)}); code == 0 {
+		t.Fatal("expected oversized text failure")
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.requests) != 0 {
+		t.Fatalf("oversized text sent requests: %v", mock.requests)
 	}
 }

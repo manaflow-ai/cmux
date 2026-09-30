@@ -9,6 +9,7 @@ import (
 )
 
 const sendSubmitAttempts = 3
+const sendMaximumEncodedTextBytes = 15 * 1024 * 1024
 
 // runSendRelay keeps the paste and its submit key as separate RPC requests.
 // This matters for bracketed-paste mode: a return embedded in the paste is
@@ -25,6 +26,10 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		return 2
 	}
 	text := strings.Join(parsed.positional, " ")
+	if encoded, marshalErr := json.Marshal([]string{text}); marshalErr != nil || len(encoded) > sendMaximumEncodedTextBytes {
+		fmt.Fprintf(os.Stderr, "cmux send: text is too large; the limit is %d MiB after JSON escaping\n", sendMaximumEncodedTextBytes/(1024*1024))
+		return 2
+	}
 	target := make(map[string]any, 3)
 	for _, key := range []string{"surface", "workspace", "window"} {
 		if value, ok := parsed.flags[key]; ok {
@@ -78,6 +83,16 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 		return 1
 	}
 	time.Sleep(50 * time.Millisecond)
+	if agentState := sendStateAgent(state); agentState {
+		// Hooks can update lifecycle metadata while the paste is being applied;
+		// refresh it before selecting Return versus Tab/Ctrl-Enter.
+		if refreshed, refreshedScreen := readSendState(socketPath, target, refreshAddr); refreshed != nil {
+			state = refreshed
+			if refreshedScreen != "" {
+				screen = refreshedScreen
+			}
+		}
+	}
 
 	agent := sendStateAgent(state)
 	if !agent && screen != "" {
@@ -90,6 +105,8 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 	key := "return"
 	if agent && sendStateLooksLikeBusyCodex(state, screen) {
 		key = "tab"
+	} else if agent && strings.ContainsAny(text, "\r\n") && strings.Contains(strings.ToLower(stateString(state, "agent_kind")), "claude") {
+		key = "ctrl+enter"
 	}
 	minimumAttempts := 1
 	if key == "return" && sendScreenShowsSlashPopup(screen) {
@@ -109,6 +126,15 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 			return printSendSubmitResult("submitted", jsonOutput)
 		}
 		lastState, screen = readSendState(socketPath, target, refreshAddr)
+		if sendStateDialog(lastState) {
+			if screen == "" {
+				screen, _ = readSendScreen(socketPath, target, refreshAddr)
+			}
+			if !sendScreenShowsSlashPopup(screen) {
+				fmt.Fprintln(os.Stderr, "cmux send: target opened a dialog while submitting; nothing was confirmed as submitted")
+				return 1
+			}
+		}
 		if sendStateConfirmed(lastState, screen) && attempt+1 >= minimumAttempts {
 			status := "submitted"
 			if key == "tab" || sendStateQueued(lastState) {
@@ -128,18 +154,34 @@ func runSendRelay(socketPath string, args []string, jsonOutput bool, refreshAddr
 
 func splitLeadingSendFlags(args []string) (submit, force bool, remaining []string) {
 	remaining = args
-	for len(remaining) > 0 {
-		switch remaining[0] {
+	var prefix []string
+	for i := 0; i < len(remaining); {
+		token := remaining[i]
+		if token == "--" {
+			prefix = append(prefix, remaining[i:]...)
+			break
+		}
+		if token == "--surface" || token == "--workspace" || token == "--window" {
+			prefix = append(prefix, token)
+			if i+1 < len(remaining) {
+				prefix = append(prefix, remaining[i+1])
+				i += 2
+				continue
+			}
+			break
+		}
+		switch token {
 		case "--submit":
 			submit = true
 		case "--force":
 			force = true
 		default:
-			return submit, force, remaining
+			prefix = append(prefix, remaining[i:]...)
+			return submit, force, prefix
 		}
-		remaining = remaining[1:]
+		i++
 	}
-	return submit, force, remaining
+	return submit, force, prefix
 }
 
 func inspectSendTarget(socketPath string, target map[string]any, refreshAddr func() string) (map[string]any, string, error) {
