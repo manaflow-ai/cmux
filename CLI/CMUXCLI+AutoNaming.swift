@@ -156,6 +156,10 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     /// request itself.
     static let openCodeDenyAllPermissionsJSON = #"{"*":"deny"}"#
 
+    /// A local agent rule is merged after OpenCode's global `agent.build`
+    /// rules, so a user-global allow cannot override the deny-all policy.
+    static let openCodeIsolationConfigJSON = #"{"agent":{"build":{"permission":{"*":"deny"}}}}"#
+
     /// Returns the provider-capable environment for an isolated OpenCode pass.
     /// User-selected config paths are removed so only cmux's temporary project
     /// and the global provider discovery path remain visible.
@@ -170,6 +174,7 @@ struct AutoNamingEnvironmentPolicy: Sendable {
             !configOverrideKeys.contains(key)
         }
         selected["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+        selected["OPENCODE_CONFIG_CONTENT"] = Self.openCodeIsolationConfigJSON
         selected["OPENCODE_PERMISSION"] = Self.openCodeDenyAllPermissionsJSON
         selected["OPENCODE_PURE"] = "1"
         return selected

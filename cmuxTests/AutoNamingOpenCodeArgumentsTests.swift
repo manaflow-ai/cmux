@@ -39,6 +39,7 @@ import Testing
         #expect(environment["OPENCODE_PERMISSION"] == #"{"*":"deny"}"#)
         #expect(environment["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1")
         #expect(environment["OPENCODE_PURE"] == "1")
+        #expect(environment["OPENCODE_CONFIG_CONTENT"] == #"{"agent":{"build":{"permission":{"*":"deny"}}}}"#)
         #expect(environment["OPENAI_API_KEY"] == "provider-secret")
         #expect(environment["OPENCODE_PROJECT_CONFIG"] == nil)
         #expect(environment["OPENCODE_CONFIG"] == nil)
@@ -46,5 +47,11 @@ import Testing
         let permissionData = try #require(environment["OPENCODE_PERMISSION"]?.data(using: .utf8))
         let permission = try JSONSerialization.jsonObject(with: permissionData) as? [String: String]
         #expect(permission?["*"] == "deny")
+
+        let configData = try #require(environment["OPENCODE_CONFIG_CONTENT"]?.data(using: .utf8))
+        let config = try JSONSerialization.jsonObject(with: configData) as? [String: Any]
+        let build = (config?["agent"] as? [String: Any])?["build"] as? [String: Any]
+        let buildPermission = (build?["permission"] as? [String: String])?["*"]
+        #expect(buildPermission == "deny")
     }
 }
