@@ -21,12 +21,13 @@
 # (staging): nothing on the path under test calls web/.
 set -euo pipefail
 
-NAME="${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
+NAME="${CMUX_E2E_BACKEND_NAME:-}"
 IROH_V2="https://$NAME:8443"
 PRESENCE="https://$NAME:8444"
 HOSTS_MARKER="# cmux-e2e-backend (scripts/e2e/backend-env.sh)"
 
 emit_env() {
+  : "${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
   local simctl="${1:-}" line
   local lines=(
     "CMUX_IROH_V2_BASE_URL=$IROH_V2"
@@ -44,6 +45,7 @@ emit_env() {
 }
 
 map_hosts() {
+  : "${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
   local budget="${1:-300}" deadline ip=""
   local peer="${CMUX_E2E_BACKEND_TAILNET_HOSTNAME:?CMUX_E2E_BACKEND_TAILNET_HOSTNAME is required}"
   deadline=$(( $(date +%s) + budget ))
@@ -73,6 +75,7 @@ unmap_hosts() {
 }
 
 wait_ready() {
+  : "${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
   local budget="${1:-300}" deadline url
   deadline=$(( $(date +%s) + budget ))
   for url in "$IROH_V2/v2/health" "$PRESENCE/healthz"; do
