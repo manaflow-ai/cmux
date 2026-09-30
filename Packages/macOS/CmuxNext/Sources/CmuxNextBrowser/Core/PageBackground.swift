@@ -22,6 +22,16 @@ nonisolated enum PageBackground {
     /// keeps the theme color for every document without a background.
     static func startsWithTheme(openedByPage: Bool) -> Bool { !openedByPage }
 
+    /// Chrome's white default, 0xAARRGGBB.
+    static let engineDefaultARGB: UInt32 = 0xFFFF_FFFF
+
+    /// The Chromium page background: the theme color until the tab's first
+    /// real page, then white (stub).
+    static func chromiumARGB(pastFirstRealPage: Bool, theme: UInt32) -> UInt32 { theme }
+
+    /// True when a committed document is the tab's first real page (stub).
+    static func isRealPage(_ url: URL?) -> Bool { false }
+
     /// `Palette.pageBackground` as opaque 0xAARRGGBB, the form
     /// `CefBrowserSettings.background_color` takes.
     @MainActor static var themeARGB: UInt32 {

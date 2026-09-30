@@ -20,4 +20,18 @@ import Testing
         #expect(BrowserURLDisplay.displayText(for: URL(string: "chrome://newtab/")) == "")
         #expect(!PageBackground.isBlank(URL(string: "https://example.com")))
     }
+
+    /// Coordinator decision 2026-09-30 (Chrome parity, both engines): the
+    /// theme color shows only before a tab's first real page; after it, a
+    /// Chromium page without a background of its own is white, popups and
+    /// moved tabs included.
+    @Test func chromiumIsWhiteAfterTheFirstRealPage() {
+        let theme: UInt32 = 0xFF1E_1E1E
+        #expect(PageBackground.chromiumARGB(pastFirstRealPage: false, theme: theme) == theme)
+        #expect(PageBackground.chromiumARGB(pastFirstRealPage: true, theme: theme) == PageBackground.engineDefaultARGB)
+        #expect(PageBackground.isRealPage(URL(string: "https://example.com/")))
+        #expect(!PageBackground.isRealPage(URL(string: "about:blank")))
+        #expect(!PageBackground.isRealPage(URL(string: "chrome://newtab/")))
+        #expect(!PageBackground.isRealPage(nil))
+    }
 }
