@@ -90,7 +90,9 @@ public final class TerminalClient: @unchecked Sendable {
     }
 
     deinit {
-        cmux_terminal_client_set_output_callback(raw, nil, nil)
+        lock.lock()
+        clearOutputHandler()
+        lock.unlock()
         cmux_terminal_client_disconnect(raw)
     }
 
@@ -99,15 +101,21 @@ public final class TerminalClient: @unchecked Sendable {
     public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
         lock.lock()
         defer { lock.unlock() }
+        clearOutputHandler()
         guard let handler else {
-            cmux_terminal_client_set_output_callback(raw, nil, nil)
-            outputBox = nil
             return
         }
         let box = OutputBox(handler: handler)
         outputBox = box
         cmux_terminal_client_set_output_callback(
             raw, outputTrampoline, Unmanaged.passUnretained(box).toOpaque())
+    }
+
+    private func clearOutputHandler() {
+        // The FFI contract keeps the context valid until this synchronous
+        // clear returns, including callbacks already in flight.
+        cmux_terminal_client_set_output_callback(raw, nil, nil)
+        outputBox = nil
     }
 
     public func listTerminals(timeout: Duration = .seconds(15)) throws -> [TerminalSummary] {
