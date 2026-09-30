@@ -1,0 +1,11 @@
+{
+  "tour": "sidebar-and-chrome-tour",
+  "head_sha": "43fb3e9fe6d35acb03b077e53b9156ad72e4d14c",
+  "result": "failure",
+  "shots": [],
+  "gif": null,
+  "compiled": true,
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36737697505",
+  "failures": [],
+  "note": "the run left no frames (see the run log)"
+}
