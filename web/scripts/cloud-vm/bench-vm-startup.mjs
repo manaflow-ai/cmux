@@ -372,14 +372,13 @@ async function runTrial(trial) {
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
   Object.assign(trial, await rowUntilVisible(vmId));
+  trial.createToRowReadyMs = elapsedMs(createStartedAt);
   Object.assign(trial, await attachUntilReady(vmId, "attach"));
   // Row polling is serialized before endpoint issuance. Use one monotonic
   // origin so the totals include both phases; endpoint issuance is not a
   // terminal-ready claim (bench-private-link.ts measures the real prompt).
-  trial.createToRowReadyMs = elapsedMs(createStartedAt);
-  trial.createToAttachReadyMs = undefined;
-  Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   trial.createToAttachReadyMs = elapsedMs(createStartedAt);
+  Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
       method: "POST",

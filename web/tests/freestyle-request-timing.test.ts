@@ -28,6 +28,20 @@ describe("Freestyle enrollment request timings", () => {
     }
   });
 
+  test("re-probes after the idle-pool reuse window", async () => {
+    let now = 0;
+    let calls = 0;
+    const fetch = (async () => {
+      calls += 1;
+      return new Response(null, { status: 204 });
+    }) as typeof globalThis.fetch;
+    const options = { baseUrl: "https://provider-idle.example.test", fetch, now: () => now };
+    await preconnectFreestyle(options);
+    now = 30_001;
+    await preconnectFreestyle(options);
+    expect(calls).toBe(2);
+  });
+
   test.each(["workflow", "init", "request"])("forwards %s cancellation alongside the provider timeout", async (source) => {
     const controller = new AbortController();
     const reason = new DOMException("synthetic cancellation", "AbortError");
