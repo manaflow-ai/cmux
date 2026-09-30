@@ -3,15 +3,18 @@ import CmuxNextDesign
 import QuartzCore
 
 /// Non-interactive pane overlay, framed on the pane's cell: the subtle
-/// hairline border, the focus ring (subtle gray, never blue) and the
-/// inactive dim, all on the rounded content rect. The ring replaces the
-/// border while it shows, so the two never double up.
+/// hairline border and the focus ring (subtle gray, never blue) on the
+/// rounded content area below the header (tab strip, browser toolbar), and
+/// the inactive dim over the whole padded pane, header included, rounded
+/// only where the content area is. The ring replaces the border while it
+/// shows, so the two never double up.
 final class PaneOverlayView: NSView {
     private let border = CALayer()
     private let ring = CALayer()
     private let dimLayer = CALayer()
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
+    private var headerHeight: CGFloat = 0
     private var ringWidth: CGFloat = 1
     private var wantsRing = false
     private var wantsBorder = false
@@ -61,25 +64,37 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    func setShape(padding: CGFloat, cornerRadius: CGFloat) {
-        guard padding != self.padding || cornerRadius != self.cornerRadius else { return }
+    func setShape(padding: CGFloat, cornerRadius: CGFloat, headerHeight: CGFloat) {
+        guard padding != self.padding || cornerRadius != self.cornerRadius || headerHeight != self.headerHeight else { return }
         self.padding = padding
         self.cornerRadius = cornerRadius
+        self.headerHeight = headerHeight
         layoutLayers()
     }
+
+    /// The rect the border and ring trace (for tests and `debug.layers`).
+    var borderFrame: CGRect { border.frame }
 
     private func layoutLayers() {
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
-        let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
-        let radius = PaneChromeGeometry.cornerRadius(for: rect, style: style)
+        let padded = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
+        let rounded = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight)
+        let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [dimLayer, border, ring] {
-            sublayer.frame = rect
+        for sublayer in [border, ring] {
+            sublayer.frame = rounded
             sublayer.cornerRadius = radius
         }
+        dimLayer.frame = padded
+        dimLayer.cornerRadius = radius
+        // With a header, only the content area's (bottom) corners round.
+        // The view is flipped, so its layers are too: maxY is the bottom.
+        dimLayer.maskedCorners = headerHeight > 0
+            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         border.borderWidth = PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = ringWidth
         CATransaction.commit()

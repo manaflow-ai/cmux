@@ -5,13 +5,18 @@ import Observation
 
 /// One layout leaf: the pane's tab strip on top and the selected tab's
 /// content below. Manual frame layout; heights come from live design tokens.
-final class PaneContentView: NSView {
+/// The strip (plus a browser toolbar) is the pane's header: the layout's
+/// border and rounded corners trace only the content below it.
+final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
     private let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
+    var onPaneHeaderHeightChange: (() -> Void)?
+    private var contentCornerRadius: CGFloat = 0
+    private var reportedHeader: CGFloat = -1
 
     init(stripModel: TabStripModel) {
         stripView = TabStripView(model: stripModel)
@@ -20,6 +25,7 @@ final class PaneContentView: NSView {
         wantsLayer = true
         layer?.backgroundColor = Palette.contentBackground.cgColor
         contentHost.wantsLayer = true
+        contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
         addSubview(stripView)
         tokenObservation = Task { [weak self] in
@@ -41,9 +47,46 @@ final class PaneContentView: NSView {
         let stripHeight = Metrics.tabStripHeight
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
         let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
+        reportHeaderIfChanged()
         guard contentHost.frame != hostFrame else { return }
         contentHost.frame = hostFrame
         onResize?()
+    }
+
+    // MARK: PaneContentChrome
+
+    /// The hosted content's own header (a browser toolbar), if it has one.
+    private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
+
+    var paneHeaderHeight: CGFloat { Metrics.tabStripHeight + (innerChrome?.paneHeaderHeight ?? 0) }
+
+    func setPaneContentCornerRadius(_ radius: CGFloat) {
+        contentCornerRadius = radius
+        applyCornerRadius()
+    }
+
+    /// A browser rounds its page area below its toolbar; a terminal is
+    /// rounded here, by the content host.
+    private func applyCornerRadius() {
+        let hostRadius: CGFloat
+        if let innerChrome {
+            innerChrome.setPaneContentCornerRadius(contentCornerRadius)
+            hostRadius = 0
+        } else {
+            hostRadius = contentCornerRadius
+        }
+        guard let layer = contentHost.layer, layer.cornerRadius != hostRadius else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.cornerRadius = hostRadius
+        CATransaction.commit()
+    }
+
+    private func reportHeaderIfChanged() {
+        let header = paneHeaderHeight
+        guard header != reportedHeader else { return }
+        reportedHeader = header
+        onPaneHeaderHeightChange?()
     }
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
@@ -62,15 +105,29 @@ final class PaneContentView: NSView {
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
         }
+        // Another pane may own `previous` now and have taken its callback.
+        if let previous, previous !== view, previous.superview == nil {
+            (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        }
         content = view
+        if let inner = innerChrome {
+            inner.onPaneHeaderHeightChange = { [weak self] in self?.reportHeaderIfChanged() }
+        }
+        applyCornerRadius()
+        reportHeaderIfChanged()
         return previous
     }
 
     /// Lets the content view go without touching it if another pane took
     /// it.
     func detachContent() {
-        if hostsContent { content?.removeFromSuperview() }
+        if hostsContent {
+            (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+            content?.removeFromSuperview()
+        }
         content = nil
+        applyCornerRadius()
+        reportHeaderIfChanged()
     }
 
     /// `content` is installed in this pane (another pane may have taken it).

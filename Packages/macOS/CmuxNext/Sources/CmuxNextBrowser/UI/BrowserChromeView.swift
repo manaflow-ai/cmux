@@ -47,7 +47,11 @@ public final class BrowserChromeView: NSView {
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
     private let progressLine = ProgressLineView()
-    private let contentContainer = NSView()
+    /// The page area: the page, docked DevTools and the page overlays. The
+    /// pane's rounded corners clip it (`PaneContentChrome`).
+    let contentContainer = NSView()
+    public var onPaneHeaderHeightChange: (() -> Void)?
+    private var reportedHeader: CGFloat = -1
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let pageStatus = PageStatusViews()
@@ -335,6 +339,10 @@ public final class BrowserChromeView: NSView {
         applyToolbarLayout()
         super.layout()
         updateOcclusion()
+        if pageAreaTop != reportedHeader {
+            reportedHeader = pageAreaTop
+            onPaneHeaderHeightChange?()
+        }
     }
 
     /// Child-window pages draw above this view; tell them where the find
