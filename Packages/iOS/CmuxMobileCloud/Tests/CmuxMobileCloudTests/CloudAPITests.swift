@@ -19,6 +19,15 @@ import Testing
         #expect(request.httpBody == nil)
     }
 
+    @Test func networkPolicyCatalogUsesTheControlPlaneRoute() throws {
+        let request = try builder.networkPolicyCatalog(accessToken: "acc", refreshToken: "ref")
+
+        #expect(request.url?.absoluteString == "https://cmux.example/api/vm/network-presets")
+        #expect(request.httpMethod == "GET")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer acc")
+        #expect(request.httpBody == nil)
+    }
+
     @Test func createSendsKindRetryKeyAndOptionalSettings() throws {
         let request = try builder.createMachine(
             options: .init(kind: .desktop, perMachineHome: true, memoryMb: 20480),
@@ -35,6 +44,39 @@ import Testing
         #expect(json["perMachineHome"] as? Bool == true)
         #expect(json["memoryMb"] as? Int == 20480)
         #expect(json["persistentHome"] == nil)
+    }
+
+    @Test func createSendsNetworkPolicyAndAgentUpdates() throws {
+        let request = try builder.createMachine(
+            options: .init(
+                kind: .desktop,
+                memoryMb: 8192,
+                networkPolicy: CloudNetworkPolicy(
+                    mode: .allowlist,
+                    ranges: [.init(cidr: "203.0.113.0/24", port: 443, transport: .tcp)],
+                    domains: ["api.example.com"],
+                    presets: ["github"],
+                    allowDns: false
+                ),
+                agentUpdates: .latest
+            ),
+            idempotencyKey: "create-policy",
+            accessToken: "acc",
+            refreshToken: "ref"
+        )
+
+        let json = try body(request)
+        let policy = try #require(json["networkPolicy"] as? [String: Any])
+        let ranges = try #require(policy["ranges"] as? [[String: Any]])
+        let range = try #require(ranges.first)
+        #expect(policy["mode"] as? String == "allowlist")
+        #expect(policy["domains"] as? [String] == ["api.example.com"])
+        #expect(policy["presets"] as? [String] == ["github"])
+        #expect(policy["allowDns"] as? Bool == false)
+        #expect(range["cidr"] as? String == "203.0.113.0/24")
+        #expect(range["port"] as? Int == 443)
+        #expect(range["protocol"] as? String == "tcp")
+        #expect(json["agentUpdates"] as? String == "latest")
     }
 
     @Test func createRejectsAnEmptyRetryKey() {
@@ -146,10 +188,12 @@ import Testing
             "maxActiveVms": 50,
             "activeVmCount": 3,
             "planId": "pro",
+            "freeAccessWindowDays": 7,
             "memoryOptionsMb": [4096, 8192, 16384, 24576],
             "lockedMemoryOptionsMb": [32768, 65536],
             "memoryUpgradePlanId": "max",
-            "memoryUpgradePlansByMb": {"32768": "max", "65536": "max"}
+            "memoryUpgradePlansByMb": {"32768": "max", "65536": "max"},
+            "vcpusByMemoryMb": {"4096": 2, "8192": 4, "16384": 8, "24576": 12}
           }
         }
         """.utf8))
@@ -158,11 +202,35 @@ import Testing
             maxActiveMachines: 50,
             activeMachineCount: 3,
             planID: "pro",
+            freeAccessWindowDays: 7,
             memoryOptionsMb: [4096, 8192, 16384, 24576],
             lockedMemoryOptionsMb: [32768, 65536],
             memoryUpgradePlanID: "max",
-            memoryUpgradePlansByMb: ["32768": "max", "65536": "max"]
+            memoryUpgradePlansByMb: ["32768": "max", "65536": "max"],
+            vcpusByMemoryMb: ["4096": 2, "8192": 4, "16384": 8, "24576": 12]
         ))
+    }
+
+    @Test func decodesNetworkPresetCatalogDefaults() throws {
+        let catalog = try #require(
+            try? JSONDecoder().decode(
+                CloudNetworkPresetCatalog.self,
+                from: Data("""
+                {
+                  "presets": [{"id":"github","label":"GitHub","domains":["github.com"]}],
+                  "requiredDomains": ["control.cmux.com"],
+                  "defaultPolicy": {"mode":"allowlist","domains":["control.cmux.com"]},
+                  "agentUpdateDomains": ["registry.npmjs.org"]
+                }
+                """.utf8)
+            )
+        )
+
+        #expect(catalog.presets.first?.id == "github")
+        #expect(catalog.requiredDomains == ["control.cmux.com"])
+        #expect(catalog.defaultPolicy.mode == .allowlist)
+        #expect(catalog.defaultPolicy.allowDns)
+        #expect(catalog.agentUpdateDomains == ["registry.npmjs.org"])
     }
 
     @Test func toleratesServersWithoutMachineKindCapabilities() throws {

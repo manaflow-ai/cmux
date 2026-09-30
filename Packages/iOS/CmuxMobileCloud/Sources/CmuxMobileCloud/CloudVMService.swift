@@ -40,6 +40,12 @@ public actor CloudVMService: CloudVMServing {
         return try decoding.catalog(from: data)
     }
 
+    public func networkPolicyCatalog() async throws -> CloudNetworkPresetCatalog? {
+        let (access, refresh) = try await credentials()
+        let data = try await send(requests.networkPolicyCatalog(accessToken: access, refreshToken: refresh))
+        return try JSONDecoder().decode(CloudNetworkPresetCatalog.self, from: data)
+    }
+
     public func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
         let (access, refresh) = try await credentials()
         let data = try await send(requests.createMachine(

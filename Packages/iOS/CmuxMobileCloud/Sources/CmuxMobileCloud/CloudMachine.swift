@@ -20,6 +20,8 @@ public struct CloudMachineCreateOptions: Sendable, Equatable {
     public var persistentHome: Bool
     public var perMachineHome: Bool
     public var memoryMb: Int?
+    public var networkPolicy: CloudNetworkPolicy?
+    public var agentUpdates: CloudAgentUpdates?
 
     public init(
         kind: CloudMachineKind = .base,
@@ -27,7 +29,9 @@ public struct CloudMachineCreateOptions: Sendable, Equatable {
         image: String? = nil,
         persistentHome: Bool = false,
         perMachineHome: Bool = false,
-        memoryMb: Int? = nil
+        memoryMb: Int? = nil,
+        networkPolicy: CloudNetworkPolicy? = nil,
+        agentUpdates: CloudAgentUpdates? = nil
     ) {
         self.kind = kind
         self.provider = provider
@@ -35,6 +39,8 @@ public struct CloudMachineCreateOptions: Sendable, Equatable {
         self.persistentHome = persistentHome
         self.perMachineHome = perMachineHome
         self.memoryMb = memoryMb
+        self.networkPolicy = networkPolicy
+        self.agentUpdates = agentUpdates
     }
 }
 
@@ -97,27 +103,34 @@ public struct CloudMachineLimits: Sendable, Equatable {
     public var maxActiveMachines: Int?
     public var activeMachineCount: Int?
     public var planID: String?
+    /// Days a free plan keeps a newly created machine reachable.
+    public var freeAccessWindowDays: Int
     public var memoryOptionsMb: [Int]
     public var lockedMemoryOptionsMb: [Int]?
     public var memoryUpgradePlanID: String?
     public var memoryUpgradePlansByMb: [String: String]?
+    public var vcpusByMemoryMb: [String: Int]?
 
     public init(
         maxActiveMachines: Int? = nil,
         activeMachineCount: Int? = nil,
         planID: String? = nil,
+        freeAccessWindowDays: Int = 0,
         memoryOptionsMb: [Int] = [],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanID: String? = nil,
-        memoryUpgradePlansByMb: [String: String]? = nil
+        memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil
     ) {
         self.maxActiveMachines = maxActiveMachines
         self.activeMachineCount = activeMachineCount
         self.planID = planID
+        self.freeAccessWindowDays = freeAccessWindowDays
         self.memoryOptionsMb = memoryOptionsMb
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanID = memoryUpgradePlanID
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
     }
 }
 

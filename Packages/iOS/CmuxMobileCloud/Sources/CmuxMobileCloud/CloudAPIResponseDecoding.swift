@@ -42,10 +42,12 @@ public struct CloudAPIResponseDecoding: Sendable {
                 maxActiveMachines: Self.int(limits["maxActiveVms"]),
                 activeMachineCount: Self.int(limits["activeVmCount"]),
                 planID: limits["planId"] as? String,
+                freeAccessWindowDays: Self.int(limits["freeAccessWindowDays"]) ?? 0,
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
                 lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
-                memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String]
+                memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String],
+                vcpusByMemoryMb: Self.positiveIntMap(limits["vcpusByMemoryMb"])
             )
         } else {
             availableKinds = nil
@@ -172,5 +174,22 @@ public struct CloudAPIResponseDecoding: Sendable {
     private static func optionalIntArray(_ value: Any?) -> [Int]? {
         guard let value, !(value is NSNull) else { return nil }
         return intArray(value)
+    }
+
+    private static func positiveIntMap(_ value: Any?) -> [String: Int]? {
+        guard let object = value as? [String: Any] else { return nil }
+        let result = object.compactMapValues { value -> Int? in
+            let integer: Int?
+            if let value = value as? Int {
+                integer = value
+            } else if let value = value as? NSNumber {
+                integer = value.intValue
+            } else {
+                integer = nil
+            }
+            guard let integer, integer > 0 else { return nil }
+            return integer
+        }
+        return result.isEmpty ? nil : result
     }
 }

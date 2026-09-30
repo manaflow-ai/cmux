@@ -171,8 +171,8 @@ public struct CloudSectionView: View {
 /// The Cloud equivalent of the Mac New Machine sheet.
 ///
 /// The backend remains the source of truth for team, provider, image, and
-/// billing checks. The phone shows the same size ladder and sends the selected
-/// memory profile when the user confirms.
+/// billing checks. The phone mirrors the Mac sheet's size, outbound network,
+/// and agent update settings, then sends the same create fields.
 struct CloudCreateMachineSheet: View {
     let controller: CloudSessionController
     let availableKinds: Set<CloudMachineKind>?
@@ -180,6 +180,17 @@ struct CloudCreateMachineSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var selectedMemoryMb: Int
+    @State private var networkCatalog: CloudNetworkPresetCatalog?
+    @State private var networkPolicy: CloudNetworkPolicy
+    @State private var networkCatalogLoaded = false
+    @State private var networkPolicyError: String?
+    @State private var domainDraft = ""
+    @State private var rangeDraft = ""
+    @State private var portDraft = ""
+    @State private var rangeProtocol: CloudNetworkRangeProtocol = .tcp
+    @State private var showsNetworkInfo = false
+    @State private var showsAgentInfo = false
+    @AppStorage("mobile.cloud.create.keepsAgentsUpdated") private var keepsAgentsUpdated = true
 
     init(
         controller: CloudSessionController,
@@ -190,136 +201,20 @@ struct CloudCreateMachineSheet: View {
         self.availableKinds = availableKinds
         self.limits = limits
         _selectedMemoryMb = State(initialValue: Self.defaultMemoryMb(for: limits))
+        let catalog = controller.networkPolicyCatalog
+        _networkCatalog = State(initialValue: catalog)
+        _networkPolicy = State(initialValue: catalog?.defaultPolicy ?? .default)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Text(L10n.string(
-                        "mobile.cloud.create.description",
-                        defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
-                    ))
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Section {
-                    Menu {
-                        ForEach(availableMemoryOptions, id: \.self) { memoryMb in
-                            Button(sizeMenuTitle(memoryMb)) {
-                                selectedMemoryMb = memoryMb
-                            }
-                        }
-                        ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
-                            Button {
-                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
-                            } label: {
-                                Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
-                            }
-                            .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
-                        }
-                    } label: {
-                        HStack {
-                            Text(sizeMenuTitle(selectedMemoryMb))
-                            Spacer(minLength: 12)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .disabled(availableMemoryOptions.isEmpty)
-                    .accessibilityIdentifier("CloudCreateMachineSize")
-
-                    if let lockedSizesNote {
-                        HStack(alignment: .center, spacing: 8) {
-                            Text(lockedSizesNote)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            if let upgradeActionTitle {
-                                Button(upgradeActionTitle) {
-                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
-                                }
-                                .controlSize(.small)
-                                .buttonStyle(.bordered)
-                                .font(.footnote.weight(.semibold))
-                                .accessibilityIdentifier("CloudCreateMachineUpgrade")
-                            }
-                        }
-                    }
-                } header: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.string("mobile.cloud.create.size.label", defaultValue: "Machine size"))
-                        Text(L10n.string(
-                            "mobile.cloud.create.size.help",
-                            defaultValue: "Choose the memory and disk profile for this machine."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let machineUsageText {
-                    Section {
-                        Text(machineUsageText)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("CloudCreateMachineUsage")
-                    }
-                }
-
-                Section {
-                    Button {
-                        Task {
-                            let created = await controller.createMachine(options: .init(
-                                kind: machineKind,
-                                memoryMb: selectedMemoryMb
-                            ))
-                            if created != nil { dismiss() }
-                        }
-                    } label: {
-                        HStack {
-                            Text(L10n.string("mobile.cloud.create.submit", defaultValue: "Create"))
-                            if controller.isCreatingMachine {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(controller.isCreatingMachine || availableMemoryOptions.isEmpty)
-                    .accessibilityIdentifier("CloudCreateMachineSubmit")
-
-                    if let failure = controller.lastCreateFailure {
-                        Text(failure.localizedMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        if let action = failure.action, !action.isEmpty {
-                            Text(action)
-                                .font(.footnote)
-                                .foregroundStyle(.primary)
-                        }
-                        Text(failure.detail)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.tertiary)
-                            .textSelection(.enabled)
-                            .accessibilityIdentifier("CloudCreateMachineFailure")
-                    }
-                } footer: {
-                    if controller.isCreatingMachine {
-                        Text(L10n.string(
-                            "mobile.cloud.create.wait",
-                            defaultValue: "Creating your machine. This takes a moment."
-                        ))
-                    } else {
-                        Text(L10n.string(
-                            "mobile.cloud.create.backgroundNote",
-                            defaultValue: "Creation continues in the Machines panel."
-                        ))
-                    }
-                }
+                descriptionSection
+                sizeSection
+                networkSection
+                agentUpdatesSection
+                usageSection
+                actionSection
             }
             .navigationTitle(L10n.string("mobile.cloud.create.title", defaultValue: "New Machine"))
             .navigationBarTitleDisplayMode(.inline)
@@ -330,11 +225,378 @@ struct CloudCreateMachineSheet: View {
                 }
             }
         }
+        .task {
+            guard !networkCatalogLoaded else { return }
+            let hadCatalog = networkCatalog != nil
+            await controller.refreshNetworkPolicyCatalog()
+            networkCatalog = controller.networkPolicyCatalog
+            if !hadCatalog, let networkCatalog {
+                networkPolicy = networkCatalog.defaultPolicy
+            }
+            networkCatalogLoaded = true
+        }
+        .sheet(isPresented: $showsNetworkInfo) {
+            CloudNetworkInfoSheet()
+        }
+        .sheet(isPresented: $showsAgentInfo) {
+            CloudAgentUpdatesInfoSheet()
+        }
         .presentationDetents([.medium, .large])
     }
 
     private static let pricingURL = URL(string: "https://cmux.com/pricing")!
     private static let fallbackMemoryMb = 8192
+
+    private var descriptionSection: some View {
+        Section {
+            Text(L10n.string(
+                "mobile.cloud.create.description",
+                defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
+            ))
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var sizeSection: some View {
+        Section {
+            Menu {
+                ForEach(availableMemoryOptions, id: \.self) { memoryMb in
+                    Button(sizeMenuTitle(memoryMb)) {
+                        selectedMemoryMb = memoryMb
+                    }
+                }
+                ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
+                    Button {
+                        openUpgradePage(planID: upgradePlanID(for: memoryMb))
+                    } label: {
+                        Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
+                    }
+                    .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
+                }
+            } label: {
+                HStack {
+                    Text(sizeMenuTitle(selectedMemoryMb))
+                    Spacer(minLength: 12)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(availableMemoryOptions.isEmpty)
+            .accessibilityIdentifier("CloudCreateMachineSize")
+
+            if let lockedSizesNote {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(lockedSizesNote)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if let upgradeActionTitle {
+                        Button(upgradeActionTitle) {
+                            openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("CloudCreateMachineUpgrade")
+                    }
+                }
+            }
+        } header: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string("mobile.cloud.create.size.label", defaultValue: "Machine size"))
+                Text(L10n.string(
+                    "mobile.cloud.create.size.help",
+                    defaultValue: "Choose the CPU, memory, and disk profile for this machine."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var networkSection: some View {
+        Section {
+            if let networkCatalog {
+                HStack {
+                    Picker(
+                        L10n.string("mobile.cloud.network.access", defaultValue: "Outbound access"),
+                        selection: Binding(
+                            get: { networkPolicy.mode },
+                            set: {
+                                networkPolicy.setMode($0)
+                                networkPolicyError = nil
+                            }
+                        )
+                    ) {
+                        ForEach(CloudNetworkPolicyMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .accessibilityIdentifier("CloudCreateMachineNetworkMode")
+                    Button {
+                        showsNetworkInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.string(
+                        "mobile.cloud.network.info",
+                        defaultValue: "How network access works"
+                    ))
+                    .accessibilityIdentifier("CloudCreateMachineNetworkInfo")
+                }
+                .contentShape(Rectangle())
+
+                Text(networkPolicy.mode.explanation)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if networkPolicy.mode == .allowlist {
+                    allowlistSection(catalog: networkCatalog)
+                }
+            } else if networkCatalogLoaded {
+                Label(
+                    L10n.string("mobile.cloud.network.full.compatibility", defaultValue: "Full internet"),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .foregroundStyle(.secondary)
+                Text(L10n.string(
+                    "mobile.cloud.network.unavailable",
+                    defaultValue: "Network choices are unavailable on this Cloud service. New machines use full internet access."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text(L10n.string("mobile.cloud.network.loading", defaultValue: "Loading network choices"))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text(L10n.string("mobile.cloud.network.section", defaultValue: "Network"))
+        }
+    }
+
+    @ViewBuilder
+    private func allowlistSection(catalog: CloudNetworkPresetCatalog) -> some View {
+        if !catalog.presets.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.string("mobile.cloud.network.quickAdd", defaultValue: "Quick add"))
+                    .font(.subheadline.weight(.medium))
+                ForEach(catalog.presets) { preset in
+                    Toggle(
+                        preset.label,
+                        isOn: Binding(
+                            get: { networkPolicy.presets.contains(preset.id) },
+                            set: { networkPolicy.setPreset(preset.id, enabled: $0) }
+                        )
+                    )
+                    .accessibilityIdentifier("CloudCreateMachineNetworkPreset.\(preset.id)")
+                }
+            }
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.string("mobile.cloud.network.domains", defaultValue: "Domains (HTTPS)"))
+                .font(.subheadline.weight(.medium))
+            ForEach(networkPolicy.domains, id: \.self) { domain in
+                networkEntryRow(domain) { networkPolicy.removeDomain(domain) }
+            }
+            HStack {
+                TextField(
+                    L10n.string("mobile.cloud.network.domainPlaceholder", defaultValue: "api.example.com"),
+                    text: $domainDraft
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                Button(L10n.string("mobile.cloud.network.add", defaultValue: "Add")) {
+                    addDomain()
+                }
+                .disabled(domainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.string("mobile.cloud.network.ranges", defaultValue: "IP ranges"))
+                .font(.subheadline.weight(.medium))
+            ForEach(networkPolicy.ranges, id: \.identityKey) { range in
+                networkEntryRow(range.displayText) { networkPolicy.removeRange(range) }
+            }
+            TextField(
+                L10n.string("mobile.cloud.network.rangePlaceholder", defaultValue: "203.0.113.0/24"),
+                text: $rangeDraft
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            HStack {
+                TextField(
+                    L10n.string("mobile.cloud.network.portPlaceholder", defaultValue: "Port"),
+                    text: $portDraft
+                )
+                .keyboardType(.numberPad)
+                Picker(
+                    L10n.string("mobile.cloud.network.protocol", defaultValue: "Protocol"),
+                    selection: $rangeProtocol
+                ) {
+                    ForEach(CloudNetworkRangeProtocol.allCases, id: \.self) { protocolName in
+                        Text(protocolName.rawValue.uppercased()).tag(protocolName)
+                    }
+                }
+                .disabled(portDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(L10n.string("mobile.cloud.network.add", defaultValue: "Add")) {
+                    addRange()
+                }
+                .disabled(rangeDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+
+        Toggle(
+            L10n.string("mobile.cloud.network.allowDNS", defaultValue: "Allow DNS lookups"),
+            isOn: Binding(
+                get: { networkPolicy.allowDns },
+                set: { networkPolicy.allowDns = $0 }
+            )
+        )
+        .accessibilityIdentifier("CloudCreateMachineNetworkDNS")
+
+        if !catalog.requiredDomains.isEmpty {
+            Text(String(
+                format: L10n.string(
+                    "mobile.cloud.network.required",
+                    defaultValue: "cmux always allows: %@."
+                ),
+                ListFormatter.localizedString(byJoining: catalog.requiredDomains)
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        if let networkPolicyError {
+            Text(networkPolicyError)
+                .font(.footnote)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private var agentUpdatesSection: some View {
+        Section {
+            Toggle(
+                L10n.string(
+                    "mobile.cloud.agentUpdates.label",
+                    defaultValue: "Keep coding agents up to date"
+                ),
+                isOn: $keepsAgentsUpdated
+            )
+            .accessibilityIdentifier("CloudCreateMachineAgentUpdates")
+            HStack {
+                Text(keepsAgentsUpdated
+                    ? L10n.string("mobile.cloud.agentUpdates.latest", defaultValue: "Uses each tool's latest eligible release.")
+                    : L10n.string("mobile.cloud.agentUpdates.image", defaultValue: "Keeps the versions included in the machine image.")
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button {
+                    showsAgentInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.string(
+                    "mobile.cloud.agentUpdates.info",
+                    defaultValue: "How agent updates work"
+                ))
+                .accessibilityIdentifier("CloudCreateMachineAgentUpdatesInfo")
+            }
+            if let blocked = blockedAgentUpdateDomains {
+                Label(
+                    String(
+                        format: L10n.string(
+                            "mobile.cloud.agentUpdates.blocked",
+                            defaultValue: "Updates need %@, which this network policy blocks."
+                        ),
+                        blocked.joined(separator: ", ")
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(.orange)
+            }
+        } header: {
+            Text(L10n.string("mobile.cloud.agentUpdates.section", defaultValue: "Coding agents"))
+        }
+    }
+
+    @ViewBuilder
+    private var usageSection: some View {
+        if let machineUsageText {
+            Section {
+                Text(machineUsageText)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("CloudCreateMachineUsage")
+            }
+        }
+    }
+
+    private var actionSection: some View {
+        Section {
+            Button {
+                Task {
+                    let created = await controller.createMachine(options: .init(
+                        kind: machineKind,
+                        memoryMb: selectedMemoryMb,
+                        networkPolicy: requestedNetworkPolicy,
+                        agentUpdates: keepsAgentsUpdated ? .latest : nil
+                    ))
+                    if created != nil { dismiss() }
+                }
+            } label: {
+                HStack {
+                    Text(L10n.string("mobile.cloud.create.submit", defaultValue: "Create"))
+                    if controller.isCreatingMachine {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(controller.isCreatingMachine || availableMemoryOptions.isEmpty)
+            .accessibilityIdentifier("CloudCreateMachineSubmit")
+
+            if let failure = controller.lastCreateFailure {
+                Text(failure.localizedMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let action = failure.action, !action.isEmpty {
+                    Text(action)
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                }
+                Text(failure.detail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("CloudCreateMachineFailure")
+            }
+        } footer: {
+            if controller.isCreatingMachine {
+                Text(L10n.string(
+                    "mobile.cloud.create.wait",
+                    defaultValue: "Creating your machine. This takes a moment."
+                ))
+            } else {
+                Text(L10n.string(
+                    "mobile.cloud.create.backgroundNote",
+                    defaultValue: "Creation continues in the Machines panel."
+                ))
+            }
+        }
+    }
 
     private var machineKind: CloudMachineKind {
         if let availableKinds, !availableKinds.contains(.desktop) {
@@ -408,8 +670,9 @@ struct CloudCreateMachineSheet: View {
             ?? controller.machines.elements.filter {
                 $0.lifecycle == .running || $0.lifecycle == .provisioning
             }.count
+        let usage: String
         if let maximum = limits.maxActiveMachines {
-            return String(
+            usage = String(
                 format: L10n.string(
                     "mobile.cloud.create.usage",
                     defaultValue: "%1$d of %2$d machines in use"
@@ -417,22 +680,45 @@ struct CloudCreateMachineSheet: View {
                 activeCount,
                 maximum
             )
+        } else {
+            usage = String(
+                format: L10n.string(
+                    "mobile.cloud.create.usageUnlimited",
+                    defaultValue: "%d machines in use"
+                ),
+                activeCount
+            )
         }
-        return String(
+        guard limits.freeAccessWindowDays > 0, !isPaidPlan(limits.planID) else { return usage }
+        return usage + " · " + String(
             format: L10n.string(
-                "mobile.cloud.create.usageUnlimited",
-                defaultValue: "%d machines in use"
+                "mobile.cloud.create.freeWindow",
+                defaultValue: "Free for %d days"
             ),
-            activeCount
+            limits.freeAccessWindowDays
         )
+    }
+
+    private func isPaidPlan(_ planID: String?) -> Bool {
+        switch planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "go", "pro", "max", "team", "founders":
+            return true
+        default:
+            return false
+        }
     }
 
     private func sizeMenuTitle(_ memoryMb: Int) -> String {
         let format = L10n.string(
-            "mobile.cloud.create.size.menu",
-            defaultValue: "%1$d GB RAM · %2$d GB disk"
+            "mobile.cloud.create.size.menu.vcpu",
+            defaultValue: "%1$d vCPU · %2$d GB RAM · %3$d GB disk"
         )
-        return String(format: format, memoryMb / 1024, (Self.diskMb(for: memoryMb) ?? memoryMb) / 1024)
+        return String(
+            format: format,
+            vcpus(for: memoryMb),
+            memoryMb / 1024,
+            (Self.diskMb(for: memoryMb) ?? memoryMb) / 1024
+        )
     }
 
     private func lockedSizeMenuTitle(_ memoryMb: Int) -> String {
@@ -492,6 +778,74 @@ struct CloudCreateMachineSheet: View {
         return available.contains(fallbackMemoryMb) ? fallbackMemoryMb : (available.first ?? fallbackMemoryMb)
     }
 
+    private func vcpus(for memoryMb: Int) -> Int {
+        limits?.vcpusByMemoryMb?[String(memoryMb)] ?? max(1, Int(ceil(Double(memoryMb) / 4096)))
+    }
+
+    private var blockedAgentUpdateDomains: [String]? {
+        guard keepsAgentsUpdated, let networkCatalog else { return nil }
+        let blocked = CloudAgentUpdates.latest.blockedDomains(for: networkPolicy, catalog: networkCatalog)
+        return blocked.isEmpty ? nil : blocked
+    }
+
+    private var requestedNetworkPolicy: CloudNetworkPolicy? {
+        guard networkCatalog != nil, networkPolicy != .default else { return nil }
+        return networkPolicy
+    }
+
+    private func addDomain() {
+        do {
+            try networkPolicy.addDomain(domainDraft)
+            domainDraft = ""
+            networkPolicyError = nil
+        } catch {
+            networkPolicyError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    private func addRange() {
+        let portText = portDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let port: Int?
+        if portText.isEmpty {
+            port = nil
+        } else if let parsed = Int(portText) {
+            port = parsed
+        } else {
+            networkPolicyError = L10n.string(
+                "mobile.cloud.network.invalidPort",
+                defaultValue: "The port must be a number from 1 to 65535."
+            )
+            return
+        }
+        do {
+            try networkPolicy.addRange(CloudNetworkRange(
+                cidr: rangeDraft,
+                port: port,
+                transport: port == nil ? nil : rangeProtocol
+            ))
+            rangeDraft = ""
+            portDraft = ""
+            networkPolicyError = nil
+        } catch {
+            networkPolicyError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    private func networkEntryRow(_ text: String, remove: @escaping () -> Void) -> some View {
+        HStack {
+            Text(text)
+                .font(.caption.monospaced())
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(L10n.string("mobile.cloud.network.remove", defaultValue: "Remove"))
+        }
+    }
+
     private static func diskMb(for memoryMb: Int) -> Int? {
         switch memoryMb {
         case 4096: return 16384
@@ -513,6 +867,204 @@ struct CloudCreateMachineSheet: View {
         }
         components.queryItems = [URLQueryItem(name: "plan", value: planID)]
         openURL(components.url ?? Self.pricingURL)
+    }
+}
+
+/// Explains the outbound network setting with the same concepts as the Mac
+/// New Machine modal, using a compact diagram that fits the phone sheet.
+struct CloudNetworkInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    CloudNetworkInfoDiagram()
+
+                    Text(L10n.string(
+                        "mobile.cloud.network.info.summary",
+                        defaultValue: "The network setting controls what a Cloud machine can reach. cmux keeps its own connection available so terminals and workspaces can continue to work."
+                    ))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        CloudNetworkInfoRow(
+                            title: L10n.string("mobile.cloud.network.full", defaultValue: "Full internet"),
+                            detail: L10n.string(
+                                "mobile.cloud.network.full.info",
+                                defaultValue: "The machine can reach public addresses."
+                            ),
+                            systemImage: "globe"
+                        )
+                        CloudNetworkInfoRow(
+                            title: L10n.string("mobile.cloud.network.allowlist", defaultValue: "Allowlist"),
+                            detail: L10n.string(
+                                "mobile.cloud.network.allowlist.info",
+                                defaultValue: "Only the listed domains and IP ranges, plus cmux-required services, are reachable."
+                            ),
+                            systemImage: "checklist"
+                        )
+                        CloudNetworkInfoRow(
+                            title: L10n.string("mobile.cloud.network.none", defaultValue: "No internet"),
+                            detail: L10n.string(
+                                "mobile.cloud.network.none.info",
+                                defaultValue: "Outbound access is closed except for what cmux itself needs."
+                            ),
+                            systemImage: "nosign"
+                        )
+                    }
+
+                    Link(
+                        L10n.string("mobile.cloud.network.learnMore", defaultValue: "Learn more about Cloud security"),
+                        destination: URL(string: "https://cmux.com/docs/cloud-security")!
+                    )
+                }
+                .padding()
+            }
+            .navigationTitle(L10n.string(
+                "mobile.cloud.network.info.title",
+                defaultValue: "How network access works"
+            ))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.string("mobile.cloud.done", defaultValue: "Done")) {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct CloudNetworkInfoDiagram: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            CloudInfoDiagramNode(
+                title: L10n.string("mobile.cloud.network.info.phone", defaultValue: "Your phone"),
+                systemImage: "iphone"
+            )
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            CloudInfoDiagramNode(
+                title: L10n.string("mobile.cloud.network.info.edge", defaultValue: "cmux edge"),
+                systemImage: "shield.lefthalf.filled"
+            )
+            Image(systemName: "arrow.right")
+                .foregroundStyle(.secondary)
+            CloudInfoDiagramNode(
+                title: L10n.string("mobile.cloud.network.info.machine", defaultValue: "Cloud machine"),
+                systemImage: "cloud"
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct CloudInfoDiagramNode: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(height: 28)
+            Text(title)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct CloudNetworkInfoRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// Explains the agent update choice with a short visual flow and the same
+/// update behavior exposed by the Mac New Machine modal.
+struct CloudAgentUpdatesInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(spacing: 10) {
+                        CloudInfoDiagramNode(
+                            title: L10n.string("mobile.cloud.agentUpdates.info.image", defaultValue: "Machine image"),
+                            systemImage: "shippingbox"
+                        )
+                        Image(systemName: "arrow.right")
+                            .foregroundStyle(.secondary)
+                        CloudInfoDiagramNode(
+                            title: L10n.string("mobile.cloud.agentUpdates.info.update", defaultValue: "Eligible updates"),
+                            systemImage: "arrow.down.circle"
+                        )
+                        Image(systemName: "arrow.right")
+                            .foregroundStyle(.secondary)
+                        CloudInfoDiagramNode(
+                            title: L10n.string("mobile.cloud.agentUpdates.info.agents", defaultValue: "Coding agents"),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Text(L10n.string(
+                        "mobile.cloud.agentUpdates.info.summary",
+                        defaultValue: "When enabled, Cloud checks for each supported coding agent's latest eligible release when you connect, at most once a day. Updates never downgrade a tool."
+                    ))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Label(
+                        L10n.string(
+                            "mobile.cloud.agentUpdates.info.network",
+                            defaultValue: "The selected network policy must allow the update hosts."
+                        ),
+                        systemImage: "network"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                .padding()
+            }
+            .navigationTitle(L10n.string(
+                "mobile.cloud.agentUpdates.info.title",
+                defaultValue: "Agent updates"
+            ))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.string("mobile.cloud.done", defaultValue: "Done")) {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
