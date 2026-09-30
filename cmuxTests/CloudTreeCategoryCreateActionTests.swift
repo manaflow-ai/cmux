@@ -27,7 +27,15 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(action.kind == .createAction(.newCloudVM))
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
-        #expect(try fixture.createHost(for: action).passesThrough == false)
+        let createHost = try fixture.createHost(for: action)
+        #expect(createHost.passesThrough == false)
+        let outline = try #require(fixture.coordinator.outlineView)
+        let hitPoint = createHost.convert(
+            NSPoint(x: createHost.bounds.midX, y: createHost.bounds.midY),
+            to: outline
+        )
+        let hit = try #require(outline.hitTest(hitPoint))
+        #expect(outline.validateProposedFirstResponder(hit, for: nil))
         let fallback = try #require(section.children.first { node in
             if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
             return false
