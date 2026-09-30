@@ -10,7 +10,7 @@ import SwiftUI
 @MainActor
 final class CloudTeamInviteSheetPresenter {
     static let shared = CloudTeamInviteSheetPresenter()
-    static let sheetSize = NSSize(width: 520, height: 540)
+    static let sheetSize = NSSize(width: 520, height: 456)
 
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
