@@ -107,18 +107,31 @@ import Testing
         let catalog = SurfaceCatalog()
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
         catalog.register(provider)
-        let initial = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: provider.machine))
-        #expect(provider.installSnapshotIfNewer(initial))
-        provider.publish(initial, ports: [])
 
-        defer {
+        // Teardown is awaited here rather than detached into a `Task`. The
+        // fixture directory is removed by the `defer` registered above, which
+        // runs last, so a detached teardown would be scheduled but not run
+        // before `root` (the socket and the daemon script) was deleted, and
+        // the daemon subprocess would outlive the test. This suite is
+        // `@MainActor`, so such a `Task` would not even start until the main
+        // actor next yielded, which is typically inside the following test.
+        func teardown() async {
             catalog.unregister(machine: provider.machine)
-            Task {
-                await links.disconnect()
-                await provider.stop()
-            }
+            await links.disconnect()
+            await provider.stop()
         }
-        return try await body(catalog, provider, root)
+
+        do {
+            let initial = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: provider.machine))
+            #expect(provider.installSnapshotIfNewer(initial))
+            provider.publish(initial, ports: [])
+            let value = try await body(catalog, provider, root)
+            await teardown()
+            return value
+        } catch {
+            await teardown()
+            throw error
+        }
     }
 
     /// Runs one catalog rename against the daemon fixture. Returns the accepted
