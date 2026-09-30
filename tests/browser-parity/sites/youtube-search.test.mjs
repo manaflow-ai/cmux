@@ -18,6 +18,8 @@ test("youtube.search: videoRenderer items anywhere in ytInitialData, deduplicate
   assert.deepEqual(r.map((v) => [v.videoId, v.title]), [["vidDirect01", "Direct Captions"], ["vidPlayer02", "Player Captions"]]);
   assert.deepEqual(r[0], { videoId: "vidDirect01", url: "https://www.youtube.com/watch?v=vidDirect01", title: "Direct Captions", channelName: "Mock Channel", channelUrl: "https://www.youtube.com/@mock", duration: "3:33", views: "12,345 views", published: "5 years ago", thumbnailUrl: "https://i.ytimg.com/x.jpg" });
   assert.equal((await s.value('sites.youtube.search("mock", { limit: 1 })')).length, 1);
+  // The session's fetch gets the mobile site unless it asks for the desktop one.
+  assert.ok(env.state.requests.filter((r) => r.url.includes("/results?")).every((r) => /[?&]app=desktop/.test(r.url)));
 });
 
 test("youtube.metadata and captions from the watch page's player response", async () => {
@@ -53,12 +55,21 @@ test("youtube.comments: entity-payload and legacy comment formats, following con
   assert.deepEqual(next.comments.map((c) => c.author), ["@carol"]);
 });
 
-test("googleSearch.search: structured results from data-rpos blocks; /url?q= unwrapped; duplicates and Google links dropped", async () => {
+test("googleSearch.search: results from Google's basic page carry the destination URL; Google links and duplicates dropped", async () => {
   const r = await s.value('sites.googleSearch.search("example")');
-  assert.deepEqual(r.map((x) => x.url), ["https://example.com/", "https://www.iana.org/domains/reserved", "https://example.org/q"]);
-  assert.deepEqual(r[0], { title: "Example Domain", url: "https://example.com/", sourceName: "Example", publishedAtText: "3 days ago", snippet: "This domain is for use in illustrative examples in documents.", sitelinks: [{ title: "About", url: "https://example.com/about" }, { title: "Help", url: "https://example.com/help" }] });
+  assert.deepEqual(r.map((x) => x.url), ["https://example.com/", "https://www.iana.org/domains/reserved?a=1&b=2", "https://example.org/q"]);
+  assert.deepEqual(r[0], { title: "Example Domain", url: "https://example.com/", displayUrl: "example.com", publishedAtText: "3 days ago", snippet: "This domain is for use in illustrative examples in documents.", sitelinks: [{ title: "About", url: "https://example.com/about" }, { title: "Help", url: "https://example.com/help" }] });
+  assert.equal(r[1].displayUrl, "www.iana.org \u203a domains \u203a reserved");
   assert.equal(r[2].publishedAtText, "Mar 3, 2025");
   assert.equal((await s.value('sites.googleSearch.search("example", { limit: 1 })')).length, 1);
+});
+
+test("googleSearch.search: when the basic page has no results, reads the full page in a tab and keeps Google's /goto links", async () => {
+  const r = await s.value('sites.googleSearch.search("javascript only")');
+  // Opaque links hide which results are Google's own (the Maps entry stays).
+  assert.equal(r.length, 4);
+  assert.match(r[0].url, /^https:\/\/www\.google\.com\/goto\?url=CAES/);
+  assert.deepEqual([r[0].title, r[0].displayUrl, r[0].publishedAtText], ["Example Domain", "https://example.com", "3 days ago"]);
 });
 
 test("googleSearch.search: runs one query at a time with a gap, and reports a CAPTCHA without solving it", async () => {

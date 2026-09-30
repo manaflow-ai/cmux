@@ -128,24 +128,33 @@ function driveContent(req, url) {
   return { status: 404, html: html("Not found") };
 }
 
+// Google serves its basic results page (links /url?q=<destination>) to the
+// session's plain fetch and the JavaScript page (data-rpos blocks, opaque
+// /goto links) to a browser tab, as observed on google.com in 2026.
 function googleSearch(req, url) {
   if (url.pathname.startsWith("/sorry/")) return { html: html('<form id="captcha-form"><div id="recaptcha"></div></form>', "Sorry") };
   if (url.pathname !== "/search") return { status: 404, text: "" };
   const q = url.searchParams.get("q") || "";
   if (q === "trigger captcha") return { redirect: "https://www.google.com/sorry/index?continue=x" };
-  const result = (i, title, href, site, snippet, extra = "") => `
-    <div class="MjjYud"><div data-rpos="${i}"><div class="g">
-      <a href="${href}" jsname="UWckNb"><h3 class="LC20lb">${esc(title)}</h3><div><span class="VuuXrf">${esc(site)}</span><cite>${esc(href)}</cite></div></a>
-      <div data-sncf="1"><div class="VwiC3b"><span>${esc(snippet)}</span></div></div>${extra}
-    </div></div></div>`;
-  const body = `<div id="search"><div id="rso">
-    ${result(0, "Example Domain", "https://example.com/", "Example", "3 days ago — This domain is for use in illustrative examples in documents.", '<table><tr><td><a href="https://example.com/about">About</a></td><td><a href="https://example.com/help">Help</a></td></tr></table>')}
-    ${result(1, "IANA reserved domains", "/url?q=https://www.iana.org/domains/reserved&sa=U", "IANA", "Reserved domains are set aside by the IETF for documentation and testing purposes only.")}
-    ${result(2, "Example Domain", "https://example.com/", "Example", "Duplicate result that must be dropped by URL.")}
-    <div data-rpos="3"><a href="https://www.google.com/search?q=more"><h3>People also search</h3></a></div>
-    ${result(4, `Result for ${q}`, "https://example.org/q", "Example Org", "Mar 3, 2025 — A dated snippet for the query.")}
-  </div></div>`;
-  return { html: html(body, `${esc(q)} - Google Search`) };
+  const browser = /Mozilla/.test(req.headers["user-agent"] || "");
+  const results = [
+    ["Example Domain", "https://example.com/", "example.com", "3 days ago \u2014 This domain is for use in illustrative examples in documents.", [["About", "https://example.com/about"], ["Help", "https://example.com/help"]]],
+    ["IANA reserved domains", "https://www.iana.org/domains/reserved?a=1&b=2", "www.iana.org \u203a domains \u203a reserved", "Reserved domains are set aside by the IETF for documentation and testing purposes only.", []],
+    ["Example Domain", "https://example.com/", "example.com", "Duplicate result that must be dropped by URL.", []],
+    ["Maps", "https://maps.google.com/maps?q=x", "maps.google.com", "A Google property that is not a web result.", []],
+    [`Result for ${q}`, "https://example.org/q", "example.org \u203a q", "Mar 3, 2025 \u2014 A dated snippet for the query.", []],
+  ];
+  if (!browser) {
+    if (q === "javascript only") return { html: html('<noscript><meta content="0;url=/httpservice/retry/enablejs" http-equiv="refresh"></noscript><div>Please click here if you are not redirected.</div>', "Google Search") };
+    const basic = results.map(([title, dest, crumb, snippet, links]) => `<div><div class="Gx5Zad xpd EtOod pkphOe"><div class="sHTlR lQigmf"><a href="/url?q=${dest.replace(/&/g, "%26")}&amp;sa=U&amp;ved=x&amp;usg=y"><div class="rdSCGb"><div class="pQyidf"><h3 class="zBAuLc"><div class="ilUpNd UFvD1">${esc(title)}</div></h3></div><div class="AKfAgb"><div class="ilUpNd BamJPe">${esc(crumb)}</div></div></div></a></div><div class="lQigmf"><div><div class="ilUpNd H66NU"><div><div><div class="ilUpNd H66NU">${esc(snippet)}</div></div></div></div></div>${links.map(([t, u]) => `<a href="/url?q=${u}&amp;sa=U">${esc(t)}</a>`).join(" ")}</div></div></div>`).join("");
+    return { html: html(`<div id="main">${basic}</div>`, `${esc(q)} - Google Search`) };
+  }
+  const js = results.map(([title, dest, crumb, snippet], i) => `
+    <div class="MjjYud"><div data-rpos="${i}"><div class="A6K0A">
+      <a href="/goto?url=CAES${Buffer.from(dest).toString("base64url")}" jsname="UWckNb" class="zReHs"><h3 class="LC20lb">${esc(title)}</h3><div><span class="VuuXrf">${esc(crumb.split(" ")[0])}</span><cite>https://${esc(crumb)}</cite></div></a>
+      <div data-sncf="1"><div class="VwiC3b"><span>${esc(snippet)}</span></div></div>
+    </div></div></div>`).join("");
+  return { html: html(`<div id="search"><div id="rso">${js}</div></div>`, `${esc(q)} - Google Search`) };
 }
 
 const GMAIL_APP = `

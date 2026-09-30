@@ -90,6 +90,14 @@ test("sites.list names every tool; help lists methods; drafts list", async () =>
   assert.ok(Array.isArray(await s.value("sites.drafts.list()")));
 });
 
+test("embeddedJSON reads page data given as an object or as an escaped string (YouTube's mobile pages)", () => {
+  const { embeddedJSON } = globalThis.CmuxBrowserRepl.sites;
+  assert.deepEqual(embeddedJSON('<script>var ytInitialData = {"a":"}{","b":[1]};</script>', "ytInitialData = "), { a: "}{", b: [1] });
+  const escaped = String.raw`<script>var ytInitialData = '\x7b\x22a\x22:\x22it\x5c\x22s \u00e9\x22\x7d';</script>`;
+  assert.deepEqual(embeddedJSON(escaped, "ytInitialData = "), { a: 'it"s é' });
+  assert.equal(embeddedJSON("<p>none</p>", "ytInitialData = "), null);
+});
+
 test("the tools load and parse without Node's URL (JavaScriptCore has none)", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(here, "../../../Resources/browser-repl");
