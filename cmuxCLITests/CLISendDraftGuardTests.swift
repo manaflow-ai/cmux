@@ -347,6 +347,7 @@ struct CLISendDraftGuardTests {
         )
 
         #expect(run.result.status != 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout.contains("unconfirmed"), Comment(rawValue: run.result.stdout))
         #expect(run.requests.contains { $0["method"] as? String == "surface.send_key" } == false)
     }
 

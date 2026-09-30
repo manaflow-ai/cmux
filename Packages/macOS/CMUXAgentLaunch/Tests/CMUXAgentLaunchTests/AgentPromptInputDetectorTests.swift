@@ -270,4 +270,11 @@ struct AgentPromptInputDetectorTests {
         #expect(snapshot.agentKind == .codex)
         #expect(snapshot.busy)
     }
+
+    @Test("A queued transcript row away from the prompt is ignored")
+    func queuedTranscriptRowIsIgnored() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "queued message from an earlier turn\n\n\n\n\n\n› Ask Codex to do anything")
+        #expect(snapshot.agentKind == .codex)
+        #expect(!snapshot.queued)
+    }
 }
