@@ -105,7 +105,20 @@ struct WorktreeSeedRepositoryTests {
         let outside = try WorktreeSeedTemporaryTree("outside")
         let target = try outside.file("secret")
         try tree.symlink("redirect", to: target)
-        try tree.symlink("selected", to: URL(fileURLWithPath: "redirect"))
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aSymlinkedTargetParentDoesNotHideAnEscapingLeaf() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        let directory = try tree.directory("config")
+        try tree.symlink("config/redirect", to: target)
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
         let listing = WorktreeSeedRepository(root: tree.root).listing("")
         let entry = try #require(listing.first { $0.name == "selected" })
         #expect(entry.escapesRepository)
