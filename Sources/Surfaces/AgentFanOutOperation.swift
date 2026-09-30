@@ -29,6 +29,8 @@ struct AgentFanOutChild: Codable, Equatable {
     var remoteWorkspaceID: String?
     /// The local workspace created for a visible child, when one was opened.
     var localWorkspaceID: String?
+    /// A local open can fail while the remote child continues running.
+    var projectionErrorCode: String?
     var terminalID: String?
     var state: AgentFanOutChildState
     var exitCode: Int?
@@ -40,6 +42,7 @@ struct AgentFanOutChild: Codable, Equatable {
         index: Int,
         remoteWorkspaceID: String? = nil,
         localWorkspaceID: String? = nil,
+        projectionErrorCode: String? = nil,
         terminalID: String?,
         state: AgentFanOutChildState,
         exitCode: Int?,
@@ -50,6 +53,7 @@ struct AgentFanOutChild: Codable, Equatable {
         self.index = index
         self.remoteWorkspaceID = remoteWorkspaceID
         self.localWorkspaceID = localWorkspaceID
+        self.projectionErrorCode = projectionErrorCode
         self.terminalID = terminalID
         self.state = state
         self.exitCode = exitCode
@@ -62,6 +66,7 @@ struct AgentFanOutChild: Codable, Equatable {
         var result: [String: Any] = ["index": index, "state": state.rawValue]
         if let remoteWorkspaceID { result["remote_workspace_id"] = remoteWorkspaceID }
         if let localWorkspaceID { result["local_workspace_id"] = localWorkspaceID }
+        if let projectionErrorCode { result["projection_error_code"] = projectionErrorCode }
         if let terminalID { result["terminal_id"] = terminalID }
         if let exitCode { result["exit_code"] = exitCode }
         if let errorCode { result["error_code"] = errorCode }
@@ -246,6 +251,9 @@ actor AgentFanOutOperationStore {
                 }
                 if candidate.localWorkspaceID == nil {
                     candidate.localWorkspaceID = current.localWorkspaceID
+                }
+                if candidate.projectionErrorCode == nil {
+                    candidate.projectionErrorCode = current.projectionErrorCode
                 }
                 if current.state == .exited {
                     return current

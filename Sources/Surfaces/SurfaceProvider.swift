@@ -59,6 +59,9 @@ protocol SurfaceProvider: AnyObject {
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
     /// Returns the committed identity and starter without waiting for a graph refresh.
     func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt
+    /// Create an empty workspace without a daemon starter terminal when the
+    /// caller will immediately supply its first terminal.
+    func createEmptyRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt
     /// Close a workspace view on this machine. Its terminals detach into the pool
     /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
     /// close each terminal first.
@@ -124,6 +127,9 @@ extension SurfaceProvider {
     }
     func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
         SurfaceWorkspaceCreationReceipt(workspace: try await createRemoteWorkspace(name: name), terminal: nil, cursor: nil)
+    }
+    func createEmptyRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
+        try await createRemoteWorkspaceReceipt(name: name)
     }
     func closeRemoteWorkspace(id: String) async throws {
         throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")

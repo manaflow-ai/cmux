@@ -155,6 +155,7 @@ extension TerminalController {
         for index in operation.children.indices {
             var createdChildWorkspace: SurfaceRemoteWorkspace?
             var createdChildTerminal: SurfaceResource?
+            var remoteReceiptCommitted = false
             do {
                 let childName = "\(namePrefix) [\(index + 1)/\(count)]"
                 // A child gets its own remote workspace by default. This makes
@@ -170,7 +171,7 @@ extension TerminalController {
                     // shell beside the agent. The receipt gives us the exact
                     // starter identity even while the graph is catching up;
                     // close it before launching the child command.
-                    let receipt = try await provider.createRemoteWorkspaceReceipt(name: childName)
+                    let receipt = try await provider.createEmptyRemoteWorkspaceReceipt(name: childName)
                     childWorkspace = receipt.workspace
                     if let starter = receipt.terminal {
                         try? await provider.closeTerminal(starter.id, remoteWorkspaceID: childWorkspace.id)
@@ -195,19 +196,35 @@ extension TerminalController {
                         remoteWorkspaceID: childWorkspace.id
                     )
                     createdChildTerminal = childTerminal
-                    let opened = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    do {
+                        let opened = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                         machine: .cloud(machineID), provider: provider, catalog: catalog,
                         name: childWorkspace.name, focus: focus, openLocally: open,
                         existingWorkspace: childWorkspace, existingTerminal: childTerminal,
                         host: workspaceCreationHost
-                    )
-                    response = [
-                        "machine": machineID,
-                        "terminal_id": childTerminal.id.key,
-                        "remote_workspace_id": childWorkspace.id,
-                        "workspace_id": opened.opened?.workspaceID.uuidString ?? NSNull(),
-                        "surface_id": opened.opened?.projections.first?.panelID.uuidString ?? NSNull(),
-                    ]
+                        )
+                        response = [
+                            "machine": machineID,
+                            "terminal_id": childTerminal.id.key,
+                            "remote_workspace_id": childWorkspace.id,
+                            "workspace_id": opened.opened?.workspaceID.uuidString ?? NSNull(),
+                            "surface_id": opened.opened?.projections.first?.panelID.uuidString ?? NSNull(),
+                        ]
+                    } catch {
+                        // The remote command is already durable. Preserve its
+                        // child receipt and report the local projection issue;
+                        // a later status/open action can still reattach it.
+                        operation.children[index].projectionErrorCode = String(describing: error).prefix(120).description
+                        operation.children[index].terminalID = childTerminal.id.key
+                        operation.children[index].state = .running
+                        operation.children[index].startedAt = Date()
+                        remoteReceiptCommitted = true
+                        response = [
+                            "machine": machineID,
+                            "terminal_id": childTerminal.id.key,
+                            "remote_workspace_id": childWorkspace.id,
+                        ]
+                    }
                 }
                 guard let terminalID = Self.fanOutString(response["terminal_id"]) else {
                     operation.children[index].state = .failed
@@ -230,7 +247,7 @@ extension TerminalController {
                 // committed into the visible local workspace. If local
                 // admission fails, close both identities so a failed fan-out
                 // cannot leave an orphaned agent in the machine sidebar.
-                if explicitWorkspace == nil {
+                if explicitWorkspace == nil && !remoteReceiptCommitted {
                     if let terminal = createdChildTerminal {
                         try? await provider.closeTerminal(terminal.id, remoteWorkspaceID: createdChildWorkspace?.id)
                     }
