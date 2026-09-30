@@ -126,6 +126,68 @@ extension CMUXCLI {
         ))
     }
 
+    /// Validates new-surface argv before any handle resolution or socket mutation.
+    func validateNewSurfaceArguments(_ args: [String]) throws {
+        let parsed = try parseTerminalCreationCommandOption(
+            args,
+            commandName: "new-surface"
+        )
+        let valueOptions: Set<String> = [
+            "--workspace",
+            "--window",
+            "--type",
+            "--pane",
+            "--url",
+            "--provider",
+            "--provider-id",
+            "--renderer",
+            "--renderer-kind",
+            "--working-directory",
+            "--cwd",
+            "--placement",
+            "--focus",
+        ]
+
+        var index = 0
+        while index < parsed.remaining.count {
+            let argument = parsed.remaining[index]
+            if argument == "--" {
+                return
+            }
+            guard argument.hasPrefix("--") else {
+                throw CLIError(message: "new-surface: unexpected argument '\(argument)'")
+            }
+
+            let parts = argument.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            let option = String(parts[0])
+            guard valueOptions.contains(option) else {
+                throw CLIError(message: "new-surface: unknown option '\(option)'")
+            }
+
+            if parts.count == 2 {
+                guard !parts[1].isEmpty else {
+                    throw CLIError(message: "new-surface: \(option) requires a value")
+                }
+                index += 1
+                continue
+            }
+
+            let valueIndex = index + 1
+            guard valueIndex < parsed.remaining.count else {
+                throw CLIError(message: "new-surface: \(option) requires a value")
+            }
+            let value = parsed.remaining[valueIndex]
+            guard value != "--", !value.hasPrefix("--") else {
+                throw CLIError(message: "new-surface: \(option) requires a value")
+            }
+            index += 2
+        }
+    }
+
     /// Parses terminal-creation command text without consuming a following flag.
     func parseTerminalCreationCommandOption(
         _ args: [String],
