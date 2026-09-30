@@ -981,7 +981,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
         # The build never finished, so every job re-runs and the sibling wait looks again.
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
 
@@ -995,7 +995,7 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("refused", summary)
         self.assertIn("so its sibling wait runs again", summary)
 
@@ -1611,15 +1611,16 @@ def listed(run_id, **overrides):
 
 
 class Sweeper(unittest.TestCase):
-    def sweep(self, api, *, follow=None, ticks=3):
+    def sweep(self, api, *, follow=None, ticks=3, light_retry=False):
         clock, watched = Clock(), []
 
         def fake_follow(client, target, **kwargs):
-            watched.append((target.run_id, target.attempt, target.late))
+            watched.append((target.run_id, target.attempt, target.full_rerun) if light_retry
+                           else (target.run_id, target.attempt, target.late))
             return follow(kwargs["sleep"]) if follow else "stopped: the run finished"
 
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0",
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=light_retry,
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
