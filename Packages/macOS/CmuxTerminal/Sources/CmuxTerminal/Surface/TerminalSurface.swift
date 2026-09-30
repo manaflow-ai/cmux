@@ -6,7 +6,6 @@ public import CmuxTerminalCore
 #if DEBUG
 internal import CMUXDebugLog
 #endif
-
 /// The owner of one `ghostty_surface_t` lifecycle: spawn inputs, runtime
 /// creation/teardown, pending input queues, portal-host leases, and renderer
 /// reclamation state.
@@ -129,7 +128,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
         return window
     }
-
     /// Whether the surface's pane container is in a real (non-bootstrap) window.
     @MainActor
     public var isViewInWindow: Bool { uiWindow != nil }

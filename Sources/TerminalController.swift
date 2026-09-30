@@ -320,7 +320,6 @@ class TerminalController {
     nonisolated static func terminalWakeCommand(workspaceID: UUID, surfaceID: UUID) -> String {
         "cmux focus-panel --workspace \(workspaceID.uuidString) --panel \(surfaceID.uuidString)"
     }
-
     /// Explains why a terminal has no running runtime and how to get one.
     nonisolated static func terminalNotRunningMessage(
         reason: TerminalSurfaceRuntimeUnavailableReason,
@@ -364,7 +363,6 @@ class TerminalController {
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
-
     private nonisolated static let focusIntentV1Commands: Set<String> = [
         "__internal_flags",
         "focus_window",
@@ -414,7 +412,6 @@ class TerminalController {
         }
         return focusIntentV1Commands.contains(commandKey)
     }
-
     /// Returns the encoded error when task-local automation policy suppresses
     /// a focus-oriented v2 command; otherwise returns `nil`.
     nonisolated static func focusSuppressionResponse(
@@ -436,7 +433,6 @@ class TerminalController {
             data: nil
         )
     }
-
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
     /// growing per stage-3c sub-stage); this controller is its interim
@@ -449,14 +445,12 @@ class TerminalController {
         let surfaceId: UUID
         let selector: String
     }
-
     private struct V2BrowserPendingDialog {
         let type: String
         let message: String
         let defaultText: String?
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
-
     private final class V2BrowserUndefinedSentinel: Sendable {}
 
     private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
@@ -512,14 +506,12 @@ class TerminalController {
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
-
     /// Bridges the package server's event closures back to the controller.
     /// Assigned exactly once during `init`, before the listener can start, and
     /// read-only afterward; the controller is an app-lifetime singleton.
     final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
     }
-
     /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
     /// roster of a `cmux ssh` machine) through the same relay-backed delivery
     /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
@@ -545,7 +537,6 @@ class TerminalController {
         }
         return agentHookDeliveryQueue.enqueue(event)
     }
-
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
@@ -738,7 +729,6 @@ class TerminalController {
     nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
         allowsInAppFocusMutationsForActiveSocketCommand()
     }
-
     private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
         currentSocketCommandFocusAllowanceStack().last ?? false
     }

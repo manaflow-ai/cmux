@@ -16,7 +16,6 @@ extension TerminalSurface {
     ) {
         startRuntimeUsingHeadlessWindowIfNeeded(reason: reason, source: source)
     }
-
     @MainActor
     private func startRuntimeUsingHeadlessWindowIfNeeded(
         reason: String,
@@ -34,7 +33,6 @@ extension TerminalSurface {
             attachToViewForInputDemand(surfaceView)
         }
     }
-
     @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
         if let existingWindow = headlessStartupWindow {
@@ -83,7 +81,6 @@ extension TerminalSurface {
         )
 #endif
     }
-
     @MainActor
     private func adoptPaneHostIntoHeadlessStartupWindow(_ window: NSWindow, reason: String) {
         guard let contentView = window.contentView else { return }
