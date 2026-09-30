@@ -600,18 +600,26 @@ final class AgentChatSessionRegistry {
                         }
                         continue
                     }
-                    self.update(sessionID: sessionID) { record in
-                        record.branch = value.branch
-                        record.worktree = value.worktree
-                        record.linkedPullRequests = value.pullRequests
-                        record.pullRequestsResolved = value.pullRequestsResolved
+                    if current.branch != value.branch ||
+                        current.worktree != value.worktree ||
+                        current.linkedPullRequests != value.pullRequests ||
+                        current.pullRequestsResolved != value.pullRequestsResolved {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = value.branch
+                            record.worktree = value.worktree
+                            record.linkedPullRequests = value.pullRequests
+                            record.pullRequestsResolved = value.pullRequestsResolved
+                        }
                     }
                 } else if !resolvedIDs.contains(sessionID) {
-                    self.update(sessionID: sessionID) { record in
-                        record.branch = nil
-                        record.worktree = nil
-                        record.linkedPullRequests.removeAll()
-                        record.pullRequestsResolved = false
+                    if current.branch != nil || current.worktree != nil ||
+                        !current.linkedPullRequests.isEmpty || current.pullRequestsResolved {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = nil
+                            record.worktree = nil
+                            record.linkedPullRequests.removeAll()
+                            record.pullRequestsResolved = false
+                        }
                     }
                 }
             }

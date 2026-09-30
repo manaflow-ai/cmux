@@ -37,7 +37,7 @@ extension TerminalController {
                   let rawSurfaceID = record.surfaceID,
                   let surfaceID = UUID(uuidString: rawSurfaceID),
                   let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-                  let visibleText = surface.readText(region: .history) ?? surface.visibleText(),
+                  let visibleText = surface.visibleText(),
                   let preview = AgentSessionOutputPreview.tail(visibleText, lines: 3) else {
                 return record
             }

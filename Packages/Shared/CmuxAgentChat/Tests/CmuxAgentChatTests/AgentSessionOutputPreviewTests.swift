@@ -20,10 +20,10 @@ struct AgentSessionOutputPreviewTests {
         let text = """
         ┌─ Codex ─┐
         ⠋ Working...
-        Changed the session projection.
+        ⏺ Changed the session projection.
         Tests pass.
         ? for shortcuts
-        >
+        ›
         """
         #expect(AgentSessionOutputPreview.tail(text, lines: 2) == "Changed the session projection.\nTests pass.")
     }

@@ -12,12 +12,15 @@ public struct AgentSessionOutputPreview: Sendable, Equatable {
         let lines = withoutANSI
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { line in
+                line.hasPrefix("⏺ ") ? String(line.dropFirst(2)) : line
+            }
             .filter { !$0.isEmpty }
             .filter { line in
                 let scalars = line.unicodeScalars
                 guard let first = scalars.first else { return false }
                 if "╭╮╰╯│─━┌┐└┘├┤┬┴┼".unicodeScalars.contains(first) { return false }
-                if ["❯", ">", "➜", "⏵", "⏳", "✳", "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].contains(String(first)) { return false }
+                if ["❯", "›", ">", "➜", "⏵", "⏳", "✳", "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].contains(String(first)) { return false }
                 let lower = line.lowercased()
                 let chrome = [
                     "esc to interrupt", "ctrl+c to interrupt", "ctrl+c to cancel",
