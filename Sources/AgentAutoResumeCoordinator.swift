@@ -57,6 +57,7 @@ final class AgentAutoResumeCoordinator {
             timers.removeValue(forKey: surface)?.cancel()
             let workspaceHint = draft.workspaceId
             let agent = draft.source
+            let sessionId = tracker.pendingSessionId(surfaceId: surface, token: token)
             CmuxEventBus.shared.publish(
                 name: "agent.auto_resume.scheduled",
                 category: "agent",
@@ -71,7 +72,14 @@ final class AgentAutoResumeCoordinator {
             timers[surface] = Task { [weak self] in
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
-                self?.fire(surfaceId: surface, token: token, attempt: attempt, workspaceHint: workspaceHint, agent: agent)
+                self?.fire(
+                    surfaceId: surface,
+                    token: token,
+                    attempt: attempt,
+                    workspaceHint: workspaceHint,
+                    agent: agent,
+                    sessionId: sessionId
+                )
             }
         }
     }
@@ -89,19 +97,26 @@ final class AgentAutoResumeCoordinator {
         }
     }
 
-    private func fire(surfaceId: String, token: UInt64, attempt: Int, workspaceHint: String?, agent: String) {
+    private func fire(
+        surfaceId: String,
+        token: UInt64,
+        attempt: Int,
+        workspaceHint: String?,
+        agent: String,
+        sessionId: String?
+    ) {
         timers[surfaceId] = nil
         guard tracker.isPending(surfaceId: surfaceId, token: token) else { return }
-        guard isEnabled,
-              let panelId = UUID(uuidString: surfaceId),
-              let located = AppDelegate.shared?.workspaceContainingPanel(
+        guard isEnabled, let panelId = UUID(uuidString: surfaceId),
+              let target = resumeTarget(
                   panelId: panelId,
-                  preferredWorkspaceId: workspaceHint.flatMap(UUID.init(uuidString:))
+                  workspaceHint: workspaceHint.flatMap(UUID.init(uuidString:))
               ),
-              let terminal = located.workspace.terminalPanel(for: panelId) else {
+              target.matchesManagedSession(sessionId, agent: agent) else {
             tracker.abandon(surfaceId: surfaceId, token: token)
             return
         }
+        let terminal = target.terminal
         guard let input = resumeInput(for: terminal, agent: agent) else {
             tracker.abandon(surfaceId: surfaceId, token: token)
             return
@@ -125,7 +140,7 @@ final class AgentAutoResumeCoordinator {
             }
         }
         guard let total = tracker.resumeSent(surfaceId: surfaceId, token: token) else { return }
-        located.workspace.statusEntries[Self.statusKey] = SidebarStatusEntry(
+        let statusEntry = SidebarStatusEntry(
             key: Self.statusKey,
             value: String.localizedStringWithFormat(
                 String(localized: "agent.autoResume.status", defaultValue: "Auto-resumed ×%lld"),
@@ -134,11 +149,12 @@ final class AgentAutoResumeCoordinator {
             icon: "arrow.clockwise",
             color: "#4C8DFF"
         )
+        target.setStatusEntry(statusEntry, key: Self.statusKey)
         CmuxEventBus.shared.publish(
             name: "agent.auto_resume.sent",
             category: "agent",
             source: "auto_resume",
-            workspaceId: located.workspace.id.uuidString,
+            workspaceId: target.workspaceId.uuidString,
             surfaceId: surfaceId,
             payload: ["agent": agent, "attempt": attempt, "total": total]
         )
@@ -231,10 +247,83 @@ final class AgentAutoResumeCoordinator {
 
     private func clearMarker(surfaceId: String, workspaceHint: String?) {
         guard let panelId = UUID(uuidString: surfaceId),
-              let located = AppDelegate.shared?.workspaceContainingPanel(
+              let target = resumeTarget(
                   panelId: panelId,
-                  preferredWorkspaceId: workspaceHint.flatMap(UUID.init(uuidString:))
+                  workspaceHint: workspaceHint.flatMap(UUID.init(uuidString:))
               ) else { return }
-        located.workspace.statusEntries.removeValue(forKey: Self.statusKey)
+        target.clearStatusEntry(key: Self.statusKey)
+    }
+
+    private enum ResumeTarget {
+        case workspace(Workspace, TerminalPanel)
+        case dock(DockSplitStore, TerminalPanel)
+
+        var terminal: TerminalPanel {
+            switch self {
+            case .workspace(_, let terminal), .dock(_, let terminal): terminal
+            }
+        }
+
+        var workspaceId: UUID {
+            switch self {
+            case .workspace(let workspace, _): workspace.id
+            case .dock(let dock, _): dock.workspaceId
+            }
+        }
+
+        func matchesManagedSession(_ sessionId: String?, agent: String) -> Bool {
+            guard let sessionId, !sessionId.isEmpty else { return true }
+            let binding: SurfaceResumeBindingSnapshot?
+            let currentSessionId: String?
+            switch self {
+            case .workspace(let workspace, let terminal):
+                binding = workspace.surfaceResumeBinding(panelId: terminal.id)
+                currentSessionId = binding?.checkpointId
+                    ?? workspace.restoredAgentSnapshotsByPanelId[terminal.id]?.sessionId
+            case .dock(let dock, let terminal):
+                binding = dock.managedAgentResumeBinding(panelId: terminal.id)
+                    ?? dock.surfaceResumeBinding(panelId: terminal.id)
+                currentSessionId = binding?.checkpointId
+                    ?? binding?.managedRestorableAgentSnapshot(replacing: nil)?.sessionId
+            }
+            guard let binding,
+                  binding.isAgentHookBinding,
+                  binding.kind == nil || binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == agent.lowercased(),
+                  let currentSessionId else { return false }
+            return currentSessionId == sessionId
+        }
+
+        func setStatusEntry(_ entry: SidebarStatusEntry, key: String) {
+            switch self {
+            case .workspace(let workspace, let terminal):
+                workspace.setStatusEntry(entry, key: key, panelId: terminal.id)
+            case .dock(let dock, let terminal):
+                dock.setAgentRuntimeStatusEntry(entry, key: key, panelId: terminal.id)
+            }
+        }
+
+        func clearStatusEntry(key: String) {
+            switch self {
+            case .workspace(let workspace, let terminal):
+                workspace.clearStatusEntry(key: key, panelId: terminal.id)
+            case .dock(let dock, let terminal):
+                dock.clearAgentRuntimeStatusEntry(key: key, panelId: terminal.id)
+            }
+        }
+    }
+
+    private func resumeTarget(panelId: UUID, workspaceHint: UUID?) -> ResumeTarget? {
+        if let dock = DockSplitStore.liveStore(containingPanel: panelId),
+           let terminal = dock.panels[panelId] as? TerminalPanel {
+            return .dock(dock, terminal)
+        }
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: workspaceHint
+        ),
+        let terminal = located.workspace.terminalPanel(for: panelId) else {
+            return nil
+        }
+        return .workspace(located.workspace, terminal)
     }
 }

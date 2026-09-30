@@ -57,6 +57,12 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         surfaces[surfaceId]?.pendingToken == token
     }
 
+    /// Returns the native session identity captured by a pending schedule.
+    public func pendingSessionId(surfaceId: String, token: UInt64) -> String? {
+        guard surfaces[surfaceId]?.pendingToken == token else { return nil }
+        return surfaces[surfaceId]?.sessionId
+    }
+
     /// Folds one journaled event for a surface into a decision.
     public mutating func observe(
         kind: AgentJournalEventKind,
@@ -70,9 +76,17 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         guard !isSubagent else { return .none }
         switch kind {
         case .errorReported:
-            if let sessionId, !sessionId.isEmpty,
-               surfaces[surfaceId]?.sessionId != sessionId {
-                surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            if let sessionId, !sessionId.isEmpty {
+                if let currentSessionId = surfaces[surfaceId]?.sessionId,
+                   !currentSessionId.isEmpty,
+                   currentSessionId != sessionId {
+                    // A late error from an older session must not replace the
+                    // session that a newer sessionStarted event established.
+                    return .none
+                }
+                if surfaces[surfaceId]?.sessionId != sessionId {
+                    surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+                }
             }
             // The same failure can arrive twice: once with its detail and
             // once through the error notification without one. An event with

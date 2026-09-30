@@ -162,6 +162,27 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.totalResumes(surfaceId: surface) == 0)
     }
 
+    @Test func aLateErrorFromAnOlderSessionCannotReplaceTheCurrentSession() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
+        _ = tracker.observe(
+            kind: .sessionStarted,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: nil,
+            sessionId: "session-b"
+        )
+        #expect(
+            tracker.observe(
+                kind: .errorReported,
+                surfaceId: surface,
+                isSubagent: false,
+                detail: "overloaded",
+                sessionId: "session-a"
+            ) == .none
+        )
+        #expect(tracker.totalResumes(surfaceId: surface) == 0)
+    }
+
     @Test func explicitInputCancelsAndResetsTheFailingStreak() {
         var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
         guard case let .schedule(_, _, _, token) = tracker.observe(
