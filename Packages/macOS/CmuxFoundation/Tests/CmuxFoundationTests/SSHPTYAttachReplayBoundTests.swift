@@ -109,14 +109,4 @@ struct SSHPTYAttachReplayBoundTests {
         #expect(forwardedEveryByteInOrder)
         #expect(progress.replayBytesRemaining == 0)
     }
-
-    @Test("a replayed query filter passes live queries after the replay ends early")
-    func replayFilterStopsAfterEarlyReplayEnd() {
-        var filter = SSHPTYReplayOutputFilter(replayBytes: 1_000)
-        #expect(text(filter.filter(Data("old\u{1B}[c".utf8))) == "old")
-
-        filter.endReplay()
-
-        #expect(text(filter.filter(Data("\u{1B}[c".utf8))) == "\u{1B}[c")
-    }
 }

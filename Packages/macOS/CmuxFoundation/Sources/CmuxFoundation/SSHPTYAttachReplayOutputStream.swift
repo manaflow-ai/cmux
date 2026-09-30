@@ -31,13 +31,20 @@ public struct SSHPTYAttachReplayOutputStream: Sendable {
         queryFilter.filter(progress.terminalOutput(from: data, suppressingReplay: suppressingReplay))
     }
 
-    /// Ends the replay phase after the caller's replay deadline expired.
+    /// Ends the replay hold after the caller's replay deadline expired.
+    ///
+    /// The deadline exists so a slow or lying peer cannot hold keystrokes
+    /// forever; afterwards ``progress`` reports the replay as complete and
+    /// input forwarding may start. The declared replay is still historical
+    /// output, so the query filter keeps counting it down: a query in replay
+    /// bytes that arrive late is stripped rather than answered into the live
+    /// remote shell. ``SSHPTYReplayOutputFilter`` caps how many bytes it
+    /// treats as replay, so an inflated declaration cannot hide live queries
+    /// indefinitely.
     ///
     /// - Returns: Buffered replay output that must still reach the terminal.
     public mutating func endStalledReplay() -> Data {
-        let output = queryFilter.filter(progress.endReplay())
-        queryFilter.endReplay()
-        return output
+        queryFilter.filter(progress.endReplay())
     }
 
     /// Flushes everything still held when the bridge closes.

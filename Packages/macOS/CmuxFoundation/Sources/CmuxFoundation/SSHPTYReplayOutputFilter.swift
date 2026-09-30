@@ -18,6 +18,14 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     private static let semicolon: UInt8 = 0x3B
     private static let questionMark: UInt8 = 0x3F
     private static let maxPendingBytes = 4 * 1024
+    /// Most leading bytes treated as replay, whatever the peer declares.
+    ///
+    /// `cmuxd-remote` replays its session scrollback snapshot, which it bounds
+    /// to `defaultWebSocketScrollbackCap` (1 MiB); production never raises
+    /// that limit, and ``SSHPTYAttachOutputProgress`` validates reconnect
+    /// replays against the same bound. A larger declaration violates the
+    /// protocol, so it cannot keep query stripping on for live output.
+    public static let maximumReplayBytes = 1 << 20
 
     private enum SequenceMatch {
         case strip(length: Int)
@@ -31,9 +39,10 @@ public struct SSHPTYReplayOutputFilter: Sendable {
     /// Creates a filter for one ordered PTY attachment output stream.
     ///
     /// - Parameter replayBytes: Number of leading output bytes belonging to
-    ///   the daemon's scrollback replay. Negative values are treated as zero.
+    ///   the daemon's scrollback replay. Negative values are treated as zero
+    ///   and larger values are capped at ``maximumReplayBytes``.
     public init(replayBytes: Int) {
-        replayBytesRemaining = max(0, replayBytes)
+        replayBytesRemaining = min(max(0, replayBytes), Self.maximumReplayBytes)
     }
 
     /// Filters one output chunk, stripping only query sequences that begin in replay.
@@ -93,14 +102,6 @@ public struct SSHPTYReplayOutputFilter: Sendable {
             }
         }
         return output
-    }
-
-    /// Treats every later byte as live output after the replay phase ended early.
-    ///
-    /// A held candidate that began in replay is emitted unchanged with the next
-    /// chunk, matching how an oversized candidate fails open.
-    public mutating func endReplay() {
-        replayBytesRemaining = 0
     }
 
     /// Flushes an unterminated candidate when the bridge closes.
