@@ -1730,6 +1730,26 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 }
 
 extension SurfaceMachineInfo {
+    /// Copy for a failed remote graph refresh. State-specific failures take precedence over
+    /// diagnostics because a missing graph is not necessarily a network failure. Internal
+    /// snake-case reason codes stay out of user-facing errors.
+    var linkFailureMessage: String {
+        switch linkState {
+        case .asleep:
+            return String(localized: "cloud.operation.failure.machineAsleep", defaultValue: "This machine is asleep. Wake it to connect.")
+        case .unavailable:
+            return String(localized: "cloud.operation.failure.machineUnavailable", defaultValue: "cmux cannot reach the Cloud service for this machine right now.")
+        default:
+            guard let linkError else { return CloudDiagnosticFailure.network.label }
+            let message = linkError.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !message.isEmpty,
+                  message.range(of: #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#, options: .regularExpression) == nil else {
+                return CloudDiagnosticFailure.network.label
+            }
+            return message
+        }
+    }
+
     /// The same machine row with `previous`'s resource gauges, so a refresh that
     /// publishes before its stats read lands does not blank the sidebar gauges.
     func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {

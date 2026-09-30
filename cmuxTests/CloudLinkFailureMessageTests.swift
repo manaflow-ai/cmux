@@ -13,21 +13,20 @@ struct CloudLinkFailureMessageTests {
     @Test("states and diagnostics produce user-facing link failure copy")
     func linkFailureMessageUsesStateAndProse() {
         let asleep = machineInfo(linkState: .asleep)
-        #expect(currentFailureMessage(for: asleep) == "This machine is asleep. Wake it to connect.")
+        #expect(asleep.linkFailureMessage == "This machine is asleep. Wake it to connect.")
 
         let unavailable = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
-        #expect(currentFailureMessage(for: unavailable) == "cmux cannot reach the Cloud service for this machine right now.")
+        #expect(unavailable.linkFailureMessage == "cmux cannot reach the Cloud service for this machine right now.")
+
+        let reasonCode = machineInfo(linkState: .error, linkError: "daemon_not_ready")
+        #expect(reasonCode.linkFailureMessage == CloudDiagnosticFailure.network.label)
 
         let prose = machineInfo(linkState: .error, linkError: "The remote daemon did not respond before the timeout.")
-        #expect(currentFailureMessage(for: prose) == "The remote daemon did not respond before the timeout.")
+        #expect(prose.linkFailureMessage == "The remote daemon did not respond before the timeout.")
 
         let empty = machineInfo(linkState: .error, linkError: "")
-        #expect(currentFailureMessage(for: empty) == CloudDiagnosticFailure.network.label)
-        #expect(currentFailureMessage(for: machineInfo(linkState: .error)) == CloudDiagnosticFailure.network.label)
-    }
-
-    private func currentFailureMessage(for info: SurfaceMachineInfo) -> String {
-        info.linkError ?? CloudDiagnosticFailure.network.label
+        #expect(empty.linkFailureMessage == CloudDiagnosticFailure.network.label)
+        #expect(machineInfo(linkState: .error).linkFailureMessage == CloudDiagnosticFailure.network.label)
     }
 
     private func machineInfo(linkState: SurfaceLinkState, linkError: String? = nil) -> SurfaceMachineInfo {

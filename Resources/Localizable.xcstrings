@@ -585469,6 +585469,124 @@
           }
         }
       }
+    },
+    "cloud.operation.failure.machineAsleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is asleep. Wake it to connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الجهاز في وضع السكون. أوقظه للاتصال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine ist im Ruhezustand. Wecken Sie sie auf, um eine Verbindung herzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina está en reposo. Actívala para conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine est en veille. Réveillez-la pour vous connecter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはスリープ中です。接続するには起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신은 잠자기 상태입니다. 연결하려면 깨우세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器处于睡眠状态。唤醒它以连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部機器目前處於睡眠狀態。喚醒它以連線。"
+          }
+        }
+      }
+    },
+    "cloud.operation.failure.machineUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach the Cloud service for this machine right now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتعذر على cmux الوصول إلى خدمة Cloud لهذه الآلة في الوقت الحالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann den Cloud-Dienst für diese Maschine derzeit nicht erreichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede acceder al servicio Cloud para esta máquina en este momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas joindre le service Cloud pour cette machine pour le moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は現在、このマシンの Cloud サービスに接続できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 현재 이 머신의 Cloud 서비스에 연결할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 目前无法连接到此机器的 Cloud 服务。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 目前無法連線到這部機器的 Cloud 服務。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
