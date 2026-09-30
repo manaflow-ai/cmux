@@ -20,7 +20,7 @@ struct LocalBrowserTab: Hashable, Sendable {
 @Observable
 final class WindowState {
     /// Stable id that survives relaunch (the projection record id).
-    let id: String
+    private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown.
     var workspaceID: String?
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
@@ -32,6 +32,14 @@ final class WindowState {
     var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.machineID = machineID ?? MachineRegistry.localID
+    }
+
+    /// Takes over a restored record's identity (the window opened before the
+    /// saved state could load).
+    func adopt(id: String, workspaceID: String?, machineID: String?) {
         self.id = id
         self.workspaceID = workspaceID
         self.machineID = machineID ?? MachineRegistry.localID
