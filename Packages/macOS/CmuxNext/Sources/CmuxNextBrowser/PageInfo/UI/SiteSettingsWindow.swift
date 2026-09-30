@@ -112,7 +112,17 @@ final class SiteSettingsWindow: PageInfoWindow {
 
     @objc private func resetPermissions() {
         if isCurrentOrigin { return send(.resetPermissions) }
+        // The engine keeps its own decisions (Chromium persists content
+        // settings): reset each one the store or the engine had, not only
+        // the store.
+        let stored = store.changedKinds(for: origin)
         store.reset(origin: origin)
+        Task { [provider, origin] in
+            let live = await provider.pageInfoLivePermissions(origin: origin)
+            for kind in stored.union(live.keys) {
+                await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin)
+            }
+        }
     }
 
     @objc private func deleteSiteData() {
