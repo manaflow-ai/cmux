@@ -684,7 +684,7 @@ private final class LocalLinkContainer: TerminalLinkOpenContainer {
         deferredFilePaths.append(filePath)
         return true
     }
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, placement: TerminalLinkBrowserPlacement, focus: Bool) -> Bool { false }
 }
 
 /// Records URLs handed to the coordinator's file-opening seam.
