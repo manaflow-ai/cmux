@@ -770,6 +770,10 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchPath: String?
     /// Directories the Cloud daemon watch covers: the root plus expanded folders.
     private var cloudWatchDirectories: [String]?
+    private static let watchRetryInitialDelay: Duration = .seconds(2)
+    private static let watchRetryMaximumDelay: Duration = .seconds(30)
+    /// Waits between Cloud watch restarts; injectable for tests.
+    var watchRetrySleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -915,7 +919,8 @@ final class FileExplorerStore: ObservableObject {
         let context = resourceContextID, source = gitStatusProvider
         if let cloud = provider as? CloudVMFileExplorerProvider, cloud.isAvailable, !path.isEmpty {
             Task { [weak self] in
-                let status = try? await cloud.gitStatus(directory: path)
+                // A transient failure keeps the last decorations instead of clearing them.
+                guard let status = try? await cloud.gitStatus(directory: path) else { return }
                 guard let self, self.gitStatusGeneration == generation, self.resourceContextID == context else { return }
                 self.gitStatusByPath = status.map {
                     source.statusFromRemotePorcelain($0.porcelain, repoRoot: $0.repositoryRoot, directory: path)
@@ -986,22 +991,36 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
         } else if let cloud = provider as? CloudVMFileExplorerProvider, cloud.isAvailable, !rootPath.isEmpty {
-            let root = rootPath
-            let directories = [root] + expandedPaths.filter { $0 != root && Self.path($0, isContainedIn: root) }.sorted()
+            // Only folders that are still in the tree: one missing path fails the
+            // whole watch on the daemon.
+            let directories = displayedDirectories(requireLoadedChildren: false)
             guard cloudWatchDirectories != directories || directoryWatchTask == nil else { return }
             stopDirectoryWatcher()
             cloudWatchDirectories = directories
-            let changes = cloud.directoryChanges(directories)
+            let sleep = watchRetrySleep
             directoryWatchTask = Task { @MainActor [weak self] in
-                // A failed channel ends the watch; the next root change, expand or
-                // collapse starts a new one, and the refresh button still works.
-                do {
-                    for try await changed in changes {
-                        guard let self else { break }
-                        self.refreshDirectories(changed)
+                var delay = Self.watchRetryInitialDelay
+                while !Task.isCancelled {
+                    do {
+                        for try await changed in cloud.directoryChanges(directories) {
+                            guard let self else { return }
+                            delay = Self.watchRetryInitialDelay
+                            self.refreshDirectories(changed)
+                            self.refreshGitStatus()
+                        }
+                        // Finished without an error: this daemon cannot watch.
+                        return
+                    } catch {
+                        // The channel or the watch failed (carrier restart, daemon
+                        // upgrade, unknown watch). Start again, then catch up on
+                        // anything that changed while no watch was live.
+                        do { try await sleep(delay) } catch { return }
+                        delay = min(delay * 2, Self.watchRetryMaximumDelay)
+                        guard let self else { return }
+                        self.refreshDirectories(directories)
                         self.refreshGitStatus()
                     }
-                } catch {}
+                }
             }
         } else {
             stopDirectoryWatcher()
@@ -1235,10 +1254,16 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    /// The root plus every expanded directory whose children are loaded.
-    private func displayedDirectories() -> [String] {
+    /// The root plus every expanded directory still in the tree (and, when asked,
+    /// whose children are loaded).
+    private func displayedDirectories(requireLoadedChildren: Bool = true) -> [String] {
         guard !rootPath.isEmpty else { return [] }
-        return [rootPath] + expandedPaths.filter { nodesByPath[$0]?.children != nil }.sorted()
+        let root = rootPath
+        return [root] + expandedPaths.filter { path in
+            guard path != root, Self.path(path, isContainedIn: root),
+                  let node = nodesByPath[path], node.isDirectory else { return false }
+            return !requireLoadedChildren || node.children != nil
+        }.sorted()
     }
 
     /// Re-lists `paths` in place after a file-system change: no loading state, and
@@ -1279,6 +1304,8 @@ final class FileExplorerStore: ObservableObject {
         }
         guard !Task.isCancelled, context == resourceContextID, provider === self.provider else { return }
         refreshTasks.removeValue(forKey: path)
+        // The parent's own refresh may have removed this folder meanwhile.
+        if let parent, nodesByPath[path] !== parent { return }
         let previous = parent?.children ?? rootNodes
         let previousByPath = Dictionary(previous.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let children = entries.map { entry -> FileExplorerNode in
@@ -1297,8 +1324,13 @@ final class FileExplorerStore: ObservableObject {
         guard kept != Set(previous.map(\.path)) || children.count != previous.count ||
               zip(children, previous).contains(where: { $0 !== $1 }) else { return }
         let expandedBefore = expandedPaths
-        for removed in previous where !kept.contains(removed.path) {
-            forgetSubtree(removed)
+        let keptNodes = Set(children.map(ObjectIdentifier.init))
+        for replaced in previous where !keptNodes.contains(ObjectIdentifier(replaced)) {
+            // Removed, or replaced because it changed between file and folder.
+            forgetSubtree(replaced)
+            if let current = children.first(where: { $0.path == replaced.path }) {
+                nodesByPath[current.path] = current
+            }
         }
         if expandedPaths != expandedBefore {
             // A watched folder disappeared; watch the remaining set.

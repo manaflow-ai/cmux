@@ -456,6 +456,8 @@ public actor CloudMachineLinkManager {
         }
         if let existing = workspaceRPCs[machineID] {
             if await existing.isReady { return existing }
+            // Another caller may have replaced the dead carrier while this one waited.
+            guard workspaceRPCs[machineID] === existing else { return try await workspaceRPC(machineID: machineID) }
             workspaceRPCs[machineID] = nil
             await existing.stop()
             return try await workspaceRPC(machineID: machineID)

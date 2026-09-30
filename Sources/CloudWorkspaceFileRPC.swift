@@ -25,7 +25,7 @@ struct LiveCloudWorkspaceFileRPC: CloudWorkspaceFileRPC {
         do {
             guard await links.supportsWorkspaceRPC() else { throw CloudWorkspaceFileRPCUnavailable() }
             rpc = try await links.workspaceRPC(machineID: vmID)
-        } catch is CancellationError {
+        } catch is CancellationError where Task.isCancelled {
             throw CancellationError()
         } catch {
             throw CloudWorkspaceFileRPCUnavailable()
@@ -47,6 +47,7 @@ struct LiveCloudWorkspaceFileRPC: CloudWorkspaceFileRPC {
 /// workspace-relative one; the daemon resolves paths under that pinned root.
 actor CloudDaemonFileExplorer {
     static let watchCapability = "workspace-watch-v1"
+    private static let symlinkStatConcurrency = 8
     private static let maxDirectoryEntries = 10_000
     private static let directoryPageLimit = 4_096
     private let rpc: any CloudWorkspaceFileRPC
@@ -91,12 +92,21 @@ actor CloudDaemonFileExplorer {
             entries.append(FileExplorerEntry(name: name, path: entryPath, isDirectory: kind == "directory"))
         }
         guard !symlinks.isEmpty else { return entries }
+        // Bounded: the stream serves at most 64 requests at once, and a pending
+        // watch poll or listing must not be pushed out by a symlink-heavy folder.
         let resolved = try await withThrowingTaskGroup(of: (Int, Bool).self) { group in
-            for link in symlinks {
+            var pending = symlinks[...]
+            var result: [Int: Bool] = [:]
+            for _ in 0..<Self.symlinkStatConcurrency {
+                guard let link = pending.popFirst() else { break }
                 group.addTask { (link.index, await self.isDirectoryFollowingLinks(vmID: vmID, path: link.path)) }
             }
-            var result: [Int: Bool] = [:]
-            for try await (index, isDirectory) in group { result[index] = isDirectory }
+            while let (index, isDirectory) = try await group.next() {
+                result[index] = isDirectory
+                if let link = pending.popFirst() {
+                    group.addTask { (link.index, await self.isDirectoryFollowingLinks(vmID: vmID, path: link.path)) }
+                }
+            }
             return result
         }
         for (index, isDirectory) in resolved where isDirectory {

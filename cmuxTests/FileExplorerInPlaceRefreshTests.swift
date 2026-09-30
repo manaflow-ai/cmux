@@ -96,4 +96,17 @@ struct FileExplorerInPlaceRefreshTests {
         try await waitFor("src removed") { store.rootNodes.map(\.path) == ["/r/a.txt"] }
         #expect(!store.expandedPaths.contains("/r/src"))
     }
+
+    @Test("a folder replaced by a file of the same name drops its expanded state")
+    func folderReplacedByFileIsForgotten() async throws {
+        let (store, provider) = try await loadedStore()
+        provider.tree["/r"] = [
+            FileExplorerEntry(name: "src", path: "/r/src", isDirectory: false),
+            FileExplorerEntry(name: "a.txt", path: "/r/a.txt", isDirectory: false),
+        ]
+
+        store.refreshDirectories(["/r"])
+        try await waitFor("src is a file") { store.rootNodes.contains { $0.path == "/r/src" && !$0.isDirectory } }
+        #expect(!store.expandedPaths.contains("/r/src"))
+    }
 }

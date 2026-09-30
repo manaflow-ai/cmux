@@ -96,8 +96,14 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
                 }
                 var watch: String?
                 do {
-                    let id = try await service.watch(vmID: vmID, directories: directories)
+                    // The daemon registers a watch even when its request is cancelled,
+                    // and caps live watches per client. Let the start request finish
+                    // outside this task's cancellation so its id is always released.
+                    let id = try await Task.detached {
+                        try await service.watch(vmID: vmID, directories: directories)
+                    }.value
                     watch = id
+                    try Task.checkCancellation()
                     var sequence: UInt64 = 0
                     while !Task.isCancelled {
                         let result = try await service.poll(vmID: vmID, watch: id, after: sequence, timeoutMs: 25_000)

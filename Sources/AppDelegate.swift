@@ -7355,6 +7355,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Fetches the unstaged patch from the Cloud machine's daemon and opens it in the
     /// diff viewer as a patch source.
     private func openCloudDiffViewer(workspace: Workspace, cliURL: URL, socketPath: String) -> Bool {
+        // The patch is remote file content written to this Mac, like a preview.
+        guard !ManagedFileTransferPolicy.isDisabled else {
+            NSSound.beep()
+            return false
+        }
         guard case let .remoteCloud(_, vmID, displayTarget, rootPath, isAvailable, _, target) =
                 FileExplorerWorkspaceRootResolver().resolve(workspace),
               isAvailable, let target else {
@@ -7399,6 +7404,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
+        // Patches are read when the viewer opens and on refresh; keep a day of them.
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        for old in (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey]
+        )) ?? [] where (try? old.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate.map({ $0 < cutoff }) == true {
+            try? FileManager.default.removeItem(at: old)
+        }
         let url = directory.appendingPathComponent(UUID().uuidString + ".patch", isDirectory: false)
         try patch.write(to: url, options: .atomic)
         return url
