@@ -464,7 +464,18 @@ export function useSession(): SessionState {
             setConnectionEpoch((n) => n + 1);
             break;
           }
-          case "session-created":
+          case "session-created": {
+            const pending = pendingStartRef.current;
+            if (!pending || msg.requestId !== pending.requestId) {
+              // A timed-out or superseded start may still subscribe this
+              // socket on the server. Keep the current UI and restore its
+              // subscription rather than accepting that late selection.
+              const currentSessionId = sessionIdRef.current;
+              if (currentSessionId && currentSessionId !== msg.session.id) {
+                sendRaw({ op: "subscribe", sessionId: currentSessionId });
+              }
+              break;
+            }
             if (
               pendingHandoffSourceSessionRef.current
               && pendingHandoffSourceSessionRef.current !== msg.session.id
@@ -475,21 +486,13 @@ export function useSession(): SessionState {
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
-            if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
-              const queuedReplies = pendingStartRef.current.queuedReplies;
-              clearPendingStartTimeout();
-              pendingStartRef.current = null;
-              setSession({ ...msg.session, status: "running" });
-              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
-              for (const queued of queuedReplies) {
-                sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
-              }
-            } else {
-              serverStatusRef.current = msg.session.status;
-              setSession(msg.session);
-              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
-              setBlocks([]);
-              optimisticUsersRef.current = [];
+            const queuedReplies = pending.queuedReplies;
+            clearPendingStartTimeout();
+            pendingStartRef.current = null;
+            setSession({ ...msg.session, status: "running" });
+            setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
+            for (const queued of queuedReplies) {
+              sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
             }
             setOptions([]);
             setActions({});
@@ -498,7 +501,9 @@ export function useSession(): SessionState {
             setFileDiffs({});
             setPhase("chat");
             break;
+          }
           case "history":
+            if (msg.sessionId !== sessionIdRef.current) break;
             if (
               pendingHandoffSourceSessionRef.current
               && pendingHandoffSourceSessionRef.current !== msg.session.id
@@ -521,6 +526,7 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "no-session":
+            if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
             closeHandoffWindow();
             setHandoffPending(false);
             history.replaceState(null, "", appPath("/"));
@@ -640,10 +646,8 @@ export function useSession(): SessionState {
             if (msg.op === "start") {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
-              if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
+              if (pending && msg.requestId === pending.requestId) {
                 failPendingStart(message);
-              } else {
-                setLastError(message);
               }
             }
             if (msg.op === "fork") setForkPending(false);

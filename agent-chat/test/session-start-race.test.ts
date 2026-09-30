@@ -68,18 +68,23 @@ try {
   });
   assert.equal(state.phase, "composer");
   assert.equal(drafts.get(composerDraftKey), "recover this first draft");
+  const timeoutError = state.lastError;
   await receive({ kind: "session-created", requestId: firstRequest, session: oldSession });
   assert.equal(state.phase, "composer", "a late startup response must not reopen an abandoned chat");
   await receive({ kind: "history", sessionId: oldSession.id, session: oldSession, events: [{ kind: "user", text: "old history" }] });
   await receive({ kind: "no-session", sessionId: oldSession.id });
+  await receive({ kind: "error", op: "start", requestId: firstRequest, message: "stale startup failure" });
   assert.equal(state.phase, "composer");
+  assert.equal(state.lastError, timeoutError, "late startup errors must not replace the current failure");
   assert.equal(drafts.get(composerDraftKey), "recover this first draft");
 
   const secondRequest = await start("current prompt");
   await receive({ kind: "session-created", requestId: firstRequest, session: oldSession });
   await receive({ kind: "history", sessionId: oldSession.id, session: oldSession, events: [] });
   await receive({ kind: "no-session", sessionId: oldSession.id });
+  await receive({ kind: "error", op: "start", requestId: firstRequest, message: "stale startup failure" });
   assert.equal(state.session?.id, `pending-${secondRequest}`, "old replies must not replace a newer pending startup");
+  assert.equal(state.lastError, "", "late errors must not mark a newer startup as failed");
   assert.equal(timers.size, 1, "old replies must not cancel the newer startup deadline");
   await act(async () => { state.reply("queued follow-up"); });
   const currentSession = summary("current-session", "current chat");
