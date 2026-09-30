@@ -11,7 +11,9 @@ public nonisolated struct TabDragGhostLayout: Equatable, Sendable {
     public var card: CGRect
     public var cardness: CGFloat
     public var scale: CGFloat
-    /// The fixed point of the scale.
+    /// The fixed point of the scale: the point the user grabbed, so a
+    /// shrink over a drop target or the landing never slides the tab out
+    /// from under the pointer (dogfood nxdog13).
     public var pivot: CGPoint
 
     /// `grabOffset` is the pointer's offset in the tab (y up) when the tab
@@ -24,7 +26,15 @@ public nonisolated struct TabDragGhostLayout: Equatable, Sendable {
         card = Self.lerp(tab, full, c)
         cardness = c
         scale = motion.presentedScale
-        pivot = CGPoint(x: card.midX, y: card.midY)
+        pivot = TabDragGhostLayout.grabPoint(in: tab, grabOffset: grabOffset, tabSize: tabSize)
+    }
+
+    /// The grabbed point on a tab image drawn at `tab`: the same fraction
+    /// of it as `grabOffset` is of `tabSize` (an inline slot can be wider).
+    public static func grabPoint(in tab: CGRect, grabOffset: CGPoint, tabSize: CGSize) -> CGPoint {
+        let fx = tabSize.width > 0 ? min(max(grabOffset.x / tabSize.width, 0), 1) : 0.5
+        let fy = tabSize.height > 0 ? min(max(grabOffset.y / tabSize.height, 0), 1) : 0.5
+        return CGPoint(x: tab.minX + fx * tab.width, y: tab.minY + fy * tab.height)
     }
 
     /// `point` after the scale.

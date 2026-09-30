@@ -150,6 +150,9 @@ public final class TabStripView: NSView {
         var lastPoint: CGPoint
         var originalGroup: TabGroupID?
         var targetGroup: TabGroupID?
+        /// Press y in the clip (flipped). With `grabOffset` it is the point
+        /// the user grabbed, which the hand-off keeps under the pointer.
+        var grabY: CGFloat = 0
     }
 
     var press: Press?
