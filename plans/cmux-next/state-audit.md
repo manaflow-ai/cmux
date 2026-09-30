@@ -24,6 +24,7 @@ Status: **fixed** in this PR (commit pair red→green unless noted), **routed** 
 | B1 | CEF DevTools calls (hover preview, snapshot, occlusion, script) awaited forever when no result came | hang | S | **fixed** (5 s deadline, no red commit: needs CEF) |
 | B2 | Second `CEFRuntime.shutdown()` replaced the first waiter | hang on quit | S | **fixed** |
 | G1 | No static rule for unbounded streams, task-group deadlines, unowned service Tasks | regressions | S | **fixed** (check-concurrency.sh) |
+| C3 | Compat `system.identify` (and other compat reads via `CompatCall.world()`) fetch `list-workspaces` from the daemon per call instead of answering from `ControlSnapshot` (5a); under load 13-17% of storm reads miss the 2 s deadline, on base and on this branch alike | CLI timeouts | M | open |
 | T1 | Terminal output backpressure defeated: bounded `TerminalEventQueue` drains into `.unbounded` `DaemonTerminalIO.events`, then an unbounded lane queue | leak, main stall | M | open → drag follow-up |
 | T2 | Main thread `queue.sync` on the output lane (`TerminalSession` `lane.drain()`, `TerminalSurfaceView` deinit `lane.close()`) waits for the whole unparsed backlog | hang | M | open (depends on T1) |
 | T3 | Keystrokes dropped while `DaemonTerminalIO.state.attachment` is nil (first attach, overflow reattach) | lost input | S | open → drag |
