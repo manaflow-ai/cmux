@@ -356,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "panoramica",
       "team": "team",
-      "mobileDevices": "Dispositivi mobili"
+      "mobileDevices": "Dispositivi mobili",
+      "settings": "impostazioni",
+      "teams": "team"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -381,6 +383,20 @@
         "empty": "Nessuna macchina ha usato coderouter negli ultimi {days} giorni.",
         "unavailable": "L'utilizzo per macchina non è al momento disponibile.",
         "estimateNote": "Il valore equivalente API è una stima basata sui prezzi di listino pubblici, non la spesa effettiva."
+      },
+      "metrics": {
+        "title": "Utilizzo negli ultimi 30 giorni",
+        "scope": "Totale del team {team}",
+        "period": "Ultimi {days} giorni",
+        "inputTokens": "Token di input",
+        "outputTokens": "Token di output",
+        "tokens": "Token totali",
+        "apiEquivalent": "Valore equivalente API",
+        "unpriced": "Il {share} di questi token proviene da modelli senza prezzo di listino ed è escluso da questo valore.",
+        "chartLabel": "Utilizzo giornaliero dei token CodeRouter",
+        "privacy": "Nessun prompt, output, etichetta di account o identità dei membri viene registrato o mostrato.",
+        "estimate": "Il valore equivalente API è quanto sarebbero costati questi token ai prezzi di listino pubblici delle API (tariffario {version}). Non è quanto hai pagato.",
+        "unavailable": "L’utilizzo del team non è temporaneamente disponibile."
       }
     },
     "accountMenu": {
@@ -397,8 +413,40 @@
       "plan": {
         "heading": "Il tuo piano personale",
         "free": "Gratis",
-        "pro": "Pro",
-        "loading": "Caricamento…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Questo team non è disponibile. Potresti averlo lasciato, oppure è stato eliminato.",
+        "unavailable": "Impossibile caricare la fatturazione del team. Riprova tra poco.",
+        "welcome": "Team è attivo. Invita i tuoi colleghi dalla pagina Membri del team.",
+        "freeBody": "{team} usa il piano gratuito. Team offre a ogni membro agenti cloud con un’unica fattura condivisa.",
+        "upgradeCta": "Esegui l’upgrade di questo team",
+        "askAdmin": "Solo gli admin del team possono modificare la fatturazione. Chiedi a un admin di {team} di eseguire l’upgrade.",
+        "memberReadOnly": "Solo gli admin del team possono modificare questo piano.",
+        "grantedBody": "L’accesso Team è stato concesso a {team} dal team di cmux. Non c’è alcun abbonamento da gestire.",
+        "seatsUsed": "{members} di {seats} utilizzati",
+        "overSeat": "{team} ha {members} membri e {seats} posti pagati. È ancora possibile unirsi; aggiungi posti per coprire tutti.",
+        "addSeats": "Aggiungi posti"
+      },
+      "teamList": {
+        "heading": "Ambiti di fatturazione",
+        "personal": "Account personale",
+        "planBadges": {
+          "free": "Gratis",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Solo gli admin del team possono gestire la fatturazione di questo team.",
+        "team_not_found": "Questo team non è disponibile. Potresti averlo lasciato, oppure è stato eliminato.",
+        "authorization_unavailable": "Impossibile verificare le autorizzazioni del team. Riprova tra poco.",
+        "personal_team_not_upgradable_to_team": "Il tuo account personale usa Pro o Max. Crea un team per acquistare Team."
+      },
+      "team": {
+        "createCta": "Crea un team"
       }
     },
     "mobileDevices": {
@@ -409,7 +457,6 @@
       "loading": "Caricamento dei dispositivi…",
       "empty": "Non ci sono dispositivi registrati per questo team.",
       "unavailable": "Impossibile caricare i dispositivi. Aggiorna la pagina e riprova.",
-      "retry": "Riprova",
       "mutationError": "Non è stato possibile completare la modifica del dispositivo.",
       "revoke": "Revoca accesso",
       "deviceId": "Dispositivo",
@@ -429,6 +476,513 @@
       "activeDevices": "Dispositivi attivi",
       "directoryRevision": "Revisione dell’elenco",
       "savingRelaySettings": "Salvataggio…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Impostazioni",
+        "profile": "Profilo",
+        "auth": "E-mail e accesso",
+        "notifications": "Notifiche",
+        "sessions": "Sessioni",
+        "apiKeys": "Chiavi API",
+        "account": "Account",
+        "billing": "Fatturazione",
+        "teamsGroup": "Team",
+        "createTeam": "Crea team"
+      },
+      "ui": {
+        "save": "Salva",
+        "saving": "Salvataggio…",
+        "cancel": "Annulla",
+        "editLabel": "Modifica {label}",
+        "required": "Questo campo è obbligatorio.",
+        "saveError": "Impossibile salvare. Riprova.",
+        "actionError": "Si è verificato un problema. Riprova.",
+        "working": "In corso…",
+        "typeToConfirm": "Digita {text} per confermare",
+        "imageSaveError": "Impossibile salvare l’immagine. Riprova.",
+        "invalidImage": "Scegli un file immagine valido.",
+        "uploadImage": "Carica immagine",
+        "removeImage": "Rimuovi immagine",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Profilo",
+        "description": "Il tuo nome e il tuo avatar.",
+        "displayNameTitle": "Nome visualizzato",
+        "displayNameDescription": "Visibile ai colleghi del team. Non viene usato per l’accesso.",
+        "displayNameEmpty": "Non impostato",
+        "imageTitle": "Immagine del profilo",
+        "imageDescription": "Carica un’immagine da usare come avatar.",
+        "imageUpload": "Cambia immagine del profilo"
+      },
+      "auth": {
+        "title": "E-mail e accesso",
+        "description": "Indirizzi e-mail, metodi di accesso e autenticazione a più fattori.",
+        "emails": {
+          "title": "E-mail",
+          "description": "Gli indirizzi e-mail verificati possono essere il tuo indirizzo di contatto principale e possono essere usati per accedere.",
+          "add": "Aggiungi un’e-mail",
+          "addSubmit": "Aggiungi",
+          "adding": "Aggiunta…",
+          "cancel": "Annulla",
+          "inputLabel": "Nuovo indirizzo e-mail",
+          "placeholder": "Inserisci l’e-mail",
+          "addError": "Impossibile aggiungere l’e-mail. Riprova.",
+          "added": "{email} aggiunta. Controlla quella casella di posta per il link di verifica.",
+          "addedVerificationFailed": "{email} aggiunta, ma non è stato possibile inviare l’e-mail di verifica. Usa Invia e-mail di verifica per riprovare.",
+          "verificationSent": "E-mail di verifica inviata a {email}.",
+          "actionError": "Impossibile aggiornare l’e-mail. Riprova.",
+          "usedBySomeoneElse": "Questa e-mail è già usata per l’accesso da un altro utente.",
+          "removeTitle": "Rimuovi e-mail",
+          "removeBody": "Rimuovere {email} dal tuo account? Potrai aggiungerla di nuovo in seguito.",
+          "remove": "Rimuovi",
+          "actionsLabel": "Azioni per {email}",
+          "validation": {
+            "required": "L’e-mail è obbligatoria.",
+            "invalid": "Inserisci un indirizzo e-mail valido.",
+            "duplicate": "Questa e-mail è già presente nel tuo account."
+          },
+          "actions": {
+            "sendVerification": "Invia e-mail di verifica",
+            "setPrimary": "Imposta come principale",
+            "useForSignIn": "Usa per l’accesso",
+            "stopUsingForSignIn": "Non usare più per l’accesso",
+            "remove": "Rimuovi"
+          },
+          "disabled": {
+            "verifyFirst": "Verifica prima questa e-mail.",
+            "lastSignInEmail": "Non puoi rimuovere la tua ultima e-mail di accesso."
+          },
+          "badges": {
+            "primary": "Principale",
+            "unverified": "Non verificata",
+            "usedForSignIn": "Usata per l’accesso"
+          }
+        },
+        "password": {
+          "title": "Password",
+          "updateDescription": "Aggiorna la tua password.",
+          "setDescription": "Imposta una password per il tuo account.",
+          "update": "Aggiorna password",
+          "set": "Imposta password",
+          "updateSubmit": "Aggiorna password",
+          "setSubmit": "Imposta password",
+          "saving": "Salvataggio…",
+          "cancel": "Annulla",
+          "saved": "Password salvata.",
+          "needsSignInEmail": "Per impostare una password, aggiungi prima un’e-mail di accesso.",
+          "saveError": "Impossibile salvare la password. Riprova.",
+          "oldPassword": "Password attuale",
+          "newPassword": "Nuova password",
+          "repeatPassword": "Ripeti la nuova password",
+          "incorrect": "Password errata.",
+          "requirements": "Questa password non soddisfa i requisiti.",
+          "errors": {
+            "oldPassword": {
+              "required": "Inserisci la password attuale."
+            },
+            "newPassword": {
+              "required": "Inserisci una nuova password.",
+              "tooShort": "Usa almeno {min} caratteri.",
+              "tooLong": "Usa al massimo {max} caratteri."
+            },
+            "newPasswordRepeat": {
+              "required": "Ripeti la nuova password.",
+              "mismatch": "Le password non corrispondono."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Passkey",
+          "registered": "È registrata una passkey.",
+          "notRegistered": "Registra una passkey per accedere senza password.",
+          "add": "Aggiungi passkey",
+          "registering": "In attesa della passkey…",
+          "registerError": "Impossibile registrare la passkey. La richiesta è stata annullata o non è riuscita. Riprova.",
+          "delete": "Rimuovi passkey",
+          "needsVerifiedEmail": "Per attivare l’accesso con passkey, aggiungi un’e-mail di accesso verificata.",
+          "onlyMethod": "L’accesso con passkey non può essere disattivato perché è il tuo unico metodo di accesso.",
+          "disableTitle": "Disattiva l’accesso con passkey",
+          "disableBody": "Non potrai più accedere con la tua passkey.",
+          "disable": "Disattiva",
+          "disableError": "Impossibile disattivare l’accesso con passkey. Riprova."
+        },
+        "otp": {
+          "title": "Accesso con codice monouso",
+          "enabledDescription": "L’accesso con magic link o codice monouso è attivo.",
+          "disabledDescription": "Accedi con un magic link o un codice monouso inviato alle tue e-mail di accesso.",
+          "enable": "Attiva",
+          "enableError": "Impossibile attivare l’accesso con codice monouso. Riprova.",
+          "disable": "Disattiva",
+          "needsVerifiedEmail": "Per attivare l’accesso con codice monouso, aggiungi un’e-mail di accesso verificata.",
+          "onlyMethod": "L’accesso con codice monouso non può essere disattivato perché è il tuo unico metodo di accesso.",
+          "disableTitle": "Disattiva l’accesso con codice monouso",
+          "disableBody": "Non potrai più accedere solo con un’e-mail.",
+          "disableConfirm": "Disattiva",
+          "disableError": "Impossibile disattivare l’accesso con codice monouso. Riprova."
+        },
+        "mfa": {
+          "title": "Autenticazione a più fattori",
+          "enabledDescription": "L’autenticazione a più fattori è attiva.",
+          "disabledDescription": "L’autenticazione a più fattori è disattivata.",
+          "enable": "Attiva MFA",
+          "disable": "Disattiva MFA",
+          "startError": "Impossibile avviare la configurazione della MFA. Riprova.",
+          "enableError": "Impossibile attivare la MFA. Riprova.",
+          "scan": "Scansiona questo codice QR con la tua app di autenticazione.",
+          "qrAlt": "Codice QR per l’autenticazione a più fattori",
+          "enterCode": "Poi inserisci il codice a sei cifre:",
+          "incorrect": "Codice errato. Riprova.",
+          "cancel": "Annulla",
+          "disableTitle": "Disattiva l’autenticazione a più fattori",
+          "disableBody": "L’accesso non richiederà più un codice dalla tua app di autenticazione.",
+          "disableConfirm": "Disattiva MFA",
+          "disableError": "Impossibile disattivare la MFA. Riprova."
+        },
+        "connected": {
+          "title": "Account collegati",
+          "description": "Account di altri provider collegati al tuo account cmux.",
+          "usedForSignIn": "Usato per l’accesso",
+          "useForSignIn": "Usa per l’accesso",
+          "stopUsingForSignIn": "Non usare più per l’accesso",
+          "remove": "Scollega",
+          "lastMethod": "Questo è il tuo unico metodo di accesso.",
+          "actionsLabel": "Azioni per {provider}",
+          "actionError": "Impossibile aggiornare l’account collegato. Riprova.",
+          "usedBySomeoneElse": "Questo account è già usato per l’accesso da un altro utente.",
+          "removeTitle": "Scollega {provider}",
+          "removeBody": "Non potrai più accedere con questo account. Puoi collegarlo di nuovo accedendo con esso."
+        }
+      },
+      "notifications": {
+        "title": "Notifiche",
+        "description": "Notifiche e-mail da cmux.",
+        "heading": "Scegli quali e-mail vuoi ricevere",
+        "empty": "Non ci sono categorie di e-mail da configurare.",
+        "cannotDisable": "(non può essere disattivata)",
+        "saveError": "Impossibile salvare questa preferenza. Riprova."
+      },
+      "sessions": {
+        "title": "Sessioni",
+        "description": "Dispositivi su cui hai effettuato l’accesso.",
+        "heading": "Sessioni attive",
+        "explanation": "Questi sono i dispositivi su cui hai effettuato l’accesso. Revoca una sessione per disconnetterla.",
+        "revokeAll": "Revoca tutte le altre sessioni",
+        "revokeAllTitle": "Revoca le altre sessioni",
+        "revokeAllBody": "Verrà disconnessa {count, plural, one {# altra sessione} other {# altre sessioni}}. Questa sessione resta connessa.",
+        "revokeAllConfirm": "Revoca sessioni",
+        "revokeAllError": "Impossibile revocare tutte le sessioni. L’elenco mostra quelle rimaste.",
+        "revokeError": "Impossibile revocare la sessione. Riprova.",
+        "empty": "Nessuna sessione attiva trovata.",
+        "columns": {
+          "session": "Sessione",
+          "ip": "Indirizzo IP",
+          "location": "Posizione",
+          "lastUsed": "Ultimo utilizzo"
+        },
+        "current": "Sessione corrente",
+        "other": "Altra sessione",
+        "impersonation": "Impersonificazione",
+        "signedIn": "Accesso effettuato {date}",
+        "actionsLabel": "Azioni sessione",
+        "revoke": "Revoca",
+        "cannotRevokeCurrent": "Non puoi revocare la sessione corrente.",
+        "unknownIp": "-",
+        "unknownLocation": "Sconosciuta",
+        "never": "Mai"
+      },
+      "apiKeys": {
+        "title": "Chiavi API",
+        "description": "Chiavi che danno ai programmi accesso al tuo account.",
+        "disabled": "Le chiavi API personali non sono abilitate per questo progetto.",
+        "create": "Crea chiave API",
+        "createTitle": "Crea chiave API",
+        "createDescription": "Le chiavi API concedono accesso programmatico al tuo account.",
+        "descriptionLabel": "Descrizione",
+        "descriptionPlaceholder": "Ad esempio: Sviluppo, Produzione, CI",
+        "descriptionRequired": "La descrizione è obbligatoria.",
+        "expiresIn": "Scade tra",
+        "expiry": {
+          "1d": "1 giorno",
+          "7d": "7 giorni",
+          "30d": "30 giorni",
+          "90d": "90 giorni",
+          "1y": "1 anno",
+          "never": "Mai"
+        },
+        "cancel": "Annulla",
+        "createSubmit": "Crea",
+        "creating": "Creazione…",
+        "createError": "Impossibile creare la chiave API. Riprova.",
+        "showTitle": "Chiave API",
+        "showBody": "Ecco la tua chiave API.",
+        "showWarning": "Copiala in un luogo sicuro. Non potrai visualizzarla di nuovo.",
+        "secretLabel": "Chiave API segreta",
+        "copy": "Copia",
+        "copied": "Copiato",
+        "copyError": "Impossibile copiare. Seleziona la chiave e copiala manualmente.",
+        "acknowledge": "Ho capito che non potrò visualizzare di nuovo questa chiave.",
+        "close": "Chiudi",
+        "search": "Cerca chiavi",
+        "statusFilter": "Filtra per stato",
+        "status": {
+          "valid": "Valida",
+          "expired": "Scaduta",
+          "revoked": "Revocata"
+        },
+        "empty": "Ancora nessuna chiave API.",
+        "noMatches": "Nessuna chiave API corrisponde a questi filtri.",
+        "columns": {
+          "description": "Descrizione",
+          "status": "Stato",
+          "key": "Chiave",
+          "expiresAt": "Scadenza",
+          "createdAt": "Creata"
+        },
+        "never": "Mai",
+        "actionsLabel": "Azioni per {description}",
+        "revoke": "Revoca",
+        "revokeTitle": "Revoca chiave API",
+        "revokeBody": "Revocare la chiave API *****{lastFour}? Le app che la usano perdono subito l’accesso.",
+        "revokeAcknowledge": "Ho capito che questo scollegherà tutte le app che usano questa chiave API.",
+        "revokeConfirm": "Revoca chiave",
+        "revokeError": "Impossibile revocare la chiave API. Riprova."
+      },
+      "account": {
+        "title": "Account",
+        "description": "Fatturazione, disconnessione ed eliminazione dell’account.",
+        "billingTitle": "Fatturazione",
+        "billingDescription": "Piani, fatture e metodi di pagamento.",
+        "billingLink": "Apri fatturazione",
+        "signOutTitle": "Esci",
+        "signOutDescription": "Termina la sessione corrente.",
+        "signOut": "Esci",
+        "signingOut": "Uscita…",
+        "signOutError": "Impossibile uscire. Riprova.",
+        "deleteTitle": "Elimina account",
+        "deleteDescription": "Rimuovi in modo permanente il tuo account e tutti i dati associati.",
+        "delete": "Elimina account",
+        "deleteConfirmTitle": "Eliminare il tuo account?",
+        "deleteConfirmBody": "L’operazione è irreversibile ed elimina tutti i dati associati al tuo account.",
+        "deleteAcknowledge": "Ho capito che il mio account e i suoi dati verranno eliminati in modo permanente.",
+        "deleteConfirm": "Elimina account",
+        "deleteError": "Impossibile eliminare l’account. Riprova."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Copia",
+        "copied": "Copiato",
+        "copyFailed": "Copia non riuscita"
+      },
+      "plan": {
+        "free": "Gratis",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Membro"
+      },
+      "errors": {
+        "generic": "Si è verificato un problema. Riprova.",
+        "network_error": "Impossibile raggiungere cmux. Controlla la connessione e riprova.",
+        "unauthorized": "La tua sessione è scaduta. Accedi di nuovo.",
+        "forbidden": "Non hai l’autorizzazione per farlo.",
+        "team_not_found": "Questo team non esiste più.",
+        "invalid_request": "La richiesta non è valida. Controlla i campi e riprova.",
+        "rate_limited": "Troppe richieste. Attendi un momento e riprova.",
+        "last_admin": "Un team deve avere almeno un admin. Promuovi prima un altro membro.",
+        "member_not_found": "Questa persona non è più un membro.",
+        "invitation_not_found": "Questo invito non esiste più.",
+        "invitation_invalid": "Questo invito non è valido, è scaduto o è già stato usato.",
+        "email_mismatch": "Questo invito è stato inviato a un altro indirizzo e-mail.",
+        "link_not_found": "Questo link di invito non esiste più.",
+        "link_invalid": "Questo link di invito non è valido, è scaduto, è stato revocato o è esaurito.",
+        "team_has_active_subscription": "Annulla l’abbonamento del team prima di eliminare il team.",
+        "service_unavailable": "Il servizio non è temporaneamente disponibile. Riprova tra poco."
+      },
+      "list": {
+        "title": "Team",
+        "description": "I team condividono membri, fatturazione e account coderouter. Apri un team per gestirlo.",
+        "create": "Crea team",
+        "count": "{count, plural, one {# team} other {# team}}",
+        "selected": "Corrente",
+        "emptyTitle": "Ancora nessun team",
+        "emptyBody": "Crea un team per invitare persone e condividere un unico piano."
+      },
+      "new": {
+        "title": "Crea un team",
+        "description": "Dai un nome al team, scegli un piano e poi invita le persone.",
+        "stepsLabel": "Passaggi",
+        "steps": {
+          "name": "Nome",
+          "plan": "Piano",
+          "invite": "Invita"
+        },
+        "nameTitle": "Dai un nome al tuo team",
+        "nameLabel": "Nome del team",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Inserisci un nome per il team.",
+          "tooLong": "Usa al massimo {max} caratteri."
+        },
+        "cancel": "Annulla",
+        "createAction": "Crea team",
+        "creating": "Creazione…",
+        "planTitle": "Scegli un piano per {team}",
+        "planDescription": "Potrai cambiare piano in seguito dalla pagina di fatturazione del team.",
+        "freeName": "Gratis",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} per posto al mese",
+        "featureMembers": "Membri, ruoli e inviti",
+        "featureProForEveryone": "Tutto quello che include Pro per ogni membro",
+        "featureCentralBilling": "Fatturazione centralizzata per tutto il team",
+        "featurePrioritySupport": "Supporto prioritario",
+        "chooseFree": "Continua con il piano gratuito",
+        "chooseTeam": "Passa a Team (${price}/posto/mese)",
+        "upgradeLater": "I posti sono flessibili: puoi invitare più persone di quante ne paghi e aggiungere posti in seguito.",
+        "inviteTitle": "Invita persone in {team}",
+        "inviteDescription": "Facoltativo. Puoi invitare persone anche in seguito dalla pagina Membri del team.",
+        "inviteByEmail": "Invita via e-mail",
+        "inviteByLink": "Link di invito",
+        "backToPlan": "Torna ai piani",
+        "finish": "Vai al team"
+      },
+      "invite": {
+        "emailsLabel": "Indirizzi e-mail",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Indirizzo e-mail non valido",
+        "removeEmail": "Rimuovi {email}",
+        "roleLabel": "Ruolo",
+        "roleMember": "Membro",
+        "roleAdmin": "Admin",
+        "count": "{count}/{max}",
+        "send": "Invia inviti",
+        "sending": "Invio…",
+        "invalidCount": "{count, plural, one {Correggi o rimuovi # indirizzo non valido prima di inviare.} other {Correggi o rimuovi # indirizzi non validi prima di inviare.}}",
+        "overflow": "{count, plural, one {# indirizzo non è stato aggiunto: il limite è {max} per richiesta.} other {# indirizzi non sono stati aggiunti: il limite è {max} per richiesta.}}",
+        "sent": "{count, plural, one {# invito inviato.} other {# inviti inviati.}}"
+      },
+      "inviteFailure": {
+        "generic": "invito non riuscito",
+        "already_member": "è già un membro",
+        "invite_failed": "non è stato possibile inviare l’invito"
+      },
+      "links": {
+        "expiryLabel": "Scadenza",
+        "expiry": {
+          "1": "Tra 1 giorno",
+          "7": "Tra 7 giorni",
+          "30": "Tra 30 giorni",
+          "never": "Mai"
+        },
+        "maxUsesLabel": "Utilizzi massimi",
+        "maxUsesPlaceholder": "Illimitati",
+        "maxUsesInvalid": "Gli utilizzi massimi devono essere un numero intero da 1 a {max}, oppure vuoti per illimitati.",
+        "create": "Crea link",
+        "creating": "Creazione…",
+        "memberOnly": "Chi si unisce tramite link diventa membro. Se serve, promuovilo ad admin in seguito.",
+        "showOnce": "Copia subito questo link. Viene mostrato una sola volta.",
+        "empty": "Nessun link di invito attivo.",
+        "createdAt": "Creato {at}",
+        "expiresAt": "Scade {at}",
+        "neverExpires": "Non scade mai",
+        "uses": "{count}/{max} utilizzi",
+        "usesUnlimited": "{count, plural, one {# utilizzo} other {# utilizzi}}",
+        "revoke": "Revoca",
+        "revokeTitle": "Revocare questo link di invito?",
+        "revokeBody": "Chi ha il link non potrà più unirsi. Chi si è già unito resta membro.",
+        "actionsFor": "Azioni per il link ({created})"
+      },
+      "shell": {
+        "allTeams": "Tutti i team",
+        "tabsLabel": "Impostazioni del team",
+        "tabs": {
+          "general": "Generale",
+          "members": "Membri",
+          "apiKeys": "Chiavi API",
+          "billing": "Fatturazione"
+        },
+        "notFoundTitle": "Team non trovato",
+        "notFoundBody": "Questo team non esiste, oppure non ne sei membro.",
+        "backToTeams": "Torna ai team"
+      },
+      "general": {
+        "imageTitle": "Immagine del team",
+        "imageDescription": "Mostrata accanto al nome del team in cmux.",
+        "imageUpload": "Carica immagine del team",
+        "nameTitle": "Nome del team",
+        "nameDescription": "Visibile a tutti i membri.",
+        "nameReadOnly": "Solo gli admin possono rinominare il team.",
+        "nameError": {
+          "empty": "Inserisci un nome per il team.",
+          "tooLong": "Usa al massimo {max} caratteri."
+        },
+        "profileTitle": "Il tuo nome in questo team",
+        "profileDescription": "Come ti vedono gli altri membri di questo team. Lascia vuoto per usare il nome del tuo account.",
+        "profileLabel": "Il tuo nome visualizzato nel team",
+        "leaveTitle": "Lascia il team",
+        "leaveDescription": "Perdi l’accesso agli account condivisi e alla fatturazione di questo team.",
+        "leaveAction": "Lascia il team",
+        "leaveBlocked": "Sei l’unico admin. Prima di andartene, promuovi un altro membro ad admin oppure elimina il team.",
+        "leaveConfirmTitle": "Lasciare {team}?",
+        "leaveConfirmBody": "Ti servirà un nuovo invito per rientrare.",
+        "deleteTitle": "Elimina team",
+        "deleteDescription": "Rimuove in modo permanente il team, l’accesso dei suoi membri e i suoi link di invito.",
+        "deleteAction": "Elimina team",
+        "deleteConfirmTitle": "Eliminare {team}?",
+        "deleteConfirmBody": "L’operazione non può essere annullata.",
+        "openBilling": "Apri la fatturazione del team"
+      },
+      "members": {
+        "title": "Membri",
+        "count": "{count, plural, one {# membro} other {# membri}}",
+        "memberColumn": "Membro",
+        "roleColumn": "Ruolo",
+        "actionsColumn": "Azioni",
+        "you": "Tu",
+        "unnamed": "Membro senza nome",
+        "remove": "Rimuovi",
+        "removeTitle": "Rimuovere {name}?",
+        "removeBody": "Perderà subito l’accesso a questo team. Potrai invitarlo di nuovo in seguito.",
+        "inviteTitle": "Invita persone",
+        "inviteDescription": "Invia inviti via e-mail. Incolla un elenco separato da virgole, spazi o a capo (fino a 20).",
+        "pendingTitle": "Inviti in sospeso",
+        "pendingDescription": "Inviti non ancora accettati.",
+        "pendingEmpty": "Nessun invito in sospeso.",
+        "unknownEmail": "Indirizzo sconosciuto",
+        "expires": "Scade {at}",
+        "resend": "Invia di nuovo",
+        "resent": "Inviato",
+        "revoke": "Revoca",
+        "linksTitle": "Link di invito",
+        "linksDescription": "Un link riutilizzabile con cui chiunque può unirsi come membro.",
+        "seatNudge": "{used} persone sono membri o invitate, ma il piano ha {seats} posti. Gli inviti funzionano comunque; aggiungi {over, plural, one {# posto} other {# posti}} per coprire tutti.",
+        "seatNudgeAction": "Gestisci posti",
+        "actions": {
+          "makeAdmin": "Rendi admin",
+          "makeMember": "Rendi membro",
+          "remove": "Rimuovi dal team",
+          "leave": "Lascia il team"
+        },
+        "actionsFor": "Azioni per {name}",
+        "lastAdminReason": "Un team ha bisogno di almeno un admin. Prima promuovi un altro membro.",
+        "demoteSelfTitle": "Smettere di essere admin?",
+        "demoteSelfBody": "Perdi l’accesso admin a questo team. Un altro admin può restituirtelo.",
+        "demoteSelfConfirm": "Rendimi membro"
+      },
+      "apiKeys": {
+        "title": "Chiavi API del team",
+        "description": "Chiavi che agiscono per conto di questo team. Chiunque abbia una chiave può usare l’accesso del team, quindi conserva le chiavi in modo sicuro.",
+        "create": "Crea chiave API del team",
+        "disabled": "Le chiavi API del team non sono abilitate per questo progetto.",
+        "forbidden": "Per vedere le chiavi di questo team ti serve il permesso Gestisci chiavi API."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Trasferisci",
@@ -455,10 +1009,6 @@
       "apiKeysTitle": "Chiavi API",
       "apiKeysDescription": "Crea chiavi a lunga durata per script e agenti. Il segreto viene mostrato una sola volta.",
       "apiKeysCount": "{count, plural, one {# chiave} other {# chiavi}}",
-      "apiKeysLoading": "Caricamento delle chiavi API…",
-      "apiKeysLoadError": "Impossibile caricare le chiavi API. Riprova tra poco.",
-      "apiKeysRetry": "Riprova",
-      "apiKeysEmptyBody": "Nessuna chiave API. Creane una per autenticare un client CodeRouter.",
       "apiKeyPrefixColumn": "Chiave",
       "apiKeyStatusColumn": "Stato",
       "apiKeySecretTitle": "Copia subito questa chiave",
@@ -478,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Revocare questa chiave API?",
       "apiKeyUsageDetail": "ultimi 30 giorni: {completions} completamenti · {tokens} token ({input} input / {output} output) · equivalente API {value}",
       "apiKeyUsageUnavailable": "Utilizzo non disponibile",
-      "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi."
+      "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi.",
+      "apiKeysEmptyTitle": "Ancora nessuna chiave API",
+      "apiKeysEmptyHint": "Creane una per autenticare un client CodeRouter."
+    },
+    "notFound": {
+      "title": "Pagina non trovata",
+      "body": "Questa pagina della dashboard non esiste o è stata spostata.",
+      "home": "Vai alla dashboard"
+    },
+    "states": {
+      "errorTitle": "Impossibile caricare {section}",
+      "errorTitleGeneric": "Impossibile caricare questa sezione",
+      "reason": {
+        "network": "Controlla la connessione, poi riprova.",
+        "unavailable": "cmux non è disponibile al momento. Riprova tra poco.",
+        "forbidden": "Non hai accesso a questo contenuto.",
+        "notFound": "Non esiste più, oppure non hai accesso.",
+        "rateLimited": "Troppe richieste. Attendi un momento, poi riprova.",
+        "generic": "Qualcosa è andato storto. Riprova."
+      },
+      "retry": "Riprova",
+      "retrying": "Nuovo tentativo…"
     }
   },
   "community": {
@@ -4583,5 +5154,27 @@
     "updateDetail": "Richiede cmux {stableVersion} o successivo, oppure NIGHTLY {nightlyVersion} o successivo. Abilita l’abbinamento iOS in Impostazioni > Mobile su ogni Mac.",
     "rollbackTitle": "Devi mantenere una vecchia build Mac?",
     "rollbackDetail": "Usa cmux BETA 1.0.5 ({rollbackBuild}) da TestFlight > Build precedenti finché è disponibile. Scegli esattamente questa build, perché quelle successive usano un servizio di connessione più recente."
+  },
+  "teamInvite": {
+    "loading": "Caricamento dell’invito…",
+    "title": "Unisciti a {team}",
+    "titleUnknown": "Unisciti a questo team",
+    "body": "Hai ricevuto un invito a unirti a questo team su cmux.",
+    "join": "Unisciti al team",
+    "joining": "Accesso al team…",
+    "signedInAs": "Accesso effettuato come {email}",
+    "alreadyMemberTitle": "Sei già membro di {team}",
+    "alreadyMemberTitleUnknown": "Sei già membro di questo team",
+    "alreadyMemberBody": "Apri il team per gestirlo.",
+    "openTeam": "Apri il team",
+    "mismatchTitle": "Questo invito è per un altro account",
+    "mismatchBody": "Hai effettuato l’accesso come {email}, ma l’invito è stato inviato a un altro indirizzo. Accedi con l’indirizzo invitato, oppure aggiungilo e verificalo su questo account.",
+    "mismatchBodyUnknown": "L’invito è stato inviato a un altro indirizzo. Accedi con l’indirizzo invitato, oppure aggiungilo e verificalo su questo account.",
+    "switchAccount": "Esci e cambia account",
+    "switching": "Uscita…",
+    "switchFailed": "Impossibile uscire. Riprova.",
+    "invalidTitle": "Questo invito non è più valido",
+    "invalidBody": "È scaduto, è stato revocato o è già stato usato. Chiedine uno nuovo a un admin del team.",
+    "goToTeams": "Vai ai tuoi team"
   }
 }
