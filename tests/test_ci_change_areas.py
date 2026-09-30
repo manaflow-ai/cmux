@@ -6365,10 +6365,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # (tests/test_seed_derived_data.py evaluates both against the seeder).
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
-        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')",
         1,
     ).replace(
-        # A fork pull request leaves the lane's pin; main's dispatch keeps it.
+        # A fork pull request leaves the lane's pin; manual dispatch keeps it.
         "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)",
         "(github.event_name != 'pull_request' || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name))",
         1,
@@ -6393,7 +6393,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
         "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
-        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
+        "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
@@ -6405,7 +6405,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
@@ -6766,7 +6766,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || (matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true') || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block

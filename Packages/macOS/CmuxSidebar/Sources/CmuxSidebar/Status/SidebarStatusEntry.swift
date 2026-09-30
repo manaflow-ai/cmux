@@ -22,6 +22,10 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     /// Optional explanatory tooltip shown alongside the text (for example
     /// that an agent-usage cost is an estimate).
     public let helpText: String?
+    /// What the agent is running on, when the reporter said so. `nil` on every
+    /// entry that is not an agent row, and on agent rows from a reporter that
+    /// does not report it.
+    public let workState: SidebarAgentWorkState?
 
     /// Creates a status row (defaults mirror the legacy initializer).
     public init(
@@ -33,7 +37,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
         timestamp: Date = Date(),
-        helpText: String? = nil
+        helpText: String? = nil,
+        workState: SidebarAgentWorkState? = nil
     ) {
         self.key = key
         self.value = value
@@ -44,5 +49,6 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.format = format
         self.timestamp = timestamp
         self.helpText = helpText
+        self.workState = workState
     }
 }
