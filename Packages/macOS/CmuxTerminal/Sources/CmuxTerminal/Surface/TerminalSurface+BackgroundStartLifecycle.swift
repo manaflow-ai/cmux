@@ -29,7 +29,6 @@ extension TerminalSurface {
         backgroundSurfaceStartSource = backgroundSurfaceStartSource.promoted(with: source)
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
-        runtimeReadinessEpoch &+= 1
 
         Task { @MainActor [weak self] in
             guard let self else { return }

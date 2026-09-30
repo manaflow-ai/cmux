@@ -3,7 +3,6 @@ public import Combine
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
-internal import CmuxFoundation
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -346,9 +345,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let maxPendingSocketInputBytes = 1_048_576
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
-    let runtimeReadinessStore = TerminalSurfaceRuntimeReadinessStore()
-    var runtimeReadinessEpoch: UInt64 = 0
-    let runtimeReadinessEventSequence = AtomicUInt64Value()
+    /// Callers awaiting the next runtime-creation outcome; see
+    /// `waitForRuntimeSurfaceReady(timeout:)`.
+    var runtimeReadinessWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
     var configurationReloadDeferredRuntimeSurfaceCreation = false

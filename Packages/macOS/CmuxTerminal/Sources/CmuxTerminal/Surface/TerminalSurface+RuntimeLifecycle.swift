@@ -764,7 +764,7 @@ extension TerminalSurface {
         #endif
 
         guard let app = engine.runtimeApp else {
-            completeRuntimeReadiness(success: false, readinessEpoch: runtimeReadinessEpoch)
+            completeRuntimeReadiness(success: false)
             #if DEBUG
             logDebugEvent("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
             #endif
@@ -787,7 +787,7 @@ extension TerminalSurface {
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {
-            completeRuntimeReadiness(success: false, readinessEpoch: runtimeReadinessEpoch)
+            completeRuntimeReadiness(success: false)
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
@@ -926,7 +926,7 @@ extension TerminalSurface {
             ]
         )
         onRuntimeReady?()
-        completeRuntimeReadiness(success: true, generation: runtimeSurfaceGeneration, readinessEpoch: runtimeReadinessEpoch)
+        completeRuntimeReadiness(success: true)
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)
