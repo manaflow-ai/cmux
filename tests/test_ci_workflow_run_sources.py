@@ -210,10 +210,16 @@ def test_ci_fail_fast_is_a_trusted_pr_run_watcher() -> None:
     assert "RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}" in text
     assert "current_attempt" in text
     assert "actions: write" in text
-    assert 'gh api --method POST "$RUN/cancel"' in text
+    assert 'gh api --method POST "$RUN/cancel"' not in text
+    assert 'actions/jobs/$job_id/cancel' in text
+    assert "macos / macOS compile admission" in text
+    assert "macos / app-host unit tests" in text
     assert '"Fast static checks"' in text
     assert '"linux-preflight"' in text
     assert 'startswith("guards / ")' in text
+    assert '"Fast static checks"' in text
+    assert '"linux-preflight"' in text
+    assert 'cancel_downstream_jobs' in text
     assert "uses:" not in text
     assert "actions/checkout" not in text
 
