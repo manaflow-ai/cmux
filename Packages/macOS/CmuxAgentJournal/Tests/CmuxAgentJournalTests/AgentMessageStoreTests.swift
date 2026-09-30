@@ -159,16 +159,53 @@ struct AgentMessageStoreTests {
         let url = temporaryFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = AgentMessageStore(fileURL: url)
-        var last: AgentMessage?
         for index in 0...AgentMessageStore.compactionThreshold {
-            last = try store.append(draft(body: "message \(index)"))
+            _ = try store.append(draft(body: "message \(index)"))
         }
+        let oldest = store.messages(limit: .max).suffix(502).map(\.id)
+        _ = store.markRead(ids: Array(oldest))
+        let last = try store.append(draft(body: "last"))
         let reopened = AgentMessageStore(fileURL: url)
         let all = reopened.messages(limit: .max)
         #expect(all.count == AgentMessageStore.retainedMessageCount)
-        #expect(all.first?.id == last?.id)
+        #expect(all.first?.id == last.id)
+        #expect(all.last?.body == "message 502")
         let again = AgentMessageStore(fileURL: url)
         #expect(again.messages(limit: .max).count == AgentMessageStore.retainedMessageCount)
+    }
+
+    @Test("Runtime compaction preserves queued and delivered messages")
+    func runtimeCompactionPreservesUndeliveredMessages() throws {
+        let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = AgentMessageStore(fileURL: url)
+        let delivered = try store.append(draft(body: "delivered"))
+        _ = store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.wake")
+        for index in 0...AgentMessageStore.compactionThreshold {
+            _ = try store.append(draft(body: "queued \(index)"))
+        }
+        let queued = store.messages(limit: .max).filter { $0.body.hasPrefix("queued") }
+        _ = store.markRead(ids: Array(queued.suffix(502).map(\.id)))
+        _ = try store.append(draft(body: "trigger compaction"))
+
+        let reopened = AgentMessageStore(fileURL: url)
+        #expect(reopened.message(id: delivered.id)?.state == .delivered)
+        #expect(reopened.hasQueued(recipientSurfaceId: "surface-b"))
+        #expect(reopened.messages(limit: .max).contains { $0.body == "trigger compaction" })
+    }
+
+    @Test("Marking a recipient read includes queued and delivered messages")
+    func markDeliveredReadIncludesQueuedMessages() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        let queued = try store.append(draft(body: "queued"))
+        let delivered = try store.append(draft(body: "delivered"))
+        _ = store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.wake")
+
+        let read = store.markDeliveredRead(recipientSurfaceId: "surface-b")
+
+        #expect(Set(read.map(\.id)) == Set([queued.id, delivered.id]))
+        #expect(store.message(id: queued.id)?.state == .read)
+        #expect(store.message(id: delivered.id)?.state == .read)
     }
 
     @Test("A poll counts queued messages for its surface without claiming them")
@@ -192,6 +229,50 @@ struct AgentMessageStoreTests {
         #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "turn-2", register: false) == .current(queued: 0))
         // Other surfaces are independent.
         #expect(store.poll(recipientSurfaceId: "surface-c", pollerKey: "turn-1", register: false) == .current(queued: 0))
+    }
+
+    @Test("A deferred wake reserves messages from the prompt drain")
+    func deferredWakeReservesMessagesFromPromptDrain() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        _ = try store.append(draft(to: "surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.messages.count == 1)
+        #expect(store.claimQueued(recipientSurfaceId: "surface-b", via: "claude.prompt-submit").isEmpty)
+        #expect(store.hasQueued(recipientSurfaceId: "surface-b"))
+    }
+
+    @Test("A deferred lease acknowledges delivery exactly once")
+    func deferredLeaseAcknowledgesDelivery() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        let message = try store.append(draft(to: "surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+        let lease = try #require(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1"))
+        #expect(store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-2", register: true) == .current(queued: 0))
+        #expect(store.acknowledgeDeferredLease(
+            id: lease.id,
+            recipientSurfaceId: "surface-b",
+            pollerKey: "poller-1",
+            via: "claude.wake"
+        ).map(\.id) == [message.id])
+        #expect(store.message(id: message.id)?.state == .delivered)
+        #expect(store.acknowledgeDeferredLease(
+            id: lease.id,
+            recipientSurfaceId: "surface-b",
+            pollerKey: "poller-1",
+            via: "claude.wake"
+        ).isEmpty)
+    }
+
+    @Test("Deferred messages are recipient-only and bound to the active poller")
+    func deferredMessagesAreRecipientOnlyAndPollerBound() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        let intended = try store.append(draft(to: "surface-b", senderSurfaceId: "surface-a"))
+        _ = try store.append(draft(to: "surface-c", senderSurfaceId: "surface-b", body: "not for surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.messages.map(\.id) == [intended.id])
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-2") == nil)
     }
 
     @Test("After a restart the first poller to check in adopts the surface")
