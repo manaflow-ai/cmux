@@ -55,10 +55,8 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             guard state.workspaceIDs.contains(workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound("workspace \(workspaceID) on \(machine.rawValue)")
             }
-            let knownDisplayIDs = Set(catalog.resources.keys.filter { $0.machine == machine && $0.kind == .display }.map(\.key))
-            var memberships = Set(state.displayMemberships.filter {
-                $0.workspaceID == workspaceID && knownDisplayIDs.contains($0.displayID)
-            })
+            let previousMemberships = Set(state.displayMemberships.filter { $0.workspaceID == workspaceID })
+            var memberships = previousMemberships
             let token = CloudVMDisplayMembership(
                 machine: machine,
                 workspaceID: workspaceID,
@@ -69,9 +67,6 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             if attached { memberships.insert(token) } else { memberships.remove(token) }
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
-            let previousMemberships = Set(state.displayMemberships.filter {
-                $0.workspaceID == workspaceID && knownDisplayIDs.contains($0.displayID)
-            })
             if row != nil, memberships == previousMemberships { return }
             let projection: [String: Any] = [
                 "schema": CloudVMDisplayMembership.projectionSchema,

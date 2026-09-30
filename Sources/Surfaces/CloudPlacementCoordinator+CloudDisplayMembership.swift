@@ -81,12 +81,7 @@ extension CloudPlacementCoordinator {
             guard let workspaceID = try await provider.cloudDisplayMembershipWorkspace(
                 displayID: projection.resource.key,
                 panelID: projection.panelID
-            ), !catalog.projections.contains(where: {
-                $0.panelID != projection.panelID
-                    && $0.resource == projection.resource
-                    && $0.remoteWorkspaceID == workspaceID
-                    && $0.isLocalWorkspaceView
-            }) else { return false }
+            ) else { return false }
             try await provider.syncCloudDisplayMembership(
                 displayID: projection.resource.key,
                 workspaceID: workspaceID,
