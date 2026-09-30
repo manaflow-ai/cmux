@@ -47,7 +47,7 @@ final class FindBarView: NSView {
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
-            // Preferred widths: a narrow pane narrows the field and the count.
+            // Preferred width: a narrow pane narrows the field.
             density.bind(field.widthAnchor.constraint(equalToConstant: 0).prioritized(.init(450))) { BrowserMetrics.findFieldWidth },
             density.bind(countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) {
                 BrowserMetrics.findCountWidth

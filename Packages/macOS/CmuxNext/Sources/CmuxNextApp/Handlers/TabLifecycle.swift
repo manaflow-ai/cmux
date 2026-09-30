@@ -50,7 +50,10 @@ enum TabLifecycle {
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         var url: URL?
         if let text = invocation["url"]?.stringValue {
-            guard let resolved = BrowserURLResolver().url(for: text) else { return ctx.refuse(MiscHandlerStrings.invalidURL(text)) }
+            let chromium = invocation["engine"]?.stringValue == BrowserEngineTag.cef.rawValue
+            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else {
+                return ctx.refuse(MiscHandlerStrings.invalidURL(text))
+            }
             url = resolved
         }
         guard let pane = ctx.daemonPane(invocation) else { return }

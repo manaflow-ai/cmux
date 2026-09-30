@@ -39,6 +39,16 @@ public final class AddressBarView: NSView {
     private var security: BrowserSecurityState = .none
     private(set) var controller: OmnibarController!
 
+    /// Chromium tabs also load `chrome://` and `chrome-extension://` pages
+    /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
+    public var allowsChromiumSchemes = false
+
+    private var resolver: OmniboxResolver {
+        var resolver = suggestionEngine.resolver
+        resolver.urlResolver.allowsChromiumSchemes = allowsChromiumSchemes
+        return resolver
+    }
+
     public init(suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.suggestionEngine = suggestionEngine
         super.init(frame: .zero)
@@ -46,7 +56,7 @@ public final class AddressBarView: NSView {
         controller = OmnibarController(
             field: field,
             popup: self,
-            resolver: { [unowned self] in suggestionEngine.resolver },
+            resolver: { [unowned self] in resolver },
             suggest: { [weak self] text in await self?.suggestionEngine.suggestions(for: text) ?? [] }
         )
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
@@ -59,7 +69,8 @@ public final class AddressBarView: NSView {
         field.onPasteAndGo = { [weak self] in self?.pasteAndGo() }
         field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
         field.setAccessibilityLabel(Strings.omnibarPlaceholder)
-        // A long URL truncates; it never widens the toolbar or the pane.
+        // A long URL truncates; it never widens the toolbar or the pane
+        // (BrowserToolbarLayout decides the omnibar's width).
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -202,7 +213,7 @@ public final class AddressBarView: NSView {
     }
 
     private func pasteAndGoTitle() -> String? {
-        guard let text = pastedText(), let destination = suggestionEngine.resolver.destination(for: text) else { return nil }
+        guard let text = pastedText(), let destination = resolver.destination(for: text) else { return nil }
         if case .search = destination { return Strings.pasteAndSearch }
         return Strings.pasteAndGo
     }

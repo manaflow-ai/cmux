@@ -24,6 +24,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// Reply to an async site call (`cmux_shim_visit_cookies`,
     /// `cmux_shim_delete_cookies`): `value` is 1 or the deleted count.
     case reply(browser: Int32, id: Int32, value: Int64, json: String)
+    /// Chromium's page context menu; finish with `cmux_shim_context_menu_done(token, …)`.
+    case contextMenu(browser: Int32, token: Int32, x: Int, y: Int, itemsJSON: String, paramsJSON: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -52,6 +54,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
                         window: Int32(truncatingIfNeeded: a), value: Int(b))
         case 17: self = .popup(browser: browser, url: s1, disposition: Int(a))
         case 18: self = .reply(browser: browser, id: request, value: a, json: s1)
+        case 19: self = .contextMenu(browser: browser, token: request, x: Int(a), y: Int(b), itemsJSON: s1, paramsJSON: s2)
         default: self = .unknown(kind: kind)
         }
     }
@@ -67,5 +70,7 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     case extensionPopupClosed = 5
     /// A Chromium Browser was destroyed; value = remaining window count.
     case windowDestroyed = 6
+    /// An extension was installed, removed, enabled or disabled (fork API v3).
+    case extensionsChanged = 7
     case unknown = -1
 }

@@ -1,12 +1,17 @@
+import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
-import Foundation
+import CmuxNextTabs
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
 /// click, `target=_blank` handled as a URL), a popup or `window.open` that
 /// needs its opener (the engine already created the page), and
-/// `window.close()`. New tabs land in the opener's pane on the opener's
+/// `window.close()`, an extension selecting a tab (`chrome.tabs.update`),
+/// and the page context menu (Chromium's items, extension
+/// `chrome.contextMenus` included, then the cmux browser-page actions).
+/// New tabs land in the opener's pane on the opener's
 /// engine: `window.opener` and the page's cookies live in one engine, and
 /// the opener is Chromium unless someone chose WebKit.
 final class BrowserPageRequests: BrowserTabDelegate {
@@ -29,6 +34,14 @@ final class BrowserPageRequests: BrowserTabDelegate {
             open(url: child.state.url, adopting: child, engine: engine, in: pane, background: disposition == .backgroundTab)
         case .close:
             services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
+        case .activate:
+            services.paneController(for: pane)?.select(StripTabID(key), source: .intent)
+        case .contextMenu(let request):
+            let target = ActionTargetRef(kind: .tab, id: key)
+            let host = services.registry.makeContextMenu(for: .browserPage, target: target, implied: .browserFocused)
+            let extra = host.items
+            host.removeAllItems()
+            BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
         case .download:
             break
         }

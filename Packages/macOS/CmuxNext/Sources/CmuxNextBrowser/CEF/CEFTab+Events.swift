@@ -103,6 +103,13 @@ extension CEFTab {
         return try CEFDevToolsResult.evaluation(json)
     }
 
+    /// Runs a DevTools protocol method on this tab in process (diagnostics
+    /// and trusted-input tests). Returns the method's JSON result.
+    public func devTools(method: String, params: [String: any Sendable]) async throws -> String {
+        guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        return try await runtime.devTools(browserID, method: method, params: params)
+    }
+
     // MARK: Find
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
@@ -131,11 +138,27 @@ extension CEFTab {
         if actions != extensionActions { extensionActions = actions }
     }
 
+    public var extensionStore: BrowserExtensionStore { runtime.extensionStore(for: profileID) }
+
     public func runExtensionAction(_ id: String, anchor: CGRect) {
-        guard let browserID else { return }
+        guard let browserID, let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
-        // between x and x + width (DIPs, browser view coordinates).
-        _ = runtime.shim?.extActionRun(browserID, id, Int32(anchor.minX.rounded()), Int32(max(anchor.width, 1).rounded()))
+        // between x and x + width (DIPs, browser view coordinates), so it
+        // hangs below the toolbar button.
+        let ran = shim.extActionRun(browserID, id, Int32(anchor.minX.rounded()), Int32(max(anchor.width, 1).rounded())) == 1
+        if ran, extensionActions.first(where: { $0.id == id })?.hasPopup == true { openExtensionPopup = id }
+    }
+
+    public func hideExtensionPopups() {
+        guard let browserID, let shim = runtime.shim, let open = openExtensionPopup else { return }
+        shim.extActionHidePopup(browserID, open)
+        openExtensionPopup = nil
+    }
+
+    /// The fork reported that this window's action popup closed.
+    func extensionPopupClosed() {
+        openExtensionPopup = nil
+        refreshExtensionActions()
     }
 
     public func showExtensionActionMenu(_ id: String, atScreenPoint point: CGPoint) {

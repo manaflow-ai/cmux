@@ -141,6 +141,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(ext_action_hide_popup, "cmux_ext_action_hide_popup");
   CMUX_BIND(ext_action_context_menu, "cmux_ext_action_context_menu");
   CMUX_BIND(window_count, "cmux_browser_window_count");
+  CMUX_BIND(ext_list, "cmux_ext_list");
+  CMUX_BIND(ext_set_enabled, "cmux_ext_set_enabled");
+  CMUX_BIND(ext_uninstall, "cmux_ext_uninstall");
+  CMUX_BIND(ext_set_pinned, "cmux_ext_set_pinned");
+  CMUX_BIND(ext_open_options, "cmux_ext_open_options");
+  CMUX_BIND(ext_load_unpacked, "cmux_ext_load_unpacked");
+  CMUX_BIND(ext_commands, "cmux_ext_commands");
+  CMUX_BIND(ext_command_run, "cmux_ext_command_run");
+  CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
 #undef CMUX_BIND
 }
 

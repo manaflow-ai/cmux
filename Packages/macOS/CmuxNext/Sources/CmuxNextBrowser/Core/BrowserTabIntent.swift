@@ -24,6 +24,14 @@ public enum BrowserTabIntent {
     case close
     /// A download started. Observe the object for progress.
     case download(BrowserDownload)
+    /// The engine made this tab its window's active tab on its own (an
+    /// extension called `chrome.tabs.update({active: true})`). The host
+    /// selects it.
+    case activate
+    /// The page's context menu (Chromium's model with extension items). The
+    /// host shows it, adding its own items, and completes the request; a host
+    /// that ignores the intent drops the request, which dismisses the menu.
+    case contextMenu(BrowserContextMenuRequest)
 }
 
 /// Receives intents from a tab.

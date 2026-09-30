@@ -40,6 +40,19 @@ final class CEFPaneHost {
         window == .live(window: id)
     }
 
+    var isCreatingWindow: Bool {
+        if case .creating = window { return true }
+        return false
+    }
+
+    var isLive: Bool {
+        if case .live = window { return true }
+        return false
+    }
+
+    /// A browser of this window, to address it (cmux_tab_add, moves).
+    var anchorBrowser: Int32? { tabs.lazy.compactMap(\.browserID).first }
+
     func containsBrowser(inWindow id: Int32) -> Bool {
         guard let shim = runtime.shim else { return false }
         return tabs.contains { $0.browserID.map { shim.tabWindowID($0) == id } ?? false }
@@ -55,6 +68,7 @@ final class CEFPaneHost {
         }
         hostView.isHidden = false
         visibleTab = tab
+        runtime.lastShownHost = self
         ensureCreated(tab)
         if let browser = tab.browserID {
             _ = runtime.shim?.tabActivate(browser)
@@ -131,6 +145,8 @@ final class CEFPaneHost {
             _ = runtime.shim?.tabActivate(id)
         }
         refreshExtensionActions()
+        runtime.extensionStore(for: key.profile).refresh()
+        runtime.windowBecameLive(self)
     }
 
     /// A tab Chromium opened in this window (target=_blank, window.open,

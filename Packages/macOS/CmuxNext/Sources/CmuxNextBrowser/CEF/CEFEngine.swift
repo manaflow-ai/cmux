@@ -68,6 +68,14 @@ public final class CEFEngine: BrowserEngine {
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
 
+    /// The extensions of `profile`, once Chromium runs (nil before).
+    public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
+        guard isRunning else { return nil }
+        let store = CEFRuntime.shared.extensionStore(for: profile)
+        store.refresh()
+        return store
+    }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 

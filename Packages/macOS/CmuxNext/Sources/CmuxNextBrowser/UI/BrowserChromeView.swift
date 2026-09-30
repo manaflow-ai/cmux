@@ -41,14 +41,14 @@ public final class BrowserChromeView: NSView {
         }
     }
 
-    private let toolbar = NSView()
+    let toolbar = NSView()
     private let separator = NSView()
-    private let backButton: ChromeIconButton
-    private let forwardButton: ChromeIconButton
-    private let reloadButton: ChromeIconButton
+    let backButton: ChromeIconButton
+    let forwardButton: ChromeIconButton
+    let reloadButton: ChromeIconButton
     private let progressLine = ProgressLineView()
     private let contentContainer = NSView()
-    private let findBar = FindBarView()
+    let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let errorView = LoadErrorView()
     private var toolbarHeight: NSLayoutConstraint!
@@ -56,9 +56,15 @@ public final class BrowserChromeView: NSView {
     private var showsStop = false
     private var isToolbarHidden = false
     private let density = DensityBinding()
-    private lazy var extensionToolbar = ExtensionActionToolbar(slot: extensionSlot)
+    lazy var extensionToolbar: ExtensionActionToolbar = {
+        let toolbar = ExtensionActionToolbar(slot: extensionSlot)
+        toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
+        return toolbar
+    }()
 
     public static var toolbarHeight: CGFloat { OmnibarStyle.toolbarHeight }
+
+    var toolbarLayout = BrowserToolbarLayout(visiblePinned: ExtensionActionToolbar.maxVisible, showsForward: true)
 
     /// Omnibar editing boundaries. When set, the App owns focus: the chrome
     /// only loads a committed URL and never moves focus itself. When nil,
@@ -77,8 +83,8 @@ public final class BrowserChromeView: NSView {
     /// that also tracks Chromium page windows); else the chrome focuses the
     /// page itself.
     public var onReturnFocusToPage: (() -> Void)?
-    private var recordedURL: URL?
-    private var recordedTitle: String?
+    var recordedURL: URL?
+    var recordedTitle: String?
 
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
         self.tab = tab
@@ -89,6 +95,10 @@ public final class BrowserChromeView: NSView {
         reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil, toolbar: true)
         super.init(frame: .zero)
         wantsLayer = true
+        backButton.setAccessibilityIdentifier(Identifier.back)
+        forwardButton.setAccessibilityIdentifier(Identifier.forward)
+        reloadButton.setAccessibilityIdentifier(Identifier.reload)
+        addressBar.setAccessibilityIdentifier(Identifier.omnibar)
         buildLayout()
         wireActions()
         attach(tab, replacing: nil)
@@ -203,7 +213,8 @@ public final class BrowserChromeView: NSView {
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             // Soft minimums below the window's stay-put priority (500): the
-            // omnibar never widens the pane or the window.
+            // omnibar never widens the pane or the window. BrowserToolbarLayout
+            // hides extension buttons and Forward so these hold when possible.
             density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(490))) {
                 BrowserMetrics.minimumAddressWidth
             },
@@ -291,6 +302,7 @@ public final class BrowserChromeView: NSView {
             content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
         findBar.tab = tab
+        addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
         if !findBar.isHidden {
             old?.clearFind()
@@ -330,19 +342,8 @@ public final class BrowserChromeView: NSView {
         updateOcclusion()
     }
 
-    private func recordHistory(_ state: BrowserTabState) {
-        guard let history, case .finished = state.phase, let url = state.url else { return }
-        if url != recordedURL {
-            recordedURL = url
-            recordedTitle = state.title
-            history.recordVisit(url: url, title: state.title, at: Date())
-        } else if let title = state.title, title != recordedTitle {
-            recordedTitle = title
-            history.updateTitle(title, for: url)
-        }
-    }
-
     public override func layout() {
+        applyToolbarLayout()
         super.layout()
         updateOcclusion()
     }
@@ -372,15 +373,6 @@ public final class BrowserChromeView: NSView {
                 self.separator.isHidden = true
             }
         }
-    }
-
-    /// The region of this chrome that contains `view`, nil when outside.
-    public func region(of view: NSView) -> Region? {
-        guard view.isDescendant(of: self) else { return nil }
-        if view.isDescendant(of: addressBar) { return .addressBar }
-        if view.isDescendant(of: findBar) { return .findBar }
-        if view.isDescendant(of: tab.contentView) { return .page }
-        return .chrome
     }
 
     private var containsFirstResponder: Bool {

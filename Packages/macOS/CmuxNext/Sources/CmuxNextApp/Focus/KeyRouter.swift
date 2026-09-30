@@ -13,13 +13,16 @@ import CmuxNextTerminal
 ///    the keyboard;
 /// 4. a text input has the keyboard: the field and the Edit menu get it;
 /// 5. tier 2 (content) actions whose context matches;
-/// 6. the focused view (Ghostty keybinds, the page), then the main menu.
+/// 6. a Chrome extension shortcut (`chrome.commands`) of the focused
+///    Chromium tab's profile, also from the address bar or find bar
+///    (Chromium never sees those keys), never in browser focus mode;
+/// 7. the focused view (Ghostty keybinds, the page), then the main menu.
 ///
 /// Steps 1-3 run app-wide in `CmuxApplication.sendEvent`
 /// (``interceptKeyDown(_:in:)``), before any window or responder sees the
 /// key, so they work whichever view or window has it: a terminal, a WebKit
 /// page, the address bar, or a Chromium page window (a child window that is
-/// key itself). Step 5 runs per window: `ShellWindow.performKeyEquivalent`
+/// key itself). Steps 5 and 6 run per window: `ShellWindow.performKeyEquivalent`
 /// for in-window content and Chromium's pre-key hook
 /// (``browserTab(_:keyEquivalent:)``) for page windows. Each place runs only
 /// its own tiers, so no action runs twice.
@@ -122,9 +125,23 @@ final class KeyRouter: BrowserKeyRouting {
     /// (not in a text field, not in browser focus mode). Tiers 0 and 1 ran
     /// app-wide already. Returns whether the key was consumed.
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
-        guard let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
-              Self.allows(.content, focus: focus) else { return false }
-        return registry.runShortcut(resolved.id, argument: resolved.argument)
+        if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
+           Self.allows(.content, focus: focus) {
+            return registry.runShortcut(resolved.id, argument: resolved.argument)
+        }
+        return runExtensionShortcut(event, focus: focus)
+    }
+
+    /// Chromium dispatches extension shortcuts from the Chrome toolbar that
+    /// cmux hides, and never sees keys while the omnibar or find bar has the
+    /// keyboard, so cmux routes them for the focused Chromium tab.
+    private func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
+        guard !focus.isBrowserFocusModeActive, let pane = focus.resolved.pane,
+              let paneController = services?.windows.controllers.lazy.compactMap({ $0.content?.paneController(key: pane) }).first,
+              case .browser(let entry)? = paneController.currentContent,
+              let tab = entry.tab as? CEFTab,
+              let command = tab.extensionStore.command(matching: event) else { return false }
+        return tab.extensionStore.run(command, in: tab)
     }
 
     // MARK: Menu key equivalents
@@ -178,8 +195,12 @@ final class KeyRouter: BrowserKeyRouting {
 
     // MARK: BrowserKeyRouting (CEF page window is key)
 
-    /// Chromium's pre-key hook: tier 2 only (tiers 0 and 1 ran in
-    /// `sendEvent` before Chromium saw the key).
+    func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
+        window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
+    }
+
+    /// Chromium's pre-key hook: tier 2 and extension shortcuts (tiers 0 and
+    /// 1 ran in `sendEvent` before Chromium saw the key).
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition {
         guard let controller = window(showing: tab) else { return .passToPage }
         return routeContentKeyEquivalent(event, focus: controller.focus.state) ? .handledByHost : .passToPage

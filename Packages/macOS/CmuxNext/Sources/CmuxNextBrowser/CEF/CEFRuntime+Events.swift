@@ -52,6 +52,8 @@ extension CEFRuntime {
             }
         case .tab(let kind, let browser, let window, let value):
             forkTabEvent(kind, browser: browser, window: window, value: value)
+        case .contextMenu(let browser, let token, let x, let y, let items, let params):
+            showContextMenu(browser: browser, token: token, x: x, y: y, itemsJSON: items, paramsJSON: params)
         case .unknown:
             break
         default:
@@ -61,10 +63,21 @@ extension CEFRuntime {
         }
     }
 
+    /// App content shortcuts first (through the host's key router, which
+    /// also runs extension shortcuts), then, for Option chords the router
+    /// does not see, the profile's extension shortcuts (`chrome.commands`),
+    /// which Chromium would dispatch from the Chrome toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
-        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
-              let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
-        return router.browserTab(tab, keyEquivalent: event) == .handledByHost
+        guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
+        if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
+           router.browserTab(tab, keyEquivalent: event) == .handledByHost {
+            return true
+        }
+        guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
+        let store = extensionStore(for: tab.profileID)
+        guard let command = store.command(matching: event) else { return false }
+        return store.run(command, in: tab)
     }
 
     // MARK: Browser lifetime
@@ -81,12 +94,7 @@ extension CEFRuntime {
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
-        guard let host = hosts.values.first(where: { $0.owns(window: window) || $0.containsBrowser(inWindow: window) }) else {
-            logger.error("CEF browser \(browser) created in unknown window \(window)")
-            shim?.close(browser)
-            return
-        }
-        host.adoptChromiumTab(browser: browser)
+        adoptOrphan(browser: browser, window: window)
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
@@ -111,12 +119,31 @@ extension CEFRuntime {
             for host in hosts.values where host.owns(window: window) || host.containsBrowser(inWindow: window) {
                 host.refreshExtensionActions()
             }
+            if kind == .extensionActionsChanged { refreshExtensionStores(window: window, browser: browser) }
+        case .extensionsChanged:
+            refreshExtensionStores(window: window, browser: browser)
         case .extensionPopupClosed:
-            tabsByBrowser[browser]?.refreshExtensionActions()
+            // `browser` is the window's active tab; the popup may have
+            // opened from another tab of the same window.
+            for tab in tabsByBrowser.values where tab.openExtensionPopup != nil || tab.browserID == browser {
+                if tab.browserID == browser || tab.host.owns(window: window) { tab.extensionPopupClosed() }
+            }
         case .windowDestroyed:
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
-        case .activated, .moved, .unknown:
+        case .activated:
+            // Chromium (an extension) switched the window's tab: cmux selects
+            // it. Our own cmux_tab_activate echoes for the visible tab.
+            // The event arrives inside Chromium's tab strip notification, which
+            // forbids re-entrant tab strip changes (cmux_tab_activate); the
+            // host selects the tab on the next main-actor turn.
+            if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
+                Task { @MainActor [weak tab] in
+                    guard let tab, tab.host.visibleTab !== tab else { return }
+                    tab.emit(.activate)
+                }
+            }
+        case .moved, .unknown:
             break
         }
     }
@@ -205,7 +232,7 @@ extension CEFShimEvent {
              .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _),
              .afterCreated(let b, _, _), .beforeClose(let b), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
-             .reply(let b, _, _, _):
+             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _):
             b
         case .contextInitialized, .unknown:
             nil

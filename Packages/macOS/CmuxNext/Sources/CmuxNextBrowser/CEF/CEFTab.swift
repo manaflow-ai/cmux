@@ -17,6 +17,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public internal(set) var favicon: NSImage?
     public let pendingPrompts: [BrowserPrompt] = []
     public internal(set) var extensionActions: [CEFExtensionAction] = []
+    public internal(set) var openExtensionPopup: String?
+    @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?

@@ -13,6 +13,12 @@ public nonisolated enum BrowserKeyDisposition: Hashable, Sendable {
 /// win over page handlers. CEF implements it from its pre-key-event handler.
 public protocol BrowserKeyRouting: AnyObject {
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition
+    /// Browser focus mode: the page gets every key, extension shortcuts included.
+    func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool
+}
+
+extension BrowserKeyRouting {
+    public func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool { false }
 }
 
 // MARK: - Prompts

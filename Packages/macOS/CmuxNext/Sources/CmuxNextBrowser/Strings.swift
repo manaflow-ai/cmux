@@ -9,6 +9,24 @@ nonisolated enum Strings {
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .module) }
     static var stop: String { String(localized: "browser.toolbar.stop", defaultValue: "Stop Loading", bundle: .module) }
     static var extensions: String { String(localized: "browser.toolbar.extensions", defaultValue: "Extensions", bundle: .module) }
+    static var extensionMoreFormat: String { String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@", bundle: .module) }
+    static var noExtensions: String { String(localized: "browser.extensions.none", defaultValue: "No extensions installed", bundle: .module) }
+
+    static func extensionMenuTitle(_ operation: ExtensionMenuOperation) -> String {
+        switch operation {
+        case .run: String(localized: "browser.extensions.run", defaultValue: "Run", bundle: .module)
+        case .pin: String(localized: "browser.extensions.pin", defaultValue: "Pin to Toolbar", bundle: .module)
+        case .unpin: String(localized: "browser.extensions.unpin", defaultValue: "Unpin from Toolbar", bundle: .module)
+        case .options: String(localized: "browser.extensions.options", defaultValue: "Options", bundle: .module)
+        case .enable: String(localized: "browser.extensions.enable", defaultValue: "Enable", bundle: .module)
+        case .disable: String(localized: "browser.extensions.disable", defaultValue: "Disable", bundle: .module)
+        case .remove: String(localized: "browser.extensions.remove", defaultValue: "Remove…", bundle: .module)
+        case .siteAccess: String(localized: "browser.extensions.siteAccess", defaultValue: "Site Access and More…", bundle: .module)
+        case .loadUnpacked: String(localized: "browser.extensions.loadUnpacked", defaultValue: "Load Unpacked…", bundle: .module)
+        case .webStore: String(localized: "browser.extensions.webStore", defaultValue: "Chrome Web Store", bundle: .module)
+        case .manage: String(localized: "browser.extensions.manage", defaultValue: "Manage Extensions", bundle: .module)
+        }
+    }
 
     // Address bar
     static func searchWith(engine: String) -> String {

@@ -59,6 +59,9 @@ public final class MockBrowserTab: BrowserTab {
         case exitContentFullscreen
         case showDevTools
         case close
+        case runExtensionAction(String, anchor: CGRect)
+        case hideExtensionPopups
+        case showExtensionActionMenu(String)
     }
 
     public let id: BrowserTabID
@@ -83,6 +86,17 @@ public final class MockBrowserTab: BrowserTab {
     /// Page Info fakes (`MockBrowserTab+PageInfo`).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     @ObservationIgnored public var pageInfoFake = MockPageInfoData()
+
+    // Extensions (`BrowserExtensionActionHosting`, MockBrowserTab+Extensions).
+    public var extensionActions: [CEFExtensionAction] = []
+    public var openExtensionPopup: String?
+    /// Off by default: a mock page shows no Extensions button.
+    public var showsExtensionToolbar = false
+    @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
+    @ObservationIgnored public let extensionBackend = MockExtensionBackend()
+    @ObservationIgnored public private(set) lazy var extensionStore = BrowserExtensionStore(
+        profile: profileID, backend: extensionBackend
+    )
 
     private var machine = BrowserTabStateMachine()
     /// The current back/forward list entry. Updated when a navigation
@@ -131,6 +145,8 @@ public final class MockBrowserTab: BrowserTab {
             pendingPrompts.append(prompt)
         }
     }
+
+    func record(_ command: Command) { commands.append(command) }
 
     public func emit(_ intent: BrowserTabIntent) {
         delegate?.browserTab(self, didRequest: intent)

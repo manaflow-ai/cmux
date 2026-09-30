@@ -47,6 +47,8 @@ final class TerminalEntry {
 final class BrowserEntry {
     let tab: any BrowserTab
     let chrome: BrowserChromeView
+    /// Owns the chrome's (weak) Extensions menu handler.
+    var extensionMenuHandler: (any ExtensionMenuHandling)?
 
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab

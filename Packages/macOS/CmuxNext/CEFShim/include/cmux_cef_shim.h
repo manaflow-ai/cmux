@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define CMUX_CEF_SHIM_ABI 3
+#define CMUX_CEF_SHIM_ABI 4
 
 #define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
 
@@ -46,6 +46,11 @@ typedef enum {
   // Reply to an async site call (ABI 3): request = the caller's reply id,
   // a = result (1 success, or the deleted cookie count), s1 = JSON.
   CMUX_SHIM_REPLY = 18,
+  // Chromium's page context menu. request = token for
+  // cmux_shim_context_menu_done, a/b = x/y in view coordinates (DIPs, top
+  // left), s1 = JSON items [{id,label,type,enabled,checked,items?}],
+  // s2 = JSON {link_url,source_url,page_url,selection,editable,media_type}.
+  CMUX_SHIM_CONTEXT_MENU = 19,
 } cmux_shim_event_kind_t;
 
 
@@ -139,6 +144,19 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_action_run(int browser_id, const char* extens
 CMUX_SHIM_EXPORT void cmux_shim_ext_action_hide_popup(int browser_id, const char* extension_id);
 CMUX_SHIM_EXPORT void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id, int screen_x, int screen_y);
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
+
+// Extension management and commands (fork API v3; 0/NULL on older forks).
+CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled);
+CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int browser_id, const char* extension_id);
+CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int browser_id, const char* extension_id, int pinned);
+CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int browser_id, const char* extension_id);
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int browser_id, const char* path);
+CMUX_SHIM_EXPORT char* cmux_shim_ext_commands(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_ext_command_run(int browser_id, const char* extension_id, const char* command);
+CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_browser_id, int index);
+// Ends a CONTEXT_MENU: command_id < 0 cancels.
+CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int event_flags);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

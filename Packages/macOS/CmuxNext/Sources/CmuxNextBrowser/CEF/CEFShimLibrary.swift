@@ -10,7 +10,7 @@ import Foundation
 /// Immutable C function pointers: safe to hand from the loading thread to the
 /// main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
-    static let abiVersion: Int32 = 3
+    static let abiVersion: Int32 = 4
 
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     typealias EventFn = @convention(c) (
@@ -54,6 +54,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extActionHidePopup: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
     let extActionContextMenu: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Void
     let free: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
+    // Fork API v3 (the shim returns 0/NULL on older forks).
+    let extList: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let extSetEnabled: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    let extUninstall: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let extSetPinned: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    let extOpenOptions: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let extLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let extCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let extCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32
+    let contextMenuDone: @convention(c) (Int32, Int32, Int32) -> Void
 
     let closeAll: @convention(c) () -> Void
     let liveBrowserCount: @convention(c) () -> Int32
@@ -130,6 +141,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")
         extActionContextMenu = try r("cmux_shim_ext_action_context_menu")
         free = try r("cmux_shim_free")
+        extList = try r("cmux_shim_ext_list")
+        extSetEnabled = try r("cmux_shim_ext_set_enabled")
+        extUninstall = try r("cmux_shim_ext_uninstall")
+        extSetPinned = try r("cmux_shim_ext_set_pinned")
+        extOpenOptions = try r("cmux_shim_ext_open_options")
+        extLoadUnpacked = try r("cmux_shim_ext_load_unpacked")
+        extCommands = try r("cmux_shim_ext_commands")
+        extCommandRun = try r("cmux_shim_ext_command_run")
+        tabMoveToWindow = try r("cmux_shim_tab_move_to_window")
+        contextMenuDone = try r("cmux_shim_context_menu_done")
         closeAll = try r("cmux_shim_close_all")
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")

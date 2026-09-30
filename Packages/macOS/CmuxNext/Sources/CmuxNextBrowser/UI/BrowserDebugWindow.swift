@@ -92,6 +92,11 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             if let next = tabs.last { chrome.tab = next; observe() } else { window.close() }
         case .download:
             break
+        case .activate:
+            chrome.tab = tab
+            observe()
+        case .contextMenu(let request):
+            BrowserContextMenuBuilder.present(request, in: tab.contentView)
         }
     }
 

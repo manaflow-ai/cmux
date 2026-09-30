@@ -47,6 +47,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCEF.report(services))
             },
+            // Installed Chrome extensions, shortcuts and toolbar badges.
+            .mainActor("browser.extensions") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(ExtensionControl.report(services))
+            },
         ])
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
@@ -66,6 +71,22 @@ final class AppControl {
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
+            },
+            .async("debug.cef.devtools") { [weak services] call in
+                await DebugExtensions.devTools(call.params, services)
+            },
+            .mainActor("debug.menu") { call in .value(DebugExtensions.menu(call.params)) },
+            .mainActor("debug.extensions.toolbar") { [weak services] call in
+                .value(services.map { DebugExtensionToolbar.toolbar(call.params, $0) } ?? .null)
+            },
+            .mainActor("debug.extensions.click") { [weak services] call in
+                .value(services.map { DebugExtensionToolbar.click(call.params, $0) } ?? .null)
+            },
+            .mainActor("debug.extensions.menu") { [weak services] call in
+                .value(services.map { DebugExtensionToolbar.menu(call.params, $0) } ?? .null)
+            },
+            .mainActor("debug.extensions.popup") { [weak services] call in
+                .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)

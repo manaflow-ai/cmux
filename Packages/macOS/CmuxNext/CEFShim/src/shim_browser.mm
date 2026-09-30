@@ -136,6 +136,54 @@ void cmux_shim_ext_action_context_menu(int browser_id, const char* extension_id,
   }
 }
 
+char* cmux_shim_ext_list(int browser_id) {
+  return fork_api().ext_list ? fork_api().ext_list(browser_id) : nullptr;
+}
+
+int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled) {
+  return fork_api().ext_set_enabled && extension_id ? fork_api().ext_set_enabled(browser_id, extension_id, enabled) : 0;
+}
+
+int cmux_shim_ext_uninstall(int browser_id, const char* extension_id) {
+  return fork_api().ext_uninstall && extension_id ? fork_api().ext_uninstall(browser_id, extension_id) : 0;
+}
+
+int cmux_shim_ext_set_pinned(int browser_id, const char* extension_id, int pinned) {
+  return fork_api().ext_set_pinned && extension_id ? fork_api().ext_set_pinned(browser_id, extension_id, pinned) : 0;
+}
+
+int cmux_shim_ext_open_options(int browser_id, const char* extension_id) {
+  return fork_api().ext_open_options && extension_id ? fork_api().ext_open_options(browser_id, extension_id) : 0;
+}
+
+int cmux_shim_ext_load_unpacked(int browser_id, const char* path) {
+  return fork_api().ext_load_unpacked && path ? fork_api().ext_load_unpacked(browser_id, path) : 0;
+}
+
+char* cmux_shim_ext_commands(int browser_id) {
+  return fork_api().ext_commands ? fork_api().ext_commands(browser_id) : nullptr;
+}
+
+int cmux_shim_ext_command_run(int browser_id, const char* extension_id, const char* command) {
+  return fork_api().ext_command_run && extension_id && command
+             ? fork_api().ext_command_run(browser_id, extension_id, command)
+             : 0;
+}
+
+int cmux_shim_tab_move_to_window(int browser_id, int window_browser_id, int index) {
+  return fork_api().tab_move_to_window ? fork_api().tab_move_to_window(browser_id, window_browser_id, index) : 0;
+}
+
+void cmux_shim_context_menu_done(int token, int command_id, int event_flags) {
+  if (CefRefPtr<CefRunContextMenuCallback> callback = TakeMenuCallback(token)) {
+    if (command_id < 0) {
+      callback->Cancel();
+    } else {
+      callback->Continue(command_id, static_cast<cef_event_flags_t>(event_flags));
+    }
+  }
+}
+
 void cmux_shim_free(char* s) {
   if (s && fork_api().free_string) fork_api().free_string(s);
 }

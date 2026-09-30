@@ -34,6 +34,14 @@ final class CEFRuntime {
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
     var tabBeingAdded: CEFTab?
+    /// Browsers Chromium created while their pane's window was still being
+    /// created (see `adoptOrphan`).
+    var orphanBrowsers: [Orphan] = []
+    /// The pane host that last showed a tab: where tabs from windows cmux
+    /// does not host go.
+    weak var lastShownHost: CEFPaneHost?
+    /// Extension mirrors by profile.
+    var extensionStores: [BrowserProfileID: BrowserExtensionStore] = [:]
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()

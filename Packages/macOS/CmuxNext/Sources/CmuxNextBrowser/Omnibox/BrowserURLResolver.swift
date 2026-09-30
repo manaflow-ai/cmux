@@ -7,9 +7,11 @@ public import Foundation
 ///    when the break comes after the URL's authority (host) has ended, so
 ///    `https://example.com/very/\nlong/path` loads while `example.\ncom`
 ///    searches.
-/// 2. Explicit `http`, `https`, `file`, and `about:blank` load. Every other
-///    scheme (`javascript:`, `data:`, `mailto:`, ...) is searched, so typed
-///    text can never run script or open another app.
+/// 2. Explicit `http`, `https`, `file`, and `about:blank` load; with
+///    `allowsChromiumSchemes` (Chromium tabs) also `chrome://` WebUI and
+///    `chrome-extension://` pages. Every other scheme (`javascript:`,
+///    `data:`, `mailto:`, ...) is searched, so typed text can never run
+///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
 /// 4. Remaining text with whitespace is a search.
 /// 5. Scheme-less text: userinfo (`user@host`) is refused, loopback hosts
@@ -17,9 +19,11 @@ public import Foundation
 ///    words search.
 public nonisolated struct BrowserURLResolver: Sendable {
     private let homeDirectory: URL
+    public var allowsChromiumSchemes: Bool
 
-    public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser, allowsChromiumSchemes: Bool = false) {
         self.homeDirectory = homeDirectory
+        self.allowsChromiumSchemes = allowsChromiumSchemes
     }
 
     /// A URL to load, or nil when the text should be searched.
@@ -109,6 +113,10 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return url
         case "about":
             return text.lowercased() == "about:blank" ? URL(string: "about:blank") : nil
+        case "chrome", "chrome-extension":
+            guard allowsChromiumSchemes, let components = URLComponents(string: text),
+                  let host = components.host, !host.isEmpty else { return nil }
+            return components.url
         default:
             return nil
         }

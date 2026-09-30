@@ -44,6 +44,9 @@ final class TabContentCache {
     var onPageFocusRequest: ((String) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
+    /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
+    /// action registry, `ExtensionMenuRouter`).
+    var makeExtensionMenuHandler: ((String) -> any ExtensionMenuHandling)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -167,6 +170,10 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         onBrowserEntryCreated?(entry)
+        if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
+            entry.extensionMenuHandler = handler
+            entry.chrome.extensionMenuHandler = handler
+        }
         browsers[key] = entry
         return entry
     }

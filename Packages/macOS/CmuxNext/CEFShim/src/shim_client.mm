@@ -37,6 +37,11 @@ class App : public CefApp, public CefBrowserProcessHandler {
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
 
+  // Browsers Chromium creates in a window the host did not create
+  // (chrome.windows.create, tabs.create with no window) report through
+  // this client with request 0, so the host can move them into a pane.
+  CefRefPtr<CefClient> GetDefaultClient() override { return DefaultClient(); }
+
   void OnScheduleMessagePumpWork(int64_t delay_ms) override {
     Host& h = host();
     if (h.schedule) {
@@ -55,6 +60,7 @@ class Client : public CefClient,
                public CefLifeSpanHandler,
                public CefKeyboardHandler,
                public CefFindHandler,
+               public CefContextMenuHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -64,6 +70,54 @@ class Client : public CefClient,
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
+  CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+
+  // MARK: Context menu
+
+  // Chromium's page menu (extension chrome.contextMenus items included) is
+  // shown by the host as its own menu, merged with host actions.
+  bool RunContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+                      CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model,
+                      CefRefPtr<CefRunContextMenuCallback> callback) override {
+    CefRefPtr<CefValue> items = CefValue::Create();
+    items->SetList(MenuItems(model));
+    CefRefPtr<CefDictionaryValue> info = CefDictionaryValue::Create();
+    info->SetString("link_url", params->GetLinkUrl());
+    info->SetString("source_url", params->GetSourceUrl());
+    info->SetString("page_url", params->GetPageUrl());
+    info->SetString("selection", params->GetSelectionText());
+    info->SetBool("editable", params->IsEditable());
+    info->SetInt("media_type", params->GetMediaType());
+    CefRefPtr<CefValue> infoValue = CefValue::Create();
+    infoValue->SetDictionary(info);
+    int token = StoreMenuCallback(callback);
+    Emit(CMUX_SHIM_CONTEXT_MENU, browser->GetIdentifier(), token, params->GetXCoord(), params->GetYCoord(),
+         CefWriteJSON(items, JSON_WRITER_DEFAULT).ToString(), CefWriteJSON(infoValue, JSON_WRITER_DEFAULT).ToString());
+    return true;
+  }
+
+  static CefRefPtr<CefListValue> MenuItems(CefRefPtr<CefMenuModel> model) {
+    CefRefPtr<CefListValue> list = CefListValue::Create();
+    for (size_t i = 0; i < model->GetCount(); ++i) {
+      CefRefPtr<CefDictionaryValue> item = CefDictionaryValue::Create();
+      item->SetInt("id", model->GetCommandIdAt(i));
+      item->SetString("label", model->GetLabelAt(i));
+      item->SetBool("enabled", model->IsEnabledAt(i));
+      item->SetBool("checked", model->IsCheckedAt(i));
+      switch (model->GetTypeAt(i)) {
+        case MENUITEMTYPE_SEPARATOR: item->SetString("type", "separator"); break;
+        case MENUITEMTYPE_CHECK: item->SetString("type", "check"); break;
+        case MENUITEMTYPE_RADIO: item->SetString("type", "radio"); break;
+        case MENUITEMTYPE_SUBMENU:
+          item->SetString("type", "submenu");
+          if (CefRefPtr<CefMenuModel> sub = model->GetSubMenuAt(i)) item->SetList("items", MenuItems(sub));
+          break;
+        default: item->SetString("type", "command"); break;
+      }
+      list->SetDictionary(list->GetSize(), item);
+    }
+    return list;
+  }
 
   // MARK: Life span
 
@@ -194,6 +248,32 @@ CefRefPtr<CefApp> MakeApp(std::vector<std::string> switches) {
 
 CefRefPtr<CefClient> MakeClient(int request) {
   return new Client(request);
+}
+
+CefRefPtr<CefClient> DefaultClient() {
+  static CefRefPtr<CefClient> client = new Client(0);
+  return client;
+}
+
+static std::map<int, CefRefPtr<CefRunContextMenuCallback>>& menu_callbacks() {
+  static std::map<int, CefRefPtr<CefRunContextMenuCallback>> map;
+  return map;
+}
+
+int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback) {
+  static int next = 1;
+  int token = next++;
+  menu_callbacks()[token] = callback;
+  return token;
+}
+
+CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token) {
+  auto& map = menu_callbacks();
+  auto it = map.find(token);
+  if (it == map.end()) return nullptr;
+  CefRefPtr<CefRunContextMenuCallback> callback = it->second;
+  map.erase(it);
+  return callback;
 }
 
 }  // namespace cmux_shim
