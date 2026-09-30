@@ -418,8 +418,8 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
-                String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys.")
+                String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures (Beta)"),
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Beta: Command and Option arrows and Delete edit the shell command line like normal text, only while cmux sees an idle shell prompt. Full-screen terminal apps keep their original keys.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()

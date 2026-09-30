@@ -11,6 +11,7 @@ extension TerminalPanel {
         if shellActivity.state != state {
             shellActivity.state = state
         }
+        surface.setShellPromptIsIdle(state == .promptIdle)
         textBoxState.updateShellActivityState(state)
         if state == .promptIdle {
             surface.shellDidBecomeReadyForStartupInput()
