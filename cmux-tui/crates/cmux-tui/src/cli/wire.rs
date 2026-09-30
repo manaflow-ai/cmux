@@ -64,14 +64,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
 
-    let socket = match resolve_socket(&global) {
-        Ok(socket) => socket,
+    let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
         Err(_) => {
             eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
             return 2;
         }
     };
-    let stream = match transport::connect(&socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
             eprintln!("cannot connect to session socket {}: {error}", socket.display());
@@ -105,7 +105,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 #[cfg(unix)]
-fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
     let Ok(stream) = stream.try_clone_box() else { return false };
     std::thread::Builder::new()
         .name("cmux-cli-signal-interrupt".into())
@@ -324,7 +324,8 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
-                    return print_success(&result, global.output);
+                    let code = print_success(&result, global.output);
+                    return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
@@ -444,6 +445,17 @@ fn read_envelope(
     }
 }
 
+/// `terminal <id> screen wait` reports a timeout as a normal result with
+/// `matched: false`. The result is still printed, but the exit status is 1
+/// (spec/commands.md), so a script can tell a timeout from a match.
+fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
+    let unmatched_wait = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
+    ) && result.get("matched") == Some(&Value::Bool(false));
+    i32::from(unmatched_wait)
+}
+
 fn print_success(value: &Value, output: OutputMode) -> i32 {
     let result = match output {
         OutputMode::Quiet => Ok(()),
@@ -465,6 +477,38 @@ fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
 }
 
 fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    localize_operation_error_with_catalog(plan, error, crate::localization::catalog());
+}
+
+fn localize_operation_error_with_catalog(
+    plan: &RequestPlan,
+    error: &mut Value,
+    catalog: &crate::localization::Catalog,
+) {
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::TerminalInputWrite
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputKeys
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputMouse
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputFocus
+        )
+    ) && error["code"] == "operation.failed"
+    {
+        let message = match error["details"]["reason"].as_str() {
+            Some("terminal_input_too_large") => Some(catalog.terminal_input.too_large),
+            Some("terminal_input_unavailable") => Some(catalog.terminal_input.unavailable),
+            Some("terminal_input_confirmation_unsupported") => {
+                Some(catalog.terminal_input.confirmation_unsupported)
+            }
+            Some("terminal_input_delivery_failed") => Some(catalog.terminal_input.delivery_failed),
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.into());
+        }
+    }
+
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
@@ -474,12 +518,8 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     );
     if is_lifecycle_operation && error["code"] == "operation.failed" {
         let message = match error["details"]["reason"].as_str() {
-            Some("lifecycle_not_ready") => {
-                Some(crate::localization::catalog().local_server.starting)
-            }
-            Some("owner_stopped") => {
-                Some(crate::localization::catalog().local_server.reload_owner_stopped)
-            }
+            Some("lifecycle_not_ready") => Some(catalog.local_server.starting),
+            Some("owner_stopped") => Some(catalog.local_server.reload_owner_stopped),
             _ => None,
         };
         if let Some(message) = message {
@@ -718,10 +758,6 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
-pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    Ok(resolve_socket_with_origin(global)?.0)
-}
-
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.
 pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
@@ -752,6 +788,24 @@ pub(super) fn resolve_socket_with_env(
 mod tests {
     use super::*;
     use cmux_tui_core::resource::ResourceOperation;
+
+    fn plan(operation: ResourceOperation) -> RequestPlan {
+        RequestPlan {
+            operation: WireOperation::Typed(operation),
+            params: json!({}),
+            idempotency_key: None,
+            stream: false,
+        }
+    }
+
+    #[test]
+    fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
+        let wait = plan(ResourceOperation::TerminalWait);
+        assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
+        assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
+        let read = plan(ResourceOperation::TerminalScreenRead);
+        assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
+    }
 
     #[test]
     fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
@@ -911,6 +965,49 @@ mod tests {
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
+        for operation in [
+            ResourceOperation::TerminalInputWrite,
+            ResourceOperation::TerminalInputKeys,
+            ResourceOperation::TerminalInputMouse,
+            ResourceOperation::TerminalInputFocus,
+        ] {
+            for locale in ["en", "ja"] {
+                let catalog = crate::localization::catalog_for_locale(locale);
+                let plan = RequestPlan {
+                    operation: WireOperation::Typed(operation),
+                    params: json!({}),
+                    idempotency_key: Some("input-error".into()),
+                    stream: false,
+                };
+                for (reason, expected) in [
+                    ("terminal_input_too_large", catalog.terminal_input.too_large),
+                    ("terminal_input_unavailable", catalog.terminal_input.unavailable),
+                    (
+                        "terminal_input_confirmation_unsupported",
+                        catalog.terminal_input.confirmation_unsupported,
+                    ),
+                    ("terminal_input_delivery_failed", catalog.terminal_input.delivery_failed),
+                ] {
+                    let wire = json!({"code":"operation.failed", "message":reason,
+                        "details":{"reason":reason}, "retryable":false});
+                    let mut human = wire.clone();
+                    localize_operation_error_with_catalog(&plan, &mut human, catalog);
+                    assert_eq!(human["message"], expected);
+                    assert_ne!(human["message"], reason);
+                    assert_eq!(human["details"], wire["details"]);
+                    assert_eq!(wire["message"], reason);
+                    assert_eq!(human["retryable"], false);
+                }
+            }
+        }
+        assert_ne!(
+            crate::localization::catalog_for_locale("en").terminal_input,
+            crate::localization::catalog_for_locale("ja").terminal_input
+        );
     }
 
     #[test]

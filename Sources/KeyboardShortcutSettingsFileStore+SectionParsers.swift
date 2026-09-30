@@ -88,8 +88,20 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let betaKeys = BetaFeaturesCatalogSection()
+        if let rawConversations = beta["conversations"], let conversations = rawConversations as? [String: Any] {
+            if let enabled = jsonBool(conversations["enabled"]) {
+                snapshot.managedUserDefaults[
+                    betaKeys.conversationSidebar.userDefaultsKey
+                ] = .bool(enabled)
+            } else if conversations.keys.contains("enabled") {
+                logInvalid("sidebar.beta.conversations.enabled", sourcePath: sourcePath)
+            }
+        } else if beta.keys.contains("conversations") {
+            logInvalid("sidebar.beta.conversations", sourcePath: sourcePath)
+        }
+
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
-            let betaKeys = BetaFeaturesCatalogSection()
             if let controls = todos["controls"] as? [String: Any] {
                 if let enabled = jsonBool(controls["enabled"]) {
                     snapshot.managedUserDefaults[
@@ -158,13 +170,26 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        guard section.keys.contains("artifactFolderAccess") else { return }
-        guard let raw = jsonString(section["artifactFolderAccess"]),
-              let value = MobileArtifactFolderAccess(rawValue: raw) else {
-            logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
-            return
+        if section.keys.contains("artifactFolderAccess") {
+            if let raw = jsonString(section["artifactFolderAccess"]),
+               let value = MobileArtifactFolderAccess(rawValue: raw) {
+                let key = SettingCatalog().mobile.artifactFolderAccess
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
+            }
         }
-        let key = SettingCatalog().mobile.artifactFolderAccess
-        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+        if section.keys.contains("browserTunnel") {
+            guard let tunnel = section["browserTunnel"] as? [String: Any] else {
+                logInvalid("mobile.browserTunnel", sourcePath: sourcePath)
+                return
+            }
+            if let value = jsonBool(tunnel["allowOtherHosts"]) {
+                let key = SettingCatalog().mobile.browserTunnelAllowOtherHosts
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .bool(value)
+            } else if tunnel.keys.contains("allowOtherHosts") {
+                logInvalid("mobile.browserTunnel.allowOtherHosts", sourcePath: sourcePath)
+            }
+        }
     }
 }

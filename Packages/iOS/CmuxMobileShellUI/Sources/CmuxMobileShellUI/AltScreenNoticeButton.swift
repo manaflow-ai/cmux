@@ -37,7 +37,7 @@ struct AltScreenNoticeButton: View {
                 idealWidth: AltScreenNoticePresentationSizing.maxWidth,
                 maxWidth: AltScreenNoticePresentationSizing.maxWidth
             )
-            .presentationSizing(AltScreenNoticePresentationSizing())
+            .mobileNoticePresentationSizing()
             .presentationCompactAdaptation(.popover)
             .onDisappear(perform: explanationPresentation.didDismiss)
         }

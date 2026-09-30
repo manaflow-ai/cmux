@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 import CmuxSettings
@@ -30,7 +31,7 @@ import Testing
 
     /// Sends a request through the asynchronous socket dispatcher used by
     /// real control-socket connections.
-    private func callAsync(method: String, params: [String: Any]) async throws -> [String: Any] {
+    func callAsync(method: String, params: [String: Any]) async throws -> [String: Any] {
         let request: [String: Any] = ["id": method, "method": method, "params": params]
         let requestData = try JSONSerialization.data(withJSONObject: request)
         let requestLine = try #require(String(data: requestData, encoding: .utf8))
@@ -98,7 +99,7 @@ import Testing
     }
 
     /// Runs an asynchronous test body with an isolated active tab manager.
-    private func withManagerAsync<T>(
+    func withManagerAsync<T>(
         _ body: @MainActor (TabManager, Workspace) async throws -> T
     ) async throws -> T {
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -422,6 +423,16 @@ import Testing
             #expect(envelope["ok"] as? Bool == true)
             #expect(workspace.panelCustomTitles[panelId] == "my renamed tab")
             #expect(workspace.panelCustomTitleSources[panelId] == .user)
+        }
+    }
+
+    @Test func codexNativeTitleSyncRenamesCloudPlacementByStableTabID() async throws {
+        try await withCloudNameFixture { fixture in
+            let probe = try await fixture.call("surface.sync_codex_native_title", extra: ["probe": true])
+            let context = try #require(CloudAgentNameContext(wire: probe["cloud_name_context"]))
+            try await fixture.agentName("Calculate 2+2", context: context)
+            try fixture.expectParity("Calculate 2+2")
+            #expect(fixture.provider.writes.map(\.0) == ["tab_a"])
         }
     }
 

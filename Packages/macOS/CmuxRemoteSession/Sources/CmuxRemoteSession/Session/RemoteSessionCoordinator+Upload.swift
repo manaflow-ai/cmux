@@ -91,7 +91,7 @@ extension RemoteSessionCoordinator {
                 for option in scpSSHOptions {
                     scpArgs += ["-o", option]
                 }
-                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+                scpArgs += ["--", normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
 
                 let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
                 guard scpResult.status == 0 else {
@@ -121,7 +121,7 @@ extension RemoteSessionCoordinator {
         let cleanupScript = "rm -f -- " + remotePaths.map(\.shellSingleQuoted).joined(separator: " ")
         let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
         _ = try? sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
+            arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, cleanupCommand],
             timeout: 8
         )
     }

@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -23,6 +24,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    private(set) var hasReceivedExplicitInput = false
+
+    func recordExplicitInput() {
+        hasReceivedExplicitInput = true
+    }
+
+    func restoreExplicitInputState(_ state: Bool) {
+        hasReceivedExplicitInput = state
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -48,6 +58,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
+    let restoreRecovery = AgentRestoreRecoveryPresentation()
     let textBoxState = TerminalPanelTextBoxState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
@@ -94,6 +105,16 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// Set when an agent woken from hibernation did not come back; drives
+    /// `AgentWakeFailureBanner`.
+    @Published var agentWakeFailure: AgentWakeFailure?
+    /// Set by the owning workspace while `agentWakeFailure` is shown.
+    var onRequestAgentWakeRetry: (() -> Void)?
+    var onDismissAgentWakeFailure: (() -> Void)?
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
+    var deviceAttachment: DeviceTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -114,28 +135,6 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
-    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
-        switch await surface.readSelection(
-            maxBytes: SurfaceSelectionSnapshot.maximumTextBytes
-        ) {
-        case .none:
-            return .snapshot(.none(kind: .terminal))
-        case .selected(let text):
-            return .snapshot(.selected(
-                kind: .terminal,
-                text: SurfaceSelectionSnapshot.boundedText(text)
-            ))
-        case .unavailable:
-            return .unavailable
-        }
-    }
-
-    func updateShellActivityState(_ state: PanelShellActivityState) {
-        if shellActivity.state != state {
-            shellActivity.state = state
-        }
-        textBoxState.updateShellActivityState(state)
-    }
 
     func recordTextBoxLaunchCommand(_ command: String) {
         guard let boundedContext = TextBoxAgentDetection.boundedLaunchCommandContext(from: command) else { return }
@@ -171,7 +170,10 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-        self.title = surface.agentPanelTitle ?? "Terminal"
+        self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
+        surface.onExplicitInput = { [weak self] in
+            self?.hasReceivedExplicitInput = true
+        }
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -196,6 +198,7 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -210,7 +213,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            isRemoteTerminal: isRemoteTerminal,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
@@ -242,8 +247,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateTitle(_ newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && title != trimmed {
+        let trimmed = AutomaticTerminalTitle(newTitle)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty && title != trimmed {
             title = trimmed
         }
     }
@@ -676,6 +681,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
@@ -728,8 +734,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     func sendInput(_ text: String) {
@@ -774,6 +784,14 @@ final class TerminalPanel: Panel, ObservableObject {
         _ = requestAgentHibernationResume(focus: false)
     }
 
+    /// A viewer attaching from another device is visiting this terminal, the
+    /// same as selecting its tab here. Resume a hibernated agent so the attach
+    /// mirrors a live runtime instead of a torn-down surface.
+    func resumeAgentHibernationForRemoteAttach() {
+        guard isAgentHibernated else { return }
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
     @discardableResult
     private func requestAgentHibernationResume(focus: Bool) -> Bool {
         guard isAgentHibernated else { return false }
@@ -789,12 +807,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func needsConfirmClose() -> Bool {
         surface.needsConfirmClose()
-    }
-
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
-        // Session restore only replays terminal output into a fresh shell. If Ghostty
-        // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

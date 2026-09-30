@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const ownedVm = "0f4b1c2e-1111-4222-8333-444455556666";
@@ -80,13 +81,16 @@ mock.module("../services/coderouter/analytics", () => ({
     captured.push(input);
   },
 }));
+const boundToken = await vmToken(ownedVm);
+const foreignToken = await vmToken(otherVm, "team-2", "user-2");
 const routeTokens = new Map<string, { teamId: string; stackUserId: string; vmId: string | null }>([
-  ["crt_bound", { teamId: "team-1", stackUserId: "user-1", vmId: ownedVm }],
+  [boundToken, { teamId: "team-1", stackUserId: "user-1", vmId: ownedVm }],
   ["crt_cli", { teamId: "team-1", stackUserId: "user-1", vmId: null }],
-  ["crt_foreign", { teamId: "team-2", stackUserId: "user-2", vmId: otherVm }],
+  [foreignToken, { teamId: "team-2", stackUserId: "user-2", vmId: otherVm }],
 ]);
 mock.module("../services/coderouter/repository", () => ({
   authenticateRouteToken: async (token: string) => routeTokens.get(token) ?? null,
+  authenticateApiKey: async () => null,
 }));
 
 const { GET: getVmUsage } = await import("../app/api/coderouter/vm-usage/route");
@@ -287,23 +291,12 @@ describe("GET /api/coderouter/vm-usage/self", () => {
     }]);
   });
 
-  test("rejects a bound token presented for another machine", async () => {
-    const response = await getSelfUsage(
-      new Request("https://cmux.test/api/coderouter/vm-usage/self", {
-        headers: {
-          authorization: "Bearer cmux-vm-edge-placeholder",
-          "x-coderouter-route-token": "crt_bound",
-          "x-cmux-vm-id": otherVm,
-        },
-      }),
-    );
-    expect(response.status).toBe(401);
-    expect((await response.json()).error).toBe("unauthorized");
-    expect(captured[0]?.properties).toEqual({
-      surface: "vm_usage",
-      reason: "vm_mismatch",
-    });
-    expect(vmMetricsCalls).toEqual([]);
+  test("a forged VM header cannot change the signed caller's usage", async () => {
+    const response = await getSelfUsage(new Request("https://cmux.test/api/coderouter/vm-usage/self", {
+      headers: { "x-cmux-authorization": `Bearer ${boundToken}`, "x-cmux-vm-id": otherVm },
+    }));
+    expect(response.status).toBe(200);
+    expect(vmMetricsCalls[0]?.[1]).toBe(ownedVm);
   });
 
   test("refuses unbound CLI tokens", async () => {
@@ -322,7 +315,7 @@ describe("GET /api/coderouter/vm-usage/self", () => {
       new Request("https://cmux.test/api/coderouter/vm-usage/self", {
         headers: {
           authorization: "Bearer cmux-vm-edge-placeholder",
-          "x-coderouter-route-token": "crt_bound",
+          "x-cmux-authorization": `Bearer ${boundToken}`,
           "x-cmux-vm-id": ownedVm,
         },
       }),
@@ -342,7 +335,7 @@ describe("GET /api/coderouter/vm-usage/self", () => {
     const response = await getSelfUsage(
       new Request("https://cmux.test/api/coderouter/vm-usage/self", {
         headers: {
-          "x-coderouter-route-token": "crt_foreign",
+          "x-cmux-authorization": `Bearer ${foreignToken}`,
           "x-cmux-vm-id": otherVm,
         },
       }),

@@ -2,6 +2,13 @@ import AppKit
 
 @MainActor
 final class PortalSplitDividerCacheInvalidator {
+    private struct SubviewSnapshot {
+        weak var view: NSView?
+        let childIDs: [ObjectIdentifier]
+
+    }
+
+    private var subviewSnapshots: [SubviewSnapshot] = []
     // Observer tokens are assigned/cleared from main-thread AppKit paths. Swift
     // deinit is nonisolated, so the teardown helper needs nonisolated access
     // after all main-thread use has ceased.
@@ -20,6 +27,9 @@ final class PortalSplitDividerCacheInvalidator {
         invalidate()
         let geometryViews = Self.uniqueViews(geometryViews)
         let subviewObservedViews = Self.uniqueViews(geometryViews + structureViews)
+        subviewSnapshots = subviewObservedViews.map {
+            SubviewSnapshot(view: $0, childIDs: $0.subviews.map(ObjectIdentifier.init))
+        }
 
         for view in geometryViews {
             // These NSView flags are shared; do not restore them per observer or
@@ -63,6 +73,21 @@ final class PortalSplitDividerCacheInvalidator {
 
     func invalidate() {
         invalidateObservations()
+        subviewSnapshots.removeAll()
+    }
+
+    /// AppKit may change a container's subviews without delivering KVO. Check
+    /// only the already-observed layout containers before reusing a pointer cache.
+    func structureIsCurrent() -> Bool {
+        for snapshot in subviewSnapshots {
+            guard let view = snapshot.view else { return false }
+            let children = view.subviews
+            guard children.count == snapshot.childIDs.count,
+                  zip(children, snapshot.childIDs).allSatisfy({ ObjectIdentifier($0.0) == $0.1 }) else {
+                return false
+            }
+        }
+        return true
     }
 
     private nonisolated func invalidateObservations() {

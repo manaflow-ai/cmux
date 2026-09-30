@@ -3,8 +3,14 @@ import {
   completeRefreshLease,
   encryptedCredentialForAccount,
   failRefreshLease,
+  refreshLeaseActive,
   releaseRefreshLease,
 } from "./repository";
+import {
+  createStickyRefreshPatience,
+  refreshCompletionRegistry,
+  systemRefreshWaitClock,
+} from "./refreshSignal";
 import {
   decryptCredential,
   encryptCredential,
@@ -12,6 +18,7 @@ import {
 } from "./encryption";
 import { isApiKeyCredential, type ApiKeyCredential, type CodeRouterCredential } from "./types";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { assertSameCodexOwner, codexOwner, withCodexOwner, CodexOwnerMismatch } from "./codexIdentity";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -196,6 +203,16 @@ export const freshCredential = createCredentialRefresher({
   failureCode: refreshFailureCode,
 });
 
+/**
+ * Production sticky-session patience: wakes on this instance's lease clears
+ * and re-reads the lease row for refreshes running on other instances.
+ */
+export const stickyRefreshPatience = createStickyRefreshPatience({
+  registry: refreshCompletionRegistry,
+  leaseActive: (accountId, signal) => refreshLeaseActive(accountId, signal),
+  clock: systemRefreshWaitClock,
+});
+
 async function readCredential(teamId: string, accountId: string, signal?: AbortSignal) {
   const envelope = await encryptedCredentialForAccount(teamId, accountId, signal);
   if (!envelope) {
@@ -213,18 +230,21 @@ export async function refreshProviderCredential(
 ): Promise<CodeRouterCredential> {
   if (isApiKeyCredential(credential)) return credential;
   if (credential.provider === "codex") {
+    codexOwner(credential);
     const token = await postForm("https://auth.openai.com/oauth/token", {
       grant_type: "refresh_token",
       refresh_token: credential.refreshToken,
       client_id: CODEX_CLIENT_ID,
     }, signal);
-    return {
+    const refreshed = {
       ...credential,
       accessToken: requiredString(token, "access_token"),
       refreshToken: optionalString(token, "refresh_token") ?? credential.refreshToken,
       idToken: optionalString(token, "id_token") ?? credential.idToken,
       expiresAt: Date.now() + optionalPositiveNumber(token, "expires_in", 3_600) * 1_000,
     };
+    assertSameCodexOwner(credential, refreshed);
+    return withCodexOwner(refreshed);
   }
 
   const token = await postJson("https://console.opencode.ai/auth/device/token", {
@@ -312,12 +332,13 @@ function providerErrorCode(value: unknown): string | undefined {
 }
 
 export function isTerminalRefreshError(error: unknown): boolean {
-  return error instanceof ProviderRefreshError &&
+  return error instanceof CodexOwnerMismatch || error instanceof ProviderRefreshError &&
     (error.status === 400 || error.status === 401) &&
     /invalid|expired|reused|revoked|not_found/i.test(error.code);
 }
 
 function refreshFailureCode(error: unknown): string {
+  if (error instanceof CodexOwnerMismatch) return "credential_owner_mismatch";
   return error instanceof ProviderRefreshError ? error.code : "refresh_unavailable";
 }
 

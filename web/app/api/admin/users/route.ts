@@ -6,6 +6,7 @@ import {
   AdminUserNotFoundError,
   isAdminGrantablePlanId,
   isMissingGrantsTableError,
+  type AdminGrantablePlanId,
   listPendingEmailGrants,
   searchAdminTeams,
   searchAdminUsers,
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
   return adminJsonResponse({ users, teams, pendingGrants });
 }
 
-/** POST /api/admin/users { userId, plan: "pro" | "founders" | null } */
+/** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | null } */
 export async function POST(request: NextRequest) {
   const protection = enforceBrowserMutationProtection(request);
   if (protection) return protection;
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function applyUserGrant(
-  parsed: { userId: string; plan: "pro" | "founders" | null },
+  parsed: { userId: string; plan: AdminGrantablePlanId | null },
   admin: { id: string; primaryEmail: string | null },
 ): Promise<Response> {
   try {
@@ -100,7 +101,7 @@ async function listPendingEmailGrantsSafely(query: string) {
 
 function parseGrantBody(
   body: unknown,
-): { userId: string; plan: "pro" | "founders" | null } | null {
+): { userId: string; plan: AdminGrantablePlanId | null } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const { userId, plan } = body as { userId?: unknown; plan?: unknown };
   if (typeof userId !== "string" || !userId.trim()) return null;

@@ -51,9 +51,8 @@ extension GlobalSearchShortcutBehaviorTests {
             KeyboardShortcutSettings.shortcut(for: .globalSearch) == shortcut,
             "The monitor-chain fixture must install a valid, unclaimed Command shortcut"
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -92,9 +91,8 @@ extension GlobalSearchShortcutBehaviorTests {
             ),
             for: .globalSearch
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -144,9 +142,8 @@ extension GlobalSearchShortcutBehaviorTests {
             ),
             for: .globalSearch
         )
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
 
@@ -194,9 +191,8 @@ extension GlobalSearchShortcutBehaviorTests {
             chordCommand: true
         )
         KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
         appDelegate.activeConfiguredShortcutChordPrefixForCurrentEvent =
@@ -238,9 +234,8 @@ extension GlobalSearchShortcutBehaviorTests {
             chordKey: "g"
         )
         KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
-        appDelegate.toggleGlobalSearchPalette()
         let popoverWindow = try #require(
-            waitForSearchPopoverWindow(excluding: window),
+            presentSearchPopover(appDelegate: appDelegate, excluding: window),
             "The real Search popover and its local key monitor must be active"
         )
         let unrelatedSuffixEvent = try makeKeyDownEvent(
@@ -289,9 +284,29 @@ extension GlobalSearchShortcutBehaviorTests {
         return window
     }
 
+    // On macOS 26 a status item is placed by Control Center asynchronously.
+    // When the menu bar extra was just created, its button has no window
+    // yet, the popover is positioned at infinity and never becomes visible,
+    // while NSPopover still reports it as shown. Close that phantom and
+    // toggle again once the status item has settled.
+    private func presentSearchPopover(
+        appDelegate: AppDelegate,
+        excluding mainWindow: NSWindow,
+        attempts: Int = 3
+    ) -> NSWindow? {
+        for _ in 0..<attempts {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.toggleGlobalSearchPalette()
+            if let window = waitForSearchPopoverWindow(excluding: mainWindow) {
+                return window
+            }
+        }
+        return nil
+    }
+
     private func waitForSearchPopoverWindow(
         excluding mainWindow: NSWindow,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 3
     ) -> NSWindow? {
         let deadline = Date.now.addingTimeInterval(timeout)
         repeat {
@@ -357,6 +372,104 @@ extension GlobalSearchShortcutBehaviorTests {
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
+    }
+    }
+}
+
+extension GlobalSearchShortcutBehaviorTests {
+    /// macOS places a status item asynchronously and can leave it unplaced
+    /// (a crowded or hidden menu bar). The Search palette must still appear on
+    /// a screen instead of anchoring to a status button that is not on one.
+    @MainActor @Suite final class GlobalSearchPopoverAnchorTests {
+    @Test func paletteAnchoredToOffscreenStatusButtonAppearsOnScreen() throws {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 22),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.isReleasedWhenClosed = false
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 40, height: 22))
+        hostWindow.contentView?.addSubview(button)
+        hostWindow.setFrameOrigin(NSPoint(x: -60_000, y: -60_000))
+        hostWindow.orderFrontRegardless()
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            hostWindow.orderOut(nil)
+        }
+        #expect(
+            !NSScreen.screens.contains { $0.frame.intersects(hostWindow.frame) },
+            "The fixture's status button must sit off every screen"
+        )
+
+        GlobalSearchCoordinator.shared.dismissPalette()
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+        let popoverWindow = try #require(
+            waitForVisibleSearchWindow(excluding: hostWindow),
+            "The Search palette must present its query field"
+        )
+        #expect(
+            NSScreen.screens.contains { $0.frame.intersects(popoverWindow.frame) },
+            "The Search palette appeared at \(popoverWindow.frame), off every screen"
+        )
+    }
+
+    @Test func dismissingThePaletteClosesItBeforeReturning() throws {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 22),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.isReleasedWhenClosed = false
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 40, height: 22))
+        hostWindow.contentView?.addSubview(button)
+        hostWindow.setFrameOrigin(NSPoint(x: -60_000, y: -60_000))
+        hostWindow.orderFrontRegardless()
+        defer { hostWindow.orderOut(nil) }
+
+        GlobalSearchCoordinator.shared.dismissPalette()
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        // An animated close only finishes while the window server draws the
+        // popover. A close still pending leaves the palette "shown", and the
+        // next toggle then closes it again instead of showing it.
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(
+            !GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "Dismissing must not leave the palette waiting on a close animation"
+        )
+
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "The next toggle after a dismissal must show the palette again"
+        )
+        GlobalSearchCoordinator.shared.dismissPalette()
+    }
+
+    private func waitForVisibleSearchWindow(
+        excluding hostWindow: NSWindow,
+        timeout: TimeInterval = 3
+    ) -> NSWindow? {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if let window = NSApp.windows.first(where: {
+                $0 !== hostWindow
+                    && $0.isVisible
+                    && $0.firstResponder is NSTextView
+            }) {
+                return window
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return nil
     }
     }
 }

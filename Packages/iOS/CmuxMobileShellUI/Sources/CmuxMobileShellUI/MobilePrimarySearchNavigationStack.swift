@@ -26,7 +26,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
         .onSubmit(of: .search) {
             selection = searchCoordinator.commitSubmit()
         }
-        .toolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
+        .mobileToolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
     }
 
     private var searchPresentation: Binding<Bool> {
@@ -55,6 +55,8 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
         switch searchCoordinator.scope {
         case .workspaces:
             Text(L10n.string("mobile.workspaces.search.placeholder", defaultValue: "Search workspaces"))
+        case .feed:
+            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
         case .notifications:
             Text(L10n.string("mobile.notificationFeed.search.placeholder", defaultValue: "Search notifications"))
         }

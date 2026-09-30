@@ -359,10 +359,10 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     private func recordRetryAfterIfNeeded(_ response: HTTPURLResponse) async {
         guard response.statusCode == 429 else { return }
-        let seconds = CmxRetryAfterPolicy.seconds(
+        let seconds = CmxRetryAfterPolicy().seconds(
             from: response,
-            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         await retryAfterGate.extend(by: seconds)
     }
 

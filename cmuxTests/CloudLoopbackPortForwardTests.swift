@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Network
 import Testing
@@ -51,13 +52,15 @@ struct CloudLoopbackPortForwardTests {
         /// A unix socket path when the hub listens the way the real one does,
         /// else a loopback TCP port.
         private let unixSocketPath: String?
+        private let serveClient: (@Sendable (NWConnection) async throws -> Void)?
         var endpoint: NWEndpoint {
             if let unixSocketPath { return .unix(path: unixSocketPath) }
             return .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
         }
 
-        init(unixSocketPath: String? = nil) throws {
+        init(unixSocketPath: String? = nil, serveClient: (@Sendable (NWConnection) async throws -> Void)? = nil) throws {
             self.unixSocketPath = unixSocketPath
+            self.serveClient = serveClient
             let parameters = NWParameters.tcp
             if let unixSocketPath {
                 parameters.requiredLocalEndpoint = .unix(path: unixSocketPath)
@@ -118,6 +121,11 @@ struct CloudLoopbackPortForwardTests {
                 }
                 try await connection.sendAll(Data([SocksV5Client.version, code, 0x00, SocksV5Client.addressTypeIPv4, 0, 0, 0, 0, 0, 0]))
                 guard code == SocksV5Client.replySucceeded else {
+                    connection.cancel()
+                    return
+                }
+                if let serveClient {
+                    try await serveClient(connection)
                     connection.cancel()
                     return
                 }
@@ -252,10 +260,18 @@ struct CloudLoopbackPortForwardTests {
         defer { hub.stop() }
         hub.replyCode = 0x05
         let dialer = FakeHubDialer(endpoint: hub.endpoint)
-        let forward = try CloudLoopbackPortForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 1), dialer: dialer)
+        let clock = SidebarTestManualClock()
+        let forward = try CloudLoopbackPortForward(
+            target: CloudPortForwardTarget(host: "10.0.0.7", port: 1),
+            dialer: dialer,
+            relay: CloudPortForwardRelay(dialer: dialer, clock: clock)
+        )
         let localPort = try await forward.start()
         let client = try await Self.client(port: localPort)
         try? await client.sendAll(Data("hello".utf8))
+        #expect(await Self.waitUntil { !hub.connectTargets.isEmpty })
+        await clock.waitUntilSleeping(for: .seconds(15))
+        clock.advance(by: .seconds(15))
         let ended: Bool
         do {
             let (data, isComplete) = try await client.receiveChunk()
