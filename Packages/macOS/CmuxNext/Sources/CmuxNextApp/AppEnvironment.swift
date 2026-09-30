@@ -1,4 +1,6 @@
 import CmuxNextControl
+import CmuxNextDaemon
+import CmuxNextTerminal
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -16,15 +18,32 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// What every local terminal of this app gets on top of its filtered
+    /// login environment: the launch identity (`LaunchIdentity`) and the
+    /// terminal identity Ghostty gives its shells (`TerminalEnvironment.ghostty`),
+    /// so prompts and tools pick the same colors as in Ghostty. Also the
+    /// daemon's launch overrides, so terminals it creates without a
+    /// per-terminal `env` match. Resolved once per launch.
+    let terminalEnvironment: [String: String]
 
     var tag: String? { launch.tag }
 
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        let launch = LaunchIdentity.current()
         return AppEnvironment(
-            launch: LaunchIdentity.current(),
+            launch: launch,
             noActivate: noActivate,
-            testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate)
+            testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment)
         )
+    }
+
+    static func terminalEnvironment(launch: LaunchIdentity, environment: [String: String]) -> [String: String] {
+        let ghostty = TerminalEnvironment.ghostty(
+            resourcesDirectory: GhosttyRuntime.resourcesDirectory(environment: environment),
+            version: GhosttyRuntime.version
+        )
+        return ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
     }
 }

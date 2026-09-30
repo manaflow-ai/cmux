@@ -104,6 +104,29 @@ Recommended Swift launch path:
   `PATH`, so every shell the daemon spawns inherits it. The app must build a
   login-shell environment before `server ensure`. `TECH-DEBT-BOARD.md:374` lists
   cwd/env as a known cut of the quit/reopen work.
+- Terminal identity: shells in cmux-next see what Ghostty gives its own shells
+  (`ghostty/src/termio/Exec.zig`, `Subprocess.init`). The daemon's terminal is
+  ghostty-vt, so the Ghostty names are truthful. `TerminalEnvironment.ghostty`
+  builds them and `AppEnvironment.terminalEnvironment` sends them both as
+  `server ensure` overrides (the daemon's default child `TERM` follows its own
+  `TERM`, `surface.rs` `default_child_term`) and in every local per-terminal
+  `env`. The login shell's and the app's own `TERM`, `COLORTERM`, and
+  `TERM_PROGRAM` stay excluded (`LoginEnvironment.excludedKeys`).
+
+  | Variable | Value | Why |
+  | --- | --- | --- |
+  | `TERM` | `xterm-ghostty`; `xterm-256color` when the bundle has no terminfo | Prompt themes and tools branch on the name. oh-my-zsh `half-life` uses the theme palette (`%F{magenta}`) under `xterm-ghostty` but the fixed 256-color cube (`%F{135}`) under `*256color`, so the same prompt showed a different purple. |
+  | `TERMINFO` | `<app>/Contents/Resources/terminfo` (sibling of `ghostty/`) | macOS has no `xterm-ghostty` entry. The bundled entry includes cmux's overlay (`Resources/terminfo-overlay`). |
+  | `COLORTERM` | `truecolor` | 24-bit SGR is drawn losslessly. The daemon also sets it (`surface.rs`), so it holds for older apps. |
+  | `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` | `ghostty`, libghostty's `ghostty_info` version | Feature detection (neovim and others) as in Ghostty and the old cmux. |
+  | `GHOSTTY_RESOURCES_DIR` | the resolved Ghostty resources directory | Theme and shell-integration lookups. |
+
+  Not exported yet: `GHOSTTY_SHELL_FEATURES` and Ghostty's zsh/bash shell
+  integration injection, `GHOSTTY_BIN_DIR`, and the `XDG_DATA_DIRS`/`MANPATH`
+  additions. Cloud terminals get none of these (no Mac environment). A daemon
+  started by an older app keeps its env; new terminals still get the identity
+  through their per-terminal `env`, but terminals created before the update keep
+  their old env until they are reopened.
 - Upgrade: when the bundled binary's `identify.version` or `build_commit`
   differs from the running daemon, call `shutdown-daemon {pid, generation}`
   (`commands.md:257-287`), wait for `daemon-shutdown` (`events.md:805-829`),
@@ -432,7 +455,7 @@ user and window, or `shared`). **L** = client-local (memory or UserDefaults).
 | New tab with argv / command | `new-tab` has only `cwd` (`server.rs:968-975`). `create-terminal` has argv but places by workspace only. | **D**: add `argv`/`command`/`name` to `new-tab`, `new-pane`, `split`, and `new-pane-right`. |
 | Delta coverage for selection, reorder, layout | `tree-changed` / `layout-changed` refetch (`events.md:260-261`) | **D**: typed `layout-changed{screen, layout}` payload (v2 `session.events` already carries full screen layout per transaction, `resource-api-v2.md:412-416`). |
 | Closed-tab history (reopen) | None | **D** later (the journal already records the topology). |
-| Shell environment for spawned PTYs | Inherits the owner env | **D/launch**: login-shell env capture at `ensure` time, or a daemon-side `terminal_defaults.env`. |
+| Shell environment for spawned PTYs | Inherits the owner env | **Done (launch)**: allowlisted login env plus Ghostty's terminal identity (section 1.3) at `ensure` time and per terminal (`terminal-env-v1`). |
 | Crash supervision | None (`TECH-DEBT-BOARD.md:374`) | Launch: optional `launchd` agent per session. Until then, re-`ensure` on every reconnect failure. |
 
 ## 6. Recommended Swift client architecture

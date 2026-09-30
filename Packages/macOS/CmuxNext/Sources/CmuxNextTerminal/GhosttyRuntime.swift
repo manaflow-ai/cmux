@@ -211,14 +211,33 @@ public final class GhosttyRuntime {
     /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
     /// and TERM here only matter for `theme =` lookups and local debug PTYs.
     private static func configureProcessEnvironment() {
-        let fileManager = FileManager.default
-        let bundled = Bundle.main.resourceURL?.appendingPathComponent("ghostty")
-        let inherited = ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]
-        let ghosttyApp = "/Applications/Ghostty.app/Contents/Resources/ghostty"
-        let candidates = [bundled?.path, inherited, ghosttyApp].compactMap { $0 }
-        if let resources = candidates.first(where: { fileManager.fileExists(atPath: ($0 as NSString).appendingPathComponent("themes")) }) {
+        if let resources = resourcesDirectory() {
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
+    }
+
+    /// The Ghostty resources directory (themes, shell integration; terminfo
+    /// is its sibling): this app's bundled copy, then an inherited
+    /// `GHOSTTY_RESOURCES_DIR`, then Ghostty.app. Nil when none has themes.
+    public nonisolated static func resourcesDirectory(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        let fileManager = FileManager.default
+        let bundled = bundle.resourceURL?.appendingPathComponent("ghostty")
+        let inherited = environment["GHOSTTY_RESOURCES_DIR"]
+        let ghosttyApp = "/Applications/Ghostty.app/Contents/Resources/ghostty"
+        let candidates = [bundled?.path, inherited, ghosttyApp].compactMap { $0 }
+        return candidates.first { fileManager.fileExists(atPath: ($0 as NSString).appendingPathComponent("themes")) }
+    }
+
+    /// Version of the linked libghostty (`ghostty_info`), which Ghostty
+    /// exports to its shells as `TERM_PROGRAM_VERSION`.
+    public nonisolated static var version: String? {
+        let info = ghostty_info()
+        guard let pointer = info.version, info.version_len > 0 else { return nil }
+        let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
