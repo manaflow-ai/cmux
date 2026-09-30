@@ -320,6 +320,9 @@ struct CmuxTaskManagerSnapshot {
         let workspaceId = uuid(workspace["id"])
         let title = nonEmptyString(workspace["title"]) ?? displayHandle(workspace)
         var detailParts: [String] = []
+        if let host = workspace["host"] as? [String: Any], let hostLabel = nonEmptyString(host["label"]) {
+            detailParts.append(hostLabel)
+        }
         if bool(workspace["selected"]) {
             detailParts.append(String(localized: "taskManager.row.selected", defaultValue: "Selected"))
         }

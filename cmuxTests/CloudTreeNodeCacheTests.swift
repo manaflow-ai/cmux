@@ -91,6 +91,7 @@ struct CloudTreeNodeCacheTests {
             { $0.source = .devices },
             { $0.devicesSection.incomingAccessEnabled.toggle() },
             { $0.canCreateCloudMachine.toggle() },
+            { $0.cloudMachinesUsage = CloudMachinesUsage(activeCount: 1, maxActiveVms: 50, isPaidPlan: false) },
             { $0.localeIdentifier = "ja_JP" },
         ]
         for mutate in mutations {

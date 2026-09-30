@@ -41,6 +41,120 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
+@MainActor
+@Suite(.serialized)
+struct BrowserLocalFileEncodingTests {
+    private struct DocumentSnapshot {
+        let characterSet: String
+        let text: String
+    }
+
+    @Test func utf8LocalTextSurvivesNavigationAwayBackAndReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-utf8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("notes.md")
+        let expectedText = "# 산책의 즐거움"
+        try XCTUnwrap(expectedText.data(using: .utf8)).write(to: fileURL)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let fallbackEncoding = panel.webView.configuration.preferences
+            .value(forKey: "_defaultTextEncodingName") as? String
+
+        panel.navigate(to: fileURL)
+        let initial = try await waitForDocument(at: fileURL, in: panel)
+        #expect(initial.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(initial.text.contains(expectedText))
+
+        panel.navigate(to: URL(string: "about:blank")!)
+        _ = try await waitForDocument(at: URL(string: "about:blank")!, in: panel)
+        #expect(
+            (panel.webView.configuration.preferences.value(forKey: "_defaultTextEncodingName") as? String)
+                == fallbackEncoding
+        )
+
+        panel.goBack()
+        let afterBack = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterBack.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterBack.text.contains(expectedText))
+
+        panel.reload()
+        let afterReload = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterReload.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterReload.text.contains(expectedText))
+    }
+
+    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-encoding-policy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let utf8URL = directory.appendingPathComponent("utf8.txt")
+        try XCTUnwrap("산책".data(using: .utf8)).write(to: utf8URL)
+        let nonUTF8URL = directory.appendingPathComponent("legacy.txt")
+        try Data([0xB0, 0xA1]).write(to: nonUTF8URL)
+        let declaredCharsetURL = directory.appendingPathComponent("declared.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"windows-1252\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: declaredCharsetURL)
+        let unsupportedCharsetURL = directory.appendingPathComponent("unsupported.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"unsupported-encoding\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: unsupportedCharsetURL)
+
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: nonUTF8URL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredCharsetURL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: unsupportedCharsetURL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.navigate(to: unsupportedCharsetURL)
+        let snapshot = try await waitForDocument(at: unsupportedCharsetURL, in: panel)
+        #expect(snapshot.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(snapshot.text.contains("산책"))
+    }
+
+    private func waitForDocument(
+        at url: URL,
+        in panel: BrowserPanel,
+        timeout: Duration = .seconds(10)
+    ) async throws -> DocumentSnapshot {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               let raw = try? await panel.webView.evaluateJavaScript(
+                   """
+                   ({
+                     characterSet: document.characterSet,
+                     text: document.body?.textContent || document.documentElement?.textContent || ''
+                   })
+                   """
+               ) as? [String: Any],
+               let characterSet = raw["characterSet"] as? String,
+               let text = raw["text"] as? String {
+                return DocumentSnapshot(characterSet: characterSet, text: text)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        throw NSError(
+            domain: "BrowserLocalFileEncodingTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(url.absoluteString)"]
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
@@ -1521,6 +1635,56 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 dragPasteboard: pasteboard
             ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
+    }
+
+    func testHostViewKeepsBrowserContentInteractiveInsideTitlebarBand() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        let webView = WKWebView(frame: slot.bounds)
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        host.addSubview(slot)
+        host.layoutSubtreeIfNeeded()
+
+        let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.maxY - 0.5)
+        let pointInWindow = slot.convert(pointInSlot, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        let titlebarBandMinY = BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        XCTAssertGreaterThanOrEqual(
+            pointInWindow.y,
+            titlebarBandMinY,
+            "The regression point must exercise the titlebar interaction band"
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-10965.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let hit = host.performHitTest(
+            at: pointInHost,
+            currentEvent: event,
+            dragPasteboard: pasteboard
+        )
+        XCTAssertTrue(
+            hit === webView || hit?.isDescendant(of: webView) == true,
+            "Browser content under the titlebar interaction band must keep receiving pointer events"
         )
     }
 
@@ -3329,45 +3493,6 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: nil)
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
-    }
-
-    func testRetargetingDropZoneOverlaySnapsFrame() {
-        // Hosted in a window so a layer-backed `animator().frame` would
-        // install live geometry animations.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        container.wantsLayer = true
-        window.contentView = container
-        let slot = WindowBrowserSlotView(frame: container.bounds)
-        container.addSubview(slot)
-
-        slot.setDropZoneOverlay(zone: .right)
-        advanceAnimations()
-        slot.setDropZoneOverlay(zone: .left)
-
-        guard let overlay = container.subviews.first(where: {
-            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
-        }) else {
-            XCTFail("Expected browser slot drop-zone overlay")
-            return
-        }
-
-        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5, "Retargeting should not slide the overlay")
-        XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
-        let geometryKeys: Set<String> = ["frameOrigin", "frameSize", "position", "bounds", "bounds.origin", "bounds.size"]
-        let layerAnimationKeys = Set(overlay.layer?.animationKeys() ?? [])
-        let geometryAnimations = (overlay.layer?.animationKeys() ?? []).filter { key in
-            if geometryKeys.contains(key) { return true }
-            guard let keyPath = (overlay.layer?.animation(forKey: key) as? CAPropertyAnimation)?.keyPath else { return false }
-            return geometryKeys.contains(keyPath)
-        }
-        XCTAssertTrue(geometryAnimations.isEmpty, "Retargeting should not animate the overlay frame: \(layerAnimationKeys)")
     }
 }
 

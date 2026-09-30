@@ -147,6 +147,8 @@ enum SessionSnapshotImportTrust {
         }
         guard var terminal = panel.terminal else { return panel }
         var heldBack = false
+        // Only this Mac's own update relaunch may ask an agent to continue.
+        terminal.resumeWithContinuation = nil
 
         var rebuiltAgent: SessionRestorableAgentSnapshot?
         if let agent = terminal.agent {
