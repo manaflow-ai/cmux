@@ -42,6 +42,12 @@ extension NSEvent {
     /// Native Cmd+` and Cmd+Shift+` window cycling stays with AppKit so
     /// key-window changes do not re-enter the direct-to-menu shortcut path.
     public var cmuxRoutesDirectlyToMainMenu: Bool {
+        cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut.current())
+    }
+
+    /// Whether this command equivalent should go straight to the main menu,
+    /// given the system's window-cycling shortcut.
+    public func cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut?) -> Bool {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return false }
 
