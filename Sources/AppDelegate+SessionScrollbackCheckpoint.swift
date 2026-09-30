@@ -86,6 +86,7 @@ extension AppDelegate {
         var candidates: [SessionScrollbackCheckpointCoordinator.Candidate] = []
         var seen = Set<UUID>()
         let restorePolicy = Workspace.makeSessionRestorePolicyService()
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.index ?? .empty
 
         func append(
             panelId: UUID,
@@ -93,6 +94,7 @@ extension AppDelegate {
             shellActivityState: PanelShellActivityState?,
             resumeBinding: SurfaceResumeBindingSnapshot?,
             restorableAgent: SessionRestorableAgentSnapshot?,
+            agentWasRunning: Bool?,
             autoResumeAgentSessions: Bool
         ) {
             guard seen.insert(panelId).inserted else { return }
@@ -103,12 +105,10 @@ extension AppDelegate {
                 ?? (restorableAgent == nil
                     ? restorePolicy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
                     : nil)
-            let shouldAutoResumeAgentSessions = autoResumeAgentSessions
-                && shellActivityState != .some(.promptIdle)
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? restorePolicy.surfaceResumeStartupInput(
                     resumeBinding,
-                    autoResumeAgentSessions: shouldAutoResumeAgentSessions,
+                    autoResumeAgentSessions: autoResumeAgentSessions && (agentWasRunning ?? true),
                     promptForApproval: false,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
@@ -151,12 +151,27 @@ extension AppDelegate {
                             ?? terminal.agentHibernationState?.agent,
                         resumeBinding: resumeBinding
                     )
+                let transfer = dock.detachedSurfaceTransfersByPanelId[panelId]
+                let observation = restorableAgentIndex.entryForStablePanel(
+                    workspaceId: transfer?.sessionRestoreWorkspaceId ?? dock.workspaceId,
+                    panelId: panelId,
+                    revalidateProcessEvidence: false
+                )
+                let agentWasRunning = dock.sessionAgentWasRunning(
+                    restorableAgent: restorableAgent,
+                    resumeBinding: resumeBinding,
+                    managedResumeBinding: dock.managedAgentResumeBindingsByPanelId[panelId],
+                    terminal: terminal,
+                    transfer: transfer,
+                    observation: observation
+                )
                 append(
                     panelId: panelId,
                     terminal: terminal,
                     shellActivityState: terminal.shellActivity.state,
                     resumeBinding: resumeBinding,
                     restorableAgent: restorableAgent,
+                    agentWasRunning: agentWasRunning,
                     autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
                         defaults: dock.agentSessionAutoResumeDefaults
                     )
@@ -177,12 +192,25 @@ extension AppDelegate {
                                 ?? terminal.agentHibernationState?.agent,
                             resumeBinding: resumeBinding
                         )
+                    let observation = restorableAgentIndex.entryForStablePanel(
+                        workspaceId: workspace.id,
+                        panelId: panelId,
+                        revalidateProcessEvidence: false
+                    )
+                    let agentWasRunning = workspace.sessionAgentWasRunning(
+                        panelId: panelId,
+                        restorableAgent: restorableAgent,
+                        resumeBinding: resumeBinding,
+                        terminal: terminal,
+                        observation: observation
+                    )
                     append(
                         panelId: panelId,
                         terminal: terminal,
                         shellActivityState: shellActivityStates[panelId],
                         resumeBinding: resumeBinding,
                         restorableAgent: restorableAgent,
+                        agentWasRunning: agentWasRunning,
                         autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
                             defaults: workspace.agentSessionAutoResumeDefaults
                         )
