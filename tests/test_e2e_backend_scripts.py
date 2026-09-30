@@ -117,6 +117,18 @@ class BackendScriptContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CMUX_E2E_BACKEND_NAME is required", result.stderr)
 
+    def test_backend_env_cleanup_does_not_require_the_backend_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_sudo = Path(directory) / "sudo"
+            fake_sudo.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_sudo.chmod(0o755)
+            result = self.run_script(
+                BACKEND_ENV,
+                "unhosts",
+                env={"PATH": f"{directory}:{os.environ['PATH']}"},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_backend_up_reports_missing_config_without_echoing_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             secret = "server-key-must-not-appear-in-errors"
