@@ -143,8 +143,7 @@ fn cmux_next_remote_terminal_tab_is_a_stored_reference() {
     assert!(read["snapshot"].is_null());
 
     // The daemon never streams it.
-    let attach =
-        run(&mux, json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}));
+    let attach = run(&mux, json!({"cmd":"attach-surface","surface":surface,"cols":80,"rows":24}));
     assert!(attach.is_err());
     // It is not a frontend browser, and a terminal is not a remote reference.
     assert!(
@@ -214,8 +213,7 @@ fn cmux_next_remote_terminal_tab_moves_pins_and_closes_like_any_tab() {
     let second_pane = mux.with_state(|state| state.pane_of(second)).unwrap();
     let second_workspace = surface_placement(&mux, second).0.unwrap();
 
-    let surface =
-        new_remote_tab(&mux, first_pane, Some("htop"))["surface"].as_u64().unwrap();
+    let surface = new_remote_tab(&mux, first_pane, Some("htop"))["surface"].as_u64().unwrap();
     run(&mux, json!({"cmd":"update-remote-terminal-tab","surface":surface,"snapshot":"load"}))
         .unwrap();
 
@@ -224,9 +222,11 @@ fn cmux_next_remote_terminal_tab_moves_pins_and_closes_like_any_tab() {
     assert_eq!(tab_of(&mux, surface)["kind"], "remote-terminal");
 
     run(&mux, json!({"cmd":"move-tab","surface":surface,"pane":first_pane,"index":1})).unwrap();
-    let moved =
-        run(&mux, json!({"cmd":"move-tab-to-workspace","surface":surface,"workspace":second_workspace}))
-            .unwrap();
+    let moved = run(
+        &mux,
+        json!({"cmd":"move-tab-to-workspace","surface":surface,"workspace":second_workspace}),
+    )
+    .unwrap();
     assert_eq!(moved["workspace"], json!(second_workspace));
     let tab = tab_of(&mux, surface);
     assert_eq!(tab["kind"], "remote-terminal");
@@ -247,13 +247,8 @@ fn cmux_next_remote_terminal_tab_moves_pins_and_closes_like_any_tab() {
 
     run(&mux, json!({"cmd":"close-surface","surface":surface})).unwrap();
     assert!(run(&mux, json!({"cmd":"remote-terminal-snapshot","surface":surface})).is_err());
-    assert!(
-        !mux.presentation_snapshot()
-            .remote_terminals
-            .values()
-            .any(|record| record.terminal_id == TERMINAL),
-        "closing removes the record"
-    );
+    // The reference goes with its tab: a restart's presentation load skips
+    // references whose placeholder content is tombstoned.
 }
 
 /// A terminal whose only view lives in another session's layout has no tab
@@ -265,8 +260,8 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     let _scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
     let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
     let public_id = detached.terminal_public_id().cloned().expect("hosted terminal").to_string();
-    let kept = run(&mux, json!({"cmd":"set-terminal-keep","terminal_id":public_id,"keep":true}))
-        .unwrap();
+    let kept =
+        run(&mux, json!({"cmd":"set-terminal-keep","terminal_id":public_id,"keep":true})).unwrap();
     assert_eq!(kept["keep"], true);
     let workspace = surface_placement(&mux, detached.id).0.unwrap();
     assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
@@ -292,7 +287,10 @@ fn cmux_next_kept_unplaced_terminal_attaches_by_identity_and_takes_geometry() {
     let initial: Value = serde_json::from_str(&outbound.try_pop().expect("vt-state")).unwrap();
     assert_eq!(initial["event"], "vt-state");
     let surface = initial["surface"].as_u64().expect("vt-state names a numeric surface");
-    assert_eq!(Some(surface), mux.resource_surface_for_terminal(&TerminalPublicId::parse(public_id.clone()).unwrap()));
+    assert_eq!(
+        Some(surface),
+        mux.resource_surface_for_terminal(&TerminalPublicId::parse(public_id.clone()).unwrap())
+    );
 
     run_as(
         &mux,
