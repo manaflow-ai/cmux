@@ -160,6 +160,58 @@ final class AgentFanOutOperationTests: XCTestCase {
         XCTAssertEqual(reloaded.children[0].creationCorrelationKey, "cmux-agent-fan-out-correlation-0")
     }
 
+    func testExplicitSharedWorkspaceCanRepairAnInterruptedChildReceipt() {
+        var value = operation(id: "f_shared_recovery")
+        value.children[0].state = .starting
+        value.children[0].terminalID = nil
+        value.children[0].remoteWorkspaceID = nil
+        value.remoteWorkspaceID = ""
+        value.adoptExplicitWorkspaceForRecovery(" ws_shared ")
+        XCTAssertEqual(value.remoteWorkspaceID, "ws_shared")
+        XCTAssertEqual(value.children[0].remoteWorkspaceID, "ws_shared")
+        XCTAssertEqual(value.children[0].creationCorrelationKey, "cmux-agent-fan-out-correlation-0")
+    }
+
+    func testDefaultFanOutDoesNotGuessAWorkspaceDuringRecovery() {
+        var value = operation(id: "f_default_recovery")
+        value.children[0].state = .starting
+        value.children[0].terminalID = nil
+        value.children[0].remoteWorkspaceID = nil
+        value.remoteWorkspaceID = ""
+        value.adoptExplicitWorkspaceForRecovery("")
+        XCTAssertNil(value.children[0].remoteWorkspaceID)
+        XCTAssertEqual(value.remoteWorkspaceID, "")
+    }
+
+    func testRecoveryFailsClosedWhenAChildReceiptIsMissing() {
+        var value = operation(id: "f_missing_receipt")
+        value.children[0].state = .starting
+        value.children[0].terminalID = nil
+        value.children[0].remoteWorkspaceID = nil
+        value.prepareForRecovery(now: Date(timeIntervalSince1970: 4))
+        XCTAssertEqual(value.children[0].state, .failed)
+        XCTAssertEqual(value.children[0].errorCode, "workspace_receipt_unavailable")
+        XCTAssertEqual(value.children[0].endedAt, Date(timeIntervalSince1970: 4))
+        XCTAssertEqual(value.state, .failed)
+    }
+
+    func testOperationStoreSerializesCreationRecoveryClaims() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-fan-out-claims-\(UUID().uuidString)", isDirectory: true)
+        let file = directory.appendingPathComponent("operations.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AgentFanOutOperationStore(fileURL: file)
+        try await store.insertIfAbsent(operation(id: "f_claim"))
+        let firstClaim = try await store.beginCreation(id: "f_claim")
+        XCTAssertTrue(firstClaim)
+        let duplicateClaim = try await store.beginCreation(id: "f_claim")
+        XCTAssertFalse(duplicateClaim)
+        await store.endCreation(id: "f_claim")
+        let laterClaim = try await store.beginCreation(id: "f_claim")
+        XCTAssertTrue(laterClaim)
+    }
+
+
     func testOperationStoreMergesLateLocalProjectionAfterExit() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-fan-out-late-projection-\(UUID().uuidString)", isDirectory: true)

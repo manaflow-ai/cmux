@@ -94,6 +94,9 @@ struct AgentFanOutOperation: Codable, Equatable {
     /// placeholder record before that network mutation closes the duplicate-ID
     /// race; the owner fills this in once the workspace receipt commits.
     var remoteWorkspaceID: String
+    /// Explicit shared-workspace requests can repair a child before its local
+    /// workspace receipt was persisted. `nil` keeps old ledgers conservative.
+    var sharedWorkspace: Bool? = nil
     let agent: String
     /// SHA-256 of the argv bytes joined with NUL separators.  This lets a retry
     /// prove it is the same request without persisting the prompt itself.
@@ -168,6 +171,41 @@ struct AgentFanOutOperation: Codable, Equatable {
             state = .partial
         }
     }
+
+    /// An explicit shared workspace is part of the request, so a retry can
+    /// safely restore it on children whose workspace receipt was not written
+    /// before the interruption. Default fan-out children must keep their
+    /// per-child workspace receipts and are never guessed here.
+    mutating func adoptExplicitWorkspaceForRecovery(_ workspaceID: String) {
+        let workspaceID = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workspaceID.isEmpty else { return }
+        guard children.contains(where: { $0.state == .starting && $0.remoteWorkspaceID == nil }) else { return }
+        sharedWorkspace = true
+        for index in children.indices where children[index].state == .starting && children[index].remoteWorkspaceID == nil {
+            children[index].remoteWorkspaceID = workspaceID
+        }
+        if remoteWorkspaceID.isEmpty {
+            remoteWorkspaceID = workspaceID
+        }
+    }
+
+    /// Completes the durable repair decision before a retry calls the daemon.
+    /// Missing receipts fail closed because the remote mutation may already
+    /// have committed and creating again could duplicate a child.
+    mutating func prepareForRecovery(now: Date = Date()) {
+        for index in children.indices where children[index].state == .starting {
+            if children[index].creationCorrelationKey == nil {
+                children[index].state = .failed
+                children[index].errorCode = "creation_receipt_unavailable"
+                children[index].endedAt = now
+            } else if children[index].remoteWorkspaceID == nil {
+                children[index].state = .failed
+                children[index].errorCode = "workspace_receipt_unavailable"
+                children[index].endedAt = now
+            }
+        }
+        recomputeState(now: now)
+    }
 }
 
 /// A small actor-backed operation ledger.  Socket workers can create and
@@ -178,6 +216,10 @@ actor AgentFanOutOperationStore {
     static let shared = AgentFanOutOperationStore()
 
     private var operations: [String: AgentFanOutOperation] = [:]
+    /// Process-local ownership prevents a retry from running recovery beside
+    /// the original creator. It is intentionally not persisted; after an app
+    /// restart no creator remains alive and durable receipts decide recovery.
+    private var activeCreators: Set<String> = []
     private var loaded = false
     private var loadFailure: Error?
     private let configuredFileURL: URL?
@@ -240,6 +282,16 @@ actor AgentFanOutOperationStore {
         return true
     }
 
+    func beginCreation(id: String) throws -> Bool {
+        try loadIfNeeded()
+        guard operations[id] != nil, activeCreators.insert(id).inserted else { return false }
+        return true
+    }
+
+    func endCreation(id: String) {
+        activeCreators.remove(id)
+    }
+
     /// Merge an observation into the durable record. A creator may be holding
     /// a stale snapshot while a status waiter records an exited child; terminal
     /// child identities always win over a stale starting/running observation.
@@ -249,6 +301,9 @@ actor AgentFanOutOperationStore {
         var merged = incoming
         if let previous {
             merged.remoteWorkspaceID = incoming.remoteWorkspaceID.isEmpty ? previous.remoteWorkspaceID : incoming.remoteWorkspaceID
+            if incoming.sharedWorkspace == nil {
+                merged.sharedWorkspace = previous.sharedWorkspace
+            }
             merged.children = incoming.children.map { candidate in
                 guard let current = previous.children.first(where: { $0.index == candidate.index }) else { return candidate }
                 var candidate = candidate

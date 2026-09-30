@@ -79,10 +79,19 @@ extension TerminalController {
                           existing.requestedCount == count else {
                         throw FanOutSocketError.conflictingOperation
                     }
-                    let reconciled = try await Self.reconcileStartingFanOutChildren(
-                        existing, machineID: machineID, agent: agent, argv: argv, params: params
-                    )
-                    return reconciled.foundationObject
+                    guard try await AgentFanOutOperationStore.shared.beginCreation(id: existing.id) else {
+                        return existing.foundationObject
+                    }
+                    do {
+                        let reconciled = try await Self.reconcileStartingFanOutChildren(
+                            existing, machineID: machineID, agent: agent, argv: argv, params: params
+                        )
+                        await AgentFanOutOperationStore.shared.endCreation(id: existing.id)
+                        return reconciled.foundationObject
+                    } catch {
+                        await AgentFanOutOperationStore.shared.endCreation(id: existing.id)
+                        throw error
+                    }
                 }
                 return try await Self.createFanOutOperation(
                     operationID: requestedOperationID, machineID: machineID, scope: scope,
@@ -144,6 +153,7 @@ extension TerminalController {
             id: generatedID, machineID: machineID, scope: scope,
             remoteWorkspaceID: explicitWorkspace ?? "", agent: agent, argvDigest: digest,
             requestedCount: count, createdAt: now, updatedAt: now, state: .creating,
+            sharedWorkspace: explicitWorkspace != nil,
             children: (0..<count).map {
                 AgentFanOutChild(
                     index: $0,
@@ -162,6 +172,12 @@ extension TerminalController {
                 return existing.foundationObject
             }
             throw FanOutSocketError.conflictingOperation
+        }
+        guard try await AgentFanOutOperationStore.shared.beginCreation(id: operation.id) else {
+            return operation.foundationObject
+        }
+        defer {
+            Task { await AgentFanOutOperationStore.shared.endCreation(id: operation.id) }
         }
         for index in operation.children.indices {
             var ownedWorkspace: SurfaceRemoteWorkspace?
@@ -361,6 +377,15 @@ extension TerminalController {
         argv: [String], params: [String: Any]
     ) async throws -> AgentFanOutOperation {
         var operation = operation
+        if let explicitWorkspace = fanOutString(params["remote_workspace_id"]),
+           operation.sharedWorkspace == true || operation.remoteWorkspaceID == explicitWorkspace {
+            operation.adoptExplicitWorkspaceForRecovery(explicitWorkspace)
+            // Persist the repaired shared-workspace receipt before any daemon
+            // mutation so a second retry has the same idempotent identity.
+            try? await AgentFanOutOperationStore.shared.update(operation)
+        }
+        operation.prepareForRecovery()
+        try? await AgentFanOutOperationStore.shared.update(operation)
         guard operation.children.contains(where: {
             $0.state == .starting && $0.creationCorrelationKey != nil && $0.remoteWorkspaceID != nil
         }) else { return operation }
