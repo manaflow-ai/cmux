@@ -449,9 +449,15 @@ extension TerminalSurface {
                 previousWasCR = false
                 index += 1
             default:
-                bufferedText.unicodeScalars.append(scalar)
+                if let length = terminalControlSequenceLength(scalars, from: index) {
+                    flushBufferedText()
+                    appendTerminalBytes(length: length, from: index)
+                    index += length
+                } else {
+                    bufferedText.unicodeScalars.append(scalar)
+                    index += 1
+                }
                 previousWasCR = false
-                index += 1
             }
         }
         flushBufferedText()
@@ -463,8 +469,27 @@ extension TerminalSurface {
         _ scalars: [Unicode.Scalar],
         from start: Int
     ) -> Int? {
-        guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
+        guard start < scalars.count else { return nil }
 
+        let value = scalars[start].value
+        if value == 0x9B {
+            return TerminalInputReportParser(
+                scalars: scalars,
+                start: start,
+                bodyStart: start + 1
+            ).csiSequenceLength()
+        }
+        if value == 0x9D {
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+        }
+        switch value {
+        case 0x90, 0x98, 0x9E, 0x9F:
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+        default:
+            break
+        }
+
+        guard value == 0x1B, start + 1 < scalars.count else { return nil }
         switch scalars[start + 1].value {
         case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
             return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
@@ -477,13 +502,13 @@ extension TerminalSurface {
         }
     }
 
-    /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
+    /// Finds the terminator for 7-bit or C1 string controls without accepting partial sequences.
     private static func stringControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int,
         terminatesWithBEL: Bool
     ) -> Int? {
-        var index = start + 2
+        var index = start + (scalars[start].value >= 0x90 ? 1 : 2)
         while index < scalars.count {
             let value = scalars[index].value
             if terminatesWithBEL, value == 0x07 {
@@ -493,6 +518,9 @@ extension TerminalSurface {
                index + 1 < scalars.count,
                scalars[index + 1].value == 0x5C {
                 return index - start + 2
+            }
+            if value == 0x9C {
+                return index - start + 1
             }
             index += 1
         }
