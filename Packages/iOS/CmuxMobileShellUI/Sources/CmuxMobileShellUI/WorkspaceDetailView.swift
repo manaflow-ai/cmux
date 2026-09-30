@@ -509,25 +509,34 @@ struct WorkspaceDetailView: View {
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
+        // Only the always-structural cluster wires collapse detection: a
+        // conditional item's structural removal also detaches its probe
+        // and would be indistinguishable from a More-menu collapse.
+        .measureTrailingToolbarItem(
+            "trailing-cluster",
+            into: $trailingToolbarItemWidths,
+            onLeaveBar: {
+                // A deeper push or a pop detaches the whole screen, this
+                // content view included, before the bar items animate
+                // out; only a cluster detach while the content is still
+                // on a window is the More-menu collapse.
+                if barPresence.detailContentAttached {
+                    trailingToolbarCollapseDetected = true
+                }
+            }
+        )
         #else
         terminalPickerToolbarButton
-        #endif
-            // Only the always-structural cluster wires collapse detection: a
-            // conditional item's structural removal also detaches its probe
-            // and would be indistinguishable from a More-menu collapse.
             .measureTrailingToolbarItem(
                 "trailing-cluster",
                 into: $trailingToolbarItemWidths,
                 onLeaveBar: {
-                    // A deeper push or a pop detaches the whole screen, this
-                    // content view included, before the bar items animate
-                    // out; only a cluster detach while the content is still
-                    // on a window is the More-menu collapse.
                     if barPresence.detailContentAttached {
                         trailingToolbarCollapseDetected = true
                     }
                 }
             )
+        #endif
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
