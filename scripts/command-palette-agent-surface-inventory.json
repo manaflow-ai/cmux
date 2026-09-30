@@ -4,6 +4,8 @@
     "the palette agent surface guard script. A new palette command fails that guard",
     "until it is classified here, so publishing a command to agents through",
     "`cmux palette list` stays a decision instead of a side effect.",
+    "dynamicFamilies also covers ids built by interpolation: the guard reads the static",
+    "prefix in front of each `\\(` and fails until this file declares that family.",
     "excludedCommandIds must match CommandPaletteAgentSurface.notAgentSurfaceCommandIds."
   ],
   "listedCommandIds": [
@@ -215,13 +217,41 @@
     "palette.vscodeServeWebStop"
   ],
   "dynamicFamilies": {
-    "palette.toggleSetting.": {
-      "reason": "one command per CommandPaletteSettingsToggleCommands descriptor; the id is the settings key",
+    "palette.cmuxConfig.issue.": {
+      "reason": "one command per cmux config problem; the suffix is an FNV-1a hash of the issue id, so an agent reads the id from the listing instead of building it",
       "agentVisible": true
     },
     "palette.currentWork.": {
       "reason": "Find Work sub-mode rows, one per observed work item; switcher rows, not commands",
       "agentVisible": false
+    },
+    "palette.extensionSidebar.": {
+      "reason": "one command per extension sidebar provider; the suffix is an FNV-1a hash of the provider id",
+      "agentVisible": true
+    },
+    "palette.layout.open.": {
+      "reason": "one command per saved layout; the suffix is the layout name in URL-safe base64",
+      "agentVisible": true
+    },
+    "palette.shortcutKeymap.": {
+      "reason": "one command per ShortcutKeymapPreset; the suffix is the preset raw value",
+      "agentVisible": true
+    },
+    "palette.terminalOpenDirectory.": {
+      "reason": "one command per installed app that can open the terminal's directory; the suffix is the target raw value",
+      "agentVisible": true
+    },
+    "palette.toggleSetting.": {
+      "reason": "one command per CommandPaletteSettingsToggleCommands descriptor; the id is the settings key",
+      "agentVisible": true
+    },
+    "palette.workspaceColor.": {
+      "reason": "one command per workspace color; the suffix is an FNV-1a hash of the color name",
+      "agentVisible": true
+    },
+    "palette.workspaceStatus.": {
+      "reason": "one command per WorkspaceTaskStatus; the suffix is the status raw value",
+      "agentVisible": true
     }
   },
   "notCommandIds": {

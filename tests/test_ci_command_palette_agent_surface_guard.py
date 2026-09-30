@@ -24,6 +24,11 @@ Cases:
   (k) An unsorted listedCommandIds fails.
   (l) Renaming `notAgentSurfaceCommandIds` fails loudly instead of skipping.
   (m) A root with no palette ids at all fails loudly (wrong scan globs).
+  (n) An id built by interpolation whose family is not declared fails. Without
+      this the guard would be blind to whole command families, since an
+      interpolated id has no closing quote for the literal scan to find.
+  (o) An interpolation that completes an id mid-segment fails, because no
+      inventory prefix can describe the ids it produces.
 """
 
 import json
@@ -57,12 +62,16 @@ extension ContentView {
 
     static func settingsToggleIdPrefix() -> String { "palette.toggleSetting." }
 
+    static func statusCommandId(_ status: String) -> String {
+        "palette.workspaceStatus.\\(status)"
+    }
+
     func logInvocation() { cmuxDebugLog("palette.openSettings.invoke") }
 }
 """
 
 FIXTURE_SURFACE = """\
-public enum CommandPaletteAgentSurface {
+public struct CommandPaletteAgentSurface: Sendable {
     public static let notAgentSurfaceCommandIds: Set<String> = [
         "palette.installCLI",
     ]
@@ -78,7 +87,11 @@ def fixture_inventory():
             "palette.toggleSetting.": {
                 "reason": "one command per settings descriptor",
                 "agentVisible": True,
-            }
+            },
+            "palette.workspaceStatus.": {
+                "reason": "one command per workspace status",
+                "agentVisible": True,
+            },
         },
         "notCommandIds": {"palette.openSettings.invoke": "debug log tag"},
     }
@@ -247,6 +260,24 @@ def case_m_empty_universe(tmp):
     expect_failure(root, "(m) empty universe", "found no palette ids")
 
 
+def case_n_undeclared_interpolated_family(tmp):
+    inventory = fixture_inventory()
+    del inventory["dynamicFamilies"]["palette.workspaceStatus."]
+    root = make_fixture_root(os.path.join(tmp, "n"), inventory=inventory)
+    expect_failure(root, "(n) undeclared interpolated family",
+                   "interpolated palette id family palette.workspaceStatus.",
+                   "not declared in dynamicFamilies")
+
+
+def case_o_interpolation_mid_segment(tmp):
+    root = make_fixture_root(
+        os.path.join(tmp, "o"),
+        source=FIXTURE_SOURCE + '\nlet mid = "palette.openTab\\(index)"\n',
+    )
+    expect_failure(root, "(o) interpolation mid-segment",
+                   "palette.openTab", "completes mid-segment")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="palette-agent-surface-guard-") as tmp:
         case_a_real_repo()
@@ -262,6 +293,8 @@ def main():
         case_k_unsorted(tmp)
         case_l_renamed_constant(tmp)
         case_m_empty_universe(tmp)
+        case_n_undeclared_interpolated_family(tmp)
+        case_o_interpolation_mid_segment(tmp)
     print("test_ci_command_palette_agent_surface_guard: ok")
     return 0
 

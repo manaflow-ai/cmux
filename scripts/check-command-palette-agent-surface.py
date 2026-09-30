@@ -32,6 +32,14 @@ rows in a loop and as `switch` returns, and a shape-matching parser would go
 quietly blind the first time someone writes a new shape. A string scan cannot go
 blind, and the cost is the `notCommandIds` bucket.
 
+An id built by interpolation (`"palette.workspaceStatus.\\(status.rawValue)"`)
+has no closing quote after the prefix, so the literal scan alone would miss a
+whole family of agent-visible commands. A second scan collects the static prefix
+in front of each interpolation and requires it to be a declared
+`dynamicFamilies` key. The interpolation has to fall on a dot boundary: a prefix
+like `palette.openTab` completed mid-segment would name commands no inventory
+entry can describe, so the guard rejects it and asks for a dotted prefix.
+
 The Swift exclusion constant is excluded from the scan, so an exclusion whose
 command no longer exists fails as a dead entry instead of vouching for itself.
 
@@ -73,6 +81,8 @@ DEFAULT_AGENT_SURFACE_FILE = os.path.join(
 )
 
 PALETTE_LITERAL = re.compile(r'"(palette\.[A-Za-z0-9_.\-]+)"')
+# The static head of an interpolated id: `"palette.foo.\(bar)"`.
+INTERPOLATED_PALETTE_PREFIX = re.compile(r'"(palette\.[A-Za-z0-9_.\-]*)\\\(')
 EXCLUSION_CONSTANT = re.compile(
     r"notAgentSurfaceCommandIds[^=]*=\s*\[(?P<body>.*?)\]", re.DOTALL
 )
@@ -95,15 +105,25 @@ def scan_source_files(root, skip_paths):
 
 
 def collect_palette_literals(root, skip_paths):
-    """Returns {palette id literal: sorted list of root-relative files}."""
-    found = {}
+    """Returns (whole literals, interpolation prefixes), each id -> [files].
+
+    Both maps are keyed the same way, so a family prefix collected from an
+    interpolation is accounted for exactly like a literal one.
+    """
+    literals = {}
+    prefixes = {}
     for path in scan_source_files(root, skip_paths):
         with open(path, "r", encoding="utf-8") as handle:
             source = handle.read()
         relative = os.path.relpath(path, root)
         for match in PALETTE_LITERAL.finditer(source):
-            found.setdefault(match.group(1), set()).add(relative)
-    return {key: sorted(value) for key, value in found.items()}
+            literals.setdefault(match.group(1), set()).add(relative)
+        for match in INTERPOLATED_PALETTE_PREFIX.finditer(source):
+            prefixes.setdefault(match.group(1), set()).add(relative)
+    return (
+        {key: sorted(value) for key, value in literals.items()},
+        {key: sorted(value) for key, value in prefixes.items()},
+    )
 
 
 def parse_swift_exclusions(path):
@@ -130,7 +150,7 @@ def load_inventory(path):
         return json.load(handle)
 
 
-def check(universe, inventory, swift_exclusions):
+def check(universe, interpolated_prefixes, inventory, swift_exclusions):
     """Returns a list of human-readable violations."""
     violations = []
 
@@ -171,6 +191,25 @@ def check(universe, inventory, swift_exclusions):
     for entry, reason in sorted(not_commands.items()):
         if not isinstance(reason, str) or not reason.strip():
             violations.append("notCommandIds {0} needs a reason".format(entry))
+
+    families_declared = set(families)
+    universe = dict(universe)
+    for prefix, files in sorted(interpolated_prefixes.items()):
+        where = ", ".join(files)
+        if not prefix.endswith("."):
+            violations.append(
+                "interpolated palette id {0}\\(...) (seen in {1}) completes "
+                "mid-segment; give the family a prefix that ends at a dot so "
+                "the inventory can name it".format(prefix, where)
+            )
+            continue
+        if prefix not in families_declared:
+            violations.append(
+                "interpolated palette id family {0} (seen in {1}) is not "
+                "declared in dynamicFamilies".format(prefix, where)
+            )
+            continue
+        universe.setdefault(prefix, files)
 
     buckets = {
         "listedCommandIds": set(listed if isinstance(listed, list) else []),
@@ -253,8 +292,10 @@ def main(argv=None):
             agent_surface_path, error), file=sys.stderr)
         return 1
 
-    universe = collect_palette_literals(root, skip_paths=[agent_surface_path])
-    if not universe:
+    universe, interpolated_prefixes = collect_palette_literals(
+        root, skip_paths=[agent_surface_path]
+    )
+    if not universe and not interpolated_prefixes:
         print(
             "check-command-palette-agent-surface: found no palette ids under "
             "{0}; the scan globs are wrong".format(root),
@@ -262,7 +303,9 @@ def main(argv=None):
         )
         return 1
 
-    violations = check(universe, inventory, swift_exclusions)
+    violations = check(
+        universe, interpolated_prefixes, inventory, swift_exclusions
+    )
     if violations:
         print("check-command-palette-agent-surface: FAILED", file=sys.stderr)
         for violation in violations:
@@ -276,8 +319,12 @@ def main(argv=None):
         )
         return 1
 
-    print("check-command-palette-agent-surface: ok ({0} palette ids)".format(
-        len(universe)))
+    print(
+        "check-command-palette-agent-surface: ok ({0} palette ids, {1} "
+        "interpolated families)".format(
+            len(universe), len(interpolated_prefixes)
+        )
+    )
     return 0
 
 
