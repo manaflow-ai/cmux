@@ -1774,6 +1774,7 @@ fn private_socket_directory(
                 {
                     return Ok(recorded);
                 }
+                before_socket_directory_record_replace();
                 let _ = fs::remove_file(record);
             }
             Err(error) => {
@@ -1787,6 +1788,24 @@ fn private_socket_directory(
         .with_context(|| {
             format!("could not create a private socket directory under {}", base.display())
         })
+}
+
+#[cfg(all(unix, test))]
+thread_local! {
+    /// Test hook run on this thread when a publisher is about to replace a
+    /// record it found unusable.
+    static BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(unix)]
+fn before_socket_directory_record_replace() {
+    #[cfg(test)]
+    BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook();
+        }
+    });
 }
 
 /// Reads a recorded fallback directory. Only a `<prefix>-*` child of `base`
@@ -6495,5 +6514,62 @@ mod tests {
             (link, admin)
         );
         assert!(fs::read_dir(&decoy).unwrap().next().is_none());
+    }
+
+    /// Two processes for one session find the same unusable record. The
+    /// first to replace it publishes its own directory; the second, delayed
+    /// on its way to replace the record, must adopt that directory instead
+    /// of deleting the fresh record and publishing another one.
+    #[cfg(unix)]
+    #[test]
+    fn a_delayed_publisher_keeps_the_socket_directory_another_process_recorded() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::DirBuilderExt;
+        use std::sync::mpsc;
+
+        const PREFIX: &str = "cmux-t";
+        fn validate(path: &Path) -> anyhow::Result<()> {
+            if path.file_name() == Some(std::ffi::OsStr::new(PREFIX)) {
+                return Err(anyhow!("the shared directory is squatted"));
+            }
+            if !path.is_dir() {
+                return Err(anyhow!("{} is missing", path.display()));
+            }
+            Ok(())
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("tmp");
+        fs::create_dir(&base).unwrap();
+        let state = root.path().join("state");
+        fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
+        let record = state.join(SOCKET_DIRECTORY_RECORD);
+        // The recorded directory was removed, for example by a reboot.
+        fs::write(&record, base.join(format!("{PREFIX}-stale")).as_os_str().as_bytes()).unwrap();
+
+        let (paused_sender, paused) = mpsc::channel();
+        let (resume, resume_receiver) = mpsc::channel::<()>();
+        let delayed = {
+            let (base, record) = (base.clone(), record.clone());
+            thread::spawn(move || {
+                let mut pause = Some((paused_sender, resume_receiver));
+                BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move || {
+                        if let Some((paused, resume)) = pause.take() {
+                            paused.send(()).unwrap();
+                            resume.recv().unwrap();
+                        }
+                    }));
+                });
+                private_socket_directory(&base, PREFIX, &record, validate)
+            })
+        };
+        paused.recv_timeout(Duration::from_secs(30)).unwrap();
+        let first = private_socket_directory(&base, PREFIX, &record, validate).unwrap();
+        resume.send(()).unwrap();
+        let second = delayed.join().unwrap().unwrap();
+
+        assert_eq!(second, first, "two processes for one session use different socket directories");
+        assert_eq!(fs::read(&record).unwrap(), first.as_os_str().as_bytes());
     }
 }
