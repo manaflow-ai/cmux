@@ -226,7 +226,6 @@ struct MachinesCloudStatusTests {
     ) -> Hosted {
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
-                activeOperation: nil,
                 listStatus: nil,
                 listError: nil,
                 treeError: treeError,

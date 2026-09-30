@@ -178,11 +178,10 @@ struct CloudMachinesHeaderCountTests {
                 "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
     }
 
-    @Test("Operations, list status and tree errors keep their row", arguments: ["operation", "listStatus", "treeError"])
+    @Test("List status and tree errors keep their row", arguments: ["listStatus", "treeError"])
     func fleetStatusStillShows(message: String) {
         let height = headerHeight {
             fleetStatus(
-                activeOperation: message == "operation" ? "Creating machine" : nil,
                 listStatus: message == "listStatus" ? .reconnecting : nil,
                 treeError: message == "treeError" ? "Cloud tree unavailable" : nil
             )
@@ -191,17 +190,26 @@ struct CloudMachinesHeaderCountTests {
                 "The \(message) row is missing: header is \(height)pt")
     }
 
+    @Test("A delayed operation uses the header slot without adding a tree row")
+    func operationStatusDoesNotChangeHeaderHeight() {
+        let idleHeight = headerHeight { fleetStatus() }
+        let operationHeight = headerHeight(operation: "Opening on cloud machine…") { fleetStatus() }
+        #expect(abs(operationHeight - idleHeight) <= 0.5,
+                "Operation feedback must not shift the Cloud tree: idle=\(idleHeight), operation=\(operationHeight)")
+    }
+
     private func fleetStatus(
-        activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
+        listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
-        MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
+        MachinesCloudStatus(listStatus: listStatus, listError: nil,
                             treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
                             performListStatusAction: { _ in })
     }
 
-    private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
+    private func headerHeight<Status: View>(operation: String? = nil, @ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            operation: operation, status: status
         )).fittingSize.height
     }
 

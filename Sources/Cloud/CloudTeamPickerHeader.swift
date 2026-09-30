@@ -10,6 +10,9 @@ struct CloudTeamPickerHeader<Status: View>: View {
     let accountFlow: HostAccountFlow?
     let presentation: CloudTeamPickerPresentation?
     let chromeBackgroundColor: NSColor
+    /// Delayed operation feedback rendered in the existing header row so the
+    /// Cloud tree never gains or loses a status row during an open.
+    var operation: String? = nil
     @ViewBuilder let status: () -> Status
     @State private var panePresentation = CloudTeamPickerPresentation()
 
@@ -23,6 +26,17 @@ struct CloudTeamPickerHeader<Status: View>: View {
                         .disabled(accountFlow.isWorkingOnAuth)
                 }
                 Spacer(minLength: 0)
+                if let operation {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini)
+                        Text(operation)
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .accessibilityIdentifier("CloudMachinesOperation")
+                }
                 if let accountFlow, accountFlow.confirmedTeamID != nil {
                     MachinesChromeLabelButton(
                         symbolName: "person.badge.plus",

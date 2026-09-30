@@ -227,7 +227,6 @@ struct MachinesPanelView: View {
 
     private var cloudStatus: some View {
         MachinesCloudStatus(
-            activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
@@ -261,6 +260,7 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            operation: viewModel.visibleOperation,
             status: { cloudStatus }
         )
     }

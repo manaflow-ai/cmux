@@ -55,6 +55,24 @@ struct VMClientReadCoalescingTests {
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.values.reduce(0, +) == 1)
     }
+
+    @Test("Fast Cloud operations stay out of the header until they are slow")
+    func operationFeedbackUsesFastPathDelay() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+
+        model.beginOperation("Opening on cloud machine…")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(model.visibleOperation == nil)
+        model.endOperation()
+
+        model.beginOperation("Opening on cloud machine…")
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(model.visibleOperation == "Opening on cloud machine…")
+        model.endOperation()
+    }
+
     @Test("A hidden panel cancels its list and cannot start stats from a late result")
     func hiddenPanelCancelsFollowupWork() async throws {
         let fixture = try await CloudRefreshFixture.make()

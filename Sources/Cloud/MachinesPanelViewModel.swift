@@ -26,6 +26,9 @@ final class MachinesPanelViewModel: ObservableObject {
 
     /// Human-readable label of the Cloud VM action currently running from this panel.
     @Published private(set) var activeOperation: String?
+    /// Operation text shown in the fixed Cloud header after the fast-path delay.
+    @Published private(set) var visibleOperation: String?
+    private var operationPresentationTask: Task<Void, Never>?
     /// Surface catalog: machines, their resources, and local projections.
     @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
     /// Local workspaces in sidebar order for terminal grouping.
@@ -49,11 +52,21 @@ final class MachinesPanelViewModel: ObservableObject {
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
     func beginOperation(_ label: String) {
+        operationPresentationTask?.cancel()
         activeOperation = label
+        visibleOperation = nil
+        operationPresentationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self, self.activeOperation == label else { return }
+            self.visibleOperation = label
+        }
     }
 
     func endOperation() {
+        operationPresentationTask?.cancel()
+        operationPresentationTask = nil
         activeOperation = nil
+        visibleOperation = nil
         if wantsPolling { refresh() }
     }
 
@@ -274,6 +287,7 @@ final class MachinesPanelViewModel: ObservableObject {
         statsTask?.cancel()
         usageTask?.cancel()
         treeTask?.cancel()
+        operationPresentationTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
         for observer in authScopeObservers + [treeChangeObserver, unreadObserver, createChangeObserver].compactMap({ $0 }) {
@@ -414,6 +428,8 @@ final class MachinesPanelViewModel: ObservableObject {
         treeErrorDescription = nil
         plan = nil
         activeOperation = nil
+        visibleOperation = nil
+        operationPresentationTask?.cancel()
         createCoordinator.cancelAllForAuthTransition()
         lastErrorDescription = nil
         listProblem = nil
@@ -562,6 +578,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 machineIndexByID.removeAll()
                 plan = nil
                 activeOperation = nil
+                visibleOperation = nil
+                operationPresentationTask?.cancel()
                 lastErrorDescription = nil
                 listProblem = nil
                 hasLoadedOnce = false

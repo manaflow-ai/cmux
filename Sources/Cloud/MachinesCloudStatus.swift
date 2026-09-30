@@ -2,10 +2,9 @@ import CmuxCloud
 import SwiftUI
 
 /// Main's Cloud toolbar status, driven by values from the combined Cloud/Devices panel.
-/// Its row exists only while there is something to say; plan usage lives on the
-/// Cloud Machines header instead.
+/// List failures and tree errors use a secondary row; operation progress lives in
+/// the fixed Cloud header instead so opens cannot move the tree.
 struct MachinesCloudStatus: View {
-    let activeOperation: String?
     /// The machine-list status, only while cached machines stay on screen.
     let listStatus: MachineListStatus?
     let listError: String?
@@ -17,7 +16,7 @@ struct MachinesCloudStatus: View {
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
-        if activeOperation != nil || listStatus != nil || treeError != nil {
+        if listStatus != nil || treeError != nil {
             HStack(spacing: 6) {
                 message
                 Spacer(minLength: 0)
@@ -29,16 +28,7 @@ struct MachinesCloudStatus: View {
 
     @ViewBuilder
     private var message: some View {
-        if let operation = activeOperation {
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.mini)
-                Text(operation)
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else if let listStatus {
+        if let listStatus {
             MachinesListStatusToolbarRow(
                 status: listStatus,
                 error: listError,
