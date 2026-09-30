@@ -164,10 +164,13 @@ struct MachinesPanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudDevBackendStartup")
+        } else if isTeamChangePending {
+            teamScopeLoading
         } else {
             content
         }
     }
+
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
@@ -513,6 +516,8 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
+            } else if isTeamChangePending {
+                teamScopeLoading
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))

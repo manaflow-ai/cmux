@@ -139,7 +139,9 @@
     "backToBlog": "Zurück zum Blog",
     "readTheDocs": "Dokumentation lesen",
     "viewChangelog": "Changelog ansehen",
-    "otherPlatforms": "Andere Plattformen"
+    "otherPlatforms": "Andere Plattformen",
+    "copyCode": "Code kopieren",
+    "copied": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -1539,7 +1541,6 @@
       "restartNew": "Neuen Workspace erstellen (Standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Zeilenumbruch im Dateieditor umschalten (Option+Z).",
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
@@ -2325,6 +2326,28 @@
       "fixTransferDisabled": "Eine verwaltete Richtlinie deaktiviert die Dateiübertragung. Wende dich an deinen Administrator.",
       "supportTitle": "Hilfe erhalten",
       "supportDesc": "Schlägt eine Erstellung fehl, nutze Copy Error in der Benachrichtigung und füge den Fehler, gegebenenfalls mit der Trace-ID, bei, wenn du den Support kontaktierst."
+    },
+    "ui": {
+      "onThisPage": "Auf dieser Seite",
+      "copyPage": "Seite kopieren",
+      "copyPageDesc": "Seite als Markdown für LLMs kopieren",
+      "copied": "Kopiert",
+      "pageActions": "Weitere Seitenaktionen",
+      "openInChatGPT": "In ChatGPT öffnen",
+      "openInClaude": "In Claude öffnen",
+      "openInDesc": "Fragen zu dieser Seite stellen",
+      "askPrompt": "Lies {url}, damit ich Fragen dazu stellen kann.",
+      "previous": "Zurück",
+      "next": "Weiter",
+      "helpful": "War diese Seite hilfreich?",
+      "yes": "Ja",
+      "no": "Nein",
+      "thanks": "Danke für dein Feedback.",
+      "raiseIssue": "Issue melden",
+      "openNavigation": "Navigation öffnen",
+      "closeNavigation": "Navigation schließen",
+      "searchShortcut": "Dokumentation durchsuchen (⌘K)",
+      "navigation": "Dokumentation"
     }
   },
   "legal": {
