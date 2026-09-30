@@ -196,7 +196,7 @@ struct NewMachineModelTests {
 
     @Test func serverOptionsAreSortedAndDeduplicated() {
         let plan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
-        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192])
+        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192], lockedMemoryOptionsMb: [])
         #expect(model.memoryOptions == [8192, 16384])
         #expect(model.memoryMb == 8192)
     }
