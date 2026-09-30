@@ -22,6 +22,14 @@ enum AgentHibernationPanelPhase {
         return true
     }
 
+    /// The agent is down and its placeholder is committed. A pane still
+    /// terminating, recovering or whose termination failed may still have a
+    /// live process, so it does not count.
+    var isSettledHibernation: Bool {
+        if case .hibernated = self { return true }
+        return false
+    }
+
     var isTerminating: Bool {
         if case .terminating = self { return true }
         return false

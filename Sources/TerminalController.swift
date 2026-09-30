@@ -3657,7 +3657,9 @@ class TerminalController {
             "webviews": []
         ]
 
-        guard let browserPanel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel as? BrowserPanel else {
+        let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+        item["agent_hibernated"] = (panel as? TerminalPanel)?.agentHibernationPhase.isSettledHibernation ?? false
+        guard let browserPanel = panel as? BrowserPanel else {
             item["url"] = surface.isBrowser ? (surface.url ?? "") : NSNull()
             item["browser_web_content_pid"] = NSNull()
             return item
@@ -3687,7 +3689,10 @@ class TerminalController {
         var tags: [[String: Any]] = []
         var seenKeys = Set<String>()
 
-        for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
+        // The hibernated-agents row is derived; surfaces report it as `agent_hibernated`.
+        let statusEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+            .filter { $0.key != Workspace.agentHibernatedStatusKey }
+        for (index, entry) in statusEntries.enumerated() {
             let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
             tags.append([
                 "kind": "tag",

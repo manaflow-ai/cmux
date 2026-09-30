@@ -104,7 +104,12 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
-    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live {
+        didSet {
+            guard oldValue.isSettledHibernation != agentHibernationPhase.isSettledHibernation else { return }
+            NotificationCenter.default.post(name: .terminalPanelAgentHibernationDidChange, object: self)
+        }
+    }
     /// Set when an agent woken from hibernation did not come back; drives
     /// `AgentWakeFailureBanner`.
     @Published var agentWakeFailure: AgentWakeFailure?

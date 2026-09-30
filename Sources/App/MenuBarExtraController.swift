@@ -43,6 +43,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
     private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
+    private let hibernatedAgentsItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let hibernatedAgentCount: () -> Int
+
     private var notificationItems: [NSMenuItem] = []
     private let cloudSectionSeparator = NSMenuItem.separator()
     private var cloudItems: [NSMenuItem] = []
@@ -60,10 +63,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
         onQuitApp: @escaping () -> Void,
+        hibernatedAgentCount: @escaping () -> Int = { 0 },
         cloudMenuEntries: @escaping @MainActor () -> [CloudMenuEntry] = { [] },
         onCloudMenuWillOpen: @escaping @MainActor () -> Void = {}
     ) {
         self.notificationStore = notificationStore
+        self.hibernatedAgentCount = hibernatedAgentCount
         self.caffeineController = caffeineController
         self.onShowGlobalSearch = onShowGlobalSearch
         self.onShowMainWindow = onShowMainWindow
@@ -125,6 +130,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             buildHintItem.isEnabled = false
             menu.addItem(buildHintItem)
         }
+        hibernatedAgentsItem.isEnabled = false
+        hibernatedAgentsItem.image = NSImage(systemSymbolName: "moon.zzz", accessibilityDescription: nil)
+        hibernatedAgentsItem.isHidden = true
+        menu.addItem(hibernatedAgentsItem)
 
         menu.addItem(.separator())
 
@@ -228,6 +237,11 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 #endif
 
         stateHintItem.title = snapshot.stateHintTitle
+        let hibernatedCount = hibernatedAgentCount()
+        hibernatedAgentsItem.isHidden = hibernatedCount == 0
+        if hibernatedCount > 0 {
+            hibernatedAgentsItem.title = Self.hibernatedAgentsTitle(count: hibernatedCount)
+        }
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
         sleepyModeItem.state = SleepyModeController.shared.isActive ? .on : .off
         caffeineItem.state = caffeineController.isEnabled ? .on : .off
@@ -253,6 +267,16 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
                     ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
                     : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
+    }
+
+    static func hibernatedAgentsTitle(count: Int) -> String {
+        count == 1
+            ? String(localized: "statusMenu.hibernatedAgents.one", defaultValue: "1 agent hibernated")
+            : String(
+                format: String(localized: "statusMenu.hibernatedAgents.other", defaultValue: "%ld agents hibernated"),
+                locale: .current,
+                count
+            )
     }
 
     private func applyShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {

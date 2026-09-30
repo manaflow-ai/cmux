@@ -86,6 +86,7 @@
 		F65760150000000000000001 /* AgentHibernationController+UnableToProtectMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8740D0018740D0018740D001 /* AgentHibernationEvaluationSchedulingTests.swift */; };
+		3B3431356E200B711418EC9A /* AgentHibernationIndicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE082049A1CE376B43EE496A /* AgentHibernationIndicatorTests.swift */; };
 		FFBC336B2DCB6EB7AAAE0212 /* AgentHibernationLaunchFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D426028A0CE6FA90D8EB6E9 /* AgentHibernationLaunchFidelityTests.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
@@ -4028,6 +4029,7 @@
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		7A0CE1000000000000000050 /* WireGuardKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0CE1000000000000000051 /* WireGuardKit */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
+		84FF0E24CC20653B3D549235 /* Workspace+AgentHibernationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0816CF9002828327F77CF50 /* Workspace+AgentHibernationStatus.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
 		5A0420D5417940C6815B1F9E /* Workspace+AgentResumeOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */; };
 		AD24DD8D0278FBE91E0D39B8 /* Workspace+AgentWakeVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47BA6502C83228F85BBEDE5 /* Workspace+AgentWakeVerification.swift */; };
@@ -4472,6 +4474,7 @@
 		F65760150000000000000002 /* AgentHibernationController+UnableToProtectMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+UnableToProtectMarker.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		8740D0018740D0018740D001 /* AgentHibernationEvaluationSchedulingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationEvaluationSchedulingTests.swift; sourceTree = "<group>"; };
+		AE082049A1CE376B43EE496A /* AgentHibernationIndicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHibernationIndicatorTests.swift"; sourceTree = "<group>"; };
 		4D426028A0CE6FA90D8EB6E9 /* AgentHibernationLaunchFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHibernationLaunchFidelityTests.swift"; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationMemoryPressureResponder.swift; sourceTree = "<group>"; };
@@ -8233,6 +8236,7 @@
 		E30760080000000000000001 /* WindowTmuxWorkspacePaneOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTmuxWorkspacePaneOverlayController.swift; sourceTree = "<group>"; };
 		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
+		E0816CF9002828327F77CF50 /* Workspace+AgentHibernationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentHibernationStatus.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
 		5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentResumeOwnership.swift"; sourceTree = "<group>"; };
 		A47BA6502C83228F85BBEDE5 /* Workspace+AgentWakeVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentWakeVerification.swift"; sourceTree = "<group>"; };
@@ -11403,6 +11407,7 @@
 				2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */,
 				7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */,
 				61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */,
+				E0816CF9002828327F77CF50 /* Workspace+AgentHibernationStatus.swift */,
 				582CBC2A17C1808307BA9DD6 /* AgentWakeFailure.swift */,
 				2174F2301CE14E3D06D662C7 /* AgentWakeVerification.swift */,
 				0B4F9CD6667D287588551A9F /* AgentWakeVerificationState.swift */,
@@ -12838,6 +12843,7 @@
 				311C986A1E7430418708AAA6 /* MachinesListStatusToolbarRowTests.swift */,
 				1C38B9AFEEE4FAE6089C250F /* CloudTreeRowToolTipTests.swift */,
 				6F27EA9972F21B98FB4A7312 /* SurfaceCatalogObservationTests.swift */,
+				AE082049A1CE376B43EE496A /* AgentHibernationIndicatorTests.swift */,
 				80DB6B39B8F616E8930F0A44 /* AgentWakeVerificationTests.swift */,
 				81B9355A408361D86E077820 /* TerminalDictationAccessibilityTests.swift */,
 				362F5BADDCB2DB6D502F8493 /* TerminalAccessibilityTextTests.swift */,
@@ -16013,6 +16019,7 @@
 				E30760080000000000000002 /* WindowTmuxWorkspacePaneOverlayController.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
+				84FF0E24CC20653B3D549235 /* Workspace+AgentHibernationStatus.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
 				5A0420D5417940C6815B1F9E /* Workspace+AgentResumeOwnership.swift in Sources */,
 				AD24DD8D0278FBE91E0D39B8 /* Workspace+AgentWakeVerification.swift in Sources */,
@@ -16560,6 +16567,7 @@
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				D686A8C1DBD4EABD91766211 /* AgentHibernationBackgroundWorkTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
+				3B3431356E200B711418EC9A /* AgentHibernationIndicatorTests.swift in Sources */,
 				FFBC336B2DCB6EB7AAAE0212 /* AgentHibernationLaunchFidelityTests.swift in Sources */,
 				9090E0039090E0039090E003 /* AgentHibernationPanelCloseCleanupTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,

@@ -430,12 +430,17 @@ struct CmuxTaskManagerSnapshot {
         if let url = nonEmptyString(surface["url"]) {
             detailParts.append(url)
         }
+        let agentHibernated = bool(surface["agent_hibernated"])
+        if agentHibernated {
+            detailParts.append(String(localized: "taskManager.row.agentHibernated", defaultValue: "Hibernated"))
+        }
         rows.append(row(
             surface,
             kind: type == "browser" ? .browserSurface : .terminalSurface,
             level: 3,
             title: title,
             detail: detailParts.joined(separator: " / "),
+            isDimmed: agentHibernated,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             terminalSurfaceId: terminalSurfaceId,

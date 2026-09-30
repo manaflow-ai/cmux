@@ -520,6 +520,9 @@ extension Workspace {
         }
 
         let removedPanel = panels.removeValue(forKey: panelId)
+        if (removedPanel as? TerminalPanel)?.agentHibernationPhase.isSettledHibernation == true {
+            refreshAgentHibernationStatusEntry()
+        }
         if discardAgentHibernationTracking {
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
                 workspaceId: id,
