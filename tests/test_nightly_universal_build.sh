@@ -174,7 +174,7 @@ if ! awk '
 fi
 
 if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
@@ -409,6 +409,21 @@ if ! awk '
   echo "FAIL: release must smoke-launch the signed app before paying the Apple notarization wait"
   exit 1
 fi
+
+# The launch smoke only proves the process stays alive. Both signing jobs must
+# also drive the signed app through its bundled CLI before notarization.
+for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+  if ! awk '
+    /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+    /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
+    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
+    END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
+  ' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must run the bundled CLI smoke on the signed app after the launch smoke and before notarization"
+    exit 1
+  fi
+done
 
 # PR release builds restore the cache nightly warms from main by this prefix.
 # Renaming it on either side, or on a key but not its restore-keys, silently

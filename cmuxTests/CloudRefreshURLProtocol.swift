@@ -3,7 +3,10 @@ import Foundation
 /// URLProtocol's synchronous callbacks hand off to one actor; only that actor
 /// reads the fixture state or calls the client, including after stopLoading.
 final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
-    enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled }
+    /// `authoredList` serves the three author shapes `/api/vm` can send: a
+    /// named account, an account with no recorded name, and (on a control
+    /// plane that predates the field) no author at all.
+    enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled, authoredList }
     private static let responses = Responses()
     /// Fixture state is keyed per request, not by object address: URLSession
     /// frees a finished protocol, and the next request can reuse its address,
@@ -11,6 +14,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     private let requestID = UUID()
     static func holdResponses() async { await responses.hold() }
     static func releaseResponses() async { await responses.release() }
+    /// Answers the requests already waiting; requests that start later stay held.
+    static func releasePendingResponses() async { await responses.releasePending() }
     static func configure(_ behavior: Behavior) async { await responses.configure(behavior) }
     static func waitUntilStarted(_ count: Int = 1) async { await responses.waitUntilStarted(count) }
     static func currentStopCount() async -> Int { await responses.stopCount }
@@ -31,6 +36,9 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
         func hold() { held = true }
         func release() {
             held = false
+            releasePending()
+        }
+        func releasePending() {
             let pending = responseWaiters
             responseWaiters.removeAll()
             for waiter in pending.values { waiter.resume() }
@@ -61,6 +69,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             let key = source.requestID
             guard !stoppedRequests.contains(key) else { return }
             let path = source.request.url!.path
+            let method = source.request.httpMethod ?? "GET"
             counts[path, default: 0] += 1
             let count = counts.values.reduce(0, +)
             let ready = startWaiters.filter { $0.0 <= count }
@@ -80,6 +89,21 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
                     body = #"{"teamId":"fixture-team","kind":"ready","periodDays":30,"machines":[]}"#
                 } else if path.hasSuffix("/stats") {
                     body = #"{"state":"awake","cpus":2}"#
+                } else if behavior == .authoredList, path != "/api/vm" || method == "POST" {
+                    // A single machine, shaped as the create receipt and the
+                    // status read both are: the machine's fields at the top
+                    // level rather than inside `vms`.
+                    body = #"""
+                    {"id":"fixture-9","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"createdBy":{"userId":"user-a","displayName":"Ada Lovelace"}}
+                    """#
+                } else if behavior == .authoredList {
+                    body = #"""
+                    {"vms":[
+                      {"id":"fixture-0","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true},"createdBy":{"userId":"user-a","displayName":"Ada Lovelace"}},
+                      {"id":"fixture-1","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true},"createdBy":{"userId":"user-b","displayName":null}},
+                      {"id":"fixture-2","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true}}
+                    ]}
+                    """#
                 } else {
                     body = #"{"vms":[{"id":"fixture-0","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true}}]}"#
                 }

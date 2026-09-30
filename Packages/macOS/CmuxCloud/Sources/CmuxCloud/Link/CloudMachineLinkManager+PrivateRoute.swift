@@ -10,7 +10,8 @@ extension CloudMachineLinkManager {
         machineID: String,
         through hub: CloudWireGuardHub.Ready,
         fallbackRoute: String? = nil,
-        addresses freshAddresses: [String] = []
+        addresses freshAddresses: [String] = [],
+        refreshIfNeeded: Bool = true
     ) async throws -> String {
         try Task.checkCancellation()
         let freshAddresses = freshAddresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -25,6 +26,10 @@ extension CloudMachineLinkManager {
         let candidates = (freshAddresses + storedAddresses).filter { seen.insert($0).inserted }
         let addresses = candidates.filter {
             CloudWireGuardHub.routesHost($0, enrolledRoutes: hub.routes)
+        }
+        if refreshIfNeeded, addresses.isEmpty, !candidates.isEmpty, let liveHub = self.hub {
+            let refreshed = try await liveHub.readyRouting(anyOf: candidates)
+            return try await resolvedPrivateRoute(machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute, addresses: freshAddresses, refreshIfNeeded: false)
         }
         guard let primary = addresses.first else {
             guard candidates.isEmpty,

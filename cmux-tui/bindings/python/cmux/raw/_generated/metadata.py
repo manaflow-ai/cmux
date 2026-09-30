@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619'
+IR_SHA256 = '70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8'
 
 
 @dataclass(frozen=True)
@@ -442,6 +442,7 @@ COMMANDS = {
         {
             'lease': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'detach-client': CommandMetadata(
@@ -452,6 +453,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'by': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'client': CommandFieldMetadata(None, None),
         },
     ),
@@ -520,6 +522,17 @@ COMMANDS = {
             'frontend': CommandFieldMetadata(None, None),
             'scope': CommandFieldMetadata(None, None),
             'subject_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-size-state': CommandMetadata(
+        'get-size-state',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
@@ -791,6 +804,18 @@ COMMANDS = {
             'rows': CommandFieldMetadata(None, None),
         },
     ),
+    'note-size-activity': CommandMetadata(
+        'note-size-activity',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(None, None),
+        },
+    ),
     'notify': CommandMetadata(
         'notify',
         'control',
@@ -938,6 +963,7 @@ COMMANDS = {
         {
             'lease': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'release-surface-size': CommandMetadata(
@@ -1064,9 +1090,11 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'resize-surface': CommandMetadata(
@@ -1218,8 +1246,12 @@ COMMANDS = {
         None,
         {
             'capabilities': CommandFieldMetadata(None, None),
+            'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'device_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'display_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'user_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'set-client-sizing': CommandMetadata(
@@ -1268,6 +1300,35 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
         },
     ),
+    'set-size-counts': CommandMetadata(
+        'set-size-counts',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client': CommandFieldMetadata(None, None),
+            'counts': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'participant': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-size-policy': CommandMetadata(
+        'set-size-policy',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'policy': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-split-ratio': CommandMetadata(
         'set-split-ratio',
         'control',
@@ -1279,6 +1340,19 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-terminal-idle-policy': CommandMetadata(
+        'set-terminal-idle-policy',
+        'control',
+        12,
+        'terminal-idle-close-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'idle_close_seconds': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'set-viewport-pane-width': CommandMetadata(
@@ -1520,6 +1594,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),

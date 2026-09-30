@@ -15,8 +15,9 @@ extension MobileIrxRuntimeComposition {
         if activeScope == nil { status = .inactive }
         else if await endpointSupervisor?.boundEndpoint() != nil || directIsBound { status = .active }
         else { status = .starting }
+        let selectedPath = await liveSelectedTransportPath()
         guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return .unavailable }
-        return CmxIrohSettingsSnapshot(runtimeStatus: status,
+        return CmxIrohSettingsSnapshot(runtimeStatus: status, selectedTransportPath: selectedPath,
             preference: .automatic, pathPreference: forceRelayOnly ? .relayOnly : .automatic,
             managedRelays: (cache?.relayCredentials ?? []).map {
                 .init(id: $0.relayURL, provider: "cmux", region: "", url: $0.relayURL, isSelected: $0.relayURL == currentRelay)
@@ -29,6 +30,32 @@ extension MobileIrxRuntimeComposition {
             policySequence: directory.map { Int64($0.revision) },
             policyExpiresAt: directory.map { Date(timeIntervalSince1970: Double($0.permissionExpiresAt)) },
             failureDescription: lastFailure)
+    }
+
+    /// The path application traffic uses right now, from the first admitted
+    /// peer session. A relay counts as managed only when it is one of this
+    /// account's signed relay credentials; any other relay stays
+    /// `.unavailable`, matching the fail-closed classifier the Iroh runtime
+    /// used before the v2 migration. Without this the snapshot always
+    /// reported `.unavailable`, so the release gate's relay-only path check
+    /// could never pass.
+    func liveSelectedTransportPath() async -> CmxIrohSelectedTransportPath {
+        for engine in enginesByPeer.values {
+            guard case .ready = await engine.currentState,
+                  let session = await engine.currentSession(),
+                  let path = session.connection.selectedPath() else { continue }
+            guard path.isRelay else { return .direct }
+            let normalized = Self.normalizedRelayURL(path.remoteAddress)
+            let managed = (cache?.relayCredentials ?? []).contains {
+                Self.normalizedRelayURL($0.relayURL) == normalized
+            }
+            return managed ? .managedRelay(provider: "cmux", region: "") : .unavailable
+        }
+        return .unavailable
+    }
+
+    private static func normalizedRelayURL(_ url: String) -> String {
+        url.hasSuffix("/") ? String(url.dropLast()) : url
     }
 
     public func settingsUpdates() -> AsyncStream<Void> { changes() }

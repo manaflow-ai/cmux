@@ -89,7 +89,7 @@ struct TmuxWorkspacePaneOverlayView: View {
             path,
             with: .color(Color(nsColor: color)),
             style: StrokeStyle(
-                lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth),
+                lineWidth: PanelOverlayRingMetrics.lineWidth,
                 lineJoin: .round
             )
         )

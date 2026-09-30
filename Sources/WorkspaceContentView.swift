@@ -195,8 +195,7 @@ struct WorkspaceContentView: View {
         }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
+        let isSplit = workspace.hasMultipleSplitSurfaces
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
@@ -381,6 +380,10 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            // Increase Contrast changes the separator color the chrome resolves.
+            workspace.applyGhosttyChrome(from: config, reason: "displayAccessibilityOptionsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
@@ -722,13 +725,9 @@ extension WorkspaceContentView {
             let ts = ISO8601DateFormatter().string(from: Date())
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-            }
+            guard let handle = OwnedLogFile(path: logPath).openForAppending() else { return }
+            defer { try? handle.close() }
+            try? handle.write(contentsOf: Data(line.utf8))
         }
     }
     #else

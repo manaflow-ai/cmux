@@ -26,6 +26,9 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
+         location = "group:CmuxGhosttyKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxIrohTransport">
       </FileRef>
       <FileRef
@@ -48,6 +51,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalPrediction">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
          location = "group:CmuxWorkspacePresence">
@@ -102,6 +108,9 @@
          location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSSH">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -115,6 +124,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTunnel">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileWorkspace">
@@ -266,6 +278,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalImport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalSharing">
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">

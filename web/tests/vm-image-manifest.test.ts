@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import {
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
@@ -351,7 +351,7 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     expect(other.upgraded).toEqual([]);
   });
 
-  test("a Dockerfile-only instruction change since the bake commit is not proven: no upgrade, rebake", () => {
+  test("a Dockerfile-only instruction change since the bake commit is not proven: no upgrade, rebake", async () => {
     // Regression: a schema-1 record carries no Dockerfile instruction hash,
     // so the checkout's instructions must equal those at repoCommit before
     // schema 2 may claim them; an unavailable commit is not proof either.
@@ -374,7 +374,7 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     }
     // A real full object id that carries the file resolves through git: HEAD
     // exists in every checkout, shallow ones included.
-    const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: path.join(import.meta.dirname, "../.."), encoding: "utf8" }).stdout.trim();
+    const head = (await runChild("git", ["rev-parse", "HEAD"], { cwd: path.join(import.meta.dirname, "../..") })).stdout.trim();
     expect(head).toMatch(/^[0-9a-f]{40}$/);
     expect(devboxDockerfileAtCommit(head)).toContain("CMUX_IMAGE_EPOCH=");
   });

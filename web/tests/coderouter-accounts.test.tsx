@@ -1,9 +1,29 @@
-import { describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { MutationObserver, QueryClient, QueryClientProvider, type UseMutationOptions } from "@tanstack/react-query";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type React from "react";
 import enMessages from "../messages/en.json";
+import { coderouterApiKeysQueryKey, coderouterOverviewQuery } from "../dashboard-app/queries/coderouter";
+import {
+  accountSharingMutation,
+  accountWriteErrorKey,
+  addApiKeyAccountMutation,
+  addClaudeUpstreamMutation,
+  apiKeyCreateErrorKey,
+  claudeAccountMutation,
+  createApiKeyMutation,
+  removeNativeAccountMutation,
+  removeSharedAccountMutation,
+  revokeApiKeyMutation,
+  transferErrorKey,
+  transferErrorKeyFor,
+  transferNativeAccountMutation,
+} from "../dashboard-app/queries/coderouter-mutations";
 
-const routerRefresh = mock(() => undefined);
+/** Accounts mutate through TanStack Query, so every render needs a client. */
+function renderToStaticMarkup(element: React.ReactElement, queryClient = new QueryClient()) {
+  return renderMarkup(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
+}
 
 mock.module("next-intl", () => ({
   useTranslations: (namespace: string) => translator(namespace),
@@ -12,10 +32,6 @@ mock.module("next-intl", () => ({
     relativeTime: () => "2 hours ago",
   }),
   useNow: () => new Date("2026-09-07T12:00:00.000Z"),
-}));
-
-mock.module("../i18n/navigation", () => ({
-  useRouter: () => ({ refresh: routerRefresh }),
 }));
 
 mock.module("@base-ui-components/react/dialog", () => ({
@@ -32,8 +48,8 @@ mock.module("@base-ui-components/react/dialog", () => ({
   },
 }));
 
-const { CoderouterAccountsSection, requestNativeAccountTransfer } = await import(
-  "../app/[locale]/dashboard/components/coderouter-accounts"
+const { CoderouterAccountsSection } = await import(
+  "../dashboard-app/screens/coderouter/coderouter-accounts"
 );
 
 const claudeAccount = {
@@ -93,6 +109,21 @@ function renderTransferCase(input: {
   );
 }
 
+
+const KEY_ID = "0f4b1c2e-1111-4222-8333-444455556666";
+
+let routeReply: (request: Request) => Promise<Response> = async () => new Response(null, { status: 204 });
+// Bun's mock.module also patches namespaces imported earlier, so keep the
+// real function in a constant before installing the mock.
+const realCallRoute = (await import("../orpc/server/dashboard/route-call")).callRoute;
+mock.module("../orpc/server/dashboard/route-call", () => ({
+  callRoute: (context: Parameters<typeof realCallRoute>[0], _handler: unknown, call: Parameters<typeof realCallRoute>[2]) =>
+    realCallRoute(context, (request: Request) => routeReply(request), call),
+}));
+const { RPCHandler } = await import("@orpc/server/fetch");
+const { coderouterRouter } = await import("../orpc/server/dashboard/coderouter");
+const coderouterRpc = new RPCHandler({ coderouter: coderouterRouter });
+
 describe("coderouter account transfer", () => {
   test("offers Transfer on a manageable native account when another team exists", () => {
     const html = renderTransferCase({ transferTeams: otherTeams });
@@ -124,37 +155,53 @@ describe("coderouter account transfer", () => {
   });
 
   test("posts the chosen destination team from the selected source team", async () => {
-    const calls: { url: string; init: RequestInit }[] = [];
-    const send = (async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
-      return new Response(JSON.stringify({ accountId: "native-1" }), { status: 200 });
-    }) as unknown as typeof fetch;
+    const calls = stubRoutes(() => Response.json({ accountId: "native-1" }));
+    const queryClient = seededClient();
 
-    const result = await requestNativeAccountTransfer(
-      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
-      send,
-    );
+    await runMutation(transferNativeAccountMutation(queryClient, "team-1"), {
+      accountId: "native-1",
+      destinationTeamId: "team-2",
+    });
 
-    expect(result).toEqual({ ok: true });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("/api/coderouter/accounts/native-1/transfer");
-    expect(calls[0].init.method).toBe("POST");
-    expect(new Headers(calls[0].init.headers).get("x-cmux-team-id")).toBe("team-1");
-    expect(JSON.parse(String(calls[0].init.body))).toEqual({ destinationTeamId: "team-2" });
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].headers.get("x-cmux-team-id")).toBe("team-1");
+    expect(calls[0].body).toEqual({ destinationTeamId: "team-2" });
+    // The moved account leaves this team's list on the refetch.
+    expect(queryClient.getQueryState(coderouterOverviewQuery(undefined).queryKey)?.isInvalidated).toBe(true);
   });
 
-  test("reports the failing status so the dialog can explain it", async () => {
-    const send = (async () => new Response("{}", { status: 409 })) as unknown as typeof fetch;
-    expect(await requestNativeAccountTransfer(
-      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
-      send,
-    )).toEqual({ ok: false, status: 409 });
+  test("maps the failing status and error code to the dialog's explanation", async () => {
+    const failure = async (reply: () => Response) => {
+      stubRoutes(reply);
+      const queryClient = seededClient();
+      const error = await runMutation(
+        transferNativeAccountMutation(queryClient, "team-1"),
+        { accountId: "native-1", destinationTeamId: "team-2" },
+      ).then(() => null, (caught: unknown) => caught);
+      // A refused transfer changes nothing, so nothing refetches.
+      expect(queryClient.getQueryState(coderouterOverviewQuery(undefined).queryKey)?.isInvalidated).toBe(false);
+      return transferErrorKeyFor(error);
+    };
+    expect(await failure(() => new Response("{}", { status: 409 }))).toBe("transferConflictError");
+    expect(await failure(() => Response.json({ error: "forbidden" }, { status: 403 }))).toBe("teamAccessError");
+    expect(await failure(() => Response.json({ error: "destination_forbidden" }, { status: 403 })))
+      .toBe("transferForbiddenError");
+    expect(await failure(() => new Response("<html>", { status: 502 }))).toBe("transferError");
+    expect(await failure(() => { throw new TypeError("offline"); })).toBe("transferError");
+  });
 
-    const offline = (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch;
-    expect(await requestNativeAccountTransfer(
-      { teamId: "team-1", accountId: "native-1", destinationTeamId: "team-2" },
-      offline,
-    )).toEqual({ ok: false, status: null });
+  test("blames the source team when the viewer lost access to it, and the destination otherwise", () => {
+    // The route answers 403 "forbidden" when the viewer can no longer manage
+    // the source team, and 403 "destination_forbidden" for the destination.
+    expect(transferErrorKey(403, "forbidden")).toBe("teamAccessError");
+    expect(transferErrorKey(403, "destination_forbidden")).toBe("transferForbiddenError");
+    expect(transferErrorKey(403, null)).toBe("transferForbiddenError");
+    expect(transferErrorKey(409, "conflict")).toBe("transferConflictError");
+    expect(transferErrorKey(500, null)).toBe("transferError");
+    expect(transferErrorKey(null, null)).toBe("transferError");
+    expect(enMessages.dashboard.coderouterAccounts.teamAccessError).toBe("You do not have access to this team.");
   });
 });
 
@@ -218,6 +265,27 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("API keys");
     expect(html).toContain("Create API key");
     expect(html).toContain('name="apiKeyLabel"');
+  });
+
+  test("keeps account controls when only API-key management is denied", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys={false}
+        claude={{ kind: "ok", accounts: [claudeAccount] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        shared={{ kind: "ok", accounts: [codexAccount] }}
+      />,
+    );
+
+    // Every team member manages provider accounts; API keys keep their own gate.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('name="apiKey"');
+    expect(html).toContain(">Remove<");
+    expect(html).toContain("acct_9f3");
+    expect(html).not.toContain('name="apiKeyLabel"');
+    expect(html).not.toContain("Create API key");
   });
 
   test("hides management controls when the viewer cannot manage accounts or API keys", () => {
@@ -289,7 +357,253 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("Shared accounts temporarily unavailable");
     expect(html).toContain("Claude Code OAuth");
   });
+
+  test("shows a table skeleton until the team's API keys arrive, then lists them", () => {
+    const render = (queryClient: QueryClient) => renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys
+        claude={{ kind: "ok", accounts: [] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "ok", accounts: [] }}
+      />,
+      queryClient,
+    );
+    const loading = render(new QueryClient());
+    expect(loading).toContain('data-testid="dashboard-section-skeleton"');
+    expect(loading).toContain('data-variant="table"');
+
+    const seeded = new QueryClient();
+    seeded.setQueryData(coderouterApiKeysQueryKey("team-1"), { keys: [{
+      id: "key-1",
+      keyPrefix: "cr_live_ab12",
+      label: "ci",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null,
+      usage: null,
+    }] });
+    // Another team's cached keys never render for this team.
+    seeded.setQueryData(coderouterApiKeysQueryKey("team-2"), { keys: [{
+      id: "key-2",
+      keyPrefix: "cr_live_zz99",
+      label: "other",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null,
+      usage: null,
+    }] });
+    const html = render(seeded);
+    expect(html).not.toContain("Loading API keys");
+    expect(html).toContain("cr_live_ab12");
+    expect(html).toContain("1 key");
+    expect(html).not.toContain("cr_live_zz99");
+  });
 });
+
+describe("coderouter account mutations", () => {
+  const overviewKey = coderouterOverviewQuery(undefined).queryKey;
+
+  test("adds an API-key account with the team header and omits an empty label", async () => {
+    const calls = stubRoutes(() => Response.json({ id: "native-2" }, { status: 201 }));
+    const queryClient = seededClient();
+    await runMutation(addApiKeyAccountMutation(queryClient, "team-1"), {
+      provider: "openai-apikey",
+      apiKey: "sk-proj-1",
+      label: "",
+    });
+    expect(calls[0].url).toBe("/api/coderouter/accounts");
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].headers.get("x-cmux-team-id")).toBe("team-1");
+    expect(calls[0].headers.get("content-type")).toBe("application/json");
+    expect(calls[0].body).toEqual({ provider: "openai-apikey", apiKey: "sk-proj-1" });
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
+  });
+
+  test("adds a Claude upstream account scoped by the teamId query", async () => {
+    const calls = stubRoutes(() => Response.json({ account: {} }, { status: 201 }));
+    await runMutation(addClaudeUpstreamMutation(seededClient(), "team 1"), {
+      kind: "anthropic_api_key",
+      apiKey: "sk-ant-api03-x",
+    });
+    expect(calls[0].url).toBe("/api/coderouter/claude-upstream?teamId=team+1");
+    expect(calls[0].body).toEqual({ kind: "anthropic_api_key", apiKey: "sk-ant-api03-x" });
+  });
+
+  test("toggles and removes a Claude account; a missing row counts as removed only on delete", async () => {
+    let status = 200;
+    const calls = stubRoutes(() => Response.json({ error: "not_found" }, { status }));
+    const queryClient = seededClient();
+    const options = claudeAccountMutation(queryClient, "team-1");
+
+    await runMutation(options, { accountId: "claude-1", action: "setState", state: "disabled" });
+    expect(calls[0].url).toBe("/api/coderouter/claude-upstream/claude-1?teamId=team-1");
+    expect(calls[0].method).toBe("PATCH");
+    expect(calls[0].body).toEqual({ state: "disabled" });
+
+    status = 404;
+    await runMutation(options, { accountId: "claude-1", action: "remove" });
+    expect(calls[1].method).toBe("DELETE");
+    const toggleError = await runMutation(options, { accountId: "claude-1", action: "setState", state: "active" })
+      .then(() => null, (caught: unknown) => caught);
+    expect(accountWriteErrorKey(toggleError, "updateError")).toBe("updateError");
+  });
+
+  test("removes a native account; 404 is success, 403 and 400 keep their copy", async () => {
+    let status = 404;
+    const calls = stubRoutes(() => Response.json({ error: "x" }, { status }));
+    const queryClient = seededClient();
+    const options = removeNativeAccountMutation(queryClient, "team-1");
+    await runMutation(options, "native-1");
+    expect(calls[0].url).toBe("/api/coderouter/accounts/native-1");
+    expect(calls[0].method).toBe("DELETE");
+    expect(calls[0].headers.get("x-cmux-team-id")).toBe("team-1");
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
+
+    const failure = async (next: number) => {
+      status = next;
+      return accountWriteErrorKey(await runMutation(options, "native-1").then(() => null, (caught: unknown) => caught), "removeError");
+    };
+    expect(await failure(403)).toBe("teamAccessError");
+    expect(await failure(400)).toBe("validationError");
+    expect(await failure(500)).toBe("removeError");
+  });
+
+  test("removes a shared account; the subrouter's 404 and 503 are failures", async () => {
+    let status = 404;
+    const calls = stubRoutes(() => new Response(null, { status }));
+    const queryClient = seededClient();
+    const options = removeSharedAccountMutation(queryClient, "team-1");
+    const error = await runMutation(options, "codex-1").then(() => null, (caught: unknown) => caught);
+    expect(calls[0].url).toBe("/api/subrouter/accounts/codex-1?teamId=team-1");
+    expect(accountWriteErrorKey(error, "removeError", "notConfiguredTitle")).toBe("removeError");
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(false);
+
+    status = 503;
+    const unavailable = await runMutation(options, "codex-1").then(() => null, (caught: unknown) => caught);
+    expect(accountWriteErrorKey(unavailable, "removeError", "notConfiguredTitle")).toBe("notConfiguredTitle");
+
+    status = 204;
+    await runMutation(options, "codex-1");
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
+  });
+
+  test("flips account sharing to the requested visibility", async () => {
+    const calls = stubRoutes(() => Response.json({ ok: true }));
+    await runMutation(accountSharingMutation(seededClient(), "team-1"), {
+      accountId: "native-1",
+      family: "native",
+      visibility: "team",
+    });
+    expect(calls[0].url).toBe("/api/coderouter/accounts/native-1/sharing");
+    expect(calls[0].method).toBe("PATCH");
+    expect(calls[0].headers.get("x-cmux-team-id")).toBe("team-1");
+    expect(calls[0].body).toEqual({ family: "native", visibility: "team" });
+  });
+
+  test("creates an API key and refreshes only that team's key list", async () => {
+    const issued = {
+      teamId: "team-1",
+      id: "key-9",
+      key: "cr_live_secret",
+      keyPrefix: "cr_live_se",
+      label: "ci",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    };
+    const calls = stubRoutes(() => Response.json(issued, { status: 201 }));
+    const queryClient = seededClient();
+    queryClient.setQueryData(coderouterApiKeysQueryKey("team-1"), { keys: [] });
+    const created = await runMutation(createApiKeyMutation(queryClient, "team-1"), "ci");
+    expect(created).toMatchObject({ id: "key-9", key: "cr_live_secret" });
+    expect(calls[0].url).toBe("/api/coderouter/api-keys");
+    expect(calls[0].headers.get("x-cmux-team-id")).toBe("team-1");
+    expect(calls[0].body).toEqual({ label: "ci" });
+    expect(queryClient.getQueryState(coderouterApiKeysQueryKey("team-1"))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(false);
+  });
+
+  test("explains a refused or malformed API key creation", async () => {
+    const failure = async (reply: () => Response) => {
+      stubRoutes(reply);
+      return apiKeyCreateErrorKey(
+        await runMutation(createApiKeyMutation(seededClient(), "team-1"), "ci").then(() => null, (caught: unknown) => caught),
+      );
+    };
+    expect(await failure(() => Response.json({ error: "forbidden" }, { status: 403 }))).toBe("teamAccessError");
+    expect(await failure(() => Response.json({ error: "api_key_unavailable" }, { status: 503 }))).toBe("apiKeyCreateError");
+    // A 2xx without the secret cannot be shown, so it is a failure too.
+    expect(await failure(() => Response.json({ id: "key-9" }, { status: 201 }))).toBe("apiKeyCreateError");
+  });
+
+  test("revokes an API key and refreshes the key list, not on failure", async () => {
+    let status = 204;
+    const calls = stubRoutes(() => new Response(null, { status }));
+    const queryClient = seededClient();
+    queryClient.setQueryData(coderouterApiKeysQueryKey("team-1"), { keys: [] });
+    const options = revokeApiKeyMutation(queryClient, "team-1");
+
+    status = 404;
+    await expect(runMutation(options, KEY_ID)).rejects.toThrow();
+    expect(queryClient.getQueryState(coderouterApiKeysQueryKey("team-1"))?.isInvalidated).toBe(false);
+
+    status = 204;
+    await runMutation(options, KEY_ID);
+    expect(calls[1].url).toBe(`/api/coderouter/api-keys/${KEY_ID}`);
+    expect(calls[1].method).toBe("DELETE");
+    expect(queryClient.getQueryState(coderouterApiKeysQueryKey("team-1"))?.isInvalidated).toBe(true);
+  });
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+type RouteCall = { url: string; method: string; headers: Headers; body: unknown };
+
+/**
+ * Serves the dashboard RPC calls of one test through the real coderouter
+ * procedures. Only the REST handler behind `callRoute` is replaced: it records
+ * the route request and answers with `reply()`.
+ */
+function stubRoutes(reply: () => Response) {
+  const calls: RouteCall[] = [];
+  routeReply = async (request) => {
+    const url = new URL(request.url);
+    const text = await request.text();
+    calls.push({ url: `${url.pathname}${url.search}`, method: request.method, headers: request.headers, body: text ? JSON.parse(text) : undefined });
+    return reply();
+  };
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request && init === undefined ? input : new Request(input, init);
+    const { response } = await coderouterRpc.handle(request, {
+      prefix: "/api/dashboard/rpc",
+      context: { request, serverPrefetch: true },
+    });
+    return response ?? new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+  return calls;
+}
+
+/** A client holding a loaded overview, so a test can see whether a write invalidated it. */
+function seededClient() {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(coderouterOverviewQuery(undefined).queryKey, {} as never);
+  return queryClient;
+}
+
+/**
+ * Runs the full mutation lifecycle (mutationFn, then onSuccess or onError)
+ * outside React. The factories close over their own client, so the observer's
+ * client only hosts the mutation.
+ */
+function runMutation<Result, Variables>(
+  options: UseMutationOptions<Result, Error, Variables>,
+  variables: Variables,
+): Promise<Result> {
+  return new MutationObserver(new QueryClient(), options).mutate(variables);
+}
 
 function translator(namespace: string) {
   const root = valueAtPath(enMessages, namespace);

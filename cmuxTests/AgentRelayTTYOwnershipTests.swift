@@ -387,7 +387,7 @@ extension AgentNotificationRegressionTests {
         )
         #expect(!fixture.source.localAgentDeliveryTTYDevices.isEmpty)
         let reportedGeneration = terminal.surface.runtimeSurfaceGeneration
-        terminal.surface.releaseSurfaceForTesting()
+        terminal.surface.releaseHostedSurfaceForTesting()
         #expect(terminal.surface.runtimeSurfaceGeneration != reportedGeneration)
         #expect(fixture.source.localAgentDeliveryTTYDevices.isEmpty)
     }

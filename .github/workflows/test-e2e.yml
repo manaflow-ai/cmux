@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
+        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class. cmuxUITests/FuzzRegressions replays the UI fuzzer's checked-in repros against the app"
         required: true
       dispatch_id:
         description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
@@ -23,6 +23,15 @@ on:
         description: "Timeout in minutes for building and for testing; the build job, which also runs the tests, gets twice this"
         required: false
         default: "45"
+      dogfood_scenario:
+        description: "Base64 JSON scenario for cmuxUITests/DogfoodScenarioUITests (scripts/run-e2e.sh --scenario builds it); empty otherwise"
+        required: false
+        default: ""
+      require_adopted_product:
+        description: "Fail instead of compiling when no compiled product of this revision can be adopted (scripts/run-e2e.sh --adopt-only)"
+        required: false
+        default: false
+        type: boolean
       record_video:
         description: Record the virtual display during UI tests
         required: false
@@ -45,9 +54,11 @@ on:
 # `auto` as the 6vcpu default even when the runner job routes the run to
 # the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
 # group, so a newer one still cancels the older wherever it landed. run-e2e.sh
-# names the pool it chose explicitly, so its titles are exact.
+# names the pool it chose explicitly, so its titles are exact. A dogfood
+# scenario run adds its dispatch id: agents dispatch several tours of one
+# commit at once, and each must not cancel the others.
 concurrency:
-  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}${{ inputs.dogfood_scenario && format('-{0}', inputs.dispatch_id) || '' }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -75,13 +86,8 @@ jobs:
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
     # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
     # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
-    # ci-owned-pool-rescue.yml. When the build did not succeed the rescue
-    # re-runs every job, so this job picks again, live, and attempt 2 takes
-    # that pick, which may be an owned Mac: a rescue re-run on Blacksmith
-    # cannot adopt an owned product (the Rust toolchains differ), so it
-    # compiled again (36 of 46 rescues on 2026-09-25/26). Any other re-run
-    # attempt (one that kept attempt 1's pick) and every attempt from 3 on
-    # takes retry_label (Blacksmith), so a busy Mac never strands a run.
+    # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
+    # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
@@ -97,10 +103,6 @@ jobs:
       # What build and test take from attempt 2 on: the label, except that an
       # owned Mac becomes the 6vcpu macOS 26 pool (same Xcode build).
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
-      # The attempt that ran this job. build and test take `label` only on
-      # that attempt: a re-run of failed jobs keeps attempt 1's outputs, so
-      # its build sees an older attempt here and takes retry_label.
-      picked_attempt: ${{ github.run_attempt }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -177,13 +179,7 @@ jobs:
             --pr-xcode-app "$PR_XCODE_APP" \
             --test-filter "$TEST_FILTER" \
             --owned-ui "$OWNED_UI")"
-          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label")"
-          # A full re-run picks again, but only attempt 2 may land on an owned
-          # Mac (owned_pool_rescue.LAST_OWNED_ATTEMPT): from attempt 3 on the
-          # rescue expects Blacksmith, so a busy fleet never loops.
-          if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 2 ]; then
-            label="$retry_label"
-          fi
+          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label" --test-filter "$TEST_FILTER")"
           {
             echo "label=$label"
             echo "retry_label=$retry_label"
@@ -195,9 +191,7 @@ jobs:
       # refuses. Fail-safe: without it the run is only not watched.
       - name: Mark a run on a persistent macOS pool
         id: marker
-        # Attempt 2 of a rescue's full re-run too: the rescue follows that
-        # attempt by its own marker (the name carries the attempt).
-        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt <= 2 }}
+        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -217,7 +211,7 @@ jobs:
       # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
       # it watches by this fixed name, one listing for all of them.
       - name: Upload the owned-pool watch marker
-        if: ${{ steps.marker.outputs.path != '' && github.run_attempt == 1 }}
+        if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -238,6 +232,7 @@ jobs:
       selector: ${{ steps.filter.outputs.selector }}
       selectors: ${{ steps.filter.outputs.selectors }}
       count: ${{ steps.filter.outputs.count }}
+      fuzz_regressions: ${{ steps.filter.outputs.fuzz_regressions }}
       record_video: ${{ steps.filter.outputs.record_video }}
       build_timeout: ${{ steps.filter.outputs.build_timeout }}
     steps:
@@ -283,6 +278,7 @@ jobs:
           filters=""
           test_target=""
           count=0
+          fuzz_regressions=false
           rest="$raw_filter"
           while [ -n "$rest" ]; do
             case "$rest" in
@@ -334,6 +330,19 @@ jobs:
               exit 1
             fi
 
+            # Not a test class: the UI fuzzer's checked-in repros, which the
+            # E2E action replays against the same app after any selected
+            # classes (ui_tests_dispatch.FUZZ_REGRESSIONS_SELECTOR). It needs
+            # the UI product and the console session, so it is a UI entry.
+            if [ "$entry_target/$entry_filter" = "cmuxUITests/FuzzRegressions" ]; then
+              if [ "$fuzz_regressions" = true ]; then
+                echo "::error::test_filter repeats 'cmuxUITests/FuzzRegressions'"
+                exit 1
+              fi
+              fuzz_regressions=true
+              continue
+            fi
+
             case ",$selectors," in
               *",$entry_target/$entry_filter,"*)
                 echo "::error::test_filter repeats '$entry_target/$entry_filter'"
@@ -372,6 +381,7 @@ jobs:
             echo "selector=$test_selector"
             echo "selectors=$selectors"
             echo "count=$count"
+            echo "fuzz_regressions=$fuzz_regressions"
             echo "record_video=$record_video_effective"
             echo "build_timeout=$((JOB_TIMEOUT * 2))"
           } >> "$GITHUB_OUTPUT"
@@ -379,6 +389,7 @@ jobs:
           echo "Requested filter: $raw_filter"
           echo "Resolved target: $test_target"
           echo "Resolved selectors ($count): $selectors"
+          echo "Fuzz regressions: $fuzz_regressions"
 
   sibling:
     # Dispatches of one commit with other selectors run in other concurrency
@@ -417,7 +428,7 @@ jobs:
     needs: [resolve-ref, filter, runner, sibling]
     # The sibling wait never gates the build.
     if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
-    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
@@ -456,7 +467,7 @@ jobs:
       # same Xcode build and macOS major. The intra-run handoff uses the
       # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+      CMUX_PRODUCT_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -549,7 +560,14 @@ jobs:
           # too: any other value invalidates every compile the seed carries.
           DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
           CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
-          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          # A leftover indexer can refill the tree while `rm -rf` walks it
+          # ("Directory not empty", run 36317930241). Rename first, as
+          # scripts/ci/clear-dirs.sh does; inline, because the tested tree
+          # may predate that helper.
+          for dir in "$DERIVED_DATA_PATH" "$CACHE_PATH"; do
+            if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+            rm -rf -- "$dir".stale.* 2>/dev/null || true
+          done
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
@@ -589,6 +607,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+
+      # PR media tours (pr-media.yml) ask for CI's product and never pay for
+      # a second compile of the app.
+      # A reuse error is no evidence the product is unloadable, so it fails
+      # under its own name (pr_media.py notes a refusal as a skip). The
+      # lookup records API and transfer failures as miss reasons, so those
+      # count as errors too.
+      - name: Fail a dispatch that requires an adopted product when reuse errored
+        id: reuse_error
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' }}
+        env:
+          OUTCOME: ${{ steps.reuse.outcome }}
+          REASON: ${{ steps.reuse.outputs.reason }}
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          errors=",artifact_listing_unavailable,consumer_provenance_unavailable,artifact_download_error,fingerprint_unavailable,reuse_api_or_validation_error,"
+          errored=""
+          if [ "$OUTCOME" != success ] || [ "$REASON" != miss ]; then errored=1; fi
+          IFS=, read -ra reasons <<<"$MISSES"
+          for reason in "${reasons[@]}"; do
+            case "$errors" in *",$reason,"*) errored=1 ;; esac
+          done
+          if [ -n "$errored" ]; then
+            echo "::error::Compiled-product reuse did not complete (${MISSES:-no reason recorded}), so this dispatch cannot tell whether a product loads."
+            exit 1
+          fi
+
+      - name: Refuse to compile for a dispatch that requires an adopted product
+        if: ${{ inputs.require_adopted_product && steps.reuse.outputs.hit != 'true' && steps.reuse_error.outcome == 'success' }}
+        env:
+          MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+        run: |
+          echo "::error::No compiled product of this revision could be adopted (${MISSES:-no reason recorded}), and this dispatch asked not to compile one."
+          exit 1
 
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
       # resolved packages between jobs (owned_build_state.py), at
@@ -634,7 +686,8 @@ jobs:
           tools="$RUNNER_TEMP/owned-state-tools"
           rm -rf -- "$tools"
           mkdir -p "$tools"
-          for name in owned_build_state.py e2e_warm_derived_data.py parallel_artifact_download.py \
+          for name in owned_build_state.py apfs_clone.py owned_spm_scratch.py e2e_warm_derived_data.py \
+            parallel_artifact_download.py \
             r2-cache.sh seed_derived_data.py; do
             curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
               -o "$tools/$name" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name"
@@ -1017,8 +1070,12 @@ jobs:
           esac
           case "$derived_data_path" in
             "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
-              rm -rf -- "$derived_data_path"
-              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
+              # Rename first, like the prepare step, so a leftover indexer
+              # cannot turn a finished run red with "Directory not empty".
+              for dir in "$derived_data_path" ${cache_path:+"$cache_path"}; do
+                if [ -e "$dir" ] || [ -L "$dir" ]; then mv -- "$dir" "$dir.stale.$GITHUB_RUN_ID.$$"; fi
+                rm -rf -- "$dir".stale.* 2>/dev/null || true
+              done
               # The tests run next, in this job, from a DerivedData of their
               # own. Hand the variable over empty, so their cleanup finds
               # nothing to refuse when a failure skips their preparation.
@@ -1085,7 +1142,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1099,9 +1158,11 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
+          dogfood-scenario: ${{ inputs.dogfood_scenario }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
@@ -1128,9 +1189,15 @@ jobs:
       # dispatch still publishes what it compiled. The tested revision's test
       # code ran between packaging and here, so the archive must still hash
       # to what the package step sealed.
+      #
+      # A product this job adopted is already published by the run that
+      # compiled it, under the same name, and later dispatches adopt it from
+      # there. Uploading it again only held the verdict: 162 s at the median
+      # on owned Macs (18 adopting runs, 2026-09-25 to 09-28). It is uploaded
+      # only when the `test` job needs it.
       - name: Check the product archive before the late upload
         id: late-upload-check
-        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}
+        if: ${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}
         env:
           EXPECTED_SHA256: ${{ steps.package.outputs.sha256 }}
         run: echo "$EXPECTED_SHA256  $RUNNER_TEMP/app-host-products.tar.gz" | shasum -a 256 -c -
@@ -1160,7 +1227,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
@@ -1262,6 +1329,31 @@ jobs:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
 
+      # On an owned Mac the tests share its one console session with every
+      # other GUI job, so they need glaeda's gui token. This job runs only when
+      # build could not get it, so asking at job start meant waiting glaeda's
+      # 240 s for the same busy token and then being refused. glaeda's hook
+      # gives this job none at job start (class gui-step); the token is taken
+      # here, after the product download and before the tests' restore takes
+      # the producer's canonical root (the order every GUI job takes them in),
+      # and held to the end of the job. An older hook gave the token at job
+      # start, so take-gui returns 0 at once; one without take-gui exits 2.
+      # Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 900 || status=$?
+          case "$status" in
+            0|2) ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the E2E tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
       # The steps come from this workflow's revision, not the tested one, which
       # may predate them.
       - name: Checkout the E2E test steps
@@ -1269,7 +1361,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           path: .e2e-workflow
-          sparse-checkout: .github/actions/e2e-run-tests
+          sparse-checkout: |
+            .github/actions/e2e-run-tests
+            scripts/ci/e2e-frames.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1282,9 +1376,11 @@ jobs:
           selector: ${{ needs.filter.outputs.selector }}
           selectors: ${{ needs.filter.outputs.selectors }}
           count: ${{ needs.filter.outputs.count }}
+          fuzz-regressions: ${{ needs.filter.outputs.fuzz_regressions }}
           record-video: ${{ needs.filter.outputs.record_video }}
           test-filter: ${{ inputs.test_filter }}
           test-timeout: ${{ inputs.test_timeout || '120' }}
+          dogfood-scenario: ${{ inputs.dogfood_scenario }}
           ref-display: ${{ inputs.ref || github.ref_name }}
           source-revision: ${{ needs.resolve-ref.outputs.sha }}
           artifact-id: ${{ needs.build.outputs.artifact_id }}

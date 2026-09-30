@@ -1,7 +1,9 @@
+import CmuxFoundation
 import SwiftUI
 import CmuxSettings
 
 struct AgentSessionPanelView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -20,7 +22,7 @@ struct AgentSessionPanelView: View {
                     panel: panel,
                     isFocused: isFocused,
                     backgroundColor: appearance.contentBackgroundColor,
-                    theme: AgentSessionWebTheme.resolve(appearance: appearance),
+                    theme: AgentSessionWebTheme.resolve(appearance: appearance, accent: cmuxAccent),
                     sessionContentWidthPresentation: sessionContentWidthPresentation,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

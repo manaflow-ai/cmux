@@ -39,6 +39,9 @@ public final class SettingsRuntime: @unchecked Sendable {
     public let hostActions: SettingsHostActions
     /// Host-scoped factory-default resolver for dynamic shortcut actions.
     public let shortcutDefaultResolver: ShortcutDefaultResolver
+    /// Base keymap proposals from outside Settings, previewed by the
+    /// Keyboard Shortcuts section before anything is written.
+    public let keymapProposals: ShortcutKeymapProposalInbox
 
     /// Creates the settings runtime bundle injected into the settings UI.
     ///
@@ -75,6 +78,7 @@ public final class SettingsRuntime: @unchecked Sendable {
         self.accountFlow = accountFlow
         self.hostActions = hostActions
         self.shortcutDefaultResolver = shortcutDefaultResolver
+        self.keymapProposals = ShortcutKeymapProposalInbox()
     }
 }
 

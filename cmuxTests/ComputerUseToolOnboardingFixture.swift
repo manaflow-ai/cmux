@@ -42,7 +42,7 @@ final class ComputerUseToolOnboardingFixture {
             featureEnabled: { [weak self] in self?.featureEnabled == true },
             onboardingCoordinator: usesProductionPresenter ? nil : ComputerUseOnboardingCoordinator(
                 runtimeService: runtime,
-                presenter: { [weak self] in self?.presentations.append($0) }
+                presenter: { [weak self] point, _ in self?.presentations.append(point) }
             ),
             ownsSurface: { [weak self] surfaceID, workspaceID in
                 surfaceID == self?.surfaceID && workspaceID == self?.workspaceID
@@ -68,7 +68,10 @@ final class ComputerUseToolOnboardingFixture {
             bundle: try #require(Bundle(url: bundleURL)),
             paths: persistence.paths,
             userDefaults: persistence.defaults,
-            isDisabledByPolicy: { false }
+            isDisabledByPolicy: { false },
+            // No helper runs here, so every status refresh would otherwise wait
+            // out the full production deadline (5 s per first tool call).
+            permissionStatusDeadline: .zero
         )
         let pid = ProcessInfo.processInfo.processIdentifier
         let identity = try #require(AgentPIDProcessIdentity(pid: pid))

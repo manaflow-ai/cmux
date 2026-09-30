@@ -34,6 +34,7 @@ from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, direct_path_owners, groups_for_path, guard_steps, step_owners,
 )
 JOBS = {
+    "submodule_forward_only": "workflow-guard-submodule-forward-only",
     "linux_guard_tests": "workflow-guard-tests",
     "linux_guard_history": "workflow-guard-history",
     "linux_guard_cli": "workflow-guard-cli-scripts",
@@ -41,7 +42,8 @@ JOBS = {
     "ghosttykit_release": "ghosttykit-release-check",
 }
 REUSABLE_GUARDS = {
-    route: job for route, job in JOBS.items() if route != "ghosttykit_release"
+    route: job for route, job in JOBS.items()
+    if route not in {"ghosttykit_release", "submodule_forward_only"}
 }
 
 
@@ -57,6 +59,9 @@ def route_decision(paths, event="pull_request", macos="false"):
         )
     outputs = dict(line.split("=", 1) for line in result.stdout.splitlines())
     groups = tuple(json.loads(outputs.pop("linux_guard_test_groups")))
+    # The submodule guard is an unconditional reusable-workflow job rather
+    # than a routed input. Include its synthetic result in this gate payload.
+    outputs["submodule_forward_only"] = "true" if outputs and all(value == "true" for value in outputs.values()) else "false"
     return outputs, groups
 
 
@@ -177,6 +182,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "false",
             "ghosttykit_release": "false",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(
             groups,
@@ -364,6 +370,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(groups, GROUPS)
 
@@ -381,6 +388,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
             "ghosttykit_release": "false",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
@@ -397,6 +405,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
 
     def test_cloud_skill_and_its_known_test_keep_only_the_owning_guard(self):
@@ -436,6 +445,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
 
     def test_owned_mac_control_plane_runs_only_its_own_guard_lane(self):
@@ -467,6 +477,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "scripts/ci/compile-app-host-test-product.sh",
             "scripts/ci/product_input_identity.py",
             "scripts/ci/peer_product_source.py",
+            "scripts/ci/relocate_package_framework_rpaths.py",
             "scripts/ci/restore-app-host-test-product.sh",
             "scripts/ci/reuse_app_host_products.py",
             "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -525,6 +536,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(route(["README.md"], macos=""), dict.fromkeys(JOBS, "true"))
 
     def test_gate_rejects_selected_guard_skip_failure_or_cancellation(self):
+        for outcome in ("skipped", "failure", "cancelled"):
+            with self.subTest(job=JOBS["submodule_forward_only"], outcome=outcome):
+                result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
                 with self.subTest(job=job, outcome=outcome):

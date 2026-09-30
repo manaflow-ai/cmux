@@ -213,7 +213,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 agent: nonEmptyString((raw["extra"] as? [String: Any])?["agent"])
                     ?? nonEmptyString(raw["agent"])
                     ?? nonEmptyString(raw["agent_type"])
-                    ?? nonEmptyString(raw["provider"])
+                    ?? nonEmptyString(raw["provider"]),
+                agentSessionID: agentSessionID(from: raw)
             )
         }
 
@@ -1046,8 +1047,27 @@ public struct CmuxTuiSnapshotParser: Sendable {
             agent: nonEmptyString((value["extra"] as? [String: Any])?["agent"])
                     ?? nonEmptyString(value["agent"])
                 ?? nonEmptyString(value["agent_type"])
-                ?? nonEmptyString(value["provider"])
+                ?? nonEmptyString(value["provider"]),
+            agentSessionID: agentSessionID(from: value)
         )
+    }
+
+    /// The agent's own session id. The mux-level `session_id` names the
+    /// cmux-tui session and is never used here. The id comes from a remote
+    /// host and other code uses session ids as path components, so anything
+    /// outside the cmux-tui contract (at most 256 bytes of `[A-Za-z0-9._:-]`)
+    /// or made only of dots is dropped.
+    public static func agentSessionID(from value: [String: Any]) -> String? {
+        guard let id = (value["extra"] as? [String: Any])?["agent_session_id"] as? String,
+              !id.isEmpty, id.utf8.count <= 256,
+              id.utf8.allSatisfy({ byte in
+                  (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A)
+                      || (byte >= 0x61 && byte <= 0x7A) || byte == 0x2E || byte == 0x5F
+                      || byte == 0x3A || byte == 0x2D
+              }),
+              !id.utf8.allSatisfy({ $0 == 0x2E })
+        else { return nil }
+        return id
     }
 
     private static func applyAgentUpsert(

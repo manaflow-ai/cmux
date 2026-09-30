@@ -5,6 +5,7 @@ import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
 import Foundation
+import CmuxTerminalSharing
 import Bonsplit
 import CmuxBrowser
 import CmuxGit
@@ -349,6 +350,9 @@ class TabManager: ObservableObject {
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
+            if let selectedTabId {
+                workspacesById[selectedTabId]?.admitStartupRestoresAwaitingFirstVisit()
+            }
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
             ])
@@ -505,6 +509,10 @@ class TabManager: ObservableObject {
     /// share this injected invalidation pipeline.
     let fileContentChangeCoordinator: FileContentChangeCoordinator
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    /// Test seam for the "Don't ask again" checkbox next to
+    /// `confirmCloseHandler`: receives the warnings the dialog offers to turn
+    /// off and returns whether the checkbox was ticked.
+    var confirmCloseDontAskAgainHandler: ((CloseWarningKinds) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
@@ -541,6 +549,19 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+
+    /// Picks how the automatic first-launch welcome reaches the new terminal.
+    /// Tests replace it to exercise each delivery without depending on the host shell.
+    var welcomeBannerDeliveryResolver: @MainActor () -> WelcomeBannerDelivery = { WelcomeBannerDelivery.current() }
+    /// Types the welcome fallback into `workspace` once its terminal is ready.
+    /// Tests replace it to observe the typed-fallback path.
+    lazy var typedWelcomeSender: @MainActor (Workspace) -> Void = { [weak self] workspace in
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+        } else {
+            self?.sendWelcomeWhenReady(to: workspace)
+        }
+    }
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -740,6 +761,7 @@ class TabManager: ObservableObject {
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.refreshTabBarVisibility()
                 self?.refreshWindowTitle()
             }
         })
@@ -1023,6 +1045,42 @@ class TabManager: ObservableObject {
         return result.accepted
     }
 
+    /// Pastes the newest screenshot's path into the focused terminal through the
+    /// file transfer path (see ``TerminalPanel/pasteLastScreenshot()``).
+    ///
+    /// - Returns: `false` when no terminal panel is focused. A missing
+    ///   screenshot is reported later by a beep, after the folder is read.
+    /// Makes the focused shared terminal follow this Mac's window (the shared
+    /// "Size to My Window" action; see ``TerminalSharingStore/sizeToMe(surfaceID:)``).
+    ///
+    /// - Returns: `false` when no terminal is focused or it is not attached.
+    @discardableResult
+    func sizeFocusedTerminalToMyWindow() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.terminalSharing.sizeToMe(surfaceID: panel.id)
+    }
+
+    /// Opens the size panel for the focused terminal.
+    ///
+    /// - Parameter confirmDisconnectOthers: open with the "Disconnect other
+    ///   clients" confirmation already showing.
+    /// - Returns: `false` when no terminal is focused.
+    @discardableResult
+    func showFocusedTerminalSizePanel(confirmDisconnectOthers: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.presentTerminalSizePanel(
+            surfaceID: panel.id,
+            confirmDisconnectOthers: confirmDisconnectOthers
+        )
+    }
+
+    @discardableResult
+    func pasteLastScreenshotIntoFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        panel.pasteLastScreenshot()
+        return true
+    }
+
     @discardableResult
     func toggleFocusedTerminalTextBox() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
@@ -1101,8 +1159,10 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         initialTerminalEnvironment: [String: String],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -1118,9 +1178,11 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
+            initialTerminalIsRemote: initialTerminalIsRemote,
             initialTerminalInput: initialTerminalInput,
             initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
             initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
+            initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1311,6 +1373,7 @@ class TabManager: ObservableObject {
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -1321,6 +1384,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
@@ -1374,6 +1438,24 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            var welcomeDelivery: WelcomeBannerDelivery?
+            var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            // An explicit command runs via `shell -lc`, which never loads cmux's
+            // interactive shell integration, so it could not print the banner.
+            let hasInitialTerminalCommand = !(initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !hasInitialTerminalCommand
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
+                let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
+                welcomeDelivery = launch.delivery
+                if launch.delivery == .shellStartup {
+                    resolvedInitialTerminalEnvironment.merge(launch.environment, uniquingKeysWith: { current, _ in current })
+                    // The token file makes shell-startup delivery at most once,
+                    // so mark it shown now; the typed fallback marks on send.
+                    UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+                }
+            }
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let defaultTitle: String
@@ -1396,9 +1478,11 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
+                initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
@@ -1470,13 +1554,8 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
+            if welcomeDelivery == .typedCommand {
+                typedWelcomeSender(newWorkspace)
             }
             return newWorkspace
         }
@@ -1488,7 +1567,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
             return
         }
@@ -1508,7 +1587,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
         }
 
@@ -1922,6 +2001,11 @@ class TabManager: ObservableObject {
 
     func moveTabToTopForNotification(_ tabId: UUID) {
         workspaceReordering.moveTabToTopForNotification(tabId)
+    }
+
+    /// Whether a notification bump would leave this workspace where it is.
+    func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
     @discardableResult
@@ -2465,12 +2549,11 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+            if selectedTabId == workspace.id,
+               let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
+                // Keep the "focused row position" stable when possible; see
+                // WorkspacesModel.selectionTargetAfterClose for the rule.
+                selectedTabId = nextSelectedId
             }
 
             // A promoted anchor's resolved display title switches from its own
@@ -2646,13 +2729,16 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+            .warningKinds(requiresConfirmation: true, source: .shortcut)
+        if !warningKinds.isEmpty {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else { return }
         }
 
@@ -2684,8 +2770,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .workspace)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace)
     }
@@ -2693,8 +2784,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabClose)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
     }
@@ -2702,8 +2798,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
-            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: .tabCloseButton)
+            guard pinnedConfirmation != .cancelled else { return false }
+            return closeWorkspaceIfRunningProcess(
+                workspace,
+                requiresConfirmation: false,
+                closeAlreadyConfirmed: pinnedConfirmation == .confirmed
+            )
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
     }
@@ -2739,13 +2840,37 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        var closeAlreadyConfirmed = false
+        // Members close below without their own prompts, so a batch holding a
+        // pinned workspace keeps the pinned gate instead of the workspace one.
+        // Closing every workspace closes the window, so that "Close window?"
+        // variant follows the window setting. Pinned workspaces never offer
+        // "Don't ask again": no setting may silence the protection pinning
+        // asked for.
+        let containsPinned = plan.workspaces.contains(where: \.isPinned)
+        let showsBatchConfirmation: Bool
+        let dontAskAgain: CloseWarningKinds
+        if containsPinned {
+            showsBatchConfirmation = shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            dontAskAgain = []
+        } else if plan.willCloseWindow {
+            // A batch that closes the whole window follows the window warning
+            // policy. The tab warning must not suppress this prompt.
+            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+            dontAskAgain = .window
+        } else {
+            showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            dontAskAgain = .workspace
+        }
+        if showsBatchConfirmation {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
                 scrollableDetails: plan.details,
-                acceptCmdD: plan.acceptCmdD
+                acceptCmdD: plan.willCloseWindow,
+                dontAskAgain: dontAskAgain
             ) else { return }
+            closeAlreadyConfirmed = true
         }
 
         if plan.workspaces.count == tabs.count,
@@ -2754,12 +2879,10 @@ class TabManager: ObservableObject {
             // the remote-tmux session(s) (kept alive on the server for resume); the
             // mark seam is a retained no-op (see markRemoteTmuxKillOnWindowCloseIfNeeded).
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
-            if let window {
-                window.performClose(nil)
-                return
-            }
-            if AppDelegate.shared != nil {
-                AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
+            if closeWindowForLastWorkspace(
+                workspaceId: firstWorkspace.id,
+                closeAlreadyConfirmed: closeAlreadyConfirmed
+            ) {
                 return
             }
         }
@@ -2817,7 +2940,8 @@ class TabManager: ObservableObject {
         title: String,
         message: String,
         scrollableDetails: String? = nil,
-        acceptCmdD: Bool
+        acceptCmdD: Bool,
+        dontAskAgain: CloseWarningKinds = []
     ) -> Bool {
         guard beginCloseConfirmationSession() else { return false }
         defer { endCloseConfirmationSession() }
@@ -2826,7 +2950,11 @@ class TabManager: ObservableObject {
             CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
         } ?? CmuxAlertContent(informativeText: message)
         if let confirmCloseHandler {
-            return confirmCloseHandler(title, content.flattenedText, acceptCmdD)
+            let accepted = confirmCloseHandler(title, content.flattenedText, acceptCmdD)
+            if !dontAskAgain.isEmpty, confirmCloseDontAskAgainHandler?(dontAskAgain) == true {
+                CloseTabWarningStore(defaults: closeTabWarningDefaults).disableWarnings(dontAskAgain)
+            }
+            return accepted
         }
         _ = acceptCmdD
 
@@ -2853,7 +2981,10 @@ class TabManager: ObservableObject {
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
+        let accepted = runCloseConfirmationAlert(alert, content: content) == .alertFirstButtonReturn
+        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: closeTabWarningDefaults)
+        return accepted
     }
 
     private func runCloseConfirmationAlert(
@@ -2905,7 +3036,9 @@ class TabManager: ObservableObject {
         let title: String
         let message: String
         let details: String
-        let acceptCmdD: Bool
+        /// Every workspace in the window is closing, so the window closes too.
+        /// The dialog then accepts Cmd+D like the other window-close prompts.
+        let willCloseWindow: Bool
     }
 
     private enum CloseConfirmationSource {
@@ -2987,7 +3120,7 @@ class TabManager: ObservableObject {
             title: title,
             message: message,
             details: titleLines,
-            acceptCmdD: willCloseWindow
+            willCloseWindow: willCloseWindow
         )
     }
 
@@ -3005,7 +3138,8 @@ class TabManager: ObservableObject {
     private func closeWorkspaceIfRunningProcess(
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
-        source: CloseConfirmationSource = .workspace
+        source: CloseConfirmationSource = .workspace,
+        closeAlreadyConfirmed: Bool = false
     ) -> Bool {
         // Closing a group's anchor is non-destructive to the group: its next
         // member is promoted to anchor in closeWorkspace, so the members stay
@@ -3013,15 +3147,19 @@ class TabManager: ObservableObject {
         // needed; the normal running-process confirmation below still applies.
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        if requiresConfirmation,
-           shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
+        let showsCloseConfirmation = requiresConfirmation
+            && shouldConfirmWorkspaceClose(requiresConfirmation: needsCloseConfirmation, source: source)
+        if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
-               acceptCmdD: willCloseWindow
+               acceptCmdD: willCloseWindow,
+               dontAskAgain: .workspace
            ) {
             return false
         }
+        // Reaching here after a shown dialog means the user accepted it.
+        let closeConfirmed = closeAlreadyConfirmed || showsCloseConfirmation
         if tabs.count <= 1 {
             // Last workspace in this window closes via the window-close path. For a
             // remote-tmux mirror this DETACHES from the remote session (kept alive for
@@ -3029,11 +3167,10 @@ class TabManager: ObservableObject {
             // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
             // via closeWorkspace.
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-            if let window {
-                window.performClose(nil)
-            } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-            }
+            closeWindowForLastWorkspace(
+                workspaceId: workspace.id,
+                closeAlreadyConfirmed: closeConfirmed
+            )
         } else {
             closeWorkspace(workspace)
         }
@@ -3057,9 +3194,35 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
-        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
-        return confirmClose(
+    /// Gate for the "Close workspace?" and "Close workspaces?" prompts: the
+    /// source's own gate plus `app.warnBeforeClosingWorkspace`. The pinned
+    /// prompt uses `shouldConfirmClose` directly, so turning this setting off
+    /// never removes the protection a user asked for by pinning.
+    private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
+        AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
+            && shouldConfirmClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// Whether the Close Window command should ask before closing this
+    /// manager's window: `app.warnBeforeClosingWindow` is on and a panel that
+    /// closes with the window needs close confirmation, either in a workspace
+    /// or in the window Dock (which the caller owns and checks).
+    func shouldConfirmWindowClose(windowDockNeedsConfirmation: Bool) -> Bool {
+        CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmWindowClose(
+            anyPanelNeedsConfirmation: windowDockNeedsConfirmation
+                || tabs.contains(where: workspaceNeedsConfirmClose)
+        )
+    }
+
+    private enum PinnedWorkspaceCloseConfirmation {
+        case notNeeded
+        case confirmed
+        case cancelled
+    }
+
+    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> PinnedWorkspaceCloseConfirmation {
+        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return .notNeeded }
+        let accepted = confirmClose(
             title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
             message: String(
                 localized: "dialog.closePinnedWorkspace.message",
@@ -3067,6 +3230,26 @@ class TabManager: ObservableObject {
             ),
             acceptCmdD: tabs.count <= 1
         )
+        return accepted ? .confirmed : .cancelled
+    }
+
+    /// Closes this manager's window after its last workspace goes. When the user
+    /// already accepted a close dialog, the window close carries that answer so
+    /// the last-window path does not ask again. Returns false when there is no
+    /// window route to close.
+    @discardableResult
+    private func closeWindowForLastWorkspace(workspaceId: UUID, closeAlreadyConfirmed: Bool) -> Bool {
+        if let window {
+            if closeAlreadyConfirmed, let app = AppDelegate.shared {
+                app.performPreconfirmedMainWindowClose(window)
+            } else {
+                window.performClose(nil)
+            }
+            return true
+        }
+        guard let app = AppDelegate.shared else { return false }
+        app.closeMainWindowContainingTabId(workspaceId, closeAlreadyConfirmed: closeAlreadyConfirmed)
+        return true
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
@@ -3174,14 +3357,16 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKinds(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
-        ) {
+        )
+        if !warningKinds.isEmpty {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else { return }
         }
 
@@ -4277,6 +4462,18 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Re-applies `app.tabBarVisibility` to every live split controller:
+    /// workspace panes, per-workspace Docks, and window-scope Docks.
+    func refreshTabBarVisibility() {
+        for workspace in tabs {
+            workspace.refreshTabBarVisibility()
+            workspace._dockSplit?.refreshTabBarVisibility()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshTabBarVisibility()
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -4426,8 +4623,7 @@ class TabManager: ObservableObject {
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.moveFocus(direction: direction)
-        return true
+        return tab.moveFocus(direction: direction)
     }
 
     /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
@@ -4920,13 +5116,15 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
-               from: anchorPanelId,
-               orientation: orientation,
-               insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url,
-               preferredProfileID: snapshot.profileID
-           )?.id {
+           let browserPanelId = workspace.withSplitSpaceAdmissionBypass({
+               workspace.newBrowserSplit(
+                   from: anchorPanelId,
+                   orientation: orientation,
+                   insertFirst: snapshot.fallbackSplitInsertFirst,
+                   url: snapshot.url,
+                   preferredProfileID: snapshot.profileID
+               )?.id
+           }) {
             return browserPanelId
         }
 
@@ -6345,10 +6543,12 @@ extension TabManager {
 
         hasher.combine(true)
         hashOptionalString(launchCommand.launcher, into: &hasher)
+        hashOptionalString(launchCommand.externalLauncher, into: &hasher)
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)
         hashOptionalString(launchCommand.verificationHome, into: &hasher)
+        hasher.combine(launchCommand.launcherPrefix)
         if let environment = launchCommand.environment {
             hasher.combine(true)
             hasher.combine(environment.count)
@@ -6947,6 +7147,7 @@ extension Notification.Name {
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteRenameRequested = Notification.Name("cmux.commandPaletteRenameRequested")
     static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
@@ -6981,4 +7182,93 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
+}
+
+/// How the first-launch welcome banner reaches the new workspace's terminal.
+///
+/// cmux shell integration prints the banner from inside the shell's startup
+/// when ``environmentKey`` names a one-shot token file, so no command is typed
+/// and nothing lands in the user's shell history. Typing ``typedCommandText``
+/// is the fallback for shells that do not load cmux shell integration.
+///
+/// Delivery is at most once: every integration unsets the variable, skips
+/// printing inside tmux, and prints only when its `rm` of the token file
+/// succeeds, so a child that inherits the variable (for example `exec tmux`
+/// or `exec zsh` from `.bashrc`, before the bash bootstrap runs) cannot print
+/// it a second time. If no integrated shell consumes the token, the banner is
+/// skipped rather than repeated on a later launch.
+enum WelcomeBannerDelivery: Equatable {
+    case shellStartup
+    case typedCommand
+
+    /// Holds the path of the one-shot token file the bundled zsh, bash, fish
+    /// and nushell integrations consume to print `cmux welcome` at startup.
+    static let environmentKey = "CMUX_SHOW_WELCOME_FILE"
+    /// Typed fallback. The leading space keeps it out of history only for zsh
+    /// with HIST_IGNORE_SPACE, bash with HISTCONTROL=ignorespace or ignoreboth,
+    /// and fish; other shells may still record it (best effort).
+    static let typedCommandText = " cmux welcome\n"
+    private static let tokenDirectoryName = "cmux-welcome-banner"
+    private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
+
+    static func resolve(
+        shellIntegrationEnabled: Bool,
+        resolvedShell: String?,
+        hasUserGhosttyCommand: Bool
+    ) -> WelcomeBannerDelivery {
+        guard shellIntegrationEnabled,
+              !hasUserGhosttyCommand,
+              let resolvedShell,
+              integratedShellNames.contains(URL(fileURLWithPath: resolvedShell).lastPathComponent) else {
+            return .typedCommand
+        }
+        return .shellStartup
+    }
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> WelcomeBannerDelivery {
+        resolve(
+            shellIntegrationEnabled: defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+            resolvedShell: GhosttyApp.shared.resolvedUserShell,
+            hasUserGhosttyCommand: GhosttyApp.shared.hasUserGhosttyCommand
+        )
+    }
+
+    /// Resolves the startup environment for `delivery`. Shell startup writes a
+    /// fresh token file and returns its path under ``environmentKey``; if the
+    /// token cannot be written the launch falls back to ``typedCommand``.
+    static func prepareLaunch(
+        _ delivery: WelcomeBannerDelivery,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> (delivery: WelcomeBannerDelivery, environment: [String: String]) {
+        guard delivery == .shellStartup else { return (.typedCommand, [:]) }
+        let directory = tempDirectory.appendingPathComponent(tokenDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let token = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+            try Data().write(to: token, options: .atomic)
+            return (.shellStartup, [environmentKey: token.path])
+        } catch {
+            return (.typedCommand, [:])
+        }
+    }
+}
+
+/// The "Don't ask again" checkbox shared by the close confirmation dialogs.
+/// Ticking it turns off the warnings that made the dialog appear, whichever
+/// button closes the dialog, like the Cmd+Q warning's checkbox.
+enum CloseDontAskAgainCheckbox {
+    static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
+        guard !kinds.isEmpty else { return }
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "dialog.close.dontAskAgain",
+            defaultValue: "Don’t ask again"
+        )
+    }
+
+    static func apply(from alert: NSAlert, offering kinds: CloseWarningKinds, defaults: UserDefaults) {
+        guard !kinds.isEmpty, alert.suppressionButton?.state == .on else { return }
+        CloseTabWarningStore(defaults: defaults).disableWarnings(kinds)
+    }
 }

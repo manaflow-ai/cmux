@@ -380,6 +380,21 @@ def _validate_entry_locked(store: Store, identity: Identity) -> tuple[dict, Path
     return metadata, obj
 
 
+def _clonefile(source: Path, target: Path) -> bool:
+    """APFS copy-on-write clone of source at target; False where cloning is unavailable."""
+    if sys.platform != "darwin":
+        return False
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.clonefile(os.fsencode(source), os.fsencode(target), 0) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code in {errno.EXDEV, errno.ENOTSUP, errno.EPERM, errno.EACCES}:
+        return False
+    raise OSError(code, os.strerror(code), os.fspath(target))
+
+
 def _materialize(obj: Path, destination: Path) -> None:
     if destination.exists():
         raise FileExistsError("product destination already exists")
@@ -387,11 +402,10 @@ def _materialize(obj: Path, destination: Path) -> None:
     staging = Path(tempfile.mkdtemp(prefix=".cmux-node-product-", dir=destination.parent))
     try:
         target = staging / ARCHIVE_NAME
-        try:
-            os.link(obj, target)
-        except OSError as error:
-            if error.errno not in {errno.EXDEV, errno.EPERM, errno.EACCES, errno.EMLINK}:
-                raise
+        # A clone, not a hard link: the cached object keeps one link, so the job cannot
+        # write through to it and glaeda's LAN server (single-link objects only) still
+        # serves it to peers while this job holds its lease.
+        if not _clonefile(obj, target):
             with obj.open("rb") as source, target.open("xb") as output:
                 shutil.copyfileobj(source, output, 1024 * 1024)
                 output.flush()

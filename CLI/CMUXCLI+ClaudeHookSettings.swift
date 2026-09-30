@@ -1,9 +1,11 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     /// Emits the complete cmux-owned Claude settings object without contacting
     /// the app socket. Non-decision hooks only admit immutable events to the
-    /// app-owned ordered queue; decision hooks remain direct and synchronous.
+    /// app-owned ordered queue, through the session's hook spool when the
+    /// wrapper started a forwarder; decision hooks remain direct and synchronous.
     func emitClaudeWrapperInjectSettings() throws {
         let hookCLI = #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#
         let lifecycleDefinitions: [(
@@ -13,6 +15,9 @@ extension CMUXCLI {
         )] = [
             ("SessionStart", "", "session-start"),
             ("Stop", "", "stop"),
+            // Claude Code fires StopFailure instead of Stop when a turn dies
+            // on an API error (usage limit, dropped connection, overload).
+            ("StopFailure", "", "stop"),
             ("SessionEnd", "", "session-end"),
             ("Notification", "", "notification"),
             ("UserPromptSubmit", "", "prompt-submit"),
@@ -79,12 +84,18 @@ extension CMUXCLI {
         matcher: String = "",
         subcommand: String
     ) -> [String: Any] {
+        // Wrapped sessions publish to their spool with shell builtins; the
+        // CLI admission command is the fallback outside a live forwarder.
+        let producer = AgentHookSpoolProducer(agent: "claude")
         return claudeHookGroup(
             matcher: matcher,
-            command: queuedAgentHookShellCommand(
-                agent: "claude",
+            command: producer.command(
                 subcommand: subcommand,
-                disableEnvironmentVariable: "CMUX_CLAUDE_HOOKS_DISABLED"
+                fallback: queuedAgentHookShellCommand(
+                    agent: "claude",
+                    subcommand: subcommand,
+                    disableEnvironmentVariable: producer.disableEnvironmentKey
+                )
             ),
             timeout: agentHookDeclaredTimeoutSeconds
         )

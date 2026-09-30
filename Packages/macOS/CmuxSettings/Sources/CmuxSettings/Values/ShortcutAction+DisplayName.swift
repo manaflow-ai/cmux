@@ -104,6 +104,10 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .pasteLastScreenshot:
+            return String(localized: "shortcut.pasteLastScreenshot.label", defaultValue: "Paste Last Screenshot")
+        case .sizeTerminalToMyWindow:
+            return String(localized: "shortcut.sizeTerminalToMyWindow.label", defaultValue: "Size Terminal to My Window")
         case .clearScreenKeepScrollback:
             return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
         case .focusLeft: return "Focus Pane Left"
@@ -116,6 +120,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
+        case .newPaneAutoLayout:
+            return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
         case .toggleSplitZoom: return "Toggle Pane Zoom"
         case .increaseWorkspaceTerminalFontSize:
             return String(
@@ -223,6 +229,10 @@ extension ShortcutAction {
             return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
         case .diffViewerPreviousFile:
             return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
+        case .diffViewerNextHunk:
+            return String(localized: "shortcut.diffViewerNextHunk.label", defaultValue: "Diff Viewer: Next Hunk")
+        case .diffViewerPreviousHunk:
+            return String(localized: "shortcut.diffViewerPreviousHunk.label", defaultValue: "Diff Viewer: Previous Hunk")
         case .simulatorHome:
             return String(localized: "shortcut.simulatorHome.label", defaultValue: "Simulator: Home")
         case .simulatorRotateLeft:
