@@ -460,6 +460,42 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      # Keep the Testbox trust checks in the routed CI guard matrix. This
+      # replaces the former always-on testbox-broker-guard workflow, which
+      # repeated this work on every pull request and main push.
+      - name: Validate Testbox cleanup receipt ownership
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_cleanup_receipt_ref.sh
+
+      - name: Lint the Testbox lane helpers
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+
+      - name: Test the actionlint downloader without a network outage
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_ci_actionlint_download.sh
+
+      - name: Check that every workflow is linted
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_actionlint_covers_every_workflow.py
+
+      - name: Check that push and pull_request path filters agree
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Lint every workflow
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+          ACTIONLINT_ASSET_ID: "221573254"
+          # Warnings and errors gate; informational shellcheck findings do not.
+          SHELLCHECK_OPTS: "-S warning"
+        run: |
+          set -euo pipefail
+          ./scripts/ci/install-actionlint.sh
+          "$RUNNER_TEMP/actionlint"
+
       - name: Validate contributor verification receipts and selection
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: |
