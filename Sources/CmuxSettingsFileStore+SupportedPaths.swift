@@ -50,6 +50,8 @@ extension CmuxSettingsFileStore {
         "terminal.confirmUnsafePaste",
         "terminal.textEditingGestures",
         "terminal.promptSelection",
+        "terminal.textEditingCommandMovesByWord",
+        "terminal.textEditingGesturesInFullScreenApps",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.autoResumeAgentSessions",

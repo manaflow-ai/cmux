@@ -311,6 +311,16 @@ enum TerminalSettingsFileMapping {
             defaultsKey: terminal.promptSelection.userDefaultsKey,
             invalidPath: terminal.promptSelection.id
         ),
+        .init(
+            jsonKey: "textEditingCommandMovesByWord",
+            defaultsKey: terminal.textEditingCommandMovesByWord.userDefaultsKey,
+            invalidPath: terminal.textEditingCommandMovesByWord.id
+        ),
+        .init(
+            jsonKey: "textEditingGesturesInFullScreenApps",
+            defaultsKey: terminal.textEditingGesturesInFullScreenApps.userDefaultsKey,
+            invalidPath: terminal.textEditingGesturesInFullScreenApps.id
+        ),
     ]
 }
 
