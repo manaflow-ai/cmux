@@ -1639,12 +1639,12 @@ class Wiring(unittest.TestCase):
                 _, prefer = named(steps("ci-macos.yml", "macos-compile-admission"),
                                   "Prefer a near seed over this owned Mac's DerivedData")
                 self.assertEqual(evaluate(prefer["env"]["MERGED_ONTO"], context), "head")
-        # A dispatch on another branch never reads the owned state.
+        # A trusted dispatch on another branch reads the owned state too.
         topic = github_context("workflow_dispatch", ref="refs/heads/topic")
         topic["env"] = {"CMUX_PRODUCT_RUNNER": mini}
         topic["steps"] = {"reuse-products": {"outputs": {"hit": "false"}}}
         _, state = named(steps("ci-macos.yml", "macos-compile-admission"), "Reuse this owned Mac's build state")
-        self.assertIs(evaluate(state["if"], topic), False)
+        self.assertIs(evaluate(state["if"], topic), True)
 
     def test_main_full_suite_dispatch_reads_the_route_token_and_the_lane_pin(self):
         changes = load("ci.yml")["jobs"]["changes"]["steps"]
@@ -1652,7 +1652,7 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in changes if step.get("id") == "macos-pool")
         for event_name, ref, head, minted, pin in (
             ("workflow_dispatch", "refs/heads/main", None, True, "/Applications/Xcode-pr.app"),
-            ("workflow_dispatch", "refs/heads/topic", None, False, ""),
+            ("workflow_dispatch", "refs/heads/topic", None, True, "/Applications/Xcode-pr.app"),
             ("merge_group", "refs/heads/gh-readonly-queue/main/x", None, False, ""),
             ("pull_request", "refs/pull/1/merge", "manaflow-ai/cmux", True, "/Applications/Xcode-pr.app"),
             ("pull_request", "refs/pull/1/merge", "someone/cmux", False, ""),
