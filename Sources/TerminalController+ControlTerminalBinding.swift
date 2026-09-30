@@ -192,6 +192,7 @@ extension TerminalController {
         target: ControlTerminalSocketTarget,
         runtimeReady: Bool
     )? {
+        guard !Task.isCancelled else { return nil }
         guard let resolved = mobileResolveWorkspaceAndSurface(
             params: params,
             requireTerminal: true
@@ -203,9 +204,12 @@ extension TerminalController {
            target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
             return (resolved.workspace, surfaceID, target, true)
         }
-        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID) != nil {
+        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.contains(surfaceID) {
+            guard !Task.isCancelled else { return nil }
+            resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID)
             owned.panel.surface.admitStartupRestoreRuntime()
         }
+        guard !Task.isCancelled else { return nil }
         owned.panel.resumeAgentHibernationForRemoteAttach()
         var runtimeReady = await owned.panel.surface.waitForRuntimeSurfaceReady()
         guard !Task.isCancelled else { return nil }
