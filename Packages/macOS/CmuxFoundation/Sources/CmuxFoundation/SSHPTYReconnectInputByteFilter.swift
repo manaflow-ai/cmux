@@ -33,7 +33,8 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
     ///
     /// Clipboard replies carry the user's clipboard and can exceed the
     /// pending-probe bound, so their bytes are dropped as they stream in
-    /// instead of being buffered and later flushed to the remote PTY.
+    /// instead of being buffered and later flushed to the remote PTY. See
+    /// ``hasPendingInput`` for how long discarding may last.
     private var discardingClipboardReply = false
 
     /// Creates a reconnect-input filter.
@@ -142,9 +143,19 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         return input
     }
 
-    /// Whether an incomplete recognized sequence is awaiting more bytes.
+    /// Whether an incomplete probe reply is buffered awaiting more bytes.
+    ///
+    /// Callers may end filtering with ``stopFiltering()`` when this stays true
+    /// past a short continuation timeout, which forwards the buffered bytes.
+    /// A clipboard reply being discarded is deliberately excluded: a pause in
+    /// the middle of one must not end filtering, or the rest of the clipboard
+    /// would reach the remote PTY. Discarding therefore lasts until BEL/ST
+    /// arrives or filtering stops (the caller's reconnect deadline,
+    /// ``finish()`` or ``stopFiltering()``), and nothing retained is forwarded.
+    /// The trade-off: if the terminator is lost, input typed before that
+    /// deadline is discarded with the reply.
     public var hasPendingInput: Bool {
-        isFiltering && (!pending.isEmpty || discardingClipboardReply)
+        isFiltering && !pending.isEmpty && !discardingClipboardReply
     }
 
     /// Whether filtering is active with no partial sequence buffered.
