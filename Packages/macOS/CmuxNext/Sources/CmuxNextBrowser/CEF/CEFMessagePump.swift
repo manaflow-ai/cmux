@@ -1,49 +1,58 @@
 import CoreFoundation
 import Foundation
 
-/// Drives `CefDoMessageLoopWork` from one `CFRunLoopTimer` on the main run
-/// loop in common modes (so it keeps running during menu tracking, live
-/// resize, and scrolling). CEF asks for work through
-/// `OnScheduleMessagePumpWork`, which may arrive on any thread; the request
-/// moves to the main run loop and resets the timer's fire date.
+/// Drives `CefDoMessageLoopWork` from one timer on the main run loop in
+/// common modes (so it keeps running during menu tracking, live resize, and
+/// scrolling). CEF asks for work through `OnScheduleMessagePumpWork`, which
+/// may arrive on any thread; the request moves to the main run loop and
+/// resets the timer's fire date.
 ///
 /// The timer is owned and invalidated by `stop()`; there is no `asyncAfter`.
 final class CEFMessagePump {
     private let work: () -> Void
     private let liveBrowsers: () -> Int
-    private var timer: CFRunLoopTimer?
+    private let timer: any CEFPumpTimer
+    private let clock: () -> TimeInterval
+    private var isRunning = false
     private var isWorking = false
     private var rescheduledDuringWork = false
     private(set) var stats = CEFPumpStats()
 
-    init(work: @escaping () -> Void, liveBrowsers: @escaping () -> Int) {
+    /// `clock` is monotonic seconds (tests inject one).
+    init(
+        work: @escaping () -> Void,
+        liveBrowsers: @escaping () -> Int = { 1 },
+        timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
+        clock: @escaping () -> TimeInterval = CEFMessagePump.uptime
+    ) {
         self.work = work
         self.liveBrowsers = liveBrowsers
+        self.timer = timer
+        self.clock = clock
+    }
+
+    nonisolated static func uptime() -> TimeInterval {
+        Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
     }
 
     func start() {
-        guard timer == nil else { return }
-        let timer = CFRunLoopTimerCreateWithHandler(
-            kCFAllocatorDefault, .greatestFiniteMagnitude, 1.0e10, 0, 0
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.fire() }
-        }
-        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .commonModes)
-        self.timer = timer
+        guard !isRunning else { return }
+        isRunning = true
+        timer.onFire = { [weak self] in self?.fire() }
         schedule(after: 0)
     }
 
     func stop() {
-        if let timer { CFRunLoopTimerInvalidate(timer) }
-        timer = nil
+        isRunning = false
+        timer.invalidate()
     }
 
     /// Main thread: run the pump after `delay` seconds (0 = on the next
     /// run loop pass).
     func schedule(after delay: TimeInterval) {
-        guard let timer else { return }
+        guard isRunning else { return }
         if isWorking { rescheduledDuringWork = true }
-        CFRunLoopTimerSetNextFireDate(timer, CFAbsoluteTimeGetCurrent() + delay)
+        timer.arm(after: delay, tolerance: 0)
     }
 
     /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
@@ -67,9 +76,9 @@ final class CEFMessagePump {
         }
         isWorking = true
         rescheduledDuringWork = false
-        let started = DispatchTime.now().uptimeNanoseconds
+        let started = clock()
         work()
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
+        let elapsed = clock() - started
         stats.workRuns += 1
         stats.workSeconds += elapsed
         if elapsed >= 0.01 { stats.longWorkRuns += 1 }
