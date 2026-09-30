@@ -130,9 +130,41 @@ def generated_claude_hook_settings() -> str:
     )
 
 
+# Fixtures exit at once while this is set, so priming runs none of their logic.
+PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
+
+
+def prime_first_exec(path: Path, *args: str) -> None:
+    """Pay macOS's first-exec assessment for a new executable before timing it.
+
+    The first exec of every newly written file, a copy included, blocks in
+    syspolicyd (Gatekeeper scan, notarization lookup, XProtect scan): 0.15-0.4 s
+    on an idle Mac and seconds on a loaded shared mini. The wrapper bounds
+    `cmux hooks claude inject-settings` to 1 s and `claude --help` to 0.75 s.
+    Installed binaries were executed before, so only a fixture pays this, and
+    it must not pay it inside those budgets.
+    """
+    subprocess.run(
+        [str(path), *args],
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+        check=False,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    """Write a fixture that exits at once while primed, then prime it."""
+    shebang, newline, body = content.partition("\n")
+    if "node" in shebang:
+        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
+    else:
+        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
+    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
+    prime_first_exec(path)
 
 
 def write_helper_info(path: Path, bundle_identifier: str) -> None:
@@ -1577,6 +1609,7 @@ def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> 
                 else:
                     replacement = tmp / "replacement-claude"
                     shutil.copy2(real, replacement)
+                    prime_first_exec(replacement)
                     if change == "symlink":
                         link.unlink()
                         link.symlink_to(replacement)
@@ -1717,8 +1750,14 @@ def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) ->
                 while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
                     time.sleep(0.01)
                 pids = [int(pid) for pid in read_lines(pid_log)]
-                expect(len(pids) == 2, "cancellation: help process was not reached", failures)
-                os.killpg(proc.pid, interrupt)
+                if len(pids) != 2:
+                    failures.append(f"cancellation {interrupt}: help process was not reached")
+                    return
+                try:
+                    os.killpg(proc.pid, interrupt)
+                except ProcessLookupError:
+                    failures.append(f"cancellation {interrupt}: wrapper exited before the interrupt")
+                    return
                 proc.communicate(timeout=15)
                 expect(read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["--help"],
                        f"cancellation {interrupt}: interrupted discovery launched a prompt", failures)
@@ -3198,6 +3237,7 @@ def install_native_fake_claude(tmp: Path, env: dict[str, str]) -> None:
     compiled = subprocess.run(["cc", "-o", str(target), str(source)], capture_output=True, text=True)
     if compiled.returncode != 0:
         raise RuntimeError(f"cc failed to build the native fake claude: {compiled.stderr}")
+    prime_first_exec(target, "--help")
 
 
 def install_native_fake_claude_with(extra_env: dict[str, str]):
