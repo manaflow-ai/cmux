@@ -68,7 +68,7 @@ export function guestClipboardInstallCommand(): string {
     `chmod ${mode} "$cmux_clipboard_tmp" && mv -f "$cmux_clipboard_tmp" '${path}'`,
   ]);
   const checks = GUEST_CLIPBOARD_FILES.map(({ path, content }) =>
-    `test "$(sha256sum '${path}' 2>/dev/null | cut -d ' ' -f 1)" = '${createHash("sha256").update(content).digest("hex")}'`,
+    `test -x '${path}' && test "$(sha256sum '${path}' 2>/dev/null | cut -d ' ' -f 1)" = '${createHash("sha256").update(content).digest("hex")}'`,
   );
   return `( ${checks.join(" && ")} ) || ( mkdir -p /usr/local/bin && ${writes.join(" && ")} )`;
 }

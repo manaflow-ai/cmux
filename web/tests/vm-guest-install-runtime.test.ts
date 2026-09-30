@@ -157,6 +157,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     // the safety property is that no alias points at that new generation.
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(existsSync(join(root, "bin", file.path.split("/").at(-1)!))).toBe(false);
+    }
     expect(fixture.liveVms.size).toBe(0);
   });
 
@@ -169,6 +172,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
     writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
     writeFileSync(join(root, "etc/vm-name"), "previous name\n");
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      writeFileSync(join(root, "bin", file.path.split("/").at(-1)!), "previous clipboard generation");
+    }
     const failure = await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
@@ -184,6 +190,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(publishArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe("previous clipboard generation");
+    }
     expect(fixture.liveVms.size).toBe(0);
   });
 });

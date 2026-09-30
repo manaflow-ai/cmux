@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { runChild } from "./helpers/run-child";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guestBrowserInstallCommand, GUEST_BROWSER_FILES } from "../services/vms/guestBrowser";
@@ -60,6 +60,9 @@ test("an unchanged browser integration does not repeat MIME setup on create or a
   await run(guestBrowserInstallCommand());
   expect(calls()).toHaveLength(12);
   expect(readFileSync(join(root, "usr/local/bin/xclip"), "utf8")).toContain("\\x1b]52;c;");
+  chmodSync(join(root, "usr/local/bin/xclip"), 0o644);
+  await run(guestBrowserInstallCommand());
+  expect(statSync(join(root, "usr/local/bin/xclip")).mode & 0o777).toBe(0o755);
 }));
 
 test("an unchanged running reporter needs no systemd mutation on attach", () => fixture(async (root, run, calls) => {
