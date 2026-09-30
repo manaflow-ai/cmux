@@ -55,6 +55,15 @@ const searchAliases = {
   ohMyClaudeCode: ["omc", "oh my claude", "oh-my-claudecode"],
   ohMyCodex: ["omx", "oh my codex", "oh-my-codex"],
   ohMyOpenCode: ["omo", "oh-my-opencode", "oh-my-openagent"],
+  cloudOverview: ["cloud VM", "cloud machine", "remote agents", "cmux vm"],
+  cloudMachines: ["VM size", "snapshot", "checkpoint", "fork", "pause", "resize"],
+  cloudWorkspaces: ["cloud agents", "durable terminals", "vm agent", "vm run"],
+  cloudNetworking: ["vm push", "port forwarding", "public URL", "custom domain", "WireGuard", "VPN"],
+  cloudCli: ["cmux vm", "cmux cloud", "vm commands"],
+  cloudTroubleshooting: ["cloud errors", "cloud security"],
+  coderouterOverview: ["coderouter", "model router", "failover", "shared subscriptions", "cr"],
+  coderouterAgents: ["cr codex", "cr opencode", "cr pi", "ANTHROPIC_BASE_URL", "crk_ API key", "Bedrock"],
+  coderouterCli: ["cr login", "cr add", "cmux coderouter", "coderouter errors"],
   ssh: ["remote sessions", "SSH relay", "scp uploads"],
 };
 

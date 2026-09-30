@@ -83,13 +83,15 @@ extension SocketClient {
                     vmBackendCode: data?["backend_code"] as? String,
                     vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
                 )
-                // Admission rejects these reads before dispatch. Mutations, relay
-                // requests, transport failures, and malformed responses never retry.
+                // Admission rejects these before dispatch: `rate_limited` for
+                // polling reads, and `overloaded` for any method (the server
+                // answered without running the command). Mutations that may
+                // have run, relay requests, transport failures, and malformed
+                // responses never retry.
                 if !isRelayBacked,
                    response["ok"] as? Bool == false,
                    response["id"] as? String == requestID,
-                   ControlCommandExecutionPolicy.pollingMethods.contains(method),
-                   code == "rate_limited",
+                   Self.isRetryableAdmissionRejection(code: code, method: method),
                    let delay = Self.pollingRetryDelay(data?["retry_after_ms"]),
                    delay < operationDeadline.timeIntervalSinceNow,
                    delay < uptimeDeadline - ProcessInfo.processInfo.systemUptime {
@@ -104,6 +106,21 @@ extension SocketClient {
             }
 
             throw CLIError(message: "v2 request failed")
+        }
+    }
+
+    /// Whether the server rejected the request before dispatch and asked for a
+    /// bounded retry: `rate_limited` applies to polling reads only, while
+    /// `overloaded` (a saturated connection pool, #13369) guarantees the
+    /// command never ran, so any method may retry it.
+    static func isRetryableAdmissionRejection(code: String, method: String) -> Bool {
+        switch code {
+        case "overloaded":
+            return true
+        case "rate_limited":
+            return ControlCommandExecutionPolicy.pollingMethods.contains(method)
+        default:
+            return false
         }
     }
 

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct ProcessDetectedResumeIndexes: Sendable {
@@ -94,25 +95,30 @@ struct ProcessDetectedResumeIndexes: Sendable {
     static func loadFreshOnWorker(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
-        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        processSnapshotService: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> ProcessDetectedResumeIndexes {
         await loadOnWorker(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
-            ttyDeviceBindings: ttyDeviceBindings
+            ttyDeviceBindings: ttyDeviceBindings,
+            processSnapshotService: processSnapshotService
         )
     }
 
     /// Returns the last published agent index without filesystem or process capture.
     ///
     /// This is the bounded fallback for a watchdog whose fresh capture already
-    /// exceeded its deadline. Process-backed surface bindings fail closed.
+    /// exceeded its deadline, and for the synchronous update-relaunch save.
+    /// No surface scan ran, so the binding index is unavailable rather than an
+    /// empty clean scan: a clean scan would retire every agent-hook binding the
+    /// cached agent index has not seen yet.
     static func cached(
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> ProcessDetectedResumeIndexes {
         ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: .empty
+            surfaceResumeBindingIndex: .unavailable
         )
     }
 
@@ -126,12 +132,20 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
         cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        processSnapshotService: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> ProcessDetectedResumeIndexes {
+        // `nil` uses the app's shared census. Tests inject their own so a
+        // fixture never depends on the whole host's process table.
         let processSnapshot = if let maximumSnapshotAge {
-            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, includeResources: false, maximumAge: maximumSnapshotAge)
+            await CmuxTopProcessSnapshot.captureCached(
+                includeProcessDetails: true, includeResources: false,
+                maximumAge: maximumSnapshotAge, service: processSnapshotService
+            )
         } else {
-            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+            await CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: true, includeResources: false, service: processSnapshotService
+            )
         }
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
             return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .unavailable)
@@ -170,5 +184,29 @@ struct ProcessDetectedResumeIndexes: Sendable {
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
         )
+    }
+}
+
+/// Resume indexes captured fresh just before an update relaunch. The relaunch save runs
+/// synchronously in Sparkle's callback, where it can only use the cached indexes; those miss an
+/// agent session started since the last scan, which would then be saved as not running and
+/// would not resume after the update.
+struct UpdateRelaunchIndexCapture {
+    /// How long a capture stays usable. The relaunch follows it within a second or two; an
+    /// older capture belongs to a relaunch that did not happen.
+    static let lifetime: TimeInterval = 30
+
+    private var captured: (indexes: ProcessDetectedResumeIndexes, capturedAt: TimeInterval)?
+
+    mutating func store(_ indexes: ProcessDetectedResumeIndexes, capturedAt: TimeInterval) {
+        captured = (indexes, capturedAt)
+    }
+
+    /// Returns the capture if it is recent enough to describe the sessions being saved, and
+    /// clears it either way.
+    mutating func take(now: TimeInterval) -> ProcessDetectedResumeIndexes? {
+        defer { captured = nil }
+        guard let captured, now - captured.capturedAt <= Self.lifetime else { return nil }
+        return captured.indexes
     }
 }

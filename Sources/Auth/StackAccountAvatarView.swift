@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 /// Displays the Stack profile image with an initial-based fallback.
@@ -11,6 +12,7 @@ import SwiftUI
 /// the hosted view; those go blank after a while on Intel Macs running
 /// macOS 15.
 struct StackAccountAvatarView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let avatarURL: URL?
     let displayName: String
     let email: String
@@ -99,7 +101,7 @@ struct StackAccountAvatarView: View {
     }
 
     private var fallbackForegroundColor: Color {
-        loadingSystemName == nil ? Color.accentColor : Color(nsColor: .secondaryLabelColor)
+        loadingSystemName == nil ? cmuxAccent.color : Color(nsColor: .secondaryLabelColor)
     }
 
     private var initial: String? {

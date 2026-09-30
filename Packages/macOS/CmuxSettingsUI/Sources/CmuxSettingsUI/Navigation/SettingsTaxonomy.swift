@@ -73,7 +73,7 @@ enum SettingsTaxonomyGroup: String, CaseIterable, Identifiable, Sendable {
     var sections: [SettingsSectionID] {
         switch self {
         case .general:
-            return [.account, .app, .sleepyMode]
+            return [.account, .app, .themes, .sleepyMode]
         case .terminal:
             return [.terminal, .textBox]
         case .workspace:
@@ -85,7 +85,7 @@ enum SettingsTaxonomyGroup: String, CaseIterable, Identifiable, Sendable {
         case .browserAndFiles:
             return [.browser, .browserImport]
         case .remoteAndDevices:
-            return [.mobile, .cloudMachines, .networking]
+            return [.mobile, .cloudMachines, .computers, .networking]
         case .keyboardAndAdvanced:
             return [.globalHotkey, .keyboardShortcuts, .betaFeatures, .settingsJSON, .reset]
         }

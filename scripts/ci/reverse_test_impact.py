@@ -338,6 +338,34 @@ def reach(
     return suites, test_files
 
 
+def declared_names(files: dict[str, str]) -> dict[str, int]:
+    """How many app files outside cmuxTests/ declare each name."""
+    declared: dict[str, int] = {}
+    for path, text in files.items():
+        if not path.startswith("cmuxTests/"):
+            for word in set(APP_DECLARATION_RE.findall(text)):
+                declared[word] = declared.get(word, 0) + 1
+    return declared
+
+
+def literal_suites(files: dict[str, str], literals: set[str]) -> set[str]:
+    """Suites that spell one of `literals`, followed the way select() follows a changed string."""
+    wanted = sorted(
+        literal for literal in literals
+        if len(literal) >= MIN_LITERAL_CHARS and re.search(r"[A-Za-z]{3}", literal)
+    )[:MAX_LITERAL_SEEDS]
+    if not wanted:
+        return set()
+    tests = TestIndex(files)
+    declared = declared_names(files)
+    suites: set[str] = set()
+    for literal in wanted:
+        result = reach(Seed(literal, None, "string"), tests, declared)
+        if not isinstance(result, str):
+            suites |= result[0]
+    return suites
+
+
 def select(files: dict[str, str], diff: str | None) -> Selection:
     """Suites a `git diff -U0` of app code reaches, over the trees in `files`.
 
@@ -389,11 +417,7 @@ def select(files: dict[str, str], diff: str | None) -> Selection:
     if not seeds:
         return selection
     tests = TestIndex(files)
-    declared: dict[str, int] = {}
-    for path, text in files.items():
-        if not path.startswith("cmuxTests/"):
-            for word in set(APP_DECLARATION_RE.findall(text)):
-                declared[word] = declared.get(word, 0) + 1
+    declared = declared_names(files)
     seen: set[tuple[str, str | None, bool]] = set()
     for seed in seeds:
         key = (seed.name, seed.owner, seed.how == "string")

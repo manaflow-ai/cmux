@@ -20,9 +20,10 @@ extension CMUXCLI {
     /// Whether a Claude `stop` invocation is allowed to settle the parent.
     ///
     /// Payloads from current Claude Code versions identify their hook event;
-    /// only an explicit top-level `Stop` may run the visible completion path.
-    /// Older payloads omitted the discriminator, so those retain the legacy
-    /// command-driven behavior.
+    /// only an explicit top-level `Stop`, or the `StopFailure` Claude Code
+    /// fires instead of `Stop` when a turn dies on an API error, may run the
+    /// visible stop path. Older payloads omitted the discriminator, so those
+    /// retain the legacy command-driven behavior.
     func shouldApplyClaudeStopVisibleMutation(_ input: ClaudeHookParsedInput) -> Bool {
         guard let rawEvent = reportedHookEventName(from: input) else { return true }
         let normalized = rawEvent
@@ -30,7 +31,7 @@ extension CMUXCLI {
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
-        return normalized == "stop"
+        return normalized == "stop" || normalized == "stopfailure"
     }
 
     func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
@@ -77,11 +78,11 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
             "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
-            "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
+            "title", "summary", "message", "body", "text", "prompt", "error", "error_details", "codex_error_info", "codexErrorInfo",
             "agent_state", "turn_outcome",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",

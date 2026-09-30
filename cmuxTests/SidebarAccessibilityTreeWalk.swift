@@ -9,6 +9,9 @@ struct SidebarAccessibilityTreeWalk {
     private var retainedNodes: [AnyObject] = []
     var cycle: [String]?
     var maxDepth = 0
+    var visitedNodeTypes: [String] {
+        retainedNodes.map { String(describing: type(of: $0)) }
+    }
 
     mutating func visit(_ node: Any, depth: Int = 0, path: [String] = []) {
         guard cycle == nil else { return }
@@ -29,10 +32,13 @@ struct SidebarAccessibilityTreeWalk {
         // so a later allocation cannot reuse its ObjectIdentifier.
         retainedNodes.append(object)
         if let object = object as? NSObject {
-            for name in ["accessibilityValue", "accessibilityLabel", "accessibilityTitle"] {
-                let selector = NSSelectorFromString(name)
-                guard object.responds(to: selector) else { continue }
-                if let text = object.perform(selector)?.takeUnretainedValue() as? String {
+            let attributes: [(NSAccessibility.Attribute, String)] = [
+                (.value, "accessibilityValue"),
+                (.description, "accessibilityLabel"),
+                (.title, "accessibilityTitle"),
+            ]
+            for (attribute, getter) in attributes {
+                if let text = Self.attribute(attribute, getter: getter, of: object) as? String {
                     textValues.insert(text)
                 }
             }
@@ -44,20 +50,29 @@ struct SidebarAccessibilityTreeWalk {
     }
 
     private static func children(of object: AnyObject) -> [Any] {
-        let rawChildren: [Any]?
-        if let view = object as? NSView {
-            rawChildren = view.accessibilityChildren()
-        } else if let element = object as? NSAccessibilityElement {
-            rawChildren = element.accessibilityChildren()
-        } else if let object = object as? NSObject {
-            let selector = NSSelectorFromString("accessibilityAttributeValue:")
-            rawChildren = object.responds(to: selector)
-                ? object.perform(selector, with: NSAccessibility.Attribute.children.rawValue)?
-                    .takeUnretainedValue() as? [Any]
-                : nil
-        } else {
-            rawChildren = nil
-        }
+        guard let object = object as? NSObject else { return [] }
+        let rawChildren = attribute(.children, getter: "accessibilityChildren", of: object) as? [Any]
         return rawChildren.map { NSAccessibility.unignoredChildren(from: $0) } ?? []
+    }
+
+    /// SwiftUI and AppKit can expose proxy nodes through either accessibility
+    /// API. Read children and text through the same bridge, regardless of the
+    /// node's concrete class, and query only advertised legacy attributes.
+    private static func attribute(
+        _ attribute: NSAccessibility.Attribute,
+        getter: String,
+        of object: NSObject
+    ) -> Any? {
+        let modern = NSSelectorFromString(getter)
+        if object.responds(to: modern),
+           let value = object.perform(modern)?.takeUnretainedValue() {
+            return value
+        }
+        let names = NSSelectorFromString("accessibilityAttributeNames")
+        let legacy = NSSelectorFromString("accessibilityAttributeValue:")
+        guard object.responds(to: names), object.responds(to: legacy),
+              let attributes = object.perform(names)?.takeUnretainedValue() as? [String],
+              attributes.contains(attribute.rawValue) else { return nil }
+        return object.perform(legacy, with: attribute.rawValue)?.takeUnretainedValue()
     }
 }

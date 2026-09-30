@@ -330,9 +330,10 @@ The following packages are linked into the cmux app binary.
 
 ## Diff Viewer Highlighting Assets
 
-cmux bundles compiled syntax-highlighting code and grammars under
-`Resources/markdown-viewer/diff-viewer/` so the diff viewer has no runtime CDN
-dependency.
+cmux bundles compiled syntax-highlighting code and grammars (shiki and its
+Oniguruma WASM engine, built from `webviews/` with `@pierre/diffs`) inside the
+generated `Resources/markdown-viewer/webviews-app/` bundle so the diff viewer
+has no runtime CDN dependency.
 
 ### shiki
 

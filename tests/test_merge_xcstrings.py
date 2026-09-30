@@ -126,6 +126,19 @@ def test_key_text_comes_verbatim_from_the_side_that_supplied_it():
     assert strings["b"] == unit("ours-b"), "our change to b must win"
 
 
+def test_bool_and_int_are_different_edits():
+    # Python treats True == 1, so a type change must still count as an edit.
+    base = catalog({"a": {"shouldTranslate": 1}})
+    ours = catalog({"a": {"shouldTranslate": True}})
+    theirs = catalog({"a": {"shouldTranslate": 0}})
+    code, _, stderr = run(base, ours, theirs)
+    assert code == 1, "both sides changed a; the driver must defer"
+    assert "strings.a" in stderr, stderr
+    code, merged, _ = run(base, ours, base)
+    assert code == 0
+    assert json.loads(merged)["strings"]["a"] == {"shouldTranslate": True}
+
+
 def test_unparseable_input_falls_back():
     code, _, stderr = run(catalog({}), "{not json", catalog({}))
     assert code == 1

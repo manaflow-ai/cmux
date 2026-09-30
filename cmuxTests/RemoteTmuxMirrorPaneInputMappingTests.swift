@@ -597,6 +597,14 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         defer { harness.tearDown() }
         let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
         tabManager.selectWorkspace(harness.workspace)
+        // The mirror joined the window unselected (`select: false`), so the
+        // window's mount reconcile turned its portal rendering off. Selecting it
+        // turns rendering back on only when SwiftUI delivers the selection
+        // change, and this synchronous test never yields for that. Establish the
+        // authority here, as RemoteTmuxProjectedFocusInteractionTests does, so
+        // the portal-activation checks below do not depend on some unrelated
+        // synchronous tabs publish, such as a notification reordering the sidebar.
+        harness.workspace.setPortalRenderingEnabled(true, reason: "pane-input-mapping-test")
 
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",

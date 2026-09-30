@@ -10,6 +10,7 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import tempfile
 import subprocess
 import unittest
 import zipfile
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
 from test_app_host_test_products import TestProductHandoff
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class ReuseProducts(TestProductHandoff):
@@ -98,6 +100,41 @@ class ReuseProducts(TestProductHandoff):
         target = list(reuse.products.targets(value))[0]
         self.assertEqual(target['EnvironmentVariables']['SOURCE'], '/queue/work/cmux/fixtures')
         self.assertTrue(Path(target['DependentProductPaths'][0]).exists())
+
+    def test_a_claim_picks_the_derived_data_after_the_checks(self):
+        # switch_root moves the job to the product's root only once the
+        # product passed every check, and the product lands in that root.
+        current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
+        moved = self.consumer.parent / "other-root" / "derived"
+        claims = []
+
+        def claim():
+            claims.append(True)
+            return moved
+
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertTrue(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                          None, claim=claim))
+        self.assertEqual(claims, [True])
+        self.assertTrue((moved / "Build/Products" / reuse.products.RECEIPT).exists())
+        self.assertFalse((self.consumer / "Build/Products").exists())
+
+    def test_a_refused_claim_is_a_miss_that_leaves_nothing(self):
+        current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
+        report = {}
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertFalse(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                           report, claim=lambda: None))
+        self.assertIn("root_unavailable", report["miss_reasons"])
+        self.assertFalse((self.consumer / "Build/Products").exists())
+        # A candidate that fails its checks never moves the job.
+        self.api.artifact["expired"] = True
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertFalse(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                           None, claim=lambda: self.fail("claimed an expired product")))
 
     def test_fork_wrong_workflow_and_failed_compile_are_misses(self):
         for field, value in [('event', 'workflow_dispatch'), ('path', '.github/workflows/untrusted.yml'),
@@ -717,6 +754,46 @@ class ReuseProducts(TestProductHandoff):
         """Re-seal the producer archive as a run that checked out `revision`."""
         self.identity = {**self.identity, "revision": revision}
         self.seal()
+
+    def test_a_receipt_sealed_under_another_contract_names_the_fields_that_moved(self):
+        """An artifact found by this job's key but sealed with another contract
+        says which contract fields differ, not only product_provenance_invalid.
+
+        On 2026-09-29 PR media tours of #14563 found CI's artifact by name six
+        times and refused it each time with that reason alone (e.g. run
+        36540512350): the producer named its artifact before sealing a
+        receipt whose contract hashes differently, and nothing said why.
+        """
+        sealed = {**self.contract, "tools": {**self.contract["tools"], "zig": "0.16.0"}}
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        (root / reuse.RECEIPT).write_text(json.dumps({**receipt, "contract": sealed}))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+        report = {}
+        output = io.StringIO()
+        with mock.patch("sys.stdout", output):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertIn("contract mismatch in tools.zig", output.getvalue())
+        self.assertIn(f"artifact {self.api.artifact['id']} of run {self.api.run['id']}", output.getvalue())
+
+    def test_contract_differences_names_nested_fields(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"a": 1, "tools": {"zig": "1", "go": "absent"}, "only_sealed": 1},
+                {"a": 1, "tools": {"zig": "2", "go": "absent"}, "only_wanted": 2},
+            ),
+            ["only_sealed", "only_wanted", "tools.zig"],
+        )
+
+    def test_contract_differences_names_missing_field_when_other_value_is_none(self):
+        self.assertEqual(
+            reuse.contract_differences(
+                {"tools": {"zig": None}},
+                {"tools": {}},
+            ),
+            ["tools.zig"],
+        )
 
     def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
         """A pull request producer seals the merge commit it checked out.
@@ -1646,32 +1723,40 @@ class E2EProducerPublishedBeforeItsTests(unittest.TestCase):
         }
 
     def test_a_published_product_counts_while_or_after_its_tests_run(self):
-        step = reuse.PUBLISH_STEPS[self.PATH]
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
         for label, job in (
-            ("tests running", self.job("in_progress", None, (step, "success"),
+            ("tests running", self.job("in_progress", None, (before, "success"),
                                        ("Run selected tests on the build runner", None))),
-            ("tests failed", self.job("completed", "failure", (step, "success"),
+            ("tests failed", self.job("completed", "failure", (before, "success"),
                                       ("Run selected tests on the build runner", "failure"))),
+            # An owned Mac tests first and uploads after, whatever the tests did.
+            ("owned, tests failed", self.job("completed", "failure", (before, "skipped"),
+                                             ("Run selected tests", "failure"), (after, "success"))),
         ):
             with self.subTest(label):
-                self.assertTrue(reuse.compile_job_admitted(job, step))
+                self.assertTrue(reuse.compile_job_admitted(job, steps))
                 # Only the workflow that publishes before testing is read so.
                 self.assertFalse(reuse.compile_job_admitted(job))
 
     def test_an_unpublished_product_does_not(self):
-        step = reuse.PUBLISH_STEPS[self.PATH]
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
         for label, job in (
-            ("still compiling", self.job("in_progress", None, (step, None))),
-            ("upload failed", self.job("completed", "failure", (step, "failure"))),
+            ("still compiling", self.job("in_progress", None, (before, None))),
+            ("upload failed", self.job("completed", "failure", (before, "failure"))),
             ("compile failed", self.job("completed", "failure",
-                                        ("Build the app-host and UI test product", "failure"), (step, "skipped"))),
+                                        ("Build the app-host and UI test product", "failure"), (before, "skipped"),
+                                        (after, "skipped"))),
+            ("owned, testing", self.job("in_progress", None, (before, "skipped"), (after, None))),
         ):
             with self.subTest(label):
-                self.assertFalse(reuse.compile_job_admitted(job, step))
+                self.assertFalse(reuse.compile_job_admitted(job, steps))
 
     def test_the_step_name_matches_the_workflow(self):
         workflow = (Path(__file__).resolve().parents[1] / self.PATH).read_text(encoding="utf-8")
-        self.assertIn(f"      - name: {reuse.PUBLISH_STEPS[self.PATH]}\n", workflow)
+        for name in reuse.PUBLISH_STEPS[self.PATH]:
+            self.assertIn(f"      - name: {name}\n", workflow)
         self.assertEqual(set(reuse.PUBLISH_STEPS), {self.PATH})
 
 
@@ -1816,6 +1901,190 @@ class ContractParity(unittest.TestCase):
                 self.assertEqual(asked, expected)
                 outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual(outputs["hit"], "true")
+
+    def test_an_owned_mac_looks_at_its_other_roots_and_moves_to_the_hit(self):
+        """About one E2E build in five starts on another root than its product."""
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first, second = tmp / "cmux-ci", tmp / "cmux-ci-2"
+        derived = second / "derived-data-compile-admission"
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+        at_first = reuse.at_root(own, first)
+        asked, moves = [], []
+
+        def fake_restore(api, value, target, run, identity, attempt, report, claim=None):
+            asked.append((value, claim is not None))
+            hit = value == at_first
+            if hit:
+                self.assertEqual(claim(), first / "derived-data-compile-admission")
+            report.update(reason="hit" if hit else "miss",
+                          miss_reasons="" if hit else "no_matching_contract_artifact")
+            return hit
+
+        def fake_switch(root):
+            moves.append(root)
+            return root / "derived-data-compile-admission"
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
+                mock.patch.object(reuse, "switch_root", side_effect=fake_switch), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=fake_restore):
+            reuse.main()
+        # Its own root first, without a move; then root 1, moving on the hit.
+        self.assertEqual(asked, [(own, False), (at_first, True)])
+        self.assertEqual(moves, [first])
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["hit"], "true")
+        # Packaging seals the product at root 1, so it is published under that key.
+        self.assertEqual(outputs["product_key"], reuse.key(at_first))
+
+    def test_a_miss_on_every_root_keeps_the_job_where_it_is(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        derived = tmp / "cmux-ci" / "derived-data-compile-admission"
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+
+        def miss(api, value, target, run, identity, attempt, report, claim=None):
+            report.update(reason="miss", miss_reasons="no_matching_contract_artifact")
+            return False
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[tmp / "cmux-ci", tmp / "cmux-ci-2"]), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root: self.fail("moved on a miss")), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=miss):
+            reuse.main()
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual((outputs["hit"], outputs["product_key"]), ("false", ""))
+
+    def test_a_failure_after_a_move_never_cleans_the_root_the_job_left(self):
+        # Another job may hold the released root by now.
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first, second = tmp / "cmux-ci", tmp / "cmux-ci-2"
+        derived = second / "derived-data-compile-admission"
+        (derived / "kept").mkdir(parents=True)
+        (first / "derived-data-compile-admission" / "partial").mkdir(parents=True)
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+
+        def restore_then_fail(api, value, target, run, identity, attempt, report, claim=None):
+            if claim is None:
+                report.update(reason="miss", miss_reasons="no_matching_contract_artifact")
+                return False
+            claim()
+            raise OSError("download failed")
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root: root / "derived-data-compile-admission"), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=restore_then_fail):
+            reuse.main()
+        self.assertTrue((derived / "kept").is_dir())
+        self.assertFalse((first / "derived-data-compile-admission").exists())
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual((outputs["hit"], outputs["reason"]), ("false", "fallback"))
+
+    def test_switch_root_reports_the_move_even_when_it_cannot_empty_the_new_root(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        root, env_file = tmp / "cmux-ci-2", tmp / "env"
+        env_file.write_text("")
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.dict(os.environ, {"GITHUB_ENV": str(env_file)}), \
+                mock.patch.object(reuse.subprocess, "run", return_value=done), \
+                mock.patch.object(Path, "mkdir", side_effect=OSError("read-only")), \
+                mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(reuse.switch_root(root), root / "derived-data-compile-admission")
+        self.assertIn(f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}", env_file.read_text())
+
+    def test_canonical_roots_are_root_one_then_numbered_roots(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first = tmp / "cmux-ci"
+        for name in ("cmux-ci", "cmux-ci-10", "cmux-ci-2", "cmux-ci-x", "cmux-ci-2-old"):
+            (tmp / name).mkdir()
+        (tmp / "cmux-ci-3").write_text("not a root")
+        with mock.patch.object(reuse, "FIRST_ROOT", first):
+            self.assertEqual(reuse.canonical_roots(), [first, tmp / "cmux-ci-2", tmp / "cmux-ci-10"])
+
+    def test_switch_root_moves_the_job_and_its_paths(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        root, env_file = tmp / "cmux-ci-2", tmp / "env"
+        (root / "derived-data-compile-admission" / "stale").mkdir(parents=True)
+        env_file.write_text("")
+        calls = []
+
+        def run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, "", "still in use")
+
+        with mock.patch.dict(os.environ, {"GITHUB_ENV": str(env_file)}), \
+                mock.patch.object(reuse.subprocess, "run", side_effect=run):
+            returncode = 1
+            self.assertIsNone(reuse.switch_root(root))
+            self.assertEqual(env_file.read_text(), "")
+            self.assertTrue((root / "derived-data-compile-admission" / "stale").exists())
+            returncode = 0
+            self.assertEqual(reuse.switch_root(root), root / "derived-data-compile-admission")
+        self.assertEqual(calls[0], [str(reuse.ROOT_HELPER), "take", str(root), "--switch",
+                                    "--wait", str(reuse.ROOT_SWITCH_WAIT_S)])
+        self.assertEqual(list((root / "derived-data-compile-admission").iterdir()), [])
+        self.assertTrue((root / "compile-admission-cas").is_dir())
+        self.assertEqual(env_file.read_text().splitlines(), [
+            f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}",
+            f"CMUX_E2E_COMPILATION_CACHE={root / 'compile-admission-cas'}",
+        ])
+
+    def test_contract_ignores_an_sdkroot_naming_the_default_sdk(self):
+        # Some owned Macs' runner services export SDKROOT, others do not.
+        with tempfile.TemporaryDirectory() as directory:
+            sdk = Path(directory) / "MacOSX26.5.sdk"
+            sdk.mkdir()
+            alias = Path(directory) / "MacOSX.sdk"
+            alias.symlink_to(sdk.name)
+            other = Path(directory) / "MacOSX15.5.sdk"
+            other.mkdir()
+            unset = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+
+            def contract_at(sdkroot):
+                answers = {"xcodebuild": "Xcode 26.6\nBuild version 17F113",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "25F70",
+                           ("xcrun", "--sdk", "macosx", "--show-sdk-path"): str(sdk)}
+                with mock.patch.dict(os.environ, {"CMUX_SKIP_ZIG_BUILD": "1", "SDKROOT": sdkroot}, clear=True), \
+                        mock.patch.object(reuse, "read", side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
+                        mock.patch.object(reuse.shutil, "which", return_value=None), \
+                        mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+                    return reuse.contract()
+
+            self.assertEqual(unset["environment"]["SDKROOT"], "")
+            for name in (str(alias), str(sdk)):
+                with self.subTest(sdkroot=name):
+                    self.assertEqual(contract_at(name)["environment"]["SDKROOT"], "")
+            self.assertEqual(contract_at(str(other))["environment"]["SDKROOT"], str(other))
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by

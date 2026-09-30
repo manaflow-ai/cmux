@@ -41,6 +41,11 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
 
     var isShown: Bool { popover?.isShown == true }
 
+    /// True from `popoverWillClose` until `popoverDidClose`. An animated close
+    /// keeps `isShown` true until the animation ends, so containers that
+    /// must know whether a close already began check this as well.
+    private(set) var isClosing = false
+
     func present(
         _ root: AnyView,
         relativeTo rect: NSRect,
@@ -72,6 +77,23 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
             self.pendingRoot = nil
             self.applyRootView(root)
         }
+    }
+
+    /// Called while the anchor is leaving its window. macOS 26 closes a
+    /// shown transient popover when that happens, and an animated close only
+    /// reaches `popoverDidClose` once the animation completes. On hosts where
+    /// the animation never completes (seen on the owned Mac minis), the
+    /// container would wait forever to re-present. Closing without animation
+    /// makes the detach-induced close finish at once.
+    func suppressCloseAnimationForAnchorDetach() {
+        guard let popover, popover.isShown, !isClosing else { return }
+        popover.animates = false
+    }
+
+    /// The popover survived an anchor reparent: animate its later closes again.
+    func restoreCloseAnimationAfterAnchorReattach() {
+        guard let popover, popover.isShown, !isClosing else { return }
+        popover.animates = true
     }
 
     func close() {
@@ -112,7 +134,12 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
     }
 
+    func popoverWillClose(_ notification: Notification) {
+        isClosing = true
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        isClosing = false
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
         popover = nil

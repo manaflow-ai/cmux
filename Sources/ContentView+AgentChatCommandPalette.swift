@@ -33,6 +33,15 @@ extension ContentView {
             subtitle: { _ in String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat") },
             keywords: ["create", "new", "agent", "chat", "browser", "codex", "claude"],
             when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+        ), CommandPaletteCommandContribution(
+            commandId: "palette.openTerminalChatView",
+            title: { _ in String(localized: "command.openTerminalChatView.title", defaultValue: "Open terminal as chat") },
+            subtitle: { _ in String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat") },
+            keywords: ["terminal", "chat", "view", "transcript", "gui", "agent", "claude", "codex"],
+            when: {
+                $0.bool(CommandPaletteContextKeys.panelIsTerminal)
+                    && !$0.bool(CommandPaletteContextKeys.browserDisabled)
+            }
         )]
     }
 
@@ -54,6 +63,21 @@ extension ContentView {
             ) {
                 NSSound.beep()
             }
+        }
+        registerTerminalChatViewCommandPaletteHandler(&registry)
+    }
+
+    /// Registers the read-only chat view for the focused terminal's agent.
+    func registerTerminalChatViewCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.openTerminalChatView") {
+            guard let context = focusedPanelContext, context.panel.panelType == .terminal else {
+                NSSound.beep()
+                return
+            }
+            context.workspace.openTerminalChatView(
+                terminalPanelId: context.panelId,
+                presentingWindow: AppDelegate.shared?.mainWindow(for: windowId)
+            )
         }
     }
 

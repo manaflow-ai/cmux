@@ -114,66 +114,39 @@ import Testing
         #expect(panel.surface.debugInitialCommand() == nil)
     }
 
-    @Test func workspaceInitialCommandWrapsZshExactly() {
-        let actual = WorkspaceInitialCommandLoginShell.wrap("echo zsh", userShell: "/bin/zsh")
-        let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
-        echo zsh'
-        """
-
-        #expect(actual == expected)
-    }
-
-    @Test func workspaceInitialCommandWrapsBashExactly() {
-        let actual = WorkspaceInitialCommandLoginShell.wrap("echo bash", userShell: "/bin/bash")
-        let expected = """
-        '/bin/bash' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
-        echo bash'
-        """
-
-        #expect(actual == expected)
-    }
-
-    @Test func workspaceInitialCommandWrapsFishExactly() {
-        let actual = WorkspaceInitialCommandLoginShell.wrap("echo fish", userShell: "/usr/local/bin/fish")
-        let expected = """
-        '/usr/local/bin/fish' -lc 'if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
-        echo fish'
-        """
-
-        #expect(actual == expected)
-    }
-
-    @Test func workspaceInitialCommandFallsBackToZshForNilShell() {
-        let actual = WorkspaceInitialCommandLoginShell.wrap("echo nil", userShell: nil)
-        let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
-        echo nil'
-        """
-
-        #expect(actual == expected)
-    }
-
-    @Test func workspaceInitialCommandFallsBackToZshForUnknownShell() {
-        let actual = WorkspaceInitialCommandLoginShell.wrap("echo unknown", userShell: "/opt/weird/nu")
-        let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
-        echo unknown'
-        """
-
-        #expect(actual == expected)
-    }
-
-    @Test func workspaceInitialCommandEscapesSingleQuotesAndPreservesNewlines() {
+    @Test(arguments: ["/bin/zsh", "/bin/bash", "/usr/local/bin/fish"])
+    func workspaceInitialCommandPreservesShellArguments(shell: String) throws {
         let command = "printf 'hello'\necho done"
-        let actual = WorkspaceInitialCommandLoginShell.wrap(command, userShell: "/bin/zsh")
-        let expected = """
-        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
-        printf '"'"'hello'"'"'
-        echo done'
-        """
+        let arguments = try Self.decodeShellArguments(WorkspaceInitialCommandLoginShell.wrap(command, userShell: shell))
+        try #require(arguments.count == 3)
+        #expect(arguments[0] == shell)
+        #expect(arguments[1] == "-lc")
+        #expect(arguments[2].hasSuffix("\n" + command))
+    }
 
-        #expect(actual == expected)
+    @Test(arguments: [nil, "/opt/weird/nu"] as [String?])
+    func workspaceInitialCommandFallsBackToZsh(shell: String?) throws {
+        let command = "printf 'hello'\necho done"
+        let arguments = try Self.decodeShellArguments(WorkspaceInitialCommandLoginShell.wrap(command, userShell: shell))
+        try #require(arguments.count == 3)
+        #expect(arguments[0] == "/bin/zsh")
+        #expect(arguments[1] == "-lc")
+        #expect(arguments[2].hasSuffix("\n" + command))
+    }
+
+    /// Let the system shell decode quoting without executing the wrapped command.
+    /// The portable login-shell tests execute the payload and verify PATH safety.
+    private static func decodeShellArguments(_ command: String) throws -> [String] {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "set -- " + command + "; printf '%s\\0' \"$@\""]
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
+        return data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
     }
 
     @Test func initialEnvironmentRejectsCStringTruncationAndPreservesEmptyPrompt() throws {

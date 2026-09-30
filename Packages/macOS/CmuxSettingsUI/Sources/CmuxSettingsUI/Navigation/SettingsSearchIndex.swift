@@ -6,9 +6,8 @@ import Foundation
 ///
 /// Two classes of entries are indexed:
 ///
-/// 1. Section entries — one per visible ``SettingsSectionID`` case, plus
-///    compatibility aliases — surfaced in the sidebar by default (empty
-///    query) only when they belong to the browse taxonomy.
+/// 1. Section entries — one per ``SettingsSectionID`` case — surfaced
+///    in the sidebar by default (empty query).
 /// 2. Curated setting entries from ``CuratedSettingEntries/entries`` —
 ///    one per high-signal row in the detail pane, with the user-facing
 ///    localized title, row detail text, config paths, and synonyms.
@@ -115,8 +114,6 @@ public struct SettingsSearchIndex: Sendable {
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 
-        // Keep declaration order for search ranking, including legacy aliases.
-        // Empty-query browsing filters aliases out in match(_:).
         for section in SettingsSectionID.allCases {
             built.append(Entry(
                 id: "section:\(section.rawValue)",
@@ -126,7 +123,7 @@ public struct SettingsSearchIndex: Sendable {
                 normalizedSearchText: matcher.normalize(
                     "\(section.rawValue) \(section.title) \(section.searchKeywords) \(matcher.humanizedIdentifier(section.rawValue))"
                 ),
-                anchorID: section.canonicalNavigationAnchor(providedAnchor: nil)
+                anchorID: "section:\(section.rawValue)"
             ))
         }
 
@@ -191,10 +188,7 @@ public struct SettingsSearchIndex: Sendable {
         #endif
         let tokens = matcher.queryTokens(in: query)
         if tokens.isEmpty {
-            return entries.filter { entry in
-                guard case .section = entry.kind else { return false }
-                return entry.id != "section:\(SettingsSectionID.computers.rawValue)"
-            }
+            return entries.filter { if case .section = $0.kind { return true } else { return false } }
         }
         let normalizedQuery = matcher.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.enumerated()

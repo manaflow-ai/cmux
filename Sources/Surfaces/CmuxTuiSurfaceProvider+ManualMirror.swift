@@ -133,7 +133,7 @@ extension CmuxTuiSurfaceProvider {
             let existingExplicitInput = created.surface.onExplicitInput
             created.surface.onExplicitInput = { [weak session] in
                 existingExplicitInput?()
-                session?.claimGeometry()
+                session?.noteExplicitInput()
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)
@@ -263,7 +263,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {

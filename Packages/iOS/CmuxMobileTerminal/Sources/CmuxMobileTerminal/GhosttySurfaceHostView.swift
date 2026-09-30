@@ -236,7 +236,12 @@ public final class GhosttySurfaceHostView: UIView {
         // chrome must not.
         surfaceView.moveArtifactChip(to: self)
         if usesKeyboardGuideSeat {
-            keyboardLayoutGuide.followsUndockedKeyboard = true
+            // The terminal dock is a full-width bottom bar. Following an
+            // undocked/floating iPad keyboard would move the composer into
+            // the middle of the workspace (and can preserve that stale seat
+            // across a workspace transition). Keep the dock at the bottom
+            // safe area, matching the task-composer keyboard dock policy.
+            keyboardLayoutGuide.followsUndockedKeyboard = false
             keyboardLayoutGuide.usesBottomSafeArea = true
             let guide = surfaceView.hostedBottomDockBottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor
@@ -665,6 +670,8 @@ public final class GhosttySurfaceHostView: UIView {
         let reveal = surfaceView.hostedScrollTopReveal
         appliedBlankBelowContent = blank
         appliedScrollTopReveal = reveal
+        // The dock now covers a different part of the viewport.
+        surfaceView.refreshSizingChrome()
         let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
         guard abs(presentationContentCapConstraint.constant - constant) > 0.25 else { return }
         MobileDebugLog.anchormux(
@@ -693,6 +700,8 @@ public final class GhosttySurfaceHostView: UIView {
                 || abs(reveal - appliedScrollTopReveal) > 0.5 else { return }
         appliedBlankBelowContent = blank
         appliedScrollTopReveal = reveal
+        // The dock now covers a different part of the viewport.
+        surfaceView.refreshSizingChrome()
         let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
         if surfaceView.scrollInteractionActive {
             UIView.performWithoutAnimation {

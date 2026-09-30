@@ -507,6 +507,29 @@ def test_catalog_requires_campaign_classification() -> None:
         raise AssertionError("invalid classification was accepted")
 
 
+def test_inventory_refuses_hung_or_empty_enumeration() -> None:
+    # What xcodebuild -enumerate-tests wrote (exit 0) when the runner hung on cmux9s.
+    hung = {
+        "errors": [
+            "cmux DEV (65703) encountered an error. (Underlying Error: The test runner hung before establishing connection.)"
+        ],
+        "values": [{"children": [{"kind": "target", "name": "cmuxTests"}], "kind": "plan", "name": "cmux-unit"}],
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        for payload, expected in ((hung, "hung before establishing connection"), ({"values": []}, "found no tests")):
+            source = Path(tmp) / "enumeration.json"
+            output = Path(tmp) / "inventory.json"
+            source.write_text(json.dumps(payload), encoding="utf-8")
+            assert accounting.main(["inventory", str(source), "--output", str(output)]) == 2
+            assert not output.exists()
+            try:
+                accounting.write_inventory(source, output)
+            except ValueError as error:
+                assert expected in str(error), error
+            else:
+                raise AssertionError(f"inventory accepted {payload}")
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):

@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
@@ -26,6 +27,7 @@ export type AgentEvent =
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string }
@@ -33,7 +35,7 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; prompt?: string };
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -62,6 +64,8 @@ export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
 export interface SessionActions { fork?: boolean; handoff?: boolean; }
 export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
+export type AgentPlanStatus = "pending" | "in_progress" | "completed" | "unknown";
+export interface AgentPlanEntry { text: string; status: AgentPlanStatus; priority?: string; }
 
 const diffKeySeparator = "\0";
 
@@ -89,6 +93,7 @@ export type Block =
   | { kind: "thinking"; text: string; open: boolean }
   | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
   | { kind: "status"; text: string }
+  | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "error"; text: string }
   | { kind: "footer"; text: string }
   | { kind: "files"; files: ChangedFile[]; revision?: string };
@@ -155,6 +160,10 @@ export interface SessionSummary {
   parentSessionId?: string;
   parentConversationId?: string;
   startRequestId?: string;
+  /** "transcript": a chat view of an agent running in a cmux terminal. */
+  mode?: "transcript";
+  /** What that agent is waiting on in the terminal (permission, question). */
+  attention?: string | null;
 }
 export type CtrlJMode = "newline" | "menu";
 
@@ -204,6 +213,20 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
     case "status":
       return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
+    case "plan": {
+      const closed = closeStreaming(blocks);
+      let currentTurnStart = 0;
+      for (let index = closed.length - 1; index >= 0; index -= 1) {
+        if (closed[index]?.kind === "user") {
+          currentTurnStart = index + 1;
+          break;
+        }
+      }
+      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
+      const plan = { kind: "plan" as const, entries: evt.entries };
+      if (existingIndex < 0) return [...closed, plan];
+      return closed.map((block, index) => (index === existingIndex ? plan : block));
+    }
     default:
       return blocks;
   }
@@ -239,6 +262,8 @@ export interface SessionState {
   compose(): void;
   reply(text: string): void;
   stop(): void;
+  /** Focuses the terminal pane behind a terminal chat view. */
+  focusTerminal(): void;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
   handoff(): void;
@@ -273,6 +298,8 @@ function appPath(path: string): string {
 }
 
 const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
+/** Transcript views use `t-<agent session id>`; known before history arrives. */
+export const routedToTranscript = routedSessionId?.startsWith("t-") ?? false;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
@@ -284,9 +311,12 @@ export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: 
   storage.setItem(composerDraftKey, prompt);
 }
 
+// An echo matches anywhere in the queue: one that never lands (a failed send)
+// or lands rewritten (`!ls` recorded as a bash input) must not block the rest.
 export function consumeOptimisticUserEcho(queue: string[], text: string): boolean {
-  if (queue[0] !== text) return false;
-  queue.shift();
+  const index = queue.indexOf(text);
+  if (index < 0) return false;
+  queue.splice(index, 1);
   return true;
 }
 
@@ -347,6 +377,13 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+  // The last status the server sent: reply() shows "running" before the server
+  // knows, and a send that fails puts this back.
+  const serverStatusRef = useRef<string | null>(null);
+  const sessionModeRef = useRef<SessionSummary["mode"]>(routedToTranscript ? "transcript" : undefined);
+  useEffect(() => {
+    if (session) sessionModeRef.current = session.mode;
+  }, [session]);
   const latestCwdRequestRef = useRef<CwdHarnessRequest | null>(null);
 
   const closeHandoffWindow = useCallback(() => {
@@ -400,19 +437,18 @@ export function useSession(): SessionState {
   }, []);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
-      wsRef.current = ws;
-      ws.onopen = () => {
+    const disconnect = openSessionConnection({
+      createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
+      onSocket: (ws) => { wsRef.current = ws; },
+      onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
-      };
-      ws.onmessage = (e) => {
+      },
+      onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
           case "hello": {
@@ -449,6 +485,7 @@ export function useSession(): SessionState {
                 sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
+              serverStatusRef.current = msg.session.status;
               setSession(msg.session);
               setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               setBlocks([]);
@@ -471,6 +508,7 @@ export function useSession(): SessionState {
             }
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
+            serverStatusRef.current = msg.session.status;
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
@@ -499,7 +537,19 @@ export function useSession(): SessionState {
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
+              serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-attention":
+            if (msg.sessionId === sessionIdRef.current) {
+              setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
+            }
+            break;
+          case "session-title":
+            if (msg.sessionId === sessionIdRef.current && typeof msg.title === "string") {
+              document.title = msg.title || "cmux agent";
+              setSession((s) => (s ? { ...s, title: msg.title } : s));
             }
             break;
           case "event":
@@ -514,6 +564,13 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
               if (evt.kind === "error") setForkPending(false);
+              if (evt.kind === "error" && evt.prompt !== undefined) {
+                // The prompt never reached the terminal: its echo will not
+                // come, and the agent is as busy as the server last said.
+                consumeOptimisticUserEcho(optimisticUsersRef.current, evt.prompt);
+                const status = serverStatusRef.current ?? "idle";
+                setSession((s) => (s ? { ...s, status } : s));
+              }
             }
             break;
           case "session-forked":
@@ -603,15 +660,12 @@ export function useSession(): SessionState {
             }
             break;
         }
-      };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
-    };
-    connect();
+      },
+    });
     return () => {
-      closed = true;
+      disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
-      wsRef.current?.close();
     };
   }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
@@ -681,9 +735,18 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) {
       if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
+        // A terminal view's prompt only reaches the event log when the agent's
+        // transcript records it; show it now and drop that echo when it lands.
+        if (sessionModeRef.current === "transcript") {
+          optimisticUsersRef.current.push(text);
+          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
+        }
       }
     }
   }, [sendRaw, start]);
+  const focusTerminal = useCallback(() => {
+    if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
+  }, [sendRaw]);
   const stop = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "stop", sessionId: sessionIdRef.current });
   }, [sendRaw]);
@@ -761,6 +824,7 @@ export function useSession(): SessionState {
     compose,
     reply,
     stop,
+    focusTerminal,
     setOption,
     fork,
     handoff,

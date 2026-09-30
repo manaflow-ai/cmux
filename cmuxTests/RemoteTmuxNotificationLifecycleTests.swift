@@ -242,11 +242,15 @@ struct RemoteTmuxNotificationLifecycleTests {
             sourcePanelId: panePanel.id,
             workingDirectory: nil
         ))
-        #expect(localOpenResult)
         #expect(
-            fileOpener.opened == [localOnlyPath],
-            "Remote transcript paths must use the external file-opening seam instead of opening in cmux"
+            !localOpenResult,
+            "A path in a projected SSH-tmux pane names a remote file, so it must be refused here"
         )
+        #expect(
+            fileOpener.opened.isEmpty,
+            "Remote transcript paths must never open the same path on this Mac"
+        )
+        #expect(externallyOpenedURLs == [projectedURL])
 
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
         #expect(AppDelegate.shared?.agentNotificationDeliveryTarget(

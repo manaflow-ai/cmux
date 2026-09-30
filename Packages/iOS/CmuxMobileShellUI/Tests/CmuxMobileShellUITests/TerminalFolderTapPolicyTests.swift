@@ -21,6 +21,13 @@ struct TerminalFolderTapPolicyTests {
 
     private struct StatFailure: Error {}
 
+    /// The stat hops to the main actor, which the hosted parallel suite can
+    /// hold past the real 2 s deadline; tests that assert on the stat result
+    /// keep the deadline pending so only the classification can answer.
+    private func disabledPolicyWithoutDeadline() -> TerminalFolderTapPolicy {
+        TerminalFolderTapPolicy(folderTapEnabled: false, clock: NeverFiringClock())
+    }
+
     @Test("enabled opens without statting")
     func enabledOpensWithoutStatting() async {
         let stub = CountingStatStub(kind: .directory)
@@ -37,7 +44,7 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled lets directory taps fall through to the terminal")
     func disabledDirectoryFocusesTerminal() async {
-        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
+        let decision = await disabledPolicyWithoutDeadline().decision(
             for: "/tmp/folder",
             stat: { _ in .directory }
         )
@@ -51,7 +58,7 @@ struct TerminalFolderTapPolicyTests {
         .binary,
     ])
     func disabledNonDirectoryOpensArtifact(kind: ChatArtifactKind) async {
-        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
+        let decision = await disabledPolicyWithoutDeadline().decision(
             for: "/tmp/file",
             stat: { _ in kind }
         )
@@ -61,7 +68,7 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled lets the artifact viewer handle forbidden paths")
     func disabledForbiddenPathOpensArtifact() async {
-        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
+        let decision = await disabledPolicyWithoutDeadline().decision(
             for: "data.csv",
             stat: { _ in throw ChatArtifactError.forbidden }
         )
@@ -71,7 +78,7 @@ struct TerminalFolderTapPolicyTests {
 
     @Test("disabled fails closed when stat throws")
     func disabledStatFailureFocusesTerminal() async {
-        let decision = await TerminalFolderTapPolicy(folderTapEnabled: false).decision(
+        let decision = await disabledPolicyWithoutDeadline().decision(
             for: "/tmp/file",
             stat: { _ in throw StatFailure() }
         )

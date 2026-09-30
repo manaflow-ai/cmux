@@ -10,6 +10,8 @@ public struct AgentRestoreInvocation: Equatable, Sendable {
     public let preflightInvocations: [AgentRestorePreflightInvocation]
     /// The resumed Codex thread checked again at the final exec boundary.
     public let codexResumeSessionID: String?
+    /// Deviations from the recorded launch, reported before the agent starts.
+    public let notices: [AgentRestoreNotice]
 
     /// Creates a planned restore or fork invocation.
     public init(
@@ -17,12 +19,14 @@ public struct AgentRestoreInvocation: Equatable, Sendable {
         workingDirectory: String?,
         environment: [String: String],
         preflightInvocations: [AgentRestorePreflightInvocation] = [],
-        codexResumeSessionID: String? = nil
+        codexResumeSessionID: String? = nil,
+        notices: [AgentRestoreNotice] = []
     ) {
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
         self.preflightInvocations = preflightInvocations
         self.codexResumeSessionID = codexResumeSessionID
+        self.notices = notices
     }
 }

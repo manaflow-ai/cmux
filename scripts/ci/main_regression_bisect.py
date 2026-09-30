@@ -50,6 +50,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
 import main_regression_attribution as attribution  # noqa: E402
+import machine_failure  # noqa: E402
 
 DISPATCH_SCRIPT = Path(__file__).resolve().parent / "dispatch-focused-test.py"
 STATE_PREFIX = "<!-- main-regression-bisect-state "
@@ -77,6 +78,8 @@ MAX_OPEN_ITEMS = 10
 MAX_FINISHED_ITEMS = 20
 KEEP_SEEN_RUNS = 200
 DISPATCH_TIMEOUT_SECONDS = 8 * 60
+# One gh call; a hung one must not eat the job's time budget.
+GH_TIMEOUT_SECONDS = 120
 # The step that runs the selected tests, in app-host-test-rerun.yml and
 # test-e2e.yml. A failure anywhere else is not the test's verdict...
 TEST_STEP = "Run selected tests"
@@ -469,8 +472,16 @@ def advance(
     return events
 
 
-def classify(run: Mapping[str, object], failed_steps: Callable[[], list[str]]) -> str:
-    """pending, pass, fail (the test step failed), absent (no such test built) or error."""
+def classify(
+    run: Mapping[str, object],
+    failed_steps: Callable[[], list[str]],
+    failed_log: Callable[[], str] = lambda: "",
+) -> str:
+    """pending, pass, fail (the test step failed), absent (no such test built) or error.
+
+    A test step the Mac failed before any test started (machine_failure.py) is
+    an error, not a reproduction.
+    """
     if run.get("status") != "completed":
         return "pending"
     if run.get("conclusion") == "success":
@@ -480,7 +491,7 @@ def classify(run: Mapping[str, object], failed_steps: Callable[[], list[str]]) -
         if RESOLVE_STEP in failed:
             return "absent"
         if TEST_STEP in failed:
-            return "fail"
+            return "error" if machine_failure.reason(failed_log()) else "fail"
     return "error"
 
 
@@ -586,7 +597,15 @@ def pr_updates(
 
 
 def gh(args: list[str]) -> str:
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(
+            ["gh", *args], check=True, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS
+        ).stdout
+    except subprocess.TimeoutExpired as error:
+        # Report it as a failed call, which the run poll and the writes already handle.
+        raise subprocess.CalledProcessError(
+            124, error.cmd, stderr=f"timed out after {GH_TIMEOUT_SECONDS}s"
+        ) from error
 
 
 def graphql(query: str, **variables: object) -> dict:
@@ -648,7 +667,15 @@ def poll_run(repo: str, run_id: int) -> str:
                 if step.get("conclusion") == "failure"
             ]
 
-        return classify(run, failed_steps)
+        def failed_log() -> str:
+            # An unreadable log keeps the answer this had before logs were
+            # read: the test step failed, so it reproduced.
+            try:
+                return gh(["run", "view", str(run_id), "--repo", repo, "--log-failed"])
+            except subprocess.CalledProcessError:
+                return ""
+
+        return classify(run, failed_steps, failed_log)
     except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
         print(f"::warning::Could not read run {run_id}: {error}", file=sys.stderr)
         return "pending"

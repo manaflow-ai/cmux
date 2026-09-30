@@ -5,11 +5,13 @@ run-name: >-
   on ${{ inputs.runner || 'auto' }}
 
 on:
-  # Pull requests that touch the iOS app or its packages run again (paused
-  # 2026-07-13 to cut CI load). A same-repository pull request takes an idle
-  # simulator mini through the `runner` job like an `auto` dispatch, with
-  # Blacksmith as overflow; a fork's never reaches an owned Mac.
-  # detect-ios-changes narrows further (and decides the conventions lint).
+  # Pull requests that touch the iOS app or its packages run again. A
+  # same-repository pull request takes an idle simulator mini through the
+  # `runner` job like an `auto` dispatch, with Blacksmith as overflow; a fork's
+  # never reaches an owned Mac. Merge-group runs always exercise the iOS
+  # aggregate against the queued commit, so the queue sees the same check name.
+  # detect-ios-changes narrows pull-request work further (and decides the
+  # conventions lint).
   pull_request:
     paths:
       - "ios/**"
@@ -24,6 +26,7 @@ on:
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
+  merge_group:
   workflow_dispatch:
     inputs:
       ref:
@@ -126,7 +129,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
-    # (six API calls at most; see ios_runner_pool.py for the budget).
+    # (see ios_runner_pool.py for the API budget).
     permissions:
       contents: read
       actions: read
