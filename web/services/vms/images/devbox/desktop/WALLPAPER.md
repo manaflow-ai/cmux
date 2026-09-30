@@ -5,6 +5,8 @@ Every desktop session paints its X root window through
 additional displays cycle through the bundled collection by display number.
 The selection is deterministic, so all clients see the same image for a given
 Cloud Display and a supervisor restart does not change it.
+Each display repaints after a noVNC remote resize, and an upgraded display
+helper repaints the displays it adopts from its predecessor.
 
 The image collection is hermetic: the image bake copies these files into
 `/usr/share/backgrounds/cmux` and never downloads artwork at build time.

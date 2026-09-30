@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import socketserver
 import subprocess
@@ -341,7 +342,42 @@ class DisplayService:
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.track_process(number, executable, process)
             started = True
-        return started
+        return self.start_resize_watch(number, environment) or started
+
+    def start_resize_watch(self, number, environment):
+        """Watch RandR like start-vnc.sh does for :1; noVNC resizes displays live."""
+        existing = self.named_processes.get(number, {}).get("resize-watch")
+        if existing is not None and self.process_alive(existing):
+            return False
+        xev = shutil.which("xev")
+        if not xev:
+            return False
+        process = subprocess.Popen([xev, "-root", "-event", "randr"], env=environment,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True)
+        self.track_process(number, "resize-watch", process)
+        threading.Thread(target=self.repaint_on_resize, args=(number, environment, process),
+                         daemon=True).start()
+        return True
+
+    def repaint_on_resize(self, number, environment, process):
+        """Re-fill the grown root (the old pixmap tiles) and refresh the dock strut."""
+        stream = getattr(process, "stdout", None)
+        if stream is None:
+            return
+        for line in stream:
+            if "RRScreenChangeNotify" not in line:
+                continue
+            try:
+                self.apply_wallpaper(number, environment)
+            except RuntimeError:
+                pass
+            tint2 = self.named_processes.get(number, {}).get("tint2")
+            if tint2 is not None and self.process_alive(tint2):
+                try:
+                    os.kill(tint2.pid, signal.SIGUSR1)
+                except OSError:
+                    pass
 
     def apply_wallpaper(self, number, environment):
         """Paint the display root or fail startup before exposing a black screen."""
@@ -401,7 +437,10 @@ class DisplayService:
             raise NoVNCUnavailable("display runtime unavailable")
         if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
-        if rfb_is_ready and number not in self.named_processes:
+        # A helper upgrade adopts X servers its predecessor started, which may
+        # never have been painted; adoption repaints them.
+        adopted = rfb_is_ready and number not in self.named_processes
+        if adopted:
             self.recover_processes(number, runtime, environment)
         if not rfb_is_ready:
             self.terminate(number)
@@ -429,7 +468,7 @@ class DisplayService:
             session_started = self.start_session_components(number, environment, runtime)
         else:
             session_started = False
-        if not rfb_is_ready or session_started:
+        if not rfb_is_ready or session_started or adopted:
             self.apply_wallpaper(number, environment)
         websockify_process = self.websockify_processes.get(number)
         if (websockify_process is None or not self.process_alive(websockify_process)
