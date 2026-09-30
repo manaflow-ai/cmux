@@ -203,6 +203,16 @@ extension CMUXCLI {
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
                 payload["is_restorable"] = record.isRestorable ?? NSNull()
 
+                payload.merge(
+                    sessionsListScratchMetadata(
+                        provider: spec.name,
+                        sessionID: record.sessionId,
+                        homeDirectory: homeDirectory,
+                        fileManager: fileManager
+                    ),
+                    uniquingKeysWith: { _, new in new }
+                )
+
                 var transcriptBacked = false
 
                 if spec.name == "codex" {
@@ -449,6 +459,7 @@ extension CMUXCLI {
         let updatedAt = (payload["updated_at"] as? String) ?? "-"
         let sessionHome = (payload["session_home"] as? String) ?? "-"
         let sessionDir = (payload["session_dir"] as? String) ?? "-"
+        let scratchRoot = (payload["scratch_root"] as? String) ?? "-"
         let activeWorkspace = ((payload["active_for_workspace"] as? Bool) == true) ? "yes" : "no"
         let activeSurface = ((payload["active_for_surface"] as? Bool) == true) ? "yes" : "no"
         var parts = [
@@ -460,6 +471,13 @@ extension CMUXCLI {
             "active_surface=\(activeSurface)",
             "updated=\(updatedAt)"
         ]
+        let scratch = ((payload["scratch_owned"] as? Bool) == true) ? "yes" : "no"
+        parts.append("scratch=\(scratch)")
+        if scratch == "yes" {
+            parts.append("scratch_bytes=\((payload["scratch_bytes"] as? Int) ?? 0)")
+            parts.append("scratch_files=\((payload["scratch_file_count"] as? Int) ?? 0)")
+            parts.append("scratch_root=\(scratchRoot)")
+        }
         if agent == "codex" {
             parts.append("session_home=\(sessionHome)")
             let indexed = ((payload["codex_indexed"] as? Bool) == true) ? "yes" : "no"
@@ -477,6 +495,50 @@ extension CMUXCLI {
             parts.append("pid_exists=\(pidExists ? "yes" : "no")")
         }
         return parts.joined(separator: "  ")
+    }
+
+    /// Returns metadata only for cmux-owned scratch roots. Unmarked directories
+    /// are deliberately invisible, and traversal is capped so discovery cannot
+    /// turn into an unbounded scan of user files.
+    private func sessionsListScratchMetadata(
+        provider: String,
+        sessionID: String,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [String: Any] {
+        let root = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+            .appendingPathComponent(".local", isDirectory: true)
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-artifacts", isDirectory: true)
+            .appendingPathComponent(provider, isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+        let marker = root.appendingPathComponent(".cmux-owned", isDirectory: false)
+        guard fileManager.fileExists(atPath: marker.path),
+              (try? String(contentsOf: marker, encoding: .utf8))?.hasPrefix("cmux-agent-artifact-v1") == true else {
+            return ["scratch_owned": false]
+        }
+
+        var bytes = 0
+        var fileCount = 0
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+        if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: Array(keys)) {
+            for case let url as URL in enumerator {
+                guard url.path != marker.path,
+                      fileCount < 10_000,
+                      let values = try? url.resourceValues(forKeys: keys),
+                      values.isRegularFile == true else { continue }
+                fileCount += 1
+                bytes += values.fileSize ?? 0
+            }
+        }
+        return [
+            "scratch_owned": true,
+            "scratch_root": root.path,
+            "scratch_bytes": bytes,
+            "scratch_file_count": fileCount,
+            "scratch_scan_truncated": fileCount >= 10_000
+        ]
     }
 
     private func sessionsListTimestamp(_ value: TimeInterval) -> String {

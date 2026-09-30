@@ -37,6 +37,9 @@ let package = Package(
             dependencies: [
                 "CmuxMobileHost",
                 .product(name: "CmuxAgentChat", package: "CmuxAgentChat"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
             ]
         ),
     ]

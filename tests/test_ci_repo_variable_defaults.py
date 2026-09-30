@@ -87,6 +87,8 @@ GATE_EXEMPT_REPORTING_READS = {
         "reports each runner variable's value; gating would report empty",
     ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "validates each runner variable's value; gating would validate empty",
+    ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
+        "the overflow switch records each value to put back; gating would record empty",
 }
 
 

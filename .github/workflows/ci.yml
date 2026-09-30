@@ -39,7 +39,9 @@ env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Adding dev-build gets its own group, so a later label event cannot replace
+  # the pending run that asks for the dogfood build.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -712,7 +714,6 @@ jobs:
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
         # onto the owned pools only, placed like a pull request unless
-        # CI_OWNED_MAIN_RESERVE holds machines back for pull requests
         # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
         # these outputs for a workflow_dispatch on main.
         continue-on-error: true
@@ -740,7 +741,6 @@ jobs:
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           # Machines and root runners main's dispatch leaves free (default 0).
-          OWNED_MAIN_RESERVE: ${{ vars.CI_OWNED_MAIN_RESERVE }}
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -1064,6 +1064,7 @@ jobs:
             scripts/ci/choose_ci_suite.py \
             scripts/ci/cmux_unit_test_shard.py \
             scripts/ci/test_impact.py \
+            scripts/ci/ui_tests_dispatch.py \
             scripts/ci/cmux-unit-test-timings.json \
             | tar -x -C "$out/trusted" 2>/dev/null; then
             echo "The base revision has no reverse test impact selector; nothing to report."
@@ -1561,7 +1562,13 @@ jobs:
           exit 1
 
   # The UI test classes a pull request changes, run once on its head through
-  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. The run
+  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. A diff
+  # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
+  # splits and panes, the main window's size, the fuzzer) also asks for
+  # cmuxUITests/FuzzRegressions, which replays them against the same app
+  # (choose_ci_suite.fuzz_regression_selectors).
+  #
+  # The test run
   # adopts the app-host product this run compiles for the merge, waiting for
   # it, so this costs a test run, not a second compile, and routes to an owned
   # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
@@ -1573,8 +1580,10 @@ jobs:
   # Dispatching takes actions: write, which no job in this file holds: a
   # pull_request run takes this file from the pull request. This job validates
   # the selectors and uploads them as a request; ci-ui-tests.yml, which always
-  # runs from the default branch, picks the request up, runs main's dispatcher
-  # on it, and cancels the dispatched run if this run ends first. This job then
+  # runs from the default branch and which the build controller dispatches when
+  # this job starts (it matches the job name `ui-tests`: keep this id and add
+  # no `name:`), picks the request up, runs main's dispatcher on it, and
+  # cancels the dispatched run if this run ends first. This job then
   # reports that run's verdict, so the result stays on the pull request and
   # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
   # only same-repository pull requests, so a maintainer runs its classes with
@@ -1646,9 +1655,12 @@ jobs:
     # pull request itself before building, so the job name is part of that
     # contract. Not required and not in ci-status: a comment failure never
     # blocks a merge.
+    # Opt-in: only pull requests labelled dev-build get it, on each push and
+    # when the label is added; app-free changes (docs, web) never do. The
+    # controller builds the newest head each time a worker frees up.
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: changes
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
     runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
     timeout-minutes: 5
     # A failed comment must not turn the run red; the controller acts only on success.
@@ -1667,18 +1679,32 @@ jobs:
           set -euo pipefail
           tag="pr-$PR-${HEAD_SHA:0:8}"
           marker='<!-- cmux:dogfood-build -->'
+          # One comment per pull request: edit ours in place on every push.
+          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
+          existing=${existing%%$'\n'*}
+          # The head the previous link named, so a regression can be bisected
+          # across the pushes the controller skipped (it builds the newest head).
+          previous=""
+          if [ -n "$existing" ]; then
+            previous=$(gh api "repos/$GH_REPO/issues/comments/$existing" --jq '.body' | grep -oE '^\*\*Dogfood build\*\* of `[0-9a-f]{40}`' | grep -oE '[0-9a-f]{40}' || true)
+          fi
+          range=""
+          if [ -n "$previous" ] && [ "$previous" != "$HEAD_SHA" ]; then
+            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null) || true
+            [[ "$commits" =~ ^[0-9]+$ ]] || commits="?"
+            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([commits: $commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
+          fi
           cat > body.md <<EOF
           $marker
           **Dogfood build** of \`$HEAD_SHA\`
 
           [cmux DEV $tag.app](http://127.0.0.1:17320/$tag)
 
-          The link opens this exact commit in the cmux dev menu bar app. The build starts on each push and the page waits until it is ready; a newer push replaces it. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
+          The link opens this exact commit in the cmux dev menu bar app; the page waits until the build is ready. Builds run only while this PR has the \`dev-build\` label. Under load the fleet builds the newest push each time a worker frees up, so some pushes are skipped. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
+
+          $range
           EOF
-          # One comment per pull request: edit ours in place on every push.
-          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
-          existing=${existing%%$'\n'*}
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@body.md >/dev/null
           else

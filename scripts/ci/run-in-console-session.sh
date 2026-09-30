@@ -219,6 +219,7 @@ prepare_app_host_home_for_console_user() {
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
+  && [ "$console_user" != "loginwindow" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
@@ -256,5 +257,19 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     bash -c 'cd "$GITHUB_WORKSPACE" && exec "$@"' bash "$@"
 fi
 
-echo "::warning::No logged-in console user (or no passwordless sudo) on this runner; running in the current bootstrap. XCTest will fail here if this runner has no GUI session." >&2
+# A LaunchAgent already inherits Aqua even when it cannot sudo. Console owner
+# alone is insufficient: an SSH/daemon process can run as that same account.
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] \
+  || [ "$console_user" = "loginwindow" ]; then
+  echo "::warning::No logged-in console user on this runner; running in the current bootstrap. GUI XCTest requires an active console login." >&2
+else
+  current_uid="$(id -u 2>/dev/null || true)"
+  session_manager="$(launchctl managername 2>/dev/null || true)"
+  if [ -n "${console_uid:-}" ] && [ "$current_uid" = "$console_uid" ] \
+    && [ "$session_manager" = "Aqua" ]; then
+    echo "Console session: already running as console user '$console_user' (uid $console_uid) in Aqua; no sudo hop needed." >&2
+  else
+    echo "::warning::Cannot enter console user '$console_user' Aqua session without passwordless sudo; current uid=${current_uid:-unknown}, session=${session_manager:-unknown}. Running in the current bootstrap; verify the runner is a console-user LaunchAgent before GUI XCTest." >&2
+  fi
+fi
 exec "$@"
