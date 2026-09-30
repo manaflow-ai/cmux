@@ -163,12 +163,17 @@ public struct DaemonLauncher: Sendable {
         return environment
     }
 
-    /// Runs `server ensure` and returns the live endpoint.
+    /// Returns the live endpoint: a running owner from `server status`
+    /// (no login environment needed, about 50 ms), else `server ensure`
+    /// with the login environment, which spawns one. Capturing the login
+    /// environment runs `$SHELL -l -i` (about 0.9 s on a real zsh setup), so
+    /// a warm launch must not wait for it.
     public func ensure() async throws -> EnsureResult {
         if let stateDirectory = configuration.stateDirectory {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
+        if let running = await runningOwner() { return running }
         let environment = await ensureEnvironment()
         DaemonLaunchTimings.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
@@ -180,6 +185,35 @@ public struct DaemonLauncher: Sendable {
             clock: clock
         )
         return try Self.parseEnsure(result)
+    }
+
+    /// `server status`: the running owner, or nil when none runs (or the
+    /// probe fails; `server ensure` then decides). It needs only the socket
+    /// location (`TMPDIR`) and the state directory, never the login env.
+    func runningOwner() async -> EnsureResult? {
+        var environment = ProcessInfo.processInfo.environment
+        if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
+        if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
+        environment["XDG_RUNTIME_DIR"] = nil
+        environment["TMPDIR"] = configuration.runtimeBase.path
+        DaemonLaunchTimings.mark("daemon.status_start")
+        defer { DaemonLaunchTimings.mark("daemon.status_end") }
+        guard let result = try? await ProcessRunner.run(
+            executable: configuration.binary,
+            arguments: ["--session", configuration.session, "--json", "server", "status"],
+            environment: environment,
+            timeout: ensureTimeout,
+            clock: clock
+        ), let parsed = try? Self.parseEnsure(result), parsed.status == "running" else { return nil }
+        return parsed
+    }
+
+    /// Starts capturing the login environment now, so a cold launch (no
+    /// daemon yet) has it by the time `server ensure` needs it. Call at the
+    /// top of `main`; the capture runs off the main thread.
+    public static func prewarmLoginEnvironment() {
+        // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
+        Task.detached(priority: .userInitiated) { _ = await LoginEnvironmentCache.shared.value() }
     }
 
     static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {

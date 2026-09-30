@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextPalette
 import CoreFoundation
 import Foundation
@@ -15,6 +16,10 @@ import Foundation
 /// the rest of that one build, never longer than building it itself.
 enum LaunchWarmup {
     static func start() {
+        // The login shell's environment (`$SHELL -l -i`, about 0.9 s) is
+        // needed to spawn a daemon on a cold start and for each new
+        // terminal's env; capture it while AppKit starts.
+        DaemonLauncher.prewarmLoginEnvironment()
         let thread = Thread {
             _ = ActionCatalog.all
             PaletteController.prewarmStrings()
