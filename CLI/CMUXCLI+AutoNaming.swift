@@ -377,16 +377,24 @@ struct AutoNamingEngine: Sendable {
     }
 
     private func isCodexInjectedContext(_ text: String) -> Bool {
-        let prefixes = [
-            "<environment_context",
-            "<user_instructions",
-            "<subagent_notification",
-            "<permissions",
-            "<collaboration_mode",
-            "<turn_aborted",
-            "# AGENTS.md instructions"
+        if text.hasPrefix("# AGENTS.md instructions") {
+            return true
+        }
+        let tagNames = [
+            "environment_context",
+            "user_instructions",
+            "subagent_notification",
+            "permissions",
+            "collaboration_mode",
+            "turn_aborted"
         ]
-        return prefixes.contains { text.hasPrefix($0) }
+        return tagNames.contains { tagName in
+            let prefix = "<\(tagName)"
+            guard text.hasPrefix(prefix) else { return false }
+            guard text.count > prefix.count else { return false }
+            let boundary = text[text.index(text.startIndex, offsetBy: prefix.count)]
+            return boundary == ">" || boundary.isWhitespace
+        }
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)
