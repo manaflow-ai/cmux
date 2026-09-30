@@ -28,6 +28,8 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     public static let defaultDelays: [Duration] = [.seconds(20), .seconds(45), .seconds(90), .seconds(180), .seconds(300)]
 
     private struct SurfaceState: Sendable, Equatable {
+        /// Native agent session currently owning the surface.
+        var sessionId: String?
         /// Resumes sent in the current failing streak.
         var streak = 0
         /// Resumes sent since the agent session started, for the marker.
@@ -60,13 +62,18 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         kind: AgentJournalEventKind,
         surfaceId: String,
         isSubagent: Bool,
-        detail: String?
+        detail: String?,
+        sessionId: String? = nil
     ) -> Action {
         // Nested agents report through their parent; resuming the parent
         // pane for a child's failure would inject text into the wrong turn.
         guard !isSubagent else { return .none }
         switch kind {
         case .errorReported:
+            if let sessionId, !sessionId.isEmpty,
+               surfaces[surfaceId]?.sessionId != sessionId {
+                surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            }
             // The same failure can arrive twice: once with its detail and
             // once through the error notification without one. An event with
             // no detail says nothing new, so it neither schedules nor cancels.
@@ -100,7 +107,11 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             let hadPending = surfaces[surfaceId]?.pendingToken != nil
             surfaces[surfaceId] = nil
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
-        case .sessionStarted, .childSpawned, .childCompleted, .childFailed, .stateChanged,
+        case .sessionStarted:
+            let hadPending = surfaces[surfaceId]?.pendingToken != nil
+            surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            return hadPending ? .cancel(surfaceId: surfaceId) : .none
+        case .childSpawned, .childCompleted, .childFailed, .stateChanged,
              .idleObserved, .messagePublished:
             // Progress and idle observations do not change whether the
             // errored turn still needs a resume. An idle prompt that follows
@@ -124,6 +135,16 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     public mutating func abandon(surfaceId: String, token: UInt64) {
         guard surfaces[surfaceId]?.pendingToken == token else { return }
         surfaces[surfaceId]?.pendingToken = nil
+    }
+
+    /// Cancels and forgets a pending resume after explicit user input.
+    public mutating func explicitInput(surfaceId: String) -> Action {
+        guard var state = surfaces[surfaceId] else { return .none }
+        let hadPending = state.pendingToken != nil
+        state.streak = 0
+        state.pendingToken = nil
+        surfaces[surfaceId] = state
+        return hadPending ? .cancel(surfaceId: surfaceId) : .none
     }
 
     private mutating func cancelPending(surfaceId: String) -> Action {

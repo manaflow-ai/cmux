@@ -135,6 +135,52 @@ struct AgentAutoResumePolicyTests {
         )
     }
 
+    @Test func aNewSessionCancelsAResumeBelongingToThePreviousSession() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: "overloaded",
+            sessionId: "session-a"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+
+        #expect(
+            tracker.observe(
+                kind: .sessionStarted,
+                surfaceId: surface,
+                isSubagent: false,
+                detail: nil,
+                sessionId: "session-b"
+            ) == .cancel(surfaceId: surface)
+        )
+        #expect(!tracker.isPending(surfaceId: surface, token: token))
+        #expect(tracker.resumeSent(surfaceId: surface, token: token) == nil)
+        #expect(tracker.totalResumes(surfaceId: surface) == 0)
+    }
+
+    @Test func explicitInputCancelsAndResetsTheFailingStreak() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+
+        #expect(tracker.explicitInput(surfaceId: surface) == .cancel(surfaceId: surface))
+        #expect(tracker.resumeSent(surfaceId: surface, token: token) == nil)
+        guard case .schedule(_, 1, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("explicit input should reset the failing streak")
+            return
+        }
+    }
+
     @Test func permanentFailuresAndSubagentsNeverSchedule() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "authentication_failed") == .none)

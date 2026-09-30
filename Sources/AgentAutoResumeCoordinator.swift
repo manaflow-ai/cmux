@@ -1,10 +1,12 @@
 import CmuxAgentJournal
+import CMUXMobileCore
 import CmuxSettings
 import CmuxSidebar
+import CmuxTerminal
 import Foundation
 
-/// Sends `continue` to a cmux-launched agent whose turn ended on a retryable
-/// upstream failure (model at capacity, overloaded, a dropped connection).
+/// Resumes a cmux-launched agent whose turn ended on a retryable upstream
+/// failure (model at capacity, overloaded, or a dropped connection).
 ///
 /// The decision lives in ``AgentAutoResumeTracker``; this type owns the
 /// timers and the one delivery path. It observes live journal events only
@@ -21,6 +23,7 @@ final class AgentAutoResumeCoordinator {
 
     private var tracker = AgentAutoResumeTracker()
     private var timers: [String: Task<Void, Never>] = [:]
+    private var autoInputSurfaces = Set<String>()
 
     private var isEnabled: Bool {
         AutomationCatalogSection().agentAutoResume.value(in: .standard)
@@ -32,7 +35,8 @@ final class AgentAutoResumeCoordinator {
             kind: draft.kind,
             surfaceId: surfaceId,
             isSubagent: draft.isSubagent,
-            detail: draft.detail
+            detail: draft.detail,
+            sessionId: draft.sessionId
         )
         if draft.kind == .sessionEnded {
             clearMarker(surfaceId: surfaceId, workspaceHint: draft.workspaceId)
@@ -72,6 +76,19 @@ final class AgentAutoResumeCoordinator {
         }
     }
 
+    func userDidInput(surfaceId: UUID) {
+        let key = surfaceId.uuidString
+        guard !autoInputSurfaces.contains(key) else { return }
+        switch tracker.explicitInput(surfaceId: key) {
+        case .none:
+            break
+        case .cancel(let surface):
+            timers.removeValue(forKey: surface)?.cancel()
+        case .schedule:
+            assertionFailure("explicit input cannot schedule auto-resume")
+        }
+    }
+
     private func fire(surfaceId: String, token: UInt64, attempt: Int, workspaceHint: String?, agent: String) {
         timers[surfaceId] = nil
         guard tracker.isPending(surfaceId: surfaceId, token: token) else { return }
@@ -85,13 +102,28 @@ final class AgentAutoResumeCoordinator {
             tracker.abandon(surfaceId: surfaceId, token: token)
             return
         }
-        // Same submission as a mobile paste: the text, then the agent's
-        // submit key for single-line input.
-        guard terminal.sendTextResult(Self.resumePrompt).accepted else {
+        guard let input = resumeInput(for: terminal, agent: agent) else {
             tracker.abandon(surfaceId: surfaceId, token: token)
             return
         }
-        _ = terminal.sendNamedKeyResult("return")
+        autoInputSurfaces.insert(surfaceId)
+        defer { autoInputSurfaces.remove(surfaceId) }
+        switch input {
+        case .returnKey:
+            guard terminal.sendNamedKeyResult("return").accepted else {
+                tracker.abandon(surfaceId: surfaceId, token: token)
+                return
+            }
+        case .text(let text):
+            guard terminal.sendTextResult(text).accepted else {
+                tracker.abandon(surfaceId: surfaceId, token: token)
+                return
+            }
+            guard terminal.sendNamedKeyResult("return").accepted else {
+                tracker.abandon(surfaceId: surfaceId, token: token)
+                return
+            }
+        }
         guard let total = tracker.resumeSent(surfaceId: surfaceId, token: token) else { return }
         located.workspace.statusEntries[Self.statusKey] = SidebarStatusEntry(
             key: Self.statusKey,
@@ -113,6 +145,81 @@ final class AgentAutoResumeCoordinator {
 #if DEBUG
         cmuxDebugLog("agentAutoResume.sent surface=\(surfaceId.prefix(8)) agent=\(agent) attempt=\(attempt) total=\(total)")
 #endif
+    }
+
+    private enum ResumeInput {
+        case text(String)
+        case returnKey
+    }
+
+    private enum ScreenState {
+        case unknown
+        case emptyPrompt
+        case draft
+        case dialog
+        case codexGoalResume
+        case codexResumePicker
+    }
+
+    private func resumeInput(for terminal: TerminalPanel, agent: String) -> ResumeInput? {
+        switch screenState(for: terminal.surface) {
+        case .codexGoalResume where agent == "codex":
+            return .text("/goal resume")
+        case .codexResumePicker where agent == "codex":
+            return .returnKey
+        case .emptyPrompt:
+            return .text(Self.resumePrompt)
+        case .unknown, .draft, .dialog, .codexGoalResume, .codexResumePicker:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func screenState(for surface: TerminalSurface) -> ScreenState {
+        guard let frame = surface.mobileRenderGridFrame(
+            stateSeq: 0,
+            includeTheme: false,
+            anchor: .screen
+        )?.frame else { return .unknown }
+        let faintStyles = Set(frame.styles.filter(\.faint).map(\.id))
+        var rows = Array(repeating: [(column: Int, text: String, faint: Bool)](), count: max(frame.rows, 0))
+        for span in frame.rowSpans where span.row >= 0 && span.row < rows.count {
+            rows[span.row].append((span.column, span.text, faintStyles.contains(span.styleID)))
+        }
+        let plainRows = rows.map { spans in
+            spans.sorted { $0.column < $1.column }.reduce(into: "") { result, span in
+                let padding = span.column - result.count
+                if padding > 0 { result += String(repeating: " ", count: padding) }
+                result += span.text
+            }
+        }
+        let nonEmptyRows = plainRows.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if nonEmptyRows.suffix(6).contains(where: { $0.trimmingCharacters(in: .whitespaces) == "Resume paused goal?" }) {
+            return .codexResumePicker
+        }
+        if plainRows.last?.trimmingCharacters(in: .whitespaces) == "Goal stalled (/goal resume)" {
+            return .codexGoalResume
+        }
+        let loweredRows = nonEmptyRows.suffix(6).map { $0.lowercased() }
+        if loweredRows.contains(where: { $0.contains("esc to cancel") || $0.contains("press enter to") || $0.contains("enter to confirm") || $0.contains("enter to select") }) {
+            return .dialog
+        }
+        guard let promptIndex = plainRows.lastIndex(where: { row in
+            let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
+            return trimmed.hasPrefix("› ") || trimmed.hasPrefix("❯\u{00A0}")
+        }) else { return .unknown }
+        var typed = ""
+        for index in promptIndex..<rows.count {
+            let spans = rows[index].sorted { $0.column < $1.column }
+            for span in spans where !span.faint {
+                typed += span.text
+            }
+            if index == promptIndex {
+                typed = typed.replacingOccurrences(of: "› ", with: "", options: [], range: typed.startIndex..<typed.endIndex)
+                typed = typed.replacingOccurrences(of: "❯\u{00A0}", with: "", options: [], range: typed.startIndex..<typed.endIndex)
+            }
+        }
+        return typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .emptyPrompt : .draft
     }
 
     private func clearMarker(surfaceId: String, workspaceHint: String?) {
