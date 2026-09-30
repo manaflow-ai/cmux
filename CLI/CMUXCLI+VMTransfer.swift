@@ -17,7 +17,12 @@ extension CMUXCLI {
                 let index = (child["index"] as? Int ?? 0) + 1
                 let childState = child["state"] as? String ?? "unknown"
                 let terminal = child["terminal_id"] as? String ?? "-"
-                lines.append("  [\(index)/\(requested)] \(childState) \(terminal)")
+                let workspace = child["remote_workspace_id"] as? String
+                let localWorkspace = child["local_workspace_id"] as? String
+                let placement = [workspace, localWorkspace.map { "local:\($0)" }]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                lines.append("  [\(index)/\(requested)] \(childState) \(terminal)\(placement.isEmpty ? "" : " \(placement)")")
             }
         }
         lines.append("Watch: cmux vm agent status \(operation)")
