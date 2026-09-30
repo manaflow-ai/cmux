@@ -9,7 +9,7 @@ public final class CloudBannerDismissalStore {
 
     @ObservationIgnored
     private let defaults: UserDefaults
-    /// NotificationCenter delivers UserDefaults changes synchronously on the main queue; the token is only touched by this main-actor store and deinit.
+    /// NotificationCenter delivers UserDefaults changes on the main queue; the token is only touched by this main-actor store and deinit.
     @ObservationIgnored
     private nonisolated(unsafe) var defaultsObserver: (any NSObjectProtocol)?
     /// The signatures currently hidden by this store's banner surfaces.
@@ -27,8 +27,11 @@ public final class CloudBannerDismissalStore {
             object: defaults,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reloadFromDefaults()
+            guard let self else { return }
+            // The observer is registered on `.main`, so this callback runs on
+            // the store's actor without adding a deferred invalidation turn.
+            MainActor.assumeIsolated {
+                self.reloadFromDefaults()
             }
         }
     }
@@ -46,7 +49,7 @@ public final class CloudBannerDismissalStore {
     ///   - signature: State-and-copy signature for the current banner.
     /// - Returns: `true` only when the stored signature exactly matches.
     public func isDismissed(id: String, signature: String) -> Bool {
-        Self.load(from: defaults)[id] == signature
+        dismissedSignatures[id] == signature
     }
 
     /// Records a dismissal without overwriting newer entries from another client.
@@ -76,7 +79,9 @@ public final class CloudBannerDismissalStore {
     }
 
     private func reloadFromDefaults() {
-        dismissedSignatures = Self.load(from: defaults)
+        let next = Self.load(from: defaults)
+        guard next != dismissedSignatures else { return }
+        dismissedSignatures = next
     }
 
     private func persist() {

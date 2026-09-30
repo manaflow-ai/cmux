@@ -3977,7 +3977,9 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
     func testFocusPanelDismissesUnreadNotificationWithDismissFlash() {
+        let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
         let defaults = UserDefaults.standard
@@ -4002,6 +4004,7 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
+            AppDelegate.shared = originalAppDelegate
             if let originalExperimentEnabled {
                 defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
             } else {
@@ -4058,7 +4061,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, leftPanelId)
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
-
     func testDismissNotificationOnDirectInteractionClearsFocusedNotificationIndicator() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -4096,7 +4098,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         )
         XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
     }
-
     func testDismissNotificationOnDirectInteractionTriggersDismissFlashForFocusedIndicatorOnly() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -4160,7 +4161,6 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
 }
-
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     func testStandardBrowserTabCloseStagesRestoreSnapshot() {
