@@ -13,6 +13,11 @@ name: iOS E2E
 # ci.yml takes the same approach — a paths: filter leaves the check MISSING
 # on unrelated PRs, which branch protection cannot require; a routed skip
 # still reports green.
+#
+# The PR trigger stays off until the owner approves this check's promotion
+# (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and approval,
+# and the product-download stubs below would red every PR today. The note sits
+# above `on:` because the macOS runner guard reads every line under it.
 on:
   workflow_dispatch:
     inputs:
@@ -20,10 +25,6 @@ on:
         description: "Bring up and health-check the per-run backend, then stop (no macOS jobs)"
         type: boolean
         default: false
-  # The pull_request trigger stays off until the owner approves this check's
-  # promotion (see docs/ci/ios-e2e.md): tests enter a CI lane by proposal and
-  # approval, and the product-download stubs below would red every PR today.
-  # pull_request:
 
 permissions:
   contents: read
