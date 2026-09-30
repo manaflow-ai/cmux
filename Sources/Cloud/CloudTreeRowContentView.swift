@@ -21,6 +21,17 @@ struct CloudTreeRowContentView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    private static func displayTitle(for resource: SurfaceResource) -> String {
+        let prefix = "display:"
+        if resource.id.key.hasPrefix(prefix),
+           let number = Int(resource.id.key.dropFirst(prefix.count)) {
+            return CloudGuestDisplay.title(for: number)
+        }
+        return resource.title.isEmpty
+            ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
+            : resource.title
+    }
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -89,7 +100,7 @@ struct CloudTreeRowContentView: View {
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
             let title = Self.nonEmptyTrimmed(remoteView?.name)
-                ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title)
+                ?? Self.displayTitle(for: resource)
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
@@ -116,16 +127,16 @@ struct CloudTreeRowContentView: View {
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
+            let presentation = CloudTreePortPresentation(resource: resource, url: url)
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText)
-                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
-                    ?? resource.title,
+                title: presentation.title,
                 titleIsLink: url != nil,
-                detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
+                detail: presentation.detail
             )
+            .help(presentation.toolTip ?? presentation.title)
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
@@ -178,16 +189,6 @@ struct CloudTreeRowContentView: View {
 
 /// The shared leaf-row chrome: icon slot, then title and detail arranged per
 /// the style's leaf layout and metadata placement, then trailing accessories.
-/// The scheme-free form of a port link for display (`host:port`, VS Code's
-/// forwarded-ports style) — never used for opening or copying, only for the
-/// row's title text.
-enum CloudTreePortLinkText {
-    static func displayText(forURL url: String) -> String {
-        guard let range = url.range(of: "://") else { return url }
-        return String(url[range.upperBound...])
-    }
-}
-
 struct CloudTreeLeafRow<Accessories: View>: View {
     let style: CloudTreeStyle
     let icon: String
@@ -196,9 +197,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
-    /// Underlined and tinted like a followable link (VS Code's forwarded-ports
-    /// panel): a port row's URL is the one title in this tree a click actually
-    /// navigates, so it reads as a link rather than a label.
+    /// Underlined and tinted when the title opens content in cmux.
     var titleIsLink: Bool = false
     var detail: String?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification

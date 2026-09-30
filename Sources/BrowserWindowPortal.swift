@@ -413,7 +413,11 @@ final class WindowBrowserHostView: NSView {
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
         let eventType = routingContext.eventType
-        let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
+        let resolveHostedBrowserHitView = hostedBrowserHitViewResolver(at: point)
+        let titlebarPassThrough = shouldPassThroughToTitlebar(
+            at: point,
+            hostedBrowserHitView: resolveHostedBrowserHitView
+        )
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
             at: point,
@@ -659,13 +663,56 @@ final class WindowBrowserHostView: NSView {
         super.mouseUp(with: event)
     }
 
-    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+    private func hostedBrowserHitView(at point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            guard let slot = subview as? WindowBrowserSlotView,
+                  !slot.isHidden,
+                  slot.alphaValue > 0,
+                  slot.frame.contains(point) else {
+                continue
+            }
+            let pointInSlot = slot.convert(point, from: self)
+            guard let webView = slot.hostedWebViewForFileDrop(at: pointInSlot) else {
+                continue
+            }
+            let pointInWebView = webView.convert(pointInSlot, from: slot)
+            return webView.hitTest(pointInWebView) ?? webView
+        }
+        return nil
+    }
+
+    private func hostedBrowserHitViewResolver(at point: NSPoint) -> () -> NSView? {
+        var cachedHitView: NSView?
+        var didResolve = false
+        return {
+            if !didResolve {
+                cachedHitView = self.hostedBrowserHitView(at: point)
+                didResolve = true
+            }
+            return cachedHitView
+        }
+    }
+
+    private func shouldPassThroughToTitlebar(
+        at point: NSPoint,
+        hostedBrowserHitView: () -> NSView?
+    ) -> Bool {
         guard let window else { return false }
         // Window-level portal hosts sit above SwiftUI content. Never intercept
         // hits that land in native titlebar space or the custom titlebar strip
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        if isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint) {
+            return true
+        }
+
+        // Browser content can reach the titlebar interaction band when a pane is
+        // flush with the top of the window. Keep the concrete WebKit hit target
+        // interactive, just as the terminal portal does for its top row.
+        return hostedBrowserHitView() == nil
     }
 
     private func shouldPassThroughToPaneTabBar(
@@ -1270,8 +1317,8 @@ final class WindowBrowserSlotView: NSView {
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
-    private var forwardedDropZone: DropZone?
-    private var portalDragDropZone: DropZone?
+    var forwardedDropZone: DropZone?
+    var portalDragDropZone: DropZone?
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
@@ -1355,11 +1402,6 @@ final class WindowBrowserSlotView: NSView {
 
     func setDropZoneOverlay(zone: DropZone?) {
         forwardedDropZone = zone
-        applyResolvedDropZoneOverlay()
-    }
-
-    func setPortalDragDropZone(_ zone: DropZone?) {
-        portalDragDropZone = zone
         applyResolvedDropZoneOverlay()
     }
 
@@ -1753,7 +1795,7 @@ final class WindowBrowserSlotView: NSView {
         container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
     }
 
-    private func applyResolvedDropZoneOverlay() {
+    func applyResolvedDropZoneOverlay() {
         let resolvedZone = activeDropZone
         if resolvedZone != nil, (bounds.width <= 2 || bounds.height <= 2) {
             bringInteractionLayersToFrontIfNeeded()

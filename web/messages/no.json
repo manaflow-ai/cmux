@@ -25,6 +25,11 @@
       "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
       "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
     },
+    "recreateRequired": {
+      "title": "Opprett denne maskinen på nytt",
+      "message": "Denne maskinen ble opprettet før en Cloud-oppdatering og kan ikke kobles til.",
+      "action": "Opprett en ny maskin, kopier filene dine med cmux vm pull og cmux vm push, og slett så denne."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
@@ -134,7 +139,9 @@
     "backToBlog": "Tilbake til bloggen",
     "readTheDocs": "Les dokumentasjonen",
     "viewChangelog": "Se endringslogg",
-    "otherPlatforms": "Andre plattformer"
+    "otherPlatforms": "Andre plattformer",
+    "copyCode": "Kopier kode",
+    "copied": "Kopiert"
   },
   "nav": {
     "docs": "Dokumentasjon",
@@ -1534,7 +1541,6 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
@@ -2323,6 +2329,28 @@
       "fixTransferDisabled": "En administrert policy slår av filoverføring. Kontakt administratoren din.",
       "supportTitle": "Få hjelp",
       "supportDesc": "Hvis en opprettelse mislykkes, bruker du Copy Error i varselet og tar med feilen, sammen med sporings-ID-en hvis det finnes en, når du kontakter support."
+    },
+    "ui": {
+      "onThisPage": "På denne siden",
+      "copyPage": "Kopier side",
+      "copyPageDesc": "Kopier siden som Markdown for LLM-er",
+      "copied": "Kopiert",
+      "pageActions": "Flere sidehandlinger",
+      "openInChatGPT": "Åpne i ChatGPT",
+      "openInClaude": "Åpne i Claude",
+      "openInDesc": "Still spørsmål om denne siden",
+      "askPrompt": "Les {url} slik at jeg kan stille spørsmål om den.",
+      "previous": "Forrige",
+      "next": "Neste",
+      "helpful": "Var denne siden nyttig?",
+      "yes": "Ja",
+      "no": "Nei",
+      "thanks": "Takk for tilbakemeldingen.",
+      "raiseIssue": "Opprett issue",
+      "openNavigation": "Åpne navigasjon",
+      "closeNavigation": "Lukk navigasjon",
+      "searchShortcut": "Søk i dokumentasjonen (⌘K)",
+      "navigation": "Dokumentasjon"
     },
     "coderouterOverview": {
       "title": "CodeRouter",
@@ -4539,7 +4567,10 @@
     "emailUnavailable": "e-post ikke tilgjengelig",
     "organization": "Organisasjon",
     "personalAccount": "personlig konto",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "signedOutTitle": "Logg inn for å godkjenne coderouter",
+    "signedOutBody": "Et kommandolinjeprogram venter på at du logger inn. Logg inn med cmux-kontoen din for å fullføre tilkoblingen av denne terminalen. Hvis du ikke startet denne forespørselen, lukk denne siden.",
+    "signInButton": "Logg inn"
   },
   "MobileRelease106": {
     "title": "Nytt i 1.0.6",

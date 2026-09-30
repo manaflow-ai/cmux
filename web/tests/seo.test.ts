@@ -1374,3 +1374,14 @@ function requestFor(pathname: string, headers: Record<string, string> = {}) {
     },
   });
 }
+
+describe("docs markdown alternate", () => {
+  test("docs pages advertise their .md copy; other pages do not", () => {
+    expect(buildAlternates("ja", "/docs/api").types).toEqual({
+      "text/markdown": "https://cmux.com/ja/docs/api.md",
+    });
+    expect("types" in buildAlternates("en", "/blog/cmux-omo")).toBe(false);
+    // /docs/base has no agent-readable copy, so it must not advertise one.
+    expect("types" in buildAlternates("en", "/docs/base")).toBe(false);
+  });
+});
