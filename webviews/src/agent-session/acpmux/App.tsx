@@ -187,15 +187,16 @@ export function AcpmuxApp() {
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
+        const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
-          "chat.send": ({ text }) => client.send(String(text ?? "")),
+          "chat.send": async ({ text }) => persistSession(await client.send(String(text ?? ""))),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
-          "chat.select": ({ sessionId }) => client.select(String(sessionId)),
-          "chat.new": ({ harness }) => client.create(harness ? String(harness) : undefined),
+          "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
+          "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
         };
         client.snapshot();

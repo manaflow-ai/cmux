@@ -196,6 +196,17 @@ public final class AcpmuxChatSessionModel {
         try? await attach(newSessionId, api: api, resume: false)
     }
 
+    /// Records a session selected by a secondary client without attaching this model.
+    ///
+    /// The React renderer owns its own acpmux connection. This method keeps the panel's
+    /// persisted selection current while leaving the native model's connection untouched.
+    /// - Parameter sessionId: The acpmux session id to persist.
+    public func rememberSession(sessionId newSessionId: String) {
+        guard !newSessionId.isEmpty, newSessionId != sessionId else { return }
+        sessionId = newSessionId
+        onSessionIdChanged?(newSessionId)
+    }
+
     /// Creates a session on `harness` and selects it.
     /// - Returns: The new session id, or `nil` when creation failed.
     @discardableResult

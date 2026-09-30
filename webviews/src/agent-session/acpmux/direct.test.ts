@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
+import { applySupersededMessage, mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
 import type { AcpmuxRow } from "./model";
 
 describe("direct acpmux event helpers", () => {
@@ -37,5 +37,14 @@ describe("direct acpmux event helpers", () => {
     const fallbackPromptId = [...promptTexts.entries()].find(([, value]) => value === "hello")?.[0];
     settleOptimisticPrompt(rows, promptRows, { promptId: fallbackPromptId, text: "hello" });
     expect(rows.has("local-p1")).toBe(false);
+  });
+
+  test("drops the abandoned assistant row on a superseded message", () => {
+    const rows = new Map<string, AcpmuxRow>([["assistant-1", { id: "assistant-1", version: 1, at: 1, kind: "assistant", text: "partial" }]]);
+    const messageRows = new Map([["old-message", "assistant-1"]]);
+    const superseded = new Set<string>();
+    applySupersededMessage(rows, messageRows, superseded, "old-message");
+    expect(rows.has("assistant-1")).toBe(false);
+    expect(superseded.has("old-message")).toBe(true);
   });
 });
