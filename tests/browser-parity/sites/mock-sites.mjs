@@ -297,11 +297,15 @@ function watchPage(id) {
       el.getVideoData = () => ({ video_id: ${JSON.stringify(id)} });
       el.mute = () => { el.muted = true; };
       el.pauseVideo = () => {};
-      // Like YouTube's player: an XHR for srv3 captions with the player's token.
+      // Like YouTube's player: it keeps its own reference to XHR open (taken
+      // at load, before any hook), requests srv3 captions with its token and
+      // reads the body through responseText.
+      const xhrOpen = XMLHttpRequest.prototype.open;
       el.toggleSubtitlesOn = () => {
         if (!el.muted) throw new Error("must be muted first");
         const x = new XMLHttpRequest();
-        x.open("GET", "/api/timedtext?v=${id}&lang=en&pot=player-token&c=WEB&fmt=srv3");
+        xhrOpen.call(x, "GET", "/api/timedtext?v=${id}&lang=en&pot=player-token&c=WEB&fmt=srv3");
+        x.onload = () => { el.captions = x.responseText.length; };
         x.send();
       };
     </script>`,
