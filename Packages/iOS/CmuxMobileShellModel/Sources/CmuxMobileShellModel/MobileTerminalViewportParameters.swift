@@ -54,6 +54,7 @@ public struct MobileTerminalViewportParameters: Sendable {
             "device_kind": identity.kind.rawValue,
             "device_name": identity.name,
         ]
+        if let deviceID = identity.deviceID { params["device_id"] = deviceID }
         switch countsOverride {
         case .unchanged:
             break
@@ -88,6 +89,7 @@ public struct MobileTerminalViewportParameters: Sendable {
             "device_kind": identity.kind.rawValue,
             "device_name": identity.name,
         ]
+        if let deviceID = identity.deviceID { params["device_id"] = deviceID }
         if let generation {
             params["viewport_generation"] = Int(clamping: generation)
         }

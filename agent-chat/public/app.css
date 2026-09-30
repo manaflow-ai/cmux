@@ -415,6 +415,14 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   background: var(--bg-input); border: 0; border-radius: 14px; padding: 10px 14px;
   white-space: pre-wrap; overflow-wrap: break-word; max-width: 85%;
 }
+.msg.agent-message .agent-message-from { font-size: calc(var(--font-size-base) - 2.5px); color: var(--text-faint); margin-bottom: 4px; }
+.msg.agent-message .body {
+  border-left: 2px solid var(--accent); padding: 2px 0 2px 12px;
+  white-space: pre-wrap; overflow-wrap: break-word; color: var(--text-dim);
+}
+.agent-messages-queued { max-width: 760px; margin: 0 auto 8px; padding: 0 24px; max-height: 30vh; overflow-y: auto; }
+.agent-messages-queued .msg { padding: 0 0 8px; }
+.agent-messages-queued-label { font-size: calc(var(--font-size-base) - 2.5px); color: var(--text-faint); margin-bottom: 6px; }
 .msg.assistant .body { overflow-wrap: break-word; }
 .msg.assistant .body > :first-child { margin-top: 0; }
 .msg.assistant .body > :last-child { margin-bottom: 0; }
@@ -679,6 +687,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 
 .files-diff { padding: 0 0 6px 18px; }
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
+.diff-error { display: flex; align-items: center; gap: 8px; padding: 8px; font: calc(var(--font-size-base) - 2px) var(--font-sans); }
+.diff-error span { min-width: 0; overflow-wrap: anywhere; }
+.diff-retry { flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.28); border-radius: 6px; background: rgba(128, 128, 128, 0.08); color: inherit; cursor: default; font: inherit; padding: 2px 7px; }
 
 #chat-input-row { position: relative; flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 .routing-notice {

@@ -2615,9 +2615,12 @@ final class ClaudeHookSessionStore {
     /// bounded store, so hook routing can recover without silently destroying
     /// the user's previous session mappings.
     private func quarantineOversizedState(at url: URL) throws -> ClaudeHookSessionStoreFile {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1_000)
         let backupURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).quarantined.json", isDirectory: false)
-        try? fileManager.removeItem(at: backupURL)
+            .appendingPathComponent(
+                ".\(url.lastPathComponent).quarantined.\(timestamp).\(UUID().uuidString).json",
+                isDirectory: false
+            )
         try fileManager.moveItem(at: url, to: backupURL)
         return ClaudeHookSessionStoreFile()
     }
@@ -5650,7 +5653,11 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            // `agent message` and `agent inbox` are local agent messaging;
+            // everything else stays an alias of `cmux vm agent`.
+            if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -21097,6 +21104,18 @@ struct CMUXCLI {
             print(verbText)
             return true
         }
+        if command == "agent", let verb = commandArgs.first?.lowercased() {
+            switch verb {
+            case "message", "msg":
+                print(Self.agentMessageHelp)
+                return true
+            case "inbox":
+                print(Self.agentInboxHelp)
+                return true
+            default:
+                break
+            }
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
@@ -28713,6 +28732,7 @@ struct CMUXCLI {
                     isSubagent: isNestedAgentSession,
                     pendingWork: hasUnsettledWork,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                    detail: stopFailure?.journalDetail,
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
@@ -42060,6 +42080,9 @@ export default {
 
         case "claude":
             telemetry.breadcrumb("hooks.claude.dispatch")
+            if try runAgentInboxHookIfMatched(agent: "claude", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.claude.completed")
@@ -42074,6 +42097,10 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
+            if def.name == "codex",
+               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runGenericAgentHook(
                     def: def,
