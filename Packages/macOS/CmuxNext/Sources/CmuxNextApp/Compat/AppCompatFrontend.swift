@@ -52,8 +52,7 @@ final class AppCompatFrontend: CompatFrontend {
         case .selectTab(let tabID, let paneID, let workspaceID, let windowID):
             let controller = try show(workspaceID: workspaceID, windowID: windowID)
             controller.state.selection.select(tabID, in: paneID)
-            focus(paneID: paneID, workspaceID: workspaceID, in: controller)
-            if let pane = controller.content?.panes.values.first(where: { $0.paneKey == paneID }) { pane.select(StripTabID(tabID)) }
+            controller.focus.send(.selectTab(pane: paneID, tab: tabID, workspace: workspaceID, source: .cli))
             services.windows.stateDidChange(controller.state)
         case .newWindow(let workspaceID):
             let id = workspaceID ?? services.windows.active?.state.workspaceID ?? services.daemon.store.workspaces.first?.id
@@ -97,12 +96,9 @@ final class AppCompatFrontend: CompatFrontend {
         return services.windows.open(record: nil, workspaceID: workspaceID)
     }
 
-    /// Records the focus (applied when the window's content switches to the
-    /// workspace) and focuses the pane now when it is already on screen.
+    /// Focuses the pane now when its workspace is shown, else when the
+    /// window's content switches to it (the coordinator remembers it).
     private func focus(paneID: String, workspaceID: String, in controller: WindowController) {
-        controller.state.focusedPane[workspaceID] = LayoutPaneID(paneID)
-        guard let content = controller.content, content.workspace.id == workspaceID else { return }
-        content.layoutModel.focus(LayoutPaneID(paneID))
-        content.panes.values.first { $0.paneKey == paneID }?.focusContent()
+        controller.focus.send(.focusPane(paneID, workspace: workspaceID, source: .cli))
     }
 }

@@ -63,7 +63,7 @@ enum TerminalHandlers {
             guard case .terminal = content, let key = pane.currentTabKey else { return ctx.refuse(RefusalStrings.notATerminal) }
             ctx.services.cache.release(key)
             pane.showSelected()
-            pane.focusContent()
+            pane.focusContent(source: .programmatic)
         })
     }
 

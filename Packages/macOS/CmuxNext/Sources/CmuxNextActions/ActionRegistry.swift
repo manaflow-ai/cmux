@@ -39,6 +39,10 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
+    /// `ActionKeyTier`.
+    public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
+
     /// Collects missing required arguments (the palette installs itself
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.

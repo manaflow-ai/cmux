@@ -83,7 +83,7 @@ enum TabHandlers {
         let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
         guard let workspace else { return }
         window.state.selection.select(tabID, in: paneModel.id)
-        window.state.focusedPane[workspace.id] = LayoutPaneID(paneModel.id)
+        window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
         ctx.services.windows.show(workspaceID: workspace.id, in: window.state)
     }
 

@@ -75,6 +75,7 @@ extension TabDragSession {
         self.drag = nil
         removeMonitors(drag)
         let outcome = commit ? drag.outcome : .cancel
+        focusDragEnded(drag, outcome: outcome)
         let winner = drag.winner
         for provider in drag.touched.values where provider !== winner?.provider || outcome == .cancel {
             provider.dropEnded(committed: nil)

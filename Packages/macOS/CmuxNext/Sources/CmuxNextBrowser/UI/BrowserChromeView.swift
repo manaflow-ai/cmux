@@ -21,6 +21,25 @@ public final class BrowserChromeView: NSView {
 
     public let addressBar: AddressBarView
 
+    /// Which part of the chrome holds a responder view.
+    public enum Region: Hashable, Sendable {
+        case addressBar
+        case findBar
+        case page
+        /// Toolbar buttons, prompt bar, error page.
+        case chrome
+    }
+
+    /// Browser focus mode (the page gets every key but app-level ones):
+    /// a thin gray inset outline around the page.
+    public var showsFocusModeIndicator = false {
+        didSet {
+            guard showsFocusModeIndicator != oldValue else { return }
+            contentContainer.layer?.borderWidth = showsFocusModeIndicator ? 2 : 0
+            updateColors()
+        }
+    }
+
     private let toolbar = NSView()
     private let separator = NSView()
     private let backButton: ChromeIconButton
@@ -302,6 +321,15 @@ public final class BrowserChromeView: NSView {
         }
     }
 
+    /// The region of this chrome that contains `view`, nil when outside.
+    public func region(of view: NSView) -> Region? {
+        guard view.isDescendant(of: self) else { return nil }
+        if view.isDescendant(of: addressBar) { return .addressBar }
+        if view.isDescendant(of: findBar) { return .findBar }
+        if view.isDescendant(of: tab.contentView) { return .page }
+        return .chrome
+    }
+
     private var containsFirstResponder: Bool {
         guard let responder = window?.firstResponder else { return false }
         if let view = responder as? NSView { return view.isDescendant(of: self) }
@@ -321,6 +349,7 @@ public final class BrowserChromeView: NSView {
             layer?.backgroundColor = Palette.contentBackground.cgColor
             toolbar.layer?.backgroundColor = Palette.windowBackground.cgColor
             separator.layer?.backgroundColor = Palette.separator.cgColor
+            contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }
 }

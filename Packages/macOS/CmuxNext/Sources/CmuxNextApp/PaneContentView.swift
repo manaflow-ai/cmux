@@ -10,10 +10,6 @@ final class PaneContentView: NSView {
     private let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
-    /// The pane or any view inside it became first responder.
-    var onFocus: (() -> Void)?
-    /// The view entered a window (first layout, workspace switch).
-    var onWindow: (() -> Void)?
 
     init(stripModel: TabStripModel) {
         stripView = TabStripView(model: stripModel)
@@ -45,12 +41,13 @@ final class PaneContentView: NSView {
         contentHost.frame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
     }
 
-    /// Swaps the hosted content view. Returns the previous one.
+    /// Swaps the hosted content view. Returns the previous one. Focus is
+    /// not handled here: the window's `FocusCoordinator` re-targets the
+    /// keyboard when the pane reports the new content.
     @discardableResult
     func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view else { return previous }
-        let wasFocused = previous.map { window?.firstResponder.flatMap { $0 as? NSView }?.isDescendant(of: $0) ?? false } ?? false
         previous?.removeFromSuperview()
         if let view {
             view.frame = contentHost.bounds
@@ -58,13 +55,7 @@ final class PaneContentView: NSView {
             contentHost.addSubview(view)
         }
         content = view
-        if wasFocused { onFocus?() }
         return previous
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil { onWindow?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -11,6 +11,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
+    /// This window's focus state machine (plans/cmux-next/focus.md).
+    let focus = FocusCoordinator()
+    private(set) var focusApplier: FocusEffectApplier!
     private(set) var content: WorkspaceContentController?
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
@@ -27,7 +30,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.registry = services.registry
+        window.keyRouter = services.keyRouter
         window.title = Strings.appName
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -41,6 +44,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         super.init(window: window)
         window.delegate = self
+        window.focus = focus
+        focusApplier = FocusEffectApplier(controller: self)
+        focus.applier = focusApplier
+        focus.send(.appActive(NSApp.isActive))
         observeWorkspace()
     }
 
@@ -48,6 +55,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        focusApplier.teardown()
         workspaceObservation?.cancel()
         titleObservation?.cancel()
         content?.teardown()
@@ -100,14 +108,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         content?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, focus: focus)
         content = controller
         root.show(controller.layoutView)
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
             for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
-        controller.focusCurrentPane()
+        // The new workspace's panes: the coordinator restores its pane.
+        controller.sendTopology()
         services.windows.stateDidChange(state)
         services.cloudContextDidChange()
     }
@@ -118,8 +127,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        focus.send(.windowKey(true))
         services.cloudContextDidChange()
     }
+
+    func windowDidResignKey(_ notification: Notification) {
+        focus.send(.windowKey(false))
+    }
+
+    func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
+    func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
     func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
@@ -129,22 +146,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-/// Routes key equivalents through the action registry before the terminal
-/// sees them, and reports first-responder changes to the owning pane so
-/// layout focus follows the keyboard.
+/// Routes key equivalents through the one `KeyRouter` (focus.md section 5)
+/// and reports every first-responder change to the window's focus
+/// coordinator, which classifies it (`FocusResponderClassifier`).
 final class ShellWindow: NSWindow {
-    weak var registry: ActionRegistry?
+    weak var keyRouter: KeyRouter?
+    weak var focus: FocusCoordinator?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if registry?.performShortcut(for: event) == true { return true }
+        if let keyRouter, let focus, keyRouter.routeKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)
-        if accepted, var view = responder as? NSView {
-            while let parent = view.superview, !(view is PaneContentView) { view = parent }
-            (view as? PaneContentView)?.onFocus?()
+        if accepted, let controller = windowController as? WindowController {
+            controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
         }
         return accepted
     }

@@ -94,6 +94,7 @@ final class TabDragSession: NSObject {
             MainActor.assumeIsolated { self?.finish(commit: false) }
         }
         self.drag = drag
+        focusDragBegan(item, from: pane)
         ghost.show()
         drag.link = ghost.makeDisplayLink(target: self, selector: #selector(tick(_:)))
         drag.link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)

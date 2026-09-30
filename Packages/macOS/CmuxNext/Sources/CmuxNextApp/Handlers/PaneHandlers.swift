@@ -30,8 +30,7 @@ enum PaneHandlers {
     }
 
     static func focus(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
-        content.layoutModel.focus(pane)
-        content.panes[pane]?.focusContent()
+        content.focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
     // MARK: Splits
@@ -67,12 +66,12 @@ enum PaneHandlers {
         default: nil
         }
         let logger = ctx.services.daemon.logger
+        let intent = content?.beginFocusIntent()
         ctx.registry.track(Task {
             do {
                 let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
-                content?.pendingFocusSurface = created.surface
-                content?.applyCurrent()
+                content?.expectFocus(on: created.surface, generation: intent)
                 return nil
             } catch {
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
