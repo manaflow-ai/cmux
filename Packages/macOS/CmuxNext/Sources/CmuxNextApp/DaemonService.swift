@@ -33,25 +33,51 @@ final class DaemonService {
     /// Mac path does not exist.
     var defaultCwd: String? { isLocal ? NSHomeDirectory() : nil }
 
+    /// How the first connection is going (window connecting state, control
+    /// errors). Becomes `.unavailable` after `startupDeadline` or on an
+    /// incompatible daemon; retrying continues in the background.
+    private(set) var startup: DaemonStartupState = .connecting
+    @ObservationIgnored var startupDeadline: Duration = DaemonStartup.defaultDeadline
+    @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
+    @ObservationIgnored private var startupDeadlineTask: Task<Void, Never>?
+    @ObservationIgnored private var lastStartupError: DaemonError?
+
     func start(launch: LaunchIdentity) {
         guard runTask == nil else { return }
+        let launcher: DaemonLauncher
+        do {
+            launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: launch.terminalEnvironment)
+        } catch {
+            noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+            return
+        }
+        let configuration = DaemonConnection.Configuration(
+            terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
+        start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
+    }
+
+    /// Connects with `makeConnection`, retrying the first connect until it
+    /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
+    /// The connection reconnects by itself afterwards.
+    func start(makeConnection: @escaping @Sendable () -> DaemonConnection) {
+        guard runTask == nil else { return }
         let store = store
+        armStartupDeadline()
         runTask = Task { [weak self, scheduler, logger] in
-            do {
-                let launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: launch.terminalEnvironment)
-                let configuration = DaemonConnection.Configuration(
-                    terminalEnvironment: TerminalEnvironment.shared(overrides: launch.terminalEnvironment))
-                let connection = DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
-                let identity = try await connection.start()
-                self?.connection = connection
-                self?.identity = identity
-                self?.windowState = WindowStateStore(connection: connection)
-                logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-                await store.run(connection: connection, scheduler: scheduler)
-            } catch {
-                logger.error("cmux-tui daemon unavailable: \(String(describing: error), privacy: .public)")
-                store.markFailed(String(describing: error))
+            let clock = self?.startupClock ?? ContinuousClock()
+            weak let weakSelf = self
+            let connected = await DaemonStartup.connect(clock: clock, makeConnection: makeConnection) { error in
+                await weakSelf?.noteStartupFailure(error)
             }
+            guard let (connection, identity) = connected else { return }
+            guard let self, !Task.isCancelled else {
+                await connection.close()
+                return
+            }
+            self.didConnect(connection, identity: identity)
+            self.windowState = WindowStateStore(connection: connection)
+            logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+            await store.run(connection: connection, scheduler: scheduler)
         }
     }
 
@@ -64,30 +90,56 @@ final class DaemonService {
         guard runTask == nil else { return }
         let store = store
         let machineID = machineID
+        armStartupDeadline()
         runTask = Task { [weak self, scheduler, logger] in
             let delays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)]
-            var attempt = 0
+            weak let weakSelf = self
             while !Task.isCancelled {
-                let configuration = DaemonConnection.Configuration(terminalEnvironment: nil)
-                let connection = DaemonConnection(configuration: configuration) { DaemonEndpoint(socketPath: try await endpoint()) }
-                do {
-                    let identity = try await connection.start()
-                    attempt = 0
-                    self?.connection = connection
-                    self?.identity = identity
-                    logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-                    await store.run(connection: connection, scheduler: scheduler)
-                } catch {
-                    await connection.close()
-                    if Task.isCancelled { return }
-                    logger.error("\(machineID, privacy: .public): daemon unavailable: \(String(describing: error), privacy: .public)")
-                    store.markFailed(String(describing: error))
+                let connected = await DaemonStartup.connect(delays: delays) {
+                    DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
+                        DaemonEndpoint(socketPath: try await endpoint())
+                    }
+                } onFailure: { error in
+                    logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
+                    await weakSelf?.noteStartupFailure(error)
                 }
+                guard let (connection, identity) = connected, let self, !Task.isCancelled else { return }
+                self.didConnect(connection, identity: identity)
+                logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+                await store.run(connection: connection, scheduler: scheduler)
+                await connection.close()
                 if Task.isCancelled { return }
-                let delay = delays[min(attempt, delays.count - 1)]
-                attempt += 1
-                do { try await ContinuousClock().sleep(for: delay) } catch { return }
+                do { try await ContinuousClock().sleep(for: delays[0]) } catch { return }
             }
+        }
+    }
+
+    private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
+        self.connection = connection
+        self.identity = identity
+        startupDeadlineTask?.cancel()
+        startupDeadlineTask = nil
+        lastStartupError = nil
+        startup = .connected
+    }
+
+    /// Records a failed first-connect attempt. Shows as unavailable once the
+    /// deadline has passed, or at once when retrying cannot help.
+    func noteStartupFailure(_ error: DaemonError) {
+        logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
+        lastStartupError = error
+        store.markFailed(error.description)
+        if startup.isUnavailable || DaemonStartup.isPermanent(error) { startup = .unavailable(error) }
+    }
+
+    private func armStartupDeadline() {
+        startupDeadlineTask?.cancel()
+        let deadline = startupDeadline
+        let clock = startupClock
+        startupDeadlineTask = Task { [weak self] in
+            do { try await clock.sleep(for: deadline) } catch { return }
+            guard let self, self.startup == .connecting else { return }
+            self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
         }
     }
 
@@ -244,6 +296,8 @@ final class DaemonService {
     }
 
     func shutdownConnection() {
+        startupDeadlineTask?.cancel()
+        startupDeadlineTask = nil
         runTask?.cancel()
         runTask = nil
         if let connection { Task { await connection.close() } }

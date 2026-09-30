@@ -31,8 +31,10 @@ final class TabCell {
     var appearance = NSAppearance.currentDrawing() {
         didSet { if oldValue !== appearance { updateColors(animated: false) } }
     }
-    /// Backing scale of the strip's window.
-    var scale: CGFloat = 2 {
+    /// Backing scale of the strip's window. Starts at 1 to match a new
+    /// layer's `contentsScale`, so the first real assignment (2 on Retina)
+    /// always reaches the layers instead of being skipped as unchanged.
+    var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
             for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
@@ -54,7 +56,7 @@ final class TabCell {
 
     private let backgroundLayer = CALayer()
     let iconLayer = CALayer()
-    let titleLayer = CATextLayer()
+    let titleLayer = ChromeTextLayer()
     private let titleMask = CAGradientLayer()
     private let separatorLayer = CALayer()
     // Created on first need and removed when unused, so 100 idle tabs cost
@@ -78,7 +80,6 @@ final class TabCell {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont
-            titleLayer.fontSize = titleFont.pointSize
             measuredTitle = nil
             layoutLayers()
         }
@@ -107,10 +108,6 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
-        titleLayer.fontSize = titleFont.pointSize
-        titleLayer.isWrapped = false
-        titleLayer.truncationMode = .none
-        titleLayer.alignmentMode = .left
         titleMask.startPoint = CGPoint(x: 0, y: 0.5)
         titleMask.endPoint = CGPoint(x: 1, y: 0.5)
         titleMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
@@ -332,7 +329,7 @@ final class TabCell {
             let titleEnd = (closeRect.map { $0.minX - m.titleCloseSpacing }) ?? (bounds.width - m.contentTrailingInset)
             let width = max(0, titleEnd - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
-            titleLayer.frame = CGRect(x: titleX, y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
+            titleLayer.frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: width, height: lineHeight)
             titleLayer.opacity = 1
             let textWidth = titleWidth()
             if textWidth > width, width > 0 {

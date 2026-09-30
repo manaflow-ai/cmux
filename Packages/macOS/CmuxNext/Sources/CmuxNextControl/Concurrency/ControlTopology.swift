@@ -8,6 +8,9 @@ public struct ControlTopology: Sendable, Hashable {
     public var isLoaded = false
     /// `connecting`, `connected`, `disconnected`, or `failed`.
     public var daemonState = "connecting"
+    /// Why the first daemon connection has not succeeded, once the startup
+    /// deadline passed (nil while connecting normally or once connected).
+    public var daemonFailure: String?
     public var windows: [ControlWindowInfo] = []
     public var workspaceGroups: [ControlWorkspaceGroupInfo] = []
     public var workspaces: [ControlWorkspaceInfo] = []

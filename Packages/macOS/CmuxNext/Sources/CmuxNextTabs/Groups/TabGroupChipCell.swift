@@ -28,7 +28,9 @@ final class TabGroupChipCell {
     var metrics = TabStripMetrics.standard { didSet { if oldValue != metrics { contentChanged() } } }
     var font = Typography.caption { didSet { if oldValue != font { contentChanged() } } }
     var appearance = NSAppearance.currentDrawing() { didSet { if oldValue !== appearance { updateColors(animated: false) } } }
-    var scale: CGFloat = 2 {
+    /// Backing scale of the host window. Starts at 1 to match a new layer's
+    /// `contentsScale`, so the first real assignment always reaches the layers.
+    var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
             nameLayer.contentsScale = scale
@@ -37,9 +39,9 @@ final class TabGroupChipCell {
     }
 
     private let pill = CALayer()
-    private let nameLayer = CATextLayer()
+    private let nameLayer = ChromeTextLayer()
     private let nameMask = CAGradientLayer()
-    private let countLayer = CATextLayer()
+    private let countLayer = ChromeTextLayer()
     private var measured: (name: String, count: String, font: NSFont, content: TabGroupChipLayout.Content)?
 
     init(group: TabGroupItem, memberCount: Int) {
@@ -52,11 +54,6 @@ final class TabGroupChipCell {
         for sublayer in [layer, pill, nameLayer, countLayer, nameMask] { sublayer.actions = none }
         pill.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "shadowOpacity": Self.fade]
         pill.cornerCurve = .continuous
-        for text in [nameLayer, countLayer] {
-            text.isWrapped = false
-            text.truncationMode = .none
-            text.alignmentMode = .left
-        }
         nameMask.startPoint = CGPoint(x: 0, y: 0.5)
         nameMask.endPoint = CGPoint(x: 1, y: 0.5)
         nameMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
@@ -116,10 +113,8 @@ final class TabGroupChipCell {
     private func contentChanged() {
         nameLayer.string = group.name
         nameLayer.font = font
-        nameLayer.fontSize = font.pointSize
         countLayer.string = countText
         countLayer.font = font
-        countLayer.fontSize = font.pointSize
         updateColors(animated: false)
         updateAccessibility()
         layoutLayers()
@@ -144,7 +139,7 @@ final class TabGroupChipCell {
         let textY = pixel((side - lineHeight) / 2)
         var x = m.groupChipPadding
         let nameWidth = min(content.nameWidth, max(0, width - 2 * m.groupChipPadding - (content.countWidth.map { $0 + m.groupChipCountSpacing } ?? 0)))
-        nameLayer.frame = CGRect(x: x, y: textY, width: nameWidth, height: lineHeight)
+        nameLayer.frame = CGRect(x: pixel(x), y: textY, width: nameWidth, height: lineHeight)
         nameLayer.opacity = nameWidth > 0 ? 1 : 0
         if content.nameWidth > nameWidth, nameWidth > 0 {
             let fade = min(m.titleFadeWidth, nameWidth / 2)
@@ -156,7 +151,7 @@ final class TabGroupChipCell {
         }
         if nameWidth > 0 { x += nameWidth + m.groupChipCountSpacing }
         let countWidth = content.countWidth ?? 0
-        countLayer.frame = CGRect(x: x, y: textY, width: countWidth, height: lineHeight)
+        countLayer.frame = CGRect(x: pixel(x), y: textY, width: countWidth, height: lineHeight)
         countLayer.opacity = (countWidth > 0 && x + countWidth <= width) ? 1 : 0
     }
 
