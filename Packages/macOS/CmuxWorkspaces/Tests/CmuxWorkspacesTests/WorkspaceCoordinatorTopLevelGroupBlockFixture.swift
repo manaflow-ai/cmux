@@ -54,6 +54,13 @@ struct WorkspaceCoordinatorTopLevelGroupBlockFixture {
         let anchor2Id = try #require(
             model.workspaceGroups.first { $0.id == group2Id }?.anchorWorkspaceId
         )
+        model.normalizeWorkspaceGroupRunsPreservingOrder([
+            anchor1Id,
+            anchor2Id,
+            loose1.id,
+            loose2.id,
+            loose3.id,
+        ])
         try #require(model.tabs.map(\.id) == [
             anchor1Id,
             group1Child1.id,

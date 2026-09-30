@@ -273,8 +273,6 @@ struct WorkspaceCoordinatorTests {
             child1.id,
             child2.id,
         ]))
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
-
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
             toIndex: 3,
@@ -384,9 +382,10 @@ struct WorkspaceCoordinatorTests {
         let sourceGroupId = try #require(groups.createWorkspaceGroup(name: "Source"))
         groups.addWorkspaceToGroup(workspaceId: dragged.id, groupId: sourceGroupId)
         groups.addWorkspaceToGroup(workspaceId: sourcePeer.id, groupId: sourceGroupId)
-        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target"))
-        groups.addWorkspaceToGroup(workspaceId: targetChild1.id, groupId: targetGroupId)
-        groups.addWorkspaceToGroup(workspaceId: targetChild2.id, groupId: targetGroupId)
+        let targetGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Target",
+            childWorkspaceIds: [targetChild1.id, targetChild2.id]
+        ))
         let targetGroup = try #require(model.workspaceGroups.first { $0.id == targetGroupId })
         let targetLastIndex = try #require(model.tabs.indices.last { model.tabs[$0].groupId == targetGroupId })
 
@@ -400,7 +399,6 @@ struct WorkspaceCoordinatorTests {
         #expect(dragged.groupId == targetGroupId)
         #expect(model.tabs.filter { $0.groupId == targetGroupId }.map(\.id) == [
             targetGroup.anchorWorkspaceId,
-            targetChild1.id,
             targetChild2.id,
             dragged.id,
         ])
@@ -415,11 +413,10 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
-        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
-        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
-
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child1.id, child2.id]
+        ))
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
             toIndex: 3,
@@ -428,7 +425,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
             child1.id,
             child2.id,
             dragged.id,
@@ -445,9 +441,10 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
-        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
-        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child1.id, child2.id]
+        ))
         let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
 
         let moved = reorder.reorderSidebarWorkspace(
@@ -459,7 +456,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
             child1.id,
             child2.id,
             dragged.id,
@@ -634,9 +630,10 @@ struct WorkspaceCoordinatorTests {
         let target2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [moving1, moving2, target1, target2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
-        groups.addWorkspaceToGroup(workspaceId: target1.id, groupId: groupId)
-        groups.addWorkspaceToGroup(workspaceId: target2.id, groupId: groupId)
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [target1.id, target2.id]
+        ))
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         // Grabbed moving1; the gap above target2 indexes the order without
         // the grab row, so the raw position shifts down by one.
@@ -654,7 +651,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moving1.groupId == groupId)
         #expect(moving2.groupId == groupId)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            group.anchorWorkspaceId,
             target1.id,
             moving1.id,
             moving2.id,
@@ -703,7 +699,6 @@ struct WorkspaceCoordinatorTests {
             name: "G",
             childWorkspaceIds: [member1.id, member2.id]
         ))
-        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
         // Grabbed loose; the gap between member2 and outside has one grouped
         // and one ungrouped neighbor. Single-drag preserves membership there,
         // so the block must too — stripping member2 out of its group here was
@@ -721,7 +716,6 @@ struct WorkspaceCoordinatorTests {
         #expect(loose.groupId == nil)
         #expect(member2.groupId == groupId)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            anchorId,
             member1.id,
             member2.id,
         ])
@@ -740,8 +734,6 @@ struct WorkspaceCoordinatorTests {
             name: "G",
             childWorkspaceIds: [child1.id, child2.id]
         ))
-        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
-
         // Grabbed child1; index 2 in the top-level rows without it
         // ([anchor, outside1, outside2]) is the gap above outside2.
         #expect(reorder.reorderSidebarWorkspaces(
@@ -754,7 +746,6 @@ struct WorkspaceCoordinatorTests {
         #expect(child1.groupId == nil)
         #expect(child2.groupId == nil)
         #expect(model.tabs.map(\.id) == [
-            anchorId,
             outside1.id,
             child1.id,
             child2.id,
