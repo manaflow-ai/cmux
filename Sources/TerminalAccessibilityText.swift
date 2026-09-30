@@ -15,16 +15,26 @@ final class TerminalAccessibilityText {
     /// shell or agent has usually echoed the text by the time clients re-read.
     static let valueChangedDelay: TimeInterval = 0.15
 
-    /// How many distinct values handed to AX clients are remembered. A
-    /// dictation tool can read, wait while the user speaks and output
-    /// arrives, then write back an older value than the latest one read.
-    static let vendedValueHistoryLimit = 8
+    /// How long a value handed to an AX client remains eligible for edit
+    /// detection after it was last vended.
+    static let vendedValueHistoryLifetime: TimeInterval = 30
+    /// The total UTF-8 size of values retained for edit detection.
+    static let vendedValueHistoryByteLimit = 4 * 1024 * 1024
+
+    private struct VendedValue {
+        let value: String
+        var lastVendedAt: TimeInterval
+        let byteCount: Int
+    }
 
     private var snapshot: String?
     private var snapshotCapturedAt: TimeInterval = 0
     /// Values recently handed to AX clients, newest last. A client that edits
     /// `AXValue` sends back one of these with its insertion spliced in.
-    private(set) var vendedValues: [String] = []
+    var vendedValues: [String] {
+        vendedValueHistory.map(\.value)
+    }
+    private var vendedValueHistory: [VendedValue] = []
     private var valueChangedTimer: Timer?
 
     nonisolated init() {}
@@ -34,20 +44,16 @@ final class TerminalAccessibilityText {
         now: TimeInterval = ProcessInfo.processInfo.systemUptime,
         read: () -> String?
     ) -> String {
+        let value: String
         if let snapshot, now - snapshotCapturedAt < Self.snapshotLifetime {
-            return snapshot
+            value = snapshot
+        } else {
+            value = read() ?? ""
+            snapshot = value
+            snapshotCapturedAt = now
         }
-        let fresh = read() ?? ""
-        snapshot = fresh
-        snapshotCapturedAt = now
-        if !fresh.isEmpty, vendedValues.last != fresh {
-            vendedValues.removeAll { $0 == fresh }
-            vendedValues.append(fresh)
-            if vendedValues.count > Self.vendedValueHistoryLimit {
-                vendedValues.removeFirst(vendedValues.count - Self.vendedValueHistoryLimit)
-            }
-        }
-        return fresh
+        recordVendedValue(value, at: now)
+        return value
     }
 
     /// Drops the snapshot so the next AX query reads the terminal again.
@@ -79,13 +85,34 @@ final class TerminalAccessibilityText {
     /// so when `newValue` is an edit of a recently vended value, only the
     /// edited middle is returned. Anything else is taken literally, which is
     /// how clients that set just the dictated text have always worked.
-    func insertedText(settingValue newValue: String) -> String {
-        for vended in vendedValues.reversed() {
-            if let inserted = Self.insertedText(settingValue: newValue, over: vended) {
+    func insertedText(
+        settingValue newValue: String,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> String {
+        pruneVendedValues(at: now)
+        for vended in vendedValueHistory.reversed() {
+            if let inserted = Self.insertedText(settingValue: newValue, over: vended.value) {
                 return inserted
             }
         }
         return newValue
+    }
+
+    private func recordVendedValue(_ value: String, at now: TimeInterval) {
+        pruneVendedValues(at: now)
+        guard !value.isEmpty else { return }
+        let byteCount = value.utf8.count
+        guard byteCount <= Self.vendedValueHistoryByteLimit else { return }
+        vendedValueHistory.removeAll { $0.value == value }
+        vendedValueHistory.append(VendedValue(value: value, lastVendedAt: now, byteCount: byteCount))
+        var totalBytes = vendedValueHistory.reduce(0) { $0 + $1.byteCount }
+        while totalBytes > Self.vendedValueHistoryByteLimit, !vendedValueHistory.isEmpty {
+            totalBytes -= vendedValueHistory.removeFirst().byteCount
+        }
+    }
+
+    private func pruneVendedValues(at now: TimeInterval) {
+        vendedValueHistory.removeAll { now - $0.lastVendedAt >= Self.vendedValueHistoryLifetime }
     }
 
     /// The edited middle of `newValue` when it keeps `currentValue` around one

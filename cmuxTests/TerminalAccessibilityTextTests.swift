@@ -12,12 +12,13 @@ import Testing
 @Suite("Terminal accessibility text")
 struct TerminalAccessibilityTextTests {
     private let screen = "~/src main\n$ echo ready\nready\n$ "
+    private let testNow: TimeInterval = 100
 
     /// Vends each value to a fresh model the way AX reads do, a snapshot apart.
     private func model(vending values: [String]) -> TerminalAccessibilityText {
         let text = TerminalAccessibilityText()
         for (offset, value) in values.enumerated() {
-            _ = text.value(now: Double(offset), read: { value })
+            _ = text.value(now: testNow + Double(offset), read: { value })
         }
         return text
     }
@@ -25,12 +26,12 @@ struct TerminalAccessibilityTextTests {
     @Test("A value that splices text into what the client read inserts only that text")
     func splicedValueYieldsTheInsertion() {
         let text = model(vending: [screen])
-        #expect(text.insertedText(settingValue: screen + "git status") == "git status")
-        #expect(text.insertedText(settingValue: "git status" + screen) == "git status")
+        #expect(text.insertedText(settingValue: screen + "git status", now: testNow) == "git status")
+        #expect(text.insertedText(settingValue: "git status" + screen, now: testNow) == "git status")
         let middle = screen.index(screen.startIndex, offsetBy: 11)
         var spliced = screen
         spliced.insert(contentsOf: "hello ", at: middle)
-        #expect(text.insertedText(settingValue: spliced) == "hello ")
+        #expect(text.insertedText(settingValue: spliced, now: testNow) == "hello ")
     }
 
     @Test("A value spliced into an older read still inserts only the text after the screen changed")
@@ -38,27 +39,34 @@ struct TerminalAccessibilityTextTests {
         let older = screen
         let newer = "ready\n$ \nagent output line one\nagent output line two\n"
         let text = model(vending: [older, newer])
-        #expect(text.insertedText(settingValue: older + "git status") == "git status")
+        #expect(text.insertedText(settingValue: older + "git status", now: testNow) == "git status")
     }
 
     @Test("A delayed edit survives more than eight newer screen reads")
     func delayedReadSurvivesScreenChurn() {
         let newerScreens = (1...10).map { "new screen \($0)\n$ " }
         let text = model(vending: [screen] + newerScreens)
-        #expect(text.insertedText(settingValue: screen + "git status") == "git status")
+        #expect(text.insertedText(settingValue: screen + "git status", now: testNow + 10) == "git status")
+    }
+
+    @Test("A vended value expires after the edit window")
+    func expiredReadIsLiteral() {
+        let text = model(vending: [screen])
+        let expiredAt = testNow + TerminalAccessibilityText.vendedValueHistoryLifetime
+        #expect(text.insertedText(settingValue: screen + "git status", now: expiredAt) == screen + "git status")
     }
 
     @Test("A value that doesn't keep the text the client read is inserted as is")
     func unrelatedValueIsLiteral() {
-        #expect(model(vending: [screen]).insertedText(settingValue: "hello world") == "hello world")
-        #expect(model(vending: []).insertedText(settingValue: "$ ") == "$ ")
-        #expect(model(vending: [screen]).insertedText(settingValue: "ends with a space ") == "ends with a space ")
-        #expect(model(vending: ["% "]).insertedText(settingValue: "hello ") == "hello ")
+        #expect(model(vending: [screen]).insertedText(settingValue: "hello world", now: testNow) == "hello world")
+        #expect(model(vending: []).insertedText(settingValue: "$ ", now: testNow) == "$ ")
+        #expect(model(vending: [screen]).insertedText(settingValue: "ends with a space ", now: testNow) == "ends with a space ")
+        #expect(model(vending: ["% "]).insertedText(settingValue: "hello ", now: testNow) == "hello ")
     }
 
     @Test("Setting the value the client read inserts nothing")
     func unchangedValueInsertsNothing() {
-        #expect(model(vending: [screen]).insertedText(settingValue: screen) == "")
+        #expect(model(vending: [screen]).insertedText(settingValue: screen, now: testNow) == "")
     }
 
     @Test("Trailing line breaks split off as a submit")
