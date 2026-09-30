@@ -19,3 +19,5 @@ Loop state for slice 1 (DESIGN.md "Slice 1"). Read first, update last.
 
 - 2026-09-30: step 1 live under `cf dev` (port 8787). `cf dev` needs `cloudflare.config.ts` + `wrangler.config.ts` (experimental new config), not wrangler.jsonc. `bun cloud/worker/scripts/smoke.ts` passes. Dev identity: `?dev_user=` when `MUX_DEV_AUTH=1` (.dev.vars).
 - 2026-09-30: step 3 live: mux answers through coderouter. Coderouter requires `stream: true`; with `store: false` the completed event has empty output, so items come from `response.output_item.done`. Failed turns retry 3 times with backoff, then the mux posts the error and drops the message. Kill stray `cf-wrangler.js dev` children before restarting `cf dev` (port 8787 conflict).
+- 2026-09-30: step 2 live. Conversation state is an external store (useSyncExternalStore, socket per subscriber set, reconnect on drop). `vp dev` proxies /api to 8787; `cf dev` also serves apps/web/dist. Browser check: `bun apps/web/scripts/e2e.ts` (Playwright, installed chromium 1243).
+- Next order: 6 code mode + 7 link (so the mux can drive acpmux), then 4/5 memory, then 8/9 auth and staging.

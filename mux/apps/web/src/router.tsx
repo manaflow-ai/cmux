@@ -1,21 +1,24 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
-import { fixtureSource } from "./chat/fixture.ts";
-import type { ChatSource } from "./chat/source.ts";
+import { makeSession, type ChatSession } from "./chat/session.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
 export interface RouterContext {
   queryClient: QueryClient;
-  source: ChatSource;
+  session: ChatSession;
 }
 
 export function makeRouter() {
   const queryClient = new QueryClient();
   return createRouter({
     routeTree,
-    context: { queryClient, source: fixtureSource },
+    context: {
+      queryClient,
+      session: makeSession(
+        () => void queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+      ),
+    },
     defaultPreload: "intent",
-    scrollRestoration: true,
   });
 }
 

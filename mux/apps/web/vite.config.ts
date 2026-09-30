@@ -8,4 +8,8 @@ export default defineConfig({
     tanstackRouter({ target: "react", autoCodeSplitting: true }),
     react(),
   ]),
+  server: {
+    // `cf dev` in cloud/worker serves the API on 8787.
+    proxy: { "/api": { target: "http://localhost:8787", ws: true } },
+  },
 });
