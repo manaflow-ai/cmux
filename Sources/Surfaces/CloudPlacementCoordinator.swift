@@ -25,7 +25,6 @@ final class CloudPlacementCoordinator {
     private var movedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var closedTabs: [SurfaceMachineID: [String: String]] = [:]
     private var confirmationCursors: [SurfaceMachineID: [String: CloudVMCursor]] = [:]
-    var localDisplayMemberships: [UUID: String] = [:]
     private(set) var failures: [SurfaceResourceID: String] = [:]
 
     init(
@@ -122,7 +121,7 @@ final class CloudPlacementCoordinator {
             // when the pane moves into an unbound viewer workspace.
             let current = projectionInCurrentWorkspace(projection)
             catalog.setRemotePlacement(for: projection, workspaceID: current.remoteWorkspaceID, tabID: nil)
-            syncCloudDisplayMembership(projection: projection, current: current, catalog: catalog)
+            syncCloudDisplayMembership(projection: projection, catalog: catalog)
             return
         }
         guard let target = boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine),

@@ -8,19 +8,18 @@ extension CloudPlacementCoordinator {
     /// publish a half-moved display view.
     func syncCloudDisplayMembership(
         projection: SurfaceProjection,
-        current: SurfaceProjection,
         catalog: SurfaceCatalog
     ) {
         guard projection.resource.kind == .display,
               let provider = catalog.provider(for: projection.resource.machine) as? any CloudDisplayMembershipSyncing
         else { return }
-        let previous = localDisplayMemberships[projection.panelID]
-        let target = current.remoteWorkspaceID
-        guard previous != target || (previous == nil && target != nil) else { return }
         enqueue(projection, catalog: catalog, presentFailure: false) {
             guard let latest = catalog.projection(forPanel: projection.panelID),
                   latest.resource == projection.resource else { return false }
-            let old = self.localDisplayMemberships[projection.panelID]
+            let old = try await provider.cloudDisplayMembershipWorkspace(
+                displayID: projection.resource.key,
+                panelID: projection.panelID
+            )
             let next = latest.remoteWorkspaceID
             var attachedNext = false
             if let old, old != next {
@@ -63,11 +62,8 @@ extension CloudPlacementCoordinator {
                     panelID: projection.panelID,
                     attached: true
                 )
-                self.localDisplayMemberships[projection.panelID] = next
-            } else {
-                self.localDisplayMemberships[projection.panelID] = nil
             }
-            return true
+            return old != next || attachedNext
         }
     }
 
@@ -80,23 +76,23 @@ extension CloudPlacementCoordinator {
     ) {
         guard reason == .paneClosed,
               projection.resource.kind == .display,
-              let workspaceID = localDisplayMemberships[projection.panelID]
-                  ?? projection.remoteWorkspaceID,
-              let provider = catalog.provider(for: projection.resource.machine) as? any CloudDisplayMembershipSyncing,
-              !catalog.projections.contains(where: {
-                  $0.panelID != projection.panelID
-                      && $0.resource == projection.resource
-                      && $0.remoteWorkspaceID == workspaceID
-                      && $0.isLocalWorkspaceView
-              }) else { return }
+              let provider = catalog.provider(for: projection.resource.machine) as? any CloudDisplayMembershipSyncing else { return }
         enqueue(projection, catalog: catalog, presentFailure: false) {
+            guard let workspaceID = try await provider.cloudDisplayMembershipWorkspace(
+                displayID: projection.resource.key,
+                panelID: projection.panelID
+            ), !catalog.projections.contains(where: {
+                $0.panelID != projection.panelID
+                    && $0.resource == projection.resource
+                    && $0.remoteWorkspaceID == workspaceID
+                    && $0.isLocalWorkspaceView
+            }) else { return false }
             try await provider.syncCloudDisplayMembership(
                 displayID: projection.resource.key,
                 workspaceID: workspaceID,
                 panelID: projection.panelID,
                 attached: false
             )
-            self.localDisplayMemberships[projection.panelID] = nil
             return true
         }
     }

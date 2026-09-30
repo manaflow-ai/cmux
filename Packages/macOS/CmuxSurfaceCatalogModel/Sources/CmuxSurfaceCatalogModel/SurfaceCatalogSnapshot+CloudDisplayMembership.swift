@@ -14,20 +14,20 @@ extension SurfaceCatalogSnapshot {
             uniquingKeysWith: { first, _ in first }
         )
         var result = base
-        for displayID in Set(cloudDisplayMemberships.filter { $0.machine == machine }.map(\.displayID)) {
+        let membershipsByDisplayID = Dictionary(grouping: cloudDisplayMemberships.filter { $0.machine == machine }, by: \.displayID)
+        for displayID in membershipsByDisplayID.keys.sorted() {
             let id = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
             guard let baseResource = byID[id] else { continue }
             var placed = baseResource
-            let memberships = cloudDisplayMemberships
-                .filter { $0.machine == machine && $0.displayID == displayID }
+            let memberships = (membershipsByDisplayID[displayID] ?? [])
                 .sorted { ($0.workspaceID, $0.clientID, $0.viewID) < ($1.workspaceID, $1.clientID, $1.viewID) }
-            let views = memberships.compactMap { membership -> SurfaceRemoteView? in
+            let views = memberships.enumerated().compactMap { index, membership -> SurfaceRemoteView? in
                 guard let workspace = workspaces[membership.workspaceID] else { return nil }
                 return SurfaceRemoteView(
                     tabID: SurfaceRemoteView.cloudDisplayMembershipViewPrefix + membership.viewID,
                     workspace: workspace,
                     name: nil,
-                    index: memberships.firstIndex(of: membership),
+                    index: index,
                     focused: false
                 )
             }

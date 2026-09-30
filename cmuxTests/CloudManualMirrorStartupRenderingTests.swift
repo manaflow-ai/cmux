@@ -18,7 +18,10 @@ struct CloudManualMirrorStartupRenderingTests {
         defer { fixture.close() }
 
         try await fixture.attachBeforeSurfaceBinding(replay: Data("prompt$ ".utf8))
+        try await fixture.deliver(
+            Data("ready".utf8), event: "output", marker: "ready", waitForSurface: false
+        )
         fixture.bindSurface()
-        try await fixture.waitForText("prompt$ ")
+        try await fixture.waitForText("prompt$ ready")
     }
 }

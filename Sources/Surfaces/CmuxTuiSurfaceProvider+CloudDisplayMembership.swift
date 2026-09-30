@@ -6,6 +6,24 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
+    func cloudDisplayMembershipWorkspace(displayID: String, panelID: UUID) async throws -> String? {
+        guard let connected = try? await links.connected(machineID: machineID),
+              let link = await links.link(machineID: machineID) else {
+            throw ProviderError.machineAsleep(machineID)
+        }
+        let data = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
+              state.document.containsCollection("frontend_projections") else {
+            throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+        }
+        let clientID = CloudTuiClientPaths().notificationClientID()
+        let viewID = panelID.uuidString.lowercased()
+        return state.displayMemberships.first {
+            $0.displayID == displayID && $0.clientID == clientID && $0.viewID == viewID
+        }?.workspaceID
+    }
+
     func syncCloudDisplayMembership(
         displayID: String,
         workspaceID: String,
