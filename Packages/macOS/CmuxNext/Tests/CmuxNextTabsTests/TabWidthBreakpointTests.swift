@@ -65,7 +65,7 @@ struct TabWidthBreakpointTests {
     }
 
     @Test func theSmallestSelectedTabIsItsCenteredX() {
-        let v = resolve(t.contentLeadingInset + t.closeButtonSize + t.contentTrailingInset, selected: true)
+        let v = resolve(t.minInactiveTabWidth, selected: true)
         #expect(v.showsClose && !v.showsIcon && !v.showsTitle && v.centersContent)
     }
 
