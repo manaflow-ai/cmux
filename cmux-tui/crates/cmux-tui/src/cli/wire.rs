@@ -545,10 +545,8 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
 fn human_error_text(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
     let mut text = format!("{message}\n");
-    if let Some(candidates) = error
-        .get("details")
-        .and_then(|details| details.get("candidates"))
-        .and_then(Value::as_array)
+    if let Some(candidates) =
+        error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
     {
         for candidate in candidates {
             if let Some(candidate) = candidate.as_str() {

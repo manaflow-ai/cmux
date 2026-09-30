@@ -784,7 +784,8 @@ mod tests {
         let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
         let context = WorkspaceQueryContext::new(&queries, &owner, &root);
         for paths in [vec![":(top)outside.txt".to_string()], vec![]] {
-            let text = match diff(&context, &paths, false, 3, DiffFormat::Unified, None, None).await {
+            let text = match diff(&context, &paths, false, 3, DiffFormat::Unified, None, None).await
+            {
                 Ok(prepared) => match prepared.commit() {
                     WorkspaceResponse::Diff { data, .. } => {
                         String::from_utf8_lossy(&data.decode().unwrap()).into_owned()
