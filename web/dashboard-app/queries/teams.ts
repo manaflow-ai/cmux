@@ -4,7 +4,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { TeamDetail, TeamRole } from "@/services/teams/types";
+import type { TeamDetail, TeamInvitation, TeamRole } from "@/services/teams/types";
 import { dashboardRefusal } from "../lib/refusal";
 import { dashboardClient, rpc } from "../lib/rpc";
 

@@ -15,7 +15,7 @@ describe("resend invitation", () => {
       ],
     } as unknown as TeamDetail;
     client.setQueryData(teamQueryKeys.detail("team-a"), detail);
-    const replacement = { id: "new", email: "x@example.com", role: "member", expiresAt: "2026-10-08T00:00:00.000Z" };
+    const replacement = { id: "new", email: "x@example.com", role: "member" as const, expiresAt: "2026-10-08T00:00:00.000Z" };
     const options = { ...resendInvitationMutation(client, "team-a"), mutationFn: async () => ({ invitation: replacement }), onSettled: undefined };
     await client.getMutationCache().build(client, options).execute("old");
     const after = client.getQueryData<TeamDetail>(teamQueryKeys.detail("team-a"))!;
