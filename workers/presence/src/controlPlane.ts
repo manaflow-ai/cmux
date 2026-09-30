@@ -792,6 +792,10 @@ export function parseRevocationRequest(value: unknown): RevocationRequest | null
   if (typeof value.endpointId !== "string"
     || value.endpointId.length === 0
     || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
+  // Revocation canonicalizes (trim + lowercase) before it touches storage, so
+  // a whitespace-only id would pass the length check here and then write the
+  // DEV_PREFIX namespace root as its key.
+  if (canonicalEndpointId(value.endpointId).length === 0) return null;
   if (typeof value.revoked !== "boolean") return null;
   return { endpointId: value.endpointId, revoked: value.revoked };
 }
@@ -1468,20 +1472,35 @@ export class ControlPlaneCore {
     // The relay broker canonicalizes endpoint ids to lowercase; so does
     // revocation, or another spelling of a revoked id would still mint.
     const request = { ...raw, endpointId: canonicalEndpointId(raw.endpointId) };
-    if (raw.endpointId !== request.endpointId && !raw.revoked) {
-      // Un-revoking also clears a row an older revocation stored verbatim.
-      const legacy = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + raw.endpointId);
-      if (legacy?.revoked === true) await this.deps.storage.put(DEV_PREFIX + raw.endpointId, { ...legacy, revoked: false });
-    }
+    // confirm-on-hello stores a device's overlay under the exact endpoint id
+    // the client declared, and that row is the one the directory emits, so the
+    // flag has to land on every spelling that already has a row. Writing only
+    // the canonical row would flip a freshly seeded row nobody emits and leave
+    // peers reading the stale value off the row they do see. No row is created
+    // for a non-canonical spelling: only an existing one is updated.
+    const legacyKey = raw.endpointId === request.endpointId ? null : raw.endpointId;
     const overlay = await this.ensureOverlay(request.endpointId);
-    if (overlay.revoked === request.revoked) {
+    const legacy = legacyKey === null
+      ? undefined
+      : await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + legacyKey);
+    const canonicalStale = overlay.revoked !== request.revoked;
+    const legacyStale = legacy !== undefined && legacy.revoked !== request.revoked;
+    if (!canonicalStale && !legacyStale) {
       const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
       return { rev, changed: false, revoked: overlay.revoked };
     }
-    await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
-      ...overlay,
-      revoked: request.revoked,
-    });
+    if (canonicalStale) {
+      await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
+        ...overlay,
+        revoked: request.revoked,
+      });
+    }
+    if (legacyStale && legacyKey !== null && legacy !== undefined) {
+      await this.deps.storage.put(DEV_PREFIX + legacyKey, {
+        ...legacy,
+        revoked: request.revoked,
+      });
+    }
     const rev = await this.bumpOverlayRevisionAndBroadcast(null);
     if (request.revoked) {
       for (const socket of this.deps.sockets()) {
