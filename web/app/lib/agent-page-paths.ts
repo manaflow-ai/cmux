@@ -220,6 +220,9 @@ export const agentReadablePages = [
   { path: "/docs/cloud/networking", title: "Cloud Files and Networking" },
   { path: "/docs/cloud/cli", title: "Cloud CLI Reference" },
   { path: "/docs/cloud/troubleshooting", title: "Cloud Security and Troubleshooting" },
+  { path: "/docs/coderouter", title: "CodeRouter" },
+  { path: "/docs/coderouter/agents", title: "CodeRouter Agents and Models" },
+  { path: "/docs/coderouter/cli", title: "CodeRouter CLI and Troubleshooting" },
   { path: "/docs/ssh", title: "SSH" },
   { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
   {
