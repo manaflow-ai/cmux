@@ -260,6 +260,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/cmux-tui.yml",
+    ".github/workflows/ios-e2e.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
