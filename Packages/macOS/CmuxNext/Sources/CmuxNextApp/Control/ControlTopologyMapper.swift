@@ -23,7 +23,7 @@ enum ControlTopologyMapper {
     }
 
     static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> ControlWorkspaceInfo {
-        ControlWorkspaceInfo(
+        var info = ControlWorkspaceInfo(
             id: model.id,
             handle: model.handle.description,
             name: model.displayName,
@@ -38,6 +38,8 @@ enum ControlTopologyMapper {
                                   panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab) })
             }
         )
+        info.resourceID = model.resourceID?.rawValue
+        return info
     }
 
     static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?) -> ControlPaneInfo {

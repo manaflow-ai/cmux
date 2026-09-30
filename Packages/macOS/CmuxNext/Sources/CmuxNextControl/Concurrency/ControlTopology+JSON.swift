@@ -37,7 +37,7 @@ extension ControlWorkspaceGroupInfo {
 
 extension ControlWorkspaceInfo {
     public var json: JSONValue {
-        ["id": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title), "color": .optional(color),
+        ["id": .string(id), "resource_id": .optional(resourceID), "handle": .string(handle), "name": .string(name), "title": .optional(title), "color": .optional(color),
          "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount), "screens": .array(screens.map(\.json))]
     }
 }

@@ -42,8 +42,6 @@ final class AppServices {
     private(set) var previews: TabPreviewSource!
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) var resources: AppResourceSource!
-    /// App side of the cmux CLI compat layer (window/focus state, intents).
-    private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -138,7 +136,6 @@ final class AppServices {
         windows.incognitoHistoryReset = { [weak cache] in cache?.resetIncognitoHistory() }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
-        compat = AppCompatFrontend(services: self)
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))

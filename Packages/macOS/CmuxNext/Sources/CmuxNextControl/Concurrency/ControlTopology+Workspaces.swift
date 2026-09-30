@@ -15,6 +15,8 @@ public struct ControlWorkspaceGroupInfo: Sendable, Hashable {
 public struct ControlWorkspaceInfo: Sendable, Hashable {
     /// Durable workspace key (falls back to the handle before one exists).
     public var id: String
+    /// Durable public id (`ws_…`) on registry daemons; `id` is the durable key.
+    public var resourceID: String?
     public var handle: String
     public var name: String
     public var title: String?

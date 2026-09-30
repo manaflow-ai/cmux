@@ -107,8 +107,13 @@ extension ControlRouter {
     // MARK: - action.run
 
     /// Runs the target resolver over the target and every target argument.
+    /// Public ids and unique prefixes resolve against the current snapshot
+    /// unless a custom resolver is registered.
     private func resolvedTargets(_ request: ControlActionRequest, deadline: ContinuousClock.Instant) async throws -> ControlActionRequest {
-        guard let resolver = targetResolver else { return request }
+        let snapshots = snapshots
+        let resolver: TargetResolver = targetResolver ?? { ref, _ in
+            try PublicIDTargetResolver.resolve(ref, in: snapshots.current.topology)
+        }
         var resolved = request
         if let target = request.target { resolved.target = try await resolver(target, deadline) }
         for (name, value) in request.arguments {
