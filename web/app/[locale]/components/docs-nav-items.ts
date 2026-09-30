@@ -1,4 +1,4 @@
-import type { Locale } from "../../../i18n/routing";
+import type { Locale } from "@/i18n/routing";
 import {
   docsPathAvailableInChannel,
   type DocsChannel,
@@ -10,12 +10,17 @@ import {
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
 
-export type NavLink = {
+/**
+ * One docs page in the sidebar. `locales` limits which UI locales list the
+ * page at all; `contentLocales` lists the locales that have translated body
+ * text (others fall back, see `navItemContentLocale`).
+ */
+export interface NavLink {
   titleKey: string;
   href: string;
   locales?: readonly Locale[];
   contentLocales?: readonly Locale[];
-};
+}
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
@@ -39,18 +44,13 @@ export function navItemsForLocale(
   locale: string,
   channel: DocsChannel = "release",
 ): NavEntry[] {
-  const entries: NavEntry[] = [];
-  for (const entry of navItems) {
-    if (!isSection(entry)) {
-      if (isLinkVisible(entry, locale, channel)) entries.push(entry);
-      continue;
-    }
-    const children = entry.children.filter((child) =>
-      isLinkVisible(child, locale, channel)
-    );
-    if (children.length > 0) entries.push({ ...entry, children });
-  }
-  return entries;
+  const visible = (link: NavLink) => isLinkVisible(link, locale, channel);
+  // Drop hidden links, and drop a whole section once none of its links remain.
+  return navItems.flatMap((entry): NavEntry[] => {
+    if (!isSection(entry)) return visible(entry) ? [entry] : [];
+    const shown = entry.children.filter(visible);
+    return shown.length === 0 ? [] : [{ sectionKey: entry.sectionKey, children: shown }];
+  });
 }
 
 export function navItemContentLocale(item: NavLink, locale: string): Locale {
@@ -113,7 +113,11 @@ export const navItems: NavEntry[] = [
     sectionKey: "remoteSection",
     children: [
       { titleKey: "ssh", href: "/docs/ssh" },
-      { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
+      {
+        titleKey: "remoteTmux",
+        href: "/docs/remote-tmux",
+        locales: remoteTmuxDocsLocales,
+      },
       {
         titleKey: "tui",
         href: "/docs/tui",
@@ -133,6 +137,14 @@ export const navItems: NavEntry[] = [
       { titleKey: "cloudNetworking", href: "/docs/cloud/networking" },
       { titleKey: "cloudCli", href: "/docs/cloud/cli" },
       { titleKey: "cloudTroubleshooting", href: "/docs/cloud/troubleshooting" },
+    ],
+  },
+  {
+    sectionKey: "coderouterSection",
+    children: [
+      { titleKey: "coderouterOverview", href: "/docs/coderouter" },
+      { titleKey: "coderouterAgents", href: "/docs/coderouter/agents" },
+      { titleKey: "coderouterCli", href: "/docs/coderouter/cli" },
     ],
   },
   {

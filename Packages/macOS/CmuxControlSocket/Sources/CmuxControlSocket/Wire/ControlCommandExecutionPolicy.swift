@@ -76,6 +76,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        // Agent session recovery reads the journal (SQLite), the hook stores
+        // and transcripts; only the open-session scan and workspace creation
+        // hop to the main actor.
+        "session.agent_recovery.list",
+        "session.agent_recovery.restore",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -116,6 +121,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Shared terminal sizing verbs are dispatched by the worker switch and
+        // hop to MainActor for the one store mutation (TerminalSharingStore).
+        "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
+        "terminal.size_counts.set", "terminal.participant.disconnect",
+        "terminal.participants.disconnect_others",
         // Same profile as set_font: UserDefaults reads/writes plus a push
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",
@@ -235,6 +245,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.focus",
         "browser.type",
         "browser.fill",
+        "browser.set_input_files",
         "browser.press",
         "browser.keydown",
         "browser.keyup",

@@ -28,11 +28,11 @@ extension ShortcutAction {
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
              .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
-             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot,
+             .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown,
-             .focusPreviousPane, .focusNextPane, .splitRight, .splitDown,
+             .focusPreviousPane, .focusNextPane, .splitRight, .splitDown, .newPaneAutoLayout,
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .resizePaneLeft, .resizePaneRight,
@@ -58,7 +58,8 @@ extension ShortcutAction {
              .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
              .diffViewerScrollToBottom, .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+             .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk:
             return .browser
         }
     }

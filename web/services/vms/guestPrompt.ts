@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
+import { vmPromptName } from "./promptName";
+
+export { vmPromptName };
 
 export type GuestPromptIdentity = {
   readonly machineId: string;
@@ -15,12 +18,9 @@ export function vmPromptIdentity(row: {
   readonly displayName: string | null;
   readonly updatedAt: Date;
 }): GuestPromptIdentity {
-  const slug = (value: string) => value.normalize("NFKD").toLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-").slice(0, 63).replace(/^-+|-+$/g, "");
   return {
     machineId: row.id,
-    name: slug(row.displayName ?? "") || slug(row.slug ?? "") || "cmux",
+    name: vmPromptName(row),
     revision: row.updatedAt.getTime(),
   };
 }
