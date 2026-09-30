@@ -718,20 +718,18 @@
   },
   "coderouter.sidebar.accountCount": {
     "source": "%d accounts",
-    "arguments": [
-      1
-    ]
+    "arguments": [1]
   },
   "coderouter.sidebar.sessions": {
     "source": "%d sessions",
-    "arguments": [
-      1
-    ]
+    "arguments": [1]
   },
   "coderouter.sidebar.usage.period": {
     "source": "Last %d days",
-    "arguments": [
-      1
-    ]
+    "arguments": [1]
+  },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
+    "arguments": [1]
   }
 }
