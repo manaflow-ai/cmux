@@ -6,8 +6,9 @@ import Foundation
 /// recovery and long-term audit.
 ///
 /// Writes are serialized through an actor so the store can fire them off
-/// without awaiting disk IO; reads happen on the caller's executor since
-/// load runs once per process at launch.
+/// without awaiting disk IO. Reads walk backward from the end of the file
+/// and stop once they have what they need, so their cost follows what they
+/// return rather than how large the log has grown.
 public actor WorkstreamPersistence {
     public struct Page: Sendable, Equatable {
         public let items: [WorkstreamItem]
@@ -68,42 +69,50 @@ public actor WorkstreamPersistence {
     /// Loads the newest durable version of each event. Mutations are written
     /// as additional JSONL rows, so startup must collapse those rows before
     /// publishing state or an old status could overwrite a reply/resolution.
+    ///
+    /// Scanning from the end, an item's first row is its newest version, and
+    /// the first `limit` distinct items are the ones whose newest rows are
+    /// latest. Reading stops there, so launch never decodes older history.
     public func loadLatest(limit: Int) throws -> [WorkstreamItem] {
         guard limit > 0,
               FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
-        let data = try Data(contentsOf: fileURL)
-        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
-        for (sequence, line) in data.split(separator: 0x0A).enumerated() {
-            guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)) else {
+        let fh = try FileHandle(forReadingFrom: fileURL)
+        defer { try? fh.close() }
+        var reader = WorkstreamLogBackwardReader(handle: fh, endOffset: try fh.seekToEnd())
+        var seenIDs = Set<UUID>()
+        var newestFirst: [WorkstreamItem] = []
+        while newestFirst.count < limit, let row = try reader.next() {
+            guard let item = try? decoder.decode(WorkstreamItem.self, from: row.bytes),
+                  seenIDs.insert(item.id).inserted else {
                 continue
             }
-            latestByID[item.id] = (sequence, item)
+            newestFirst.append(item)
         }
-        return latestByID.values
-            .sorted { $0.sequence < $1.sequence }
-            .map(\.item)
-            .suffix(limit)
-            .map { $0 }
+        return newestFirst.reversed()
     }
 
     /// Returns a durable generation for the append-only log. The mobile Feed
     /// uses this as its cache validator, so a Mac restart cannot reset the
     /// revision below the phone's last-known snapshot and hide a reply or
     /// resolution behind a stale `feed.changed` event.
+    ///
+    /// It is the log's byte length over ``revisionBytesPerRow``, which costs
+    /// one `stat` however large the log is. Every row encodes to more than
+    /// that many bytes, so the value is never below the row count earlier
+    /// builds reported, and it grows with every append. It stays within the
+    /// 32 bits the combined mobile Feed revision keeps until the log reaches
+    /// 256 GiB.
     public func loadRevision() throws -> Int {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
-        let data = try Data(contentsOf: fileURL)
-        var revision = 0
-        for line in data.split(separator: 0x0A) {
-            guard (try? decoder.decode(WorkstreamItem.self, from: Data(line))) != nil else {
-                continue
-            }
-            revision += 1
-        }
-        return revision
+        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        return Int(byteCount / Self.revisionBytesPerRow)
     }
+
+    /// No persisted row is shorter: an item's UUID alone encodes to 36 bytes.
+    static let revisionBytesPerRow: UInt64 = 64
 
     /// Loads up to `limit` items ending before `endOffset`. Order in the
     /// returned array is oldest-first. `startOffset` can be passed back
@@ -127,39 +136,17 @@ public actor WorkstreamPersistence {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
         }
 
-        let chunkSize = 64 * 1024
-        var offset = pageEnd
-        var tail = Data()
-        var lineRanges: [(range: Range<Int>, startOffset: UInt64)] = []
-        while offset > 0 {
-            let readSize = min(chunkSize, Int(offset))
-            offset -= UInt64(readSize)
-            try fh.seek(toOffset: offset)
-            guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
-                break
-            }
-            tail.insert(contentsOf: chunk, at: 0)
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit {
-                break
-            }
+        var reader = WorkstreamLogBackwardReader(handle: fh, endOffset: pageEnd)
+        var rows: [WorkstreamLogBackwardReader.Row] = []
+        while rows.count < limit, let row = try reader.next() {
+            rows.append(row)
         }
-
-        if lineRanges.isEmpty {
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
+        // Malformed lines are dropped silently; the audit log is
+        // append-only and we don't want a corrupt row to block startup.
+        let out = rows.reversed().compactMap { row in
+            try? decoder.decode(WorkstreamItem.self, from: row.bytes)
         }
-        let selectedRanges = lineRanges.suffix(limit)
-        var out: [WorkstreamItem] = []
-        out.reserveCapacity(selectedRanges.count)
-        for lineRange in selectedRanges {
-            let slice = tail.subdata(in: lineRange.range)
-            if let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
-                out.append(item)
-            }
-            // Malformed lines are dropped silently; the audit log is
-            // append-only and we don't want a corrupt row to block startup.
-        }
-        let startOffset = selectedRanges.first?.startOffset
+        let startOffset = rows.last?.startOffset
         return Page(
             items: out,
             hasMoreBefore: (startOffset ?? 0) > 0,
@@ -198,36 +185,6 @@ public actor WorkstreamPersistence {
         let fh = try FileHandle(forWritingTo: fileURL)
         handle = fh
         return fh
-    }
-
-    private static func lineRanges(
-        in data: Data,
-        baseOffset: UInt64
-    ) -> [(range: Range<Int>, startOffset: UInt64)] {
-        var ranges: [(range: Range<Int>, startOffset: UInt64)] = []
-        ranges.reserveCapacity(128)
-        var lineStart = 0
-        for (idx, byte) in data.enumerated() {
-            guard byte == 0x0A else { continue }
-            if lineStart < idx {
-                ranges.append(
-                    (
-                        range: lineStart..<idx,
-                        startOffset: baseOffset + UInt64(lineStart)
-                    )
-                )
-            }
-            lineStart = idx + 1
-        }
-        if lineStart < data.count {
-            ranges.append(
-                (
-                    range: lineStart..<data.count,
-                    startOffset: baseOffset + UInt64(lineStart)
-                )
-            )
-        }
-        return ranges
     }
 }
 
