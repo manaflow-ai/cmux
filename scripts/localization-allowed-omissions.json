@@ -122,6 +122,28 @@
     "class": "brand",
     "source": "Solid"
   },
+  "actions.discovery.menuTitle": {
+    "source": "Actions · cmux.json…",
+    "identityLocales": {
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json…"
+        ]
+      }
+    }
+  },
+  "actions.discovery.dialogTitle": {
+    "source": "Actions · cmux.json",
+    "identityLocales": {
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json"
+        ]
+      }
+    }
+  },
   "agentSession.web.mentionMenuTitle": {
     "source": "Mention",
     "identityLocales": {
