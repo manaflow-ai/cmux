@@ -974,7 +974,9 @@
       "apiKeys": {
         "title": "Chiavi API del team",
         "description": "Chiavi che agiscono per conto di questo team. Chiunque abbia una chiave può usare l’accesso del team, quindi conserva le chiavi in modo sicuro.",
-        "create": "Crea chiave API del team"
+        "create": "Crea chiave API del team",
+        "disabled": "Le chiavi API del team non sono abilitate per questo progetto.",
+        "forbidden": "Per vedere le chiavi di questo team ti serve il permesso Gestisci chiavi API."
       }
     },
     "coderouterAccounts": {

@@ -4,6 +4,7 @@ import type {
   LinkClaimResult,
   StoredEmailInvitation,
   StoredInviteLink,
+  StoredInviteRole,
   TeamInviteStore,
 } from "../services/teams/repository";
 import type { TeamInviteEmailInput, TeamInviteMailer } from "../services/teams/inviteEmail";
@@ -257,7 +258,7 @@ export class MemoryInviteMailer implements TeamInviteMailer {
 
 /** Mirrors the SQL contract of databaseTeamInviteStore, including claim semantics. */
 export class MemoryInviteStore implements TeamInviteStore {
-  readonly roles = new Map<string, { role: TeamRole; invitedByUserId: string }>();
+  readonly roles = new Map<string, { role: TeamRole; invitedByUserId: string; stackInvitationId: string | null }>();
   readonly links: MemoryLink[] = [];
   readonly emailInvitations: MemoryEmailInvitation[] = [];
   readonly redemptions = new Set<string>();
@@ -267,16 +268,21 @@ export class MemoryInviteStore implements TeamInviteStore {
 
   async upsertInviteRole(input: { stackTeamId: string; email: string; role: TeamRole; invitedByUserId: string }) {
     this.events.push(`upsert:${input.email}:${input.role}`);
-    this.roles.set(`${input.stackTeamId}:${input.email}`, { role: input.role, invitedByUserId: input.invitedByUserId });
+    this.roles.set(`${input.stackTeamId}:${input.email}`, { role: input.role, invitedByUserId: input.invitedByUserId, stackInvitationId: null });
   }
 
   async inviteRoles(stackTeamId: string, emails: readonly string[]) {
-    const roles = new Map<string, TeamRole>();
+    const roles = new Map<string, StoredInviteRole>();
     for (const email of emails) {
       const stored = this.roles.get(`${stackTeamId}:${email}`);
-      if (stored) roles.set(email, stored.role);
+      if (stored) roles.set(email, { role: stored.role, stackInvitationId: stored.stackInvitationId });
     }
     return roles;
+  }
+
+  async bindInviteRoleInvitation(stackTeamId: string, email: string, stackInvitationId: string) {
+    const stored = this.roles.get(`${stackTeamId}:${email}`);
+    if (stored) stored.stackInvitationId = stackInvitationId;
   }
 
   async deleteInviteRole(stackTeamId: string, email: string) {
@@ -435,6 +441,13 @@ export class MemoryInviteStore implements TeamInviteStore {
     const link = this.links.find((candidate) => candidate.id === linkId)!;
     link.useCount = Math.max(link.useCount - 1, 0);
     this.events.push(`release:${userId}`);
+  }
+
+  async forgetLinkRedemptions(stackTeamId: string, userId: string) {
+    for (const link of this.links) {
+      if (link.stackTeamId === stackTeamId) this.redemptions.delete(`${link.id}:${userId}`);
+    }
+    this.events.push(`forget-redemptions:${userId}`);
   }
 }
 

@@ -13,7 +13,7 @@ import {
   settingsOverviewQuery,
   settingsSessionsQuery,
 } from "./queries/settings";
-import { teamCatalogQuery, teamDetailQuery } from "./queries/teams";
+import { teamApiKeysQuery, teamCatalogQuery, teamDetailQuery } from "./queries/teams";
 import { testflightQuery } from "./queries/testflight";
 import { vaultSessionQuery, vaultSummaryQuery } from "./queries/vault";
 
@@ -61,6 +61,7 @@ function routePrefetches(path: string, search: Search): Prefetch[] {
       return [
         query(teamDetailQuery(id), (client) => client.teams.detail({ teamId: id })),
         ...(tab === "billing" ? [query(teamBillingQuery(id), (client) => client.teams.billing({ teamId: id }))] : []),
+        ...(tab === "api-keys" ? [query(teamApiKeysQuery(id), (client) => client.teams.apiKeys({ teamId: id }))] : []),
       ];
     case "vault":
       if (!id) return [query(vaultSummaryQuery, (client) => client.vault.summary())];
@@ -83,7 +84,12 @@ function settingsPrefetches(page: string | undefined): Prefetch[] {
     case "sessions":
       return [query(settingsSessionsQuery, (client) => client.settings.sessions())];
     case "api-keys":
-      return [overview, query(settingsApiKeysQuery, (client) => client.settings.apiKeys())];
+      return [async (client, queryClient) => {
+        await overview(client, queryClient);
+        if (queryClient.getQueryData(settingsOverviewQuery.queryKey)?.project.allowUserApiKeys) {
+          await query(settingsApiKeysQuery, (server) => server.settings.apiKeys())(client, queryClient);
+        }
+      }];
     case "account":
       return [overview];
     default:

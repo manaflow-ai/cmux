@@ -4,7 +4,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { TeamDetail, TeamRole } from "@/services/teams/types";
+import type { TeamDetail, TeamInvitation, TeamRole } from "@/services/teams/types";
 import { dashboardRefusal } from "../lib/refusal";
 import { dashboardClient, rpc } from "../lib/rpc";
 
@@ -74,6 +74,11 @@ export const teamCatalogQuery = rpc.teams.catalog.queryOptions({ context: timeou
 export function isNotMemberError(error: unknown): boolean {
   const status = dashboardRefusal(error)?.status;
   return status === 403 || status === 404;
+}
+
+/** Team API keys; `enabled: false` when the project turns team keys off. */
+export function teamApiKeysQuery(teamId: string) {
+  return rpc.teams.apiKeys.queryOptions({ input: { teamId }, context: timeout.context });
 }
 
 /** Members, invitations, links, billing summary, and viewer permissions. */
@@ -174,14 +179,36 @@ export function removeMemberMutation(queryClient: QueryClient, teamId: string) {
   );
 }
 
+/**
+ * The viewer leaving the team. Unlike removing someone else, nothing is
+ * refetched: the viewer is no longer a member, so the caller navigates away
+ * and `forgetTeam` drops the detail.
+ */
+export function leaveTeamMutation(_queryClient: QueryClient, teamId: string): UseMutationOptions<unknown, unknown, string> {
+  return {
+    scope: teamMutationScope(teamId),
+    mutationFn: (viewerUserId: string) => teamApi.removeMember(teamId, viewerUserId),
+  };
+}
+
 export function resendInvitationMutation(queryClient: QueryClient, teamId: string) {
-  return optimisticDetailMutation(
-    queryClient,
-    teamId,
-    (invitationId: string) => teamApi.resendInvitation(teamId, invitationId),
-    // The new expiry is only known from the response; the refetch picks it up.
-    (detail) => detail,
-  );
+  return {
+    ...optimisticDetailMutation(
+      queryClient,
+      teamId,
+      (invitationId: string) => teamApi.resendInvitation(teamId, invitationId),
+      (detail) => detail,
+    ),
+    // A resend replaces the Stack invitation, so its id changes. Swap it in
+    // now: a Revoke before the refetch lands must target the new id.
+    onSuccess: ({ invitation }: { invitation: TeamInvitation }, invitationId: string) => {
+      queryClient.setQueryData<TeamDetail>(teamQueryKeys.detail(teamId), (detail) =>
+        detail
+          ? { ...detail, invitations: detail.invitations.map((existing) => (existing.id === invitationId ? invitation : existing)) }
+          : detail,
+      );
+    },
+  };
 }
 
 export function updateTeamMutation(queryClient: QueryClient, teamId: string) {
@@ -219,6 +246,10 @@ export function useChangeRole(teamId: string) {
 
 export function useRemoveMember(teamId: string) {
   return useMutation(removeMemberMutation(useQueryClient(), teamId));
+}
+
+export function useLeaveTeam(teamId: string) {
+  return useMutation(leaveTeamMutation(useQueryClient(), teamId));
 }
 
 export function useUpdateTeam(teamId: string) {

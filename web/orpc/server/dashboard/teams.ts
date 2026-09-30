@@ -15,7 +15,9 @@ import {
   memberRoleBody,
   updateTeamBody,
 } from "@/services/teams/schemas";
+import { getStackServerApp } from "@/app/lib/stack";
 import { authed, teamAccess, teamRateLimit, teamUser } from "./base";
+import { apiKeyRow, apiKeySchema } from "./settings";
 import { callRoute } from "./route-call";
 import { billing } from "./team-billing";
 import {
@@ -184,6 +186,24 @@ const accept = teamUser
     return { teamId: acceptedTeamId };
   });
 
+/**
+ * The team's API keys for a viewer with `$manage_api_keys`. A project without
+ * team API keys answers `enabled: false`; that is a setting, not a failure.
+ * Creating and revoking keys stays on the client SDK under the viewer's session.
+ */
+const apiKeys = teamUser
+  .input(teamInput)
+  .use(teamAccess({ permission: "manageApiKeys" }), (input) => input)
+  .output(z.object({ enabled: z.boolean(), keys: z.array(apiKeySchema) }))
+  .handler(async ({ context }) => {
+    const app = getStackServerApp();
+    const project = await app.getProject();
+    if (!project.config.allowTeamApiKeys) return { enabled: false, keys: [] };
+    const team = await app.getTeam(context.team.team.id);
+    if (!team) return { enabled: true, keys: [] };
+    return { enabled: true, keys: (await team.listApiKeys()).map(apiKeyRow) };
+  });
+
 export const teamsRouter = {
   catalog,
   select,
@@ -202,4 +222,5 @@ export const teamsRouter = {
   join,
   accept,
   billing,
+  apiKeys,
 };

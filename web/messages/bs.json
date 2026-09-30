@@ -974,7 +974,9 @@
       "apiKeys": {
         "title": "API ključevi tima",
         "description": "Ključevi koji djeluju u ime ovog tima. Svako s ključem može koristiti pristup tima, zato ključeve čuvajte na sigurnom.",
-        "create": "Kreiraj API ključ tima"
+        "create": "Kreiraj API ključ tima",
+        "disabled": "API ključevi tima nisu omogućeni za ovaj projekat.",
+        "forbidden": "Potrebna vam je dozvola Upravljanje API ključevima u ovom timu da vidite njegove ključeve."
       }
     },
     "coderouterAccounts": {

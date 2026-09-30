@@ -79,6 +79,37 @@ describe("team invite link claims", () => {
     expect(row!.use_count).toBe(1);
   });
 
+  dbTest("a stored role is bound to one invitation and a re-invite clears the binding", async () => {
+    await store.upsertInviteRole({ stackTeamId: TEAM, email: "b@example.com", role: "admin", invitedByUserId: "admin" });
+    await store.bindInviteRoleInvitation(TEAM, "b@example.com", "inv-1");
+    await store.bindInviteRoleInvitation(TEAM, "missing@example.com", "inv-9");
+    expect(await store.inviteRoles(TEAM, ["b@example.com", "missing@example.com"])).toEqual(
+      new Map([["b@example.com", { role: "admin", stackInvitationId: "inv-1" }]]),
+    );
+    await store.upsertInviteRole({ stackTeamId: TEAM, email: "b@example.com", role: "admin", invitedByUserId: "admin" });
+    expect((await store.inviteRoles(TEAM, ["b@example.com"])).get("b@example.com")).toEqual({ role: "admin", stackInvitationId: null });
+  });
+
+  dbTest("forgetting a departed member's redemptions keeps the spent use", async () => {
+    const created = await link({ maxUses: 1 });
+    const otherTeam = await store.createLink({
+      stackTeamId: "22222222-2222-4222-8222-222222222222",
+      tokenHash: hash("f"),
+      createdByUserId: "admin",
+      expiresAt: null,
+      maxUses: null,
+    });
+    expect(await store.claimLink(created.id, "u1")).toBe("claimed");
+    expect(await store.claimLink(otherTeam.id, "u1")).toBe("claimed");
+    await store.forgetLinkRedemptions(TEAM, "u1");
+    // The single use stays spent, so the departed member cannot claim again.
+    expect(await store.claimLink(created.id, "u1")).toBe("unavailable");
+    // Another team's redemption is untouched.
+    expect(await store.claimLink(otherTeam.id, "u1")).toBe("already_redeemed");
+    const [row] = await sql!`select use_count from team_invite_links where id = ${created.id}`;
+    expect(row!.use_count).toBe(1);
+  });
+
   dbTest("expired and revoked links are neither found nor claimable", async () => {
     const expired = await link({ seed: "b", expiresAt: new Date(Date.now() - 1000) });
     expect(await store.findActiveLinkByTokenHash(hash("b"))).toBeNull();
@@ -99,7 +130,7 @@ describe("team invite link claims", () => {
   dbTest("invite roles upsert per lowercase email and a link can only grant member", async () => {
     await store.upsertInviteRole({ stackTeamId: TEAM, email: "a@example.com", role: "admin", invitedByUserId: "admin" });
     await store.upsertInviteRole({ stackTeamId: TEAM, email: "a@example.com", role: "member", invitedByUserId: "admin" });
-    expect(await store.inviteRoles(TEAM, ["a@example.com"])).toEqual(new Map([["a@example.com", "member"]]));
+    expect(await store.inviteRoles(TEAM, ["a@example.com"])).toEqual(new Map([["a@example.com", { role: "member", stackInvitationId: null }]]));
     expect(await rejects(() => store.upsertInviteRole({ stackTeamId: TEAM, email: "A@example.com", role: "admin", invitedByUserId: "x" }))).toBe(true);
     expect(await rejects(async () => {
       await sql!`insert into team_invite_links (stack_team_id, token_hash, role, created_by_user_id) values (${TEAM}, ${hash("d")}, 'admin', 'x')`;

@@ -974,7 +974,9 @@
       "apiKeys": {
         "title": "Teamets API-nøkler",
         "description": "Nøkler som handler på vegne av dette teamet. Alle med en nøkkel kan bruke teamets tilgang, så oppbevar nøklene trygt.",
-        "create": "Opprett API-nøkkel for teamet"
+        "create": "Opprett API-nøkkel for teamet",
+        "disabled": "Team-API-nøkler er ikke aktivert for dette prosjektet.",
+        "forbidden": "Du trenger tillatelsen Administrer API-nøkler i dette teamet for å se nøklene."
       }
     },
     "coderouterAccounts": {

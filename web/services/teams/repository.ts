@@ -19,6 +19,15 @@ export type StoredInviteLink = {
   readonly useCount: number;
 };
 
+/**
+ * A role applies only to the Stack invitation it was sent with. Members can
+ * send Stack invitations too, and those must never inherit a stored admin role.
+ */
+export type StoredInviteRole = {
+  readonly role: TeamRole;
+  readonly stackInvitationId: string | null;
+};
+
 export type LinkClaimResult = "claimed" | "already_redeemed" | "unavailable";
 
 export type StoredEmailInvitation = {
@@ -47,7 +56,10 @@ export type TeamInviteStore = {
     readonly role: TeamRole;
     readonly invitedByUserId: string;
   }): Promise<void>;
-  inviteRoles(stackTeamId: string, emails: readonly string[]): Promise<Map<string, TeamRole>>;
+  /** Stored roles by email, each with the Stack invitation it was sent with. */
+  inviteRoles(stackTeamId: string, emails: readonly string[]): Promise<Map<string, StoredInviteRole>>;
+  /** Record which Stack invitation carries the stored role. No row, no change. */
+  bindInviteRoleInvitation(stackTeamId: string, email: string, stackInvitationId: string): Promise<void>;
   deleteInviteRole(stackTeamId: string, email: string): Promise<void>;
   deleteTeamInviteState(stackTeamId: string): Promise<void>;
 
@@ -100,7 +112,19 @@ export type TeamInviteStore = {
   acceptEmailInvitation(id: string, userId: string): Promise<boolean>;
   /** Mark declined only while pending. */
   declineEmailInvitation(id: string): Promise<void>;
+  /**
+   * Drop a departing member's redemptions of the team's links. The spent uses
+   * stay counted, so rejoining through a link claims a new use.
+   */
+  forgetLinkRedemptions(stackTeamId: string, userId: string, db?: TeamLockDb): Promise<void>;
 };
+
+/**
+ * The transaction that holds a team's admin lock. Work done under the lock
+ * must use it: production pools one connection, so asking the pool for a
+ * second one while the lock holds the first waits forever.
+ */
+export type TeamLockDb = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 class ClaimUnavailable extends Error {
   override readonly name = "ClaimUnavailable";
@@ -164,6 +188,8 @@ export const databaseTeamInviteStore: TeamInviteStore = {
           role: input.role,
           invitedByUserId: input.invitedByUserId,
           createdAt: sql`now()`,
+          // A new send is pending; its invitation is bound once Stack lists it.
+          stackInvitationId: null,
         },
       });
   },
@@ -171,10 +197,17 @@ export const databaseTeamInviteStore: TeamInviteStore = {
   async inviteRoles(stackTeamId, emails) {
     if (emails.length === 0) return new Map();
     const rows = await cloudDb()
-      .select({ email: teamInviteRoles.email, role: teamInviteRoles.role })
+      .select({ email: teamInviteRoles.email, role: teamInviteRoles.role, stackInvitationId: teamInviteRoles.stackInvitationId })
       .from(teamInviteRoles)
       .where(and(eq(teamInviteRoles.stackTeamId, stackTeamId), inArray(teamInviteRoles.email, [...emails])));
-    return new Map(rows.map((row) => [row.email, row.role]));
+    return new Map(rows.map((row) => [row.email, { role: row.role, stackInvitationId: row.stackInvitationId }]));
+  },
+
+  async bindInviteRoleInvitation(stackTeamId, email, stackInvitationId) {
+    await cloudDb()
+      .update(teamInviteRoles)
+      .set({ stackInvitationId })
+      .where(and(eq(teamInviteRoles.stackTeamId, stackTeamId), eq(teamInviteRoles.email, email)));
   },
 
   async deleteInviteRole(stackTeamId, email) {
@@ -405,15 +438,27 @@ export const databaseTeamInviteStore: TeamInviteStore = {
       .set({ declinedAt: sql`now()` })
       .where(and(eq(teamEmailInvitations.id, id), pendingEmailInvitationCondition()));
   },
+  async forgetLinkRedemptions(stackTeamId, userId, lockDb) {
+    const db = lockDb ?? cloudDb();
+    await db
+      .delete(teamInviteLinkRedemptions)
+      .where(and(
+        eq(teamInviteLinkRedemptions.userId, userId),
+        inArray(
+          teamInviteLinkRedemptions.linkId,
+          db.select({ id: teamInviteLinks.id }).from(teamInviteLinks).where(eq(teamInviteLinks.stackTeamId, stackTeamId)),
+        ),
+      ));
+  },
 };
 
 /**
  * Serialize admin-count changes for one team. Two admins demoting each other
  * at once would otherwise both pass the last-admin check and leave none.
  */
-export async function withTeamAdminLock<T>(stackTeamId: string, operation: () => Promise<T>): Promise<T> {
+export async function withTeamAdminLock<T>(stackTeamId: string, operation: (db: TeamLockDb) => Promise<T>): Promise<T> {
   return cloudDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`team-admin:${stackTeamId}`}, 0))`);
-    return operation();
+    return operation(tx);
   });
 }

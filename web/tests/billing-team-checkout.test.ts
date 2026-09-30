@@ -227,15 +227,24 @@ describe("legacy implicit team checkout", () => {
     createSession.mockClear();
   });
 
-  test("without teamId keeps the selected team and skips the admin check", async () => {
+  test("without teamId an admin keeps checkout for the selected team", async () => {
     const selected = fixtureTeam("team-selected", { members: 2 });
-    currentUser = fixtureStackUser({ id: USER_ID, teams: [selected], selectedTeam: selected });
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [selected], adminTeamIds: ["team-selected"], selectedTeam: selected });
 
     const response = await checkoutGet("plan=team");
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
     expect(sessionParams().client_reference_id).toBe("team-selected");
-    expect(currentUser.hasPermission).not.toHaveBeenCalled();
+  });
+
+  test("without teamId a plain member of the selected team is refused", async () => {
+    const selected = fixtureTeam("team-selected", { members: 2 });
+    currentUser = fixtureStackUser({ id: USER_ID, teams: [selected], selectedTeam: selected });
+
+    const response = await checkoutGet("plan=team");
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?billing=team_admin_required");
+    expect(createSession).not.toHaveBeenCalled();
   });
 
   test("creating a team for a user with none grants the creator team_admin", async () => {

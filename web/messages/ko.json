@@ -974,7 +974,9 @@
       "apiKeys": {
         "title": "팀 API 키",
         "description": "이 팀을 대신해 작동하는 키입니다. 키를 가진 사람은 누구나 팀의 액세스 권한을 사용할 수 있으므로 안전하게 보관하세요.",
-        "create": "팀 API 키 만들기"
+        "create": "팀 API 키 만들기",
+        "disabled": "이 프로젝트에서는 팀 API 키가 활성화되어 있지 않습니다.",
+        "forbidden": "이 팀의 키를 보려면 이 팀에서 API 키 관리 권한이 필요합니다."
       }
     },
     "coderouterAccounts": {

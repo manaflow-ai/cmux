@@ -121,21 +121,18 @@ function billingScope(formData: FormData): BillingScope {
 }
 
 /**
- * With a `teamId` field the named team is the subject and the caller must be
- * its admin. Without one (older app forms) the implicit billing team applies.
+ * With a `teamId` field the named team is the subject. Without one (older app
+ * forms) the implicit billing team applies. Either way the caller must be the
+ * team's admin.
  */
 async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise<string> {
-  const requestedTeamId = explicitTeamId(formData.get("teamId"));
-  if (requestedTeamId) {
-    const access = await resolveTeamBillingAccess(user as TeamBillingAccessUser, requestedTeamId, { requireAdmin: true });
-    if (!access.ok) throw new TeamBillingRefusal(access.error, requestedTeamId);
-    return access.team.id;
-  }
-  const team = await resolveBillingTeam(user as BillingTeamUserLike);
-  if (!team?.id) {
+  const teamId = explicitTeamId(formData.get("teamId")) ?? (await resolveBillingTeam(user as BillingTeamUserLike))?.id;
+  if (!teamId) {
     throw new Error("No billing team is available for the current user");
   }
-  return team.id;
+  const access = await resolveTeamBillingAccess(user as TeamBillingAccessUser, teamId, { requireAdmin: true });
+  if (!access.ok) throw new TeamBillingRefusal(access.error, teamId);
+  return access.team.id;
 }
 
 function billingRedirect(

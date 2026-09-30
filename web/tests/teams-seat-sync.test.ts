@@ -81,7 +81,7 @@ describe("membership facts mark the seat queue", () => {
   test("removing a member and leaving both mark the team; refusals do not", async () => {
     const stack = standardTeam().addMember(TEAM_ID, OUTSIDER_ID, ["team_member", "$read_members"]);
     const seats = new MemoryTeamSeatSync();
-    const deps = { stack: stack.app(), lock: noLock, seats };
+    const deps = { stack: stack.app(), lock: noLock, seats, store: new MemoryInviteStore() };
     await removeMember(await accessFor(stack, ADMIN_ID), OUTSIDER_ID, deps);
     await removeMember(await accessFor(stack, MEMBER_ID), MEMBER_ID, deps);
     await expect(removeMember(await accessFor(stack, ADMIN_ID), ADMIN_ID, deps)).rejects.toThrow();
