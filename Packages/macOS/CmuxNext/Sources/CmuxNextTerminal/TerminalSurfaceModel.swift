@@ -1,15 +1,9 @@
 public import AppKit
 public import Observation
+public import CmuxNextTerminalGeometry
 
-/// Terminal grid in cells.
-public nonisolated struct TerminalGridSize: Sendable, Hashable {
-    public var columns: Int
-    public var rows: Int
-    public init(columns: Int, rows: Int) {
-        self.columns = columns
-        self.rows = rows
-    }
-}
+/// Terminal grid in cells (defined with the pure geometry policy).
+public typealias TerminalGridSize = CmuxNextTerminalGeometry.TerminalGridSize
 
 /// Observable state of one terminal session, fed by Ghostty actions. The
 /// tab strip, sidebar, and notification UI read this; nothing here writes

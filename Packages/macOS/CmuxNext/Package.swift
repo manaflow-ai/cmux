@@ -12,7 +12,7 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
-//   CmuxNextTerminal -> CmuxGhosttyKit (binary)
+//   CmuxNextTerminal -> CmuxNextTerminalGeometry (pure), CmuxGhosttyKit (binary)
 //   CmuxNextDesign, CmuxNextActions, CmuxNextDaemon -> system frameworks only
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
@@ -174,11 +174,24 @@ let package = Package(
         .target(
             name: "CmuxNextTerminal",
             dependencies: [
+                "CmuxNextTerminalGeometry",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Pure grid-geometry policy for terminal surfaces (which grid a
+        // mirror renders, which grid it reports). No GhosttyKit, so it has
+        // tests; CmuxNextTerminal applies it to the live surface.
+        .target(
+            name: "CmuxNextTerminalGeometry",
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTerminalGeometryTests",
+            dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
