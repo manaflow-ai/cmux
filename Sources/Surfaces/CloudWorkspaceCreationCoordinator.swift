@@ -177,7 +177,7 @@ final class CloudWorkspaceCreationCoordinator {
             catalog.notifyChange()
             try check(operation, catalog: catalog)
 
-            let projections: [SurfaceProjection]
+            var projections: [SurfaceProjection] = []
             if let firstTerminal {
                 let opened = try await catalog.project(
                     firstTerminal.resource.id,
@@ -188,21 +188,33 @@ final class CloudWorkspaceCreationCoordinator {
                     adopting: reservation
                 )
                 operation.terminal = firstTerminal.resource
-                operation.openedProjections = [opened.projection]
+                projections.append(opened.projection)
                 try check(operation, catalog: catalog)
                 operation.reservation?.creationReceipt.finish(.success(firstTerminal.resource))
-                projections = [opened.projection]
+                let remaining = group.placements.filter { $0 != firstTerminal.placement }
+                if !remaining.isEmpty {
+                    let rest = try await catalog.projectGroup(
+                        SurfaceResourceGroup(
+                            title: group.title,
+                            placements: remaining,
+                            remoteWorkspaceID: group.remoteWorkspaceID,
+                            representsWorkspace: true
+                        ),
+                        into: .workspace(id: reservation.workspaceID, placement: .tab),
+                        focus: false
+                    )
+                    projections.append(contentsOf: rest)
+                }
             } else {
-                let opened = try await catalog.projectGroup(
+                projections = try await catalog.projectGroup(
                     group,
                     into: .workspace(id: reservation.workspaceID, placement: .split),
                     focus: false
                 )
-                guard !opened.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
-                operation.openedProjections = opened
-                try check(operation, catalog: catalog)
-                projections = opened
             }
+            guard !projections.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
+            operation.openedProjections = projections
+            try check(operation, catalog: catalog)
             // Commit the request before retiring its loading reservation. A
             // synchronous pane teardown must never cancel an accepted open.
             operation.isComplete = true
