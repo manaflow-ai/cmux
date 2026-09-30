@@ -1,0 +1,20 @@
+{
+  "name": "@mux/cloud-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vp test"
+  },
+  "dependencies": {
+    "@mux/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/config": "0.22.0",
+    "@cloudflare/workers-types": "5.20260930.2",
+    "vite-plus": "catalog:",
+    "wrangler": "4.145.0"
+  }
+}
