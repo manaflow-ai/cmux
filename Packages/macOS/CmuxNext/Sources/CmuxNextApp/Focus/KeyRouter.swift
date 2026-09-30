@@ -36,6 +36,49 @@ final class KeyRouter: BrowserKeyRouting {
         }
     }
 
+    // MARK: Menu key equivalents
+
+    /// Where the key window stands relative to a cmux window.
+    enum KeyWindowKind: Equatable {
+        /// The cmux window itself, or a Chromium page window over it.
+        case content
+        /// A panel or sheet over it (palette, rename sheet): its text field
+        /// has the keyboard.
+        case textPanel
+        /// Not ours (no focus to consult).
+        case other
+    }
+
+    /// Installed as `ActionRegistry.menuKeyEquivalentGate`: a main-menu key
+    /// equivalent may run `id` only when its tier may take the key from the
+    /// key window's focus, so browser focus mode and text fields keep
+    /// chords the router gave them (focus.md section 5).
+    func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
+        let (controller, kind) = keyWindowFocus()
+        guard let controller else { return true }
+        return Self.allowsMenu(registry.keyTier(for: id), focus: controller.focus.state, keyWindow: kind)
+    }
+
+    nonisolated static func allowsMenu(_ tier: ActionKeyTier, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
+        switch keyWindow {
+        case .other: true
+        case .textPanel: tier != .content
+        case .content: allows(tier, focus: focus)
+        }
+    }
+
+    private func keyWindowFocus() -> (WindowController?, KeyWindowKind) {
+        guard let services else { return (nil, .other) }
+        // No key window (the app is inactive, or an automation launch):
+        // menu actions target the active window, so its focus decides.
+        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        let controllers = services.windows.controllers
+        if let controller = controllers.first(where: { $0.window === key }) { return (controller, .content) }
+        let owner = key.parent ?? key.sheetParent
+        guard let controller = controllers.first(where: { $0.window === owner }) else { return (nil, .other) }
+        return (controller, key is NSPanel || key.sheetParent != nil ? .textPanel : .content)
+    }
+
     // MARK: BrowserKeyRouting (CEF page window is key)
 
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition {

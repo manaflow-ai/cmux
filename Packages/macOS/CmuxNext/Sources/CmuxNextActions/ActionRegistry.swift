@@ -43,6 +43,14 @@ public final class ActionRegistry {
     /// `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
 
+    /// Whether a menu item's key equivalent may run `id` now. The App
+    /// installs its `KeyRouter` here so menus follow the same tier rules as
+    /// the window (browser focus mode, text fields). Nil allows everything.
+    @ObservationIgnored public var menuKeyEquivalentGate: (@MainActor (ActionID) -> Bool)?
+    /// True while AppKit dispatches a key-down (a menu key equivalent), not
+    /// a click in an open menu. Replaceable in tests.
+    @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }
+
     /// Collects missing required arguments (the palette installs itself
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.

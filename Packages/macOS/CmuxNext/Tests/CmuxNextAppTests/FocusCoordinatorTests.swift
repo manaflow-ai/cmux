@@ -110,3 +110,26 @@ struct FocusCoordinatorTests {
         #expect(ran == ["terminalCopy"])
     }
 }
+
+/// Menu key equivalents follow the router's tiers (the menu gap).
+struct MenuKeyEquivalentTierTests {
+    @Test func menuChordsFollowTheKeyWindowFocus() {
+        let terminal = FocusReducerTests.loaded()
+        #expect(KeyRouter.allowsMenu(.content, focus: terminal, keyWindow: .content))
+        let field = FocusReducer.reduce(terminal, .responder(.sidebarField, source: .mouse)).0
+        #expect(!KeyRouter.allowsMenu(.content, focus: field, keyWindow: .content))
+        #expect(KeyRouter.allowsMenu(.navigation, focus: field, keyWindow: .content))
+        var page = FocusReducer.reduce(terminal, .focusPane("b", source: .mouse)).0
+        page = FocusReducer.reduce(page, .toggleBrowserFocusMode(tab: nil)).0
+        #expect(!KeyRouter.allowsMenu(.navigation, focus: page, keyWindow: .content), "focus mode: the page keeps Cmd-D")
+        #expect(KeyRouter.allowsMenu(.system, focus: page, keyWindow: .content))
+        #expect(!KeyRouter.allowsMenu(.content, focus: terminal, keyWindow: .textPanel), "palette or sheet field keeps Copy")
+        #expect(KeyRouter.allowsMenu(.content, focus: page, keyWindow: .other))
+    }
+
+    @MainActor
+    @Test func appInstallsTheRouterAsTheMenuGate() {
+        let services = ActionBindingCoverageTests.boundServices()
+        #expect(services.registry.menuKeyEquivalentGate != nil)
+    }
+}
