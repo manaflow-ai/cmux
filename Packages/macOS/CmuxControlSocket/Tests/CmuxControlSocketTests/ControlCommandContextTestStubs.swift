@@ -619,7 +619,7 @@ extension ControlSurfaceContext {
 }
 
 extension ControlMobileHostContext {
-    private var mobileHostStubResult: ControlCallResult {
+    nonisolated private var mobileHostStubResult: ControlCallResult {
         .err(code: "unavailable", message: "", data: nil)
     }
 
