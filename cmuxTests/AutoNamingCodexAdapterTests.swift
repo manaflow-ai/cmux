@@ -60,6 +60,7 @@ import Testing
         let lines = [
             messageLine(role: "user", content: "<Button> does not render in dark mode"),
             messageLine(role: "user", content: "</div> is unbalanced in this file"),
+            messageLine(role: "user", content: "<permissions-panel> is misaligned"),
             messageLine(role: "assistant", content: "<environment_context> is the wrapper I found")
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
@@ -67,6 +68,7 @@ import Testing
         #expect(messages == [
             AutoNamingTranscriptMessage(role: "user", text: "<Button> does not render in dark mode"),
             AutoNamingTranscriptMessage(role: "user", text: "</div> is unbalanced in this file"),
+            AutoNamingTranscriptMessage(role: "user", text: "<permissions-panel> is misaligned"),
             AutoNamingTranscriptMessage(role: "assistant", text: "<environment_context> is the wrapper I found")
         ])
     }
