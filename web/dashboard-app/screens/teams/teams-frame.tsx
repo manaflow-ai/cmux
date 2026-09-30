@@ -5,8 +5,9 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
 import { RouteSectionError } from "@/dashboard-app/components/route-section-error";
+import { SettingsPageHeader } from "@/dashboard-app/components/settings-ui";
 
-/** Page frame shared by `/dashboard/teams` and `/dashboard/teams/new`. */
+/** Page frame shared by `/dashboard/teams` and `/dashboard/teams/new`, inside the Settings hub. */
 export function TeamsPageFrame({
   namespace,
   children,
@@ -16,11 +17,8 @@ export function TeamsPageFrame({
 }) {
   const t = useTranslations(namespace);
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
+    <div className="min-w-0">
+      <SettingsPageHeader title={t("title")} description={t("description")} />
       {children}
     </div>
   );
@@ -32,7 +30,7 @@ export function TeamsPageFrame({
  */
 export function TeamShellPending() {
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4" aria-hidden="true">
+    <div className="min-w-0" aria-hidden="true">
       <div className="mb-4 border-b border-border">
         <div className="flex items-center gap-3 pb-3">
           <div className="h-9 w-9 animate-pulse bg-code-bg" />
