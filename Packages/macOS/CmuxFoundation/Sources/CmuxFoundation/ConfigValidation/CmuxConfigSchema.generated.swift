@@ -548,10 +548,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "App appearance mode."
         },
         "accentColor": {
-          "type": "string",
-          "enum": ["cmux", "system"],
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["cmux", "system"]
+            },
+            {
+              "$ref": "#/$defs/colorHex"
+            }
+          ],
           "default": "cmux",
-          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes; a \"#RRGGBB\" hex uses that color in light and dark mode. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
         },
         "appIcon": {
           "type": "string",
@@ -839,13 +846,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.terminal.agentHibernation",
-          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
+          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, under memory pressure (critical pressure from macOS or from the cmux app's own footprint, or cmux's total memory use past its aggregate warning threshold) cmux may hibernate every safe idle background agent even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false,
               "descriptionKey": "schemaDescriptions.terminal.agentHibernationEnabled",
-              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false."
+              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Memory-pressure safety hibernation remains active when false."
             },
             "idleSeconds": {
               "type": "integer",
@@ -1437,6 +1444,32 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "compactAgentStatus": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.compactAgentStatus",
+          "description": "Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state replaces the agent status rows (for example Running or Needs input), the branch and directory line, and the pull request rows, whose details move to the icon's tooltip. Other status entries keep their rows."
+        },
+        "compactStatusIcons": {
+          "type": "object",
+          "default": {},
+          "descriptionKey": "schemaDescriptions.sidebar.compactStatusIcons",
+          "description": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
+          "properties": {
+            "error": { "type": "string", "minLength": 1 },
+            "needsInput": { "type": "string", "minLength": 1 },
+            "running": { "type": "string", "minLength": 1 },
+            "starting": { "type": "string", "minLength": 1 },
+            "unseen": { "type": "string", "minLength": 1 },
+            "pullRequestOpen": { "type": "string", "minLength": 1 },
+            "pullRequestMerged": { "type": "string", "minLength": 1 },
+            "pullRequestClosed": { "type": "string", "minLength": 1 },
+            "idle": { "type": "string", "minLength": 1 },
+            "branch": { "type": "string", "minLength": 1 },
+            "terminal": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
@@ -1833,6 +1866,18 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["subtree", "oneLevel"],
           "default": "subtree",
           "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
+        },
+        "browserTunnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The iOS \"On iPhone\" browser for this Mac's workspaces, which loads pages on the phone through this Mac.",
+          "properties": {
+            "allowOtherHosts": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow the iOS browser to reach hosts other than this Mac's own localhost through this Mac (LAN, VPN, and internet hosts, resolved on this Mac). When off, only this Mac's localhost is reachable and the phone loads other sites over its own network. Link-local and cloud metadata addresses are always refused."
+            }
+          }
         }
       }
     },
@@ -2154,7 +2199,9 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk"
             ]
           },
           "properties": {
@@ -2195,6 +2242,12 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

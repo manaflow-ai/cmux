@@ -11,10 +11,10 @@ boundary instead:
   named for its run attempt (`request`), then waits for the verdict of the
   dispatch that serves it and reports it as its own result (`await-verdict`),
   so ci-status still gates on the UI tests.
-- ci-ui-tests.yml runs from the default branch on every CI run attempt
-  (`workflow_run: requested`). It waits for that attempt's request
-  (`await-request`), re-validates it, and runs main's dispatcher on it
-  (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
+- ci-ui-tests.yml runs from the default branch. The build controller
+  dispatches it when a CI attempt's `ui-tests` job starts. It waits for that
+  attempt's request (`await-request`), re-validates it, and runs main's
+  dispatcher on it (`dispatch`). When the CI attempt finishes first (cancelled by a newer push,
   or its `ui-tests` job gave up) it cancels the dispatched run.
 
 Nothing from the request artifact is trusted beyond selectors that match
@@ -52,16 +52,39 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_SELECTORS = 8
 MAX_REQUEST_BYTES = 16_384
 UI_TEST_PREFIX = "cmuxUITests/"
+# Not a test class: test-e2e.yml reads this entry as "replay the UI fuzzer's
+# checked-in repros (dogfood/fuzz/regressions) against the app", after the
+# selected classes or alone.
+FUZZ_REGRESSIONS_SELECTOR = "cmuxUITests/FuzzRegressions"
+# What those repros exercise: the sidebar, splits and panes, and the main
+# window's size, plus the fuzzer and its repros. choose_ci_suite.py adds the
+# selector for a diff that touches one; a path ending in "/" is a directory.
+FUZZ_REGRESSION_PATHS = (
+    "dogfood/fuzz/",
+    "scripts/fuzz",
+    "vendor/bonsplit",
+    "Packages/macOS/CmuxPanes/",
+    "Packages/macOS/CmuxSidebar/",
+    "Sources/Sidebar/",
+    "Sources/App/CmuxMainWindow.swift",
+    "Sources/App/MainWindowFrameReconciler.swift",
+    "Sources/AppDelegate+WindowFramePolicy.swift",
+)
+# Workspace's split code: Workspace+EqualizeSplitsSupport.swift and the like.
+FUZZ_REGRESSION_PATTERN = re.compile(r"Sources/Workspace\+[^/]*Split[^/]*\.swift")
 # The files API lists at most 3000 files of a pull request.
 MAX_FILE_PAGES = 30
 POLL_SECONDS = 60
-# The request follows compile admission, usually tens of minutes after the
-# attempt starts, so its wait reads less often.
-REQUEST_POLL_SECONDS = 120
+# The dispatch starts with the `ui-tests` job, which uploads the request
+# within a minute.
+REQUEST_POLL_SECONDS = 20
 # How long the waiting side looks for the dispatch run of its attempt. The
-# dispatch run is created when the CI attempt is, so it normally exists before
-# `ui-tests` starts.
+# build controller dispatches it seconds after `ui-tests` starts.
 FIND_DISPATCH_SECONDS = 20 * 60
+# How long a cancelled dispatch run's replacement may take to appear in the
+# runs list, and how often it is read meanwhile.
+REPLACEMENT_SECONDS = 120
+REPLACEMENT_POLL_SECONDS = 10
 MAX_CONSECUTIVE_ERRORS = 10
 RUN_LINE = re.compile(r"^Run: https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)")
 # dispatch-focused-test.py attaches to an identical run already in flight;
@@ -81,10 +104,11 @@ def dispatch_title(run_id: int | str, attempt: int | str) -> str:
 def rerun_dispatch(run_id: int | str, attempt: int | str, ref: str = "main") -> tuple[str, dict]:
     """The workflow_dispatch that serves a CI attempt a bot re-ran.
 
-    A re-run made with GITHUB_TOKEN (the owned-pool rescue, failure
-    attribution) may not emit workflow_run, so those callers start this
-    workflow themselves. Returns (path under repos/<repo>/, body). A duplicate
-    from a workflow_run event joins the same concurrency group and replaces it.
+    The bots that re-run CI (the owned-pool rescue, failure attribution)
+    start this workflow for the new attempt. The build controller dispatches
+    it again when that attempt's `ui-tests` job starts; the duplicate joins the
+    same concurrency group and replaces it. Returns (path under
+    repos/<repo>/, body).
     """
     return (f"actions/workflows/{DISPATCH_WORKFLOW_FILE}/dispatches",
             {"ref": ref, "inputs": {"run_id": str(run_id), "run_attempt": str(attempt)}})
@@ -184,11 +208,19 @@ def serves(run: dict, repository: str) -> str | None:
     return None
 
 
-def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
-    """Whether any of these pull requests changes cmuxUITests/; None when unknown.
+def fuzz_regression_path(path: str) -> bool:
+    """Whether a change to `path` asks for the UI fuzzer's regression replays."""
+    return FUZZ_REGRESSION_PATTERN.fullmatch(path) is not None or any(
+        path.startswith(entry) if entry.endswith("/") else path == entry or path.startswith(entry + "/")
+        for entry in FUZZ_REGRESSION_PATHS)
 
-    Only a cmuxUITests/ change yields selectors (choose_ci_suite.changed_ui_selectors),
-    so this spares every other pull request the wait for a request.
+
+def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
+    """Whether any of these pull requests changes cmuxUITests/ or a fuzz regression path; None when unknown.
+
+    Only those changes yield selectors (choose_ci_suite.changed_ui_selectors and
+    FUZZ_REGRESSIONS_SELECTOR), so this spares every other pull request the wait
+    for a request.
     """
     if not pull_numbers:
         return None
@@ -197,7 +229,7 @@ def touches_ui_tests(gh: GitHub, pull_numbers: list[int]) -> bool | None:
             files = gh.get(f"repos/{{repo}}/pulls/{number}/files?per_page=100&page={page}")
             for entry in files:
                 for name in (entry.get("filename"), entry.get("previous_filename")):
-                    if isinstance(name, str) and name.startswith(UI_TEST_PREFIX):
+                    if isinstance(name, str) and (name.startswith(UI_TEST_PREFIX) or fuzz_regression_path(name)):
                         return True
             if len(files) < 100:
                 break
@@ -251,7 +283,8 @@ def await_request(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
     numbers = [int(pr["number"]) for pr in run.get("pull_requests") or [] if isinstance(pr.get("number"), int)]
     touched = retrying(lambda: touches_ui_tests(gh, numbers), sleep=sleep)
     if touched is False:
-        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX}.", flush=True)
+        print(f"Nothing to run: pull request {numbers} changes nothing under {UI_TEST_PREFIX} "
+              "and no path the fuzz regressions cover.", flush=True)
         return None
     name = request_artifact(attempt)
     print(f"Waiting for {name} from {run.get('html_url', run_id)} (head {head_sha}).", flush=True)
@@ -562,6 +595,50 @@ class Progress:
                 f"{_duration(_seconds(live.get('started_at'), now))}, {doing}{product}.")
 
 
+# app_host_test_rerun.PRODUCTS_PREFIX; ci.yml's sparse checkout holds only this file.
+PRODUCTS_PREFIX = "app-host-products-v1-"
+ADMISSION_FAILURES = frozenset({"failure", "cancelled", "timed_out"})
+
+
+def admission_ended_without_product(gh: GitHub, run_id: str, attempt: str) -> dict | None:
+    """This attempt's compile admission job, once it failed and left no app-host product.
+
+    The UI tests run on that product, so none can run: the fleet refused the
+    job, lost its runner, or the code failed to compile. Waiting on held the
+    run open (run 36435812903, 14:30 to past 15:27), and the owned-pool rescue
+    re-runs a refused job only once its run has finished. A skipped admission
+    (an earlier run's product reused) or one that uploaded its product and
+    then failed its changed suites still waits for the verdict.
+    """
+    jobs = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100").get("jobs", [])
+    job = next((job for job in jobs if str(job.get("name", "")).endswith(ADMISSION_JOB)), None)
+    if job is None or job.get("status") != "completed" or job.get("conclusion") not in ADMISSION_FAILURES:
+        return None
+    if str(job.get("run_attempt")) != str(attempt):
+        # Carried over from an earlier attempt (only ui-tests was re-run), or of
+        # unknown attempt: the dispatcher compiles for itself, so the UI tests
+        # still run.
+        return None
+    listing = gh.get(f"repos/{{repo}}/actions/runs/{run_id}/artifacts?per_page=100")
+    artifacts = listing.get("artifacts", [])
+    if int(listing.get("total_count") or 0) > len(artifacts):
+        return None  # A truncated listing cannot rule the product out.
+    if any(str(artifact.get("name", "")).startswith(PRODUCTS_PREFIX) and not artifact.get("expired")
+           for artifact in artifacts):
+        return None
+    return job
+
+
+def admission_failure(job: dict) -> int:
+    print(
+        f"::error::This run's compile admission ended {job.get('conclusion')} without an app-host product "
+        f"({job.get('html_url') or ADMISSION_JOB}), so no UI test run can use it and this job does not wait for one. "
+        "Fix or re-run compile admission: re-running this run's failed jobs requests the UI tests again.",
+        flush=True,
+    )
+    return 1
+
+
 def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[float], None] = time.sleep,
                   now: Callable[[], float] = time.monotonic, default_branch: str = "main",
                   selectors: list[str] | None = None, revisions: list[str] | None = None) -> int:
@@ -577,28 +654,58 @@ def await_verdict(gh: GitHub, run_id: str, attempt: str, *, sleep: Callable[[flo
         match = find_dispatch_run(gh, run_id, attempt, since, default_branch)
         if match is not None:
             return match
+        ended = admission_ended_without_product(gh, run_id, attempt)
+        if ended is not None:
+            return {"admission": ended}
         return False if now() >= deadline else None
 
     found = poll(find, sleep=sleep)
+    if isinstance(found, dict) and "admission" in found:
+        return admission_failure(found["admission"])
     if found is False:
         print(
             f"::error::No {DISPATCH_WORKFLOW_FILE} run titled {dispatch_title(run_id, attempt)!r} appeared, "
-            "so nothing dispatched the UI tests. Re-run this job: a re-run requests them again.",
+            "so nothing dispatched the UI tests (the build controller dispatches it when this job starts). "
+            "Re-run this job: a re-run requests them again.",
             flush=True,
         )
         return 1
     print(f"UI tests for this run: {found.get('html_url')}", flush=True)
     progress = Progress(gh, run_id, attempt, selectors or [], revisions or [], since) if selectors else None
 
-    def check() -> dict | None:
-        run = gh.get(f"repos/{{repo}}/actions/runs/{found['id']}")
-        if run.get("status") == "completed":
-            return run
-        if progress is not None:
-            progress.report()
-        return None
+    while True:
+        watched = found
 
-    finished = poll(check, sleep=sleep)
+        def check() -> dict | None:
+            run = gh.get(f"repos/{{repo}}/actions/runs/{watched['id']}")
+            if run.get("status") == "completed":
+                return run
+            ended = admission_ended_without_product(gh, run_id, attempt)
+            if ended is not None:
+                return {"admission": ended}
+            if progress is not None:
+                progress.report()
+            return None
+
+        finished = poll(check, sleep=sleep)
+        if "admission" in finished:
+            return admission_failure(finished["admission"])
+        if finished.get("conclusion") != "cancelled":
+            break
+        # A second dispatch for this attempt joins the same concurrency group and cancels the one watched here; follow it.
+        replaced_by = now() + REPLACEMENT_SECONDS
+
+        def replacement() -> dict | bool | None:
+            newer = find_dispatch_run(gh, run_id, attempt, since, default_branch)
+            if newer is not None and newer["id"] != watched["id"] and newer.get("created_at", "") >= watched.get("created_at", ""):
+                return newer
+            return False if now() >= replaced_by else None
+
+        newer = poll(replacement, sleep=sleep, interval=REPLACEMENT_POLL_SECONDS)
+        if newer is False:
+            break
+        found = newer
+        print(f"{watched.get('html_url')} was replaced; UI tests for this run: {found.get('html_url')}", flush=True)
     step = retrying(lambda: dispatch_step_conclusion(gh, found["id"]), sleep=sleep)
     if finished.get("conclusion") == "success" and step == "success":
         print(f"UI tests passed: {found.get('html_url')}", flush=True)

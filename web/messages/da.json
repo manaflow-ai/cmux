@@ -25,6 +25,11 @@
       "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
       "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
     },
+    "recreateRequired": {
+      "title": "Genopret denne maskine",
+      "message": "Denne maskine blev oprettet før en Cloud-opdatering og kan ikke tilknyttes.",
+      "action": "Opret en ny maskine, kopiér dine filer over med cmux vm pull og cmux vm push, og slet så denne."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -134,7 +139,9 @@
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
     "viewChangelog": "Se ændringslog",
-    "otherPlatforms": "Andre platforme"
+    "otherPlatforms": "Andre platforme",
+    "copyCode": "Kopiér kode",
+    "copied": "Kopieret"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -1397,6 +1404,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
+          "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
@@ -1533,7 +1542,6 @@
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z).",
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
@@ -1875,7 +1883,11 @@
       "automationSection": "Automatisering",
       "remoteSection": "Fjernadgang",
       "customizeSection": "Tilpasning og administration",
-      "basicsSection": "Grundlæggende"
+      "basicsSection": "Grundlæggende",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Oversigt",
+      "coderouterAgents": "Agenter og modeller",
+      "coderouterCli": "CLI og fejlfinding"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2072,7 +2084,7 @@
       "data3": "Parrings- og enhedsmetadata for at forbinde din telefon med din Mac.",
       "dataNot": "Din interaktive terminalsession, dens indhold og tastetryk går direkte mellem din telefon og din Mac over dit eget netværk og videresendes ikke gennem eller gemmes på cmux-serverne. Den eneste undtagelse er videresendt notifikationstekst, som passerer gennem cmux og Apple's push service for at nå din telefon, medmindre du aktiverer Hide content (se Notifikationer ovenfor).",
       "enterpriseTitle": "Enterprise og selvhostet",
-      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
+      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@cmux.com</link>."
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -2194,7 +2206,8 @@
       "guestDesc": "Inde i en maskine styrer kommandoen cmux den maskines session. Den understøtter tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url og self. cmux self viser ejeren, maskinen og dine andre maskiner. cmux vm verb peer styrer dine andre maskiner inde fra en maskine.",
       "guestHostOnly": "Login, upload af AI-konti og kommandoer til maskinens livsforløb som new, delete, checkpoint, fork, resize, pause, domains, open og vpn kører kun på din Mac.",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux-appen til iOS administrerer ikke Cloud-maskiner. En maskine, der er ved at starte, vises som et pladsholderkort."
+      "iosDesc": "cmux-appen til iOS administrerer ikke Cloud-maskiner. En maskine, der er ved at starte, vises som et pladsholderkort.",
+      "coderouterLink": "CodeRouter-dokumentation: understøttede konti, deling og forbrug"
     },
     "cloudNetworking": {
       "title": "Cloud-filer og netværk",
@@ -2259,7 +2272,8 @@
       "accountsTitle": "AI-konti og modelrouting",
       "accountsDesc": "Upload agentkonti til dit team, og tjek modelrouting.",
       "preflightTitle": "Tjekliste til scripts",
-      "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger."
+      "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger.",
+      "coderouterLink": "Fuld CodeRouter-kommandoreference"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-sikkerhed og fejlfinding",
@@ -2316,6 +2330,177 @@
       "fixTransferDisabled": "En administreret politik slår filoverførsel fra. Spørg din administrator.",
       "supportTitle": "Få hjælp",
       "supportDesc": "Hvis en oprettelse mislykkes, skal du bruge Copy Error i notifikationen og medtage fejlen, sammen med trace-ID'et hvis der er et, når du kontakter support."
+    },
+    "ui": {
+      "onThisPage": "På denne side",
+      "copyPage": "Kopiér side",
+      "copyPageDesc": "Kopiér siden som Markdown til LLM'er",
+      "copied": "Kopieret",
+      "pageActions": "Flere sidehandlinger",
+      "openInChatGPT": "Åbn i ChatGPT",
+      "openInClaude": "Åbn i Claude",
+      "openInDesc": "Stil spørgsmål om denne side",
+      "askPrompt": "Læs {url}, så jeg kan stille spørgsmål om den.",
+      "previous": "Forrige",
+      "next": "Næste",
+      "helpful": "Var denne side nyttig?",
+      "yes": "Ja",
+      "no": "Nej",
+      "thanks": "Tak for din feedback.",
+      "raiseIssue": "Opret issue",
+      "openNavigation": "Åbn navigation",
+      "closeNavigation": "Luk navigation",
+      "searchShortcut": "Søg i dokumentationen (⌘K)",
+      "navigation": "Dokumentation"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter modelrouting",
+      "metaDescription": "CodeRouter fordeler Codex, Claude Code, OpenCode og Pi på dit teams AI-abonnementer og API-nøgler og skifter konto ved en grænse.",
+      "intro": "CodeRouter er modelrouteren bag cmux. Dine kodningsagenter sender anmodninger til CodeRouter, som videresender hver anmodning til et abonnement eller en API-nøgle, som dit team har tilføjet. Når en konto er hastighedsbegrænset, afvist eller nede, flytter CodeRouter arbejdet til en anden konto, så agenterne kører videre.",
+      "whyTitle": "Hvorfor bruge det",
+      "whyPool": "Saml flere ChatGPT-, Claude- og OpenCode Go-abonnementer og API-nøgler, og del dem med dit team.",
+      "whyFailover": "Hold en agent i gang, når en konto når sin forbrugsgrænse.",
+      "whyCloud": "Giv cmux Cloud-maskiner adgang til modeller uden at gemme legitimationsoplysninger på maskinen.",
+      "whyUsage": "Se tokenforbrug pr. konto, pr. API-nøgle og pr. Cloud-maskine.",
+      "accountsTitle": "Understøttede konti",
+      "accountsDesc": "Hver konto betjener de agenter, der taler udbyderens API. Codex og Pi deler én pulje; Claude Code bruger en separat pulje af Claude-konti.",
+      "accountColumn": "Konto",
+      "servesColumn": "Betjener",
+      "addColumn": "Sådan tilføjes den",
+      "accountChatgpt": "ChatGPT-abonnement (personligt eller team-arbejdsområde)",
+      "accountOpenAiKey": "OpenAI API-nøgle",
+      "accountOpenRouterKey": "OpenRouter API-nøgle",
+      "accountOpencodeGo": "OpenCode Go-abonnement",
+      "accountClaudeSubscription": "Claude Max eller Pro (Claude Code-opsætningstoken)",
+      "accountAnthropicKey": "Anthropic API-nøgle",
+      "accountBedrock": "Amazon Bedrock-legitimationsoplysninger",
+      "addDashboard": "CodeRouter-dashboard",
+      "accountsDashboard": "CodeRouter-dashboardet kan også tilføje API-nøgler, Claude-tokens og Bedrock-legitimationsoplysninger. Det viser alle konti med deres tilstand, nedkøling og aktive sessioner:",
+      "routingTitle": "Sådan fungerer routing",
+      "routingSticky": "Hver agentsession bliver på én konto, så længe kontoen er sund, hvilket holder udbyderens prompt-cache varm. En ny session går til kontoen med færrest aktive sessioner.",
+      "routingFailover": "Når en udbyder returnerer en hastighedsbegrænsning, afviser legitimationsoplysninger eller ikke svarer, sætter CodeRouter kontoen i nedkøling og prøver anmodningen igen på en anden konto. Den prøver kun igen, før noget modeloutput når din agent, så et svar, der er begyndt at streame, sendes aldrig to gange.",
+      "routingProvider": "CodeRouters hostede tjeneste sender anmodningen til udbyderen. Trafik til udbyderen kommer derfor fra CodeRouter, ikke fra din Mac eller din Cloud-maskine.",
+      "quickstartTitle": "Hurtig start på en Mac",
+      "stepInstall": "Installer CodeRouter CLI. Den installeres som både coderouter og cr. Du kan også køre cmux cr, som tilbyder at installere den første gang.",
+      "stepLogin": "Log ind med din cmux-konto. cr login åbner din browser; godkend den kode, den viser.",
+      "stepAdd": "Tilføj et abonnement. cr add åbner en menu med udbydere, og cr add codex logger ind på ChatGPT i din browser.",
+      "stepRun": "Kør en agent gennem CodeRouter med cr codex, cr opencode eller cr pi. Argumenter efter agentens navn sendes videre til den.",
+      "cloudTitle": "På cmux Cloud-maskiner",
+      "cloudDesc": "Hver Cloud-maskine forbindes til CodeRouter, når den oprettes. Claude Code, Codex, OpenCode og Pi på maskinen bruger dit teams konti uden login og uden opsætning.",
+      "cloudLink": "Sådan konfigureres agenter på Cloud-maskiner",
+      "teamsTitle": "Teams og deling",
+      "teamsScope": "Konti tilhører det team, du er logget ind på. cr org list viser dine teams, og cr org switch skifter det team, som cr bruger. cmux coderouter-kommandoer tager --team '<id>'.",
+      "teamsPrivate": "En ny konto er privat for den person, der tilføjede den. I dashboardet gør \"Del med teamet\" den tilgængelig for alle medlemmer og for teamets Cloud-maskiner, og \"Gør privat\" fortryder det.",
+      "teamsPersonal": "I dit personlige team betjener dine private konti også dine egne Cloud-maskiner. En organisations Cloud-maskiner bruger kun delte konti, så del en konto, før du forventer, at en maskine bruger den.",
+      "teamsManage": "Alle teammedlemmer kan tilføje, omdøbe, deaktivere, overføre og fjerne teamets delte konti. cr transfer flytter en konto til et andet team, efter du har bekræftet.",
+      "usageTitle": "Forbrug og grænser",
+      "usageLimits": "Hver udbyder måler forbruget på den konto, der betjente en anmodning, under den kontos egen plan og grænser. CodeRouter fordeler arbejdet på konti, men hæver ikke nogen enkelt kontos grænse.",
+      "usageCr": "cr viser kvotetilstanden for hvert abonnement. Tilføj --watch for at opdatere hvert 30. sekund, eller --json til scripts.",
+      "usageMachines": "cmux coderouter machines viser tokenforbrug og API-tilsvarende værdi for de seneste 30 dage for hver Cloud-maskine. Inde i en maskine opdeler cmux coderouter usage maskinens forbrug efter dag, arbejdsområde, agent og model.",
+      "usageEstimate": "API-tilsvarende værdi er et skøn ud fra offentlige listepriser. Det er ikke en regning.",
+      "privacyTitle": "Legitimationsoplysninger og privatliv",
+      "privStored": "Udbyderes legitimationsoplysninger krypteres, før de gemmes. Intet CodeRouter-API eller dashboardvisning returnerer gemte legitimationsoplysninger; konti viser kun en etiket, en e-mail eller en maskeret nøgle.",
+      "privArgv": "cr add og cmux coderouter claude add tager aldrig udbyderens legitimationsoplysninger som kommandoargument, hvor de ville havne i shell-historikken. De læser dem fra en miljøvariabel, standardinput eller en skjult prompt.",
+      "privLocal": "cr add codex og cr add opencode logger ind hos udbyderen i din browser. cr codex giver CodeRouter-indstillinger til Codex kun for den kørsel og lader dit normale Codex-login og din konfiguration være uændret.",
+      "privCloud": "Cloud-maskiner har ingen legitimationsoplysninger. Agenter på en maskine sender en offentlig pladsholdernøgle til en privat CodeRouter-adresse, og maskinens netværkskant tilføjer signerede legitimationsoplysninger, der er bundet til maskinen. CodeRouter afviser disse legitimationsoplysninger fra alle andre maskiner og tilbagekalder dem, når maskinen slettes.",
+      "privRequestId": "Hvert svar fra CodeRouter har en x-coderouter-request-id-header, der identificerer anmodningen.",
+      "nextTitle": "Næste trin",
+      "nextAgents": "Agenter og modeller: konfigurer hver agent på en Mac og på Cloud-maskiner",
+      "nextCli": "CLI og fejlfinding: alle kommandoer og almindelige fejl",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter-agenter og -modeller",
+      "metaTitle": "CodeRouter-agenter og -modeller",
+      "metaDescription": "Kør Claude Code, Codex, OpenCode og Pi gennem CodeRouter på en Mac og på cmux Cloud-maskiner, og vælg, hvilken model hver agent bruger.",
+      "intro": "Denne side viser, hvordan hver agent når CodeRouter på din Mac og på en cmux Cloud-maskine, og hvordan hver agent vælger en model.",
+      "agentColumn": "Agent",
+      "macColumn": "På din Mac",
+      "cloudColumn": "På en Cloud-maskine",
+      "automatic": "Automatisk",
+      "experimental": "(eksperimentel)",
+      "claudeMacCell": "CodeRouter API-nøgle",
+      "macTitle": "På din Mac",
+      "macDesc": "cr starter den agent, du allerede har installeret, og peger den mod CodeRouter for den kørsel. Agenten skal være på din PATH. Alt efter agentens navn sendes uændret videre.",
+      "codexDesc": "cr codex kører Codex med en CodeRouter-modeludbyder. Underkommandoer som exec, review og resume fungerer på samme måde. cr naked kører almindelig Codex uden om CodeRouter.",
+      "opencodeDesc": "cr opencode indlæser modellerne fra dit teams OpenCode Go-konti og bruger den første, medmindre du angiver --model. En --model-værdi skal være en af disse modeller; kør almindelig opencode for enhver anden udbyder.",
+      "piDesc": "cr pi tilføjer en coderouter-udbyder til Pi med de samme modeller som Codex og bruger den første model, medmindre du angiver --model. Udbyderen er fast, så --provider afvises. Pi-understøttelse er eksperimentel.",
+      "claudeTitle": "Claude Code og andre API-klienter",
+      "claudeDesc": "cr har ingen Claude Code-starter. For at route Claude Code på din Mac, eller ethvert værktøj, der taler Anthropic Messages API eller OpenAI Responses API, skal du oprette en CodeRouter API-nøgle og pege værktøjet mod coderouter.dev.",
+      "apiKeyCreate": "Opret en nøgle i sektionen API keys i CodeRouter-dashboardet. Nøglen starter med crk_ og vises én gang. Oprettelse eller tilbagekaldelse af en nøgle kræver tilladelse til at administrere API-nøgler i teamet, som du altid har i dit personlige team:",
+      "apiKeyScope": "En organisations API-nøgle bruger kun teamets delte konti. En nøgle i dit personlige team kan også bruge dine private konti. CodeRouter betjener OpenAI Responses API, ikke Chat Completions.",
+      "apiKeyLogin": "På en maskine, der ikke kan åbne en browser, logger cr login --api-key cr ind med en nøgle, og CODEROUTER_API_KEY giver en nøgle til en enkelt kommando. Tilbagekald en nøgle i dashboardet, eller kør cr logout på den maskine, der bruger den.",
+      "cloudTitle": "På cmux Cloud-maskiner",
+      "cloudDesc": "Cloud-maskiner kræver ingen opsætning. Maskinens miljø peger OPENAI_BASE_URL og ANTHROPIC_BASE_URL mod en privat CodeRouter-adresse, og cmux skriver hver agents konfiguration, første gang en shell eller agenten starter:",
+      "cloudClaude": "Claude Code læser ANTHROPIC_BASE_URL og en pladsholder-ANTHROPIC_API_KEY fra miljøet. Spørgsmålene ved første kørsel er allerede besvaret.",
+      "cloudCodex": "Codex får en cmux-modeludbyder i ~/.codex/config.toml.",
+      "cloudPi": "Pi får en udbydertilsidesættelse i ~/.pi/agent/models.json.",
+      "cloudOpencode": "OpenCode henter sin udbyderliste fra CodeRouter første gang, den starter, og gemmer den i ~/.config/opencode/opencode.json.",
+      "cloudYours": "cmux skriver kun hver fil, når den mangler, så dine ændringer bevares. En Codex-konfiguration, der allerede angiver en anden modeludbyder, lades uændret.",
+      "cloudRun": "Kør agenter som normalt. cmux coderouter agent gør en ren prompt til agentens engangsform; inde i en maskine kører den i den aktuelle terminal, og på din Mac starter den agenten på den maskine, du angiver, ligesom cmux vm agent.",
+      "cloudAccounts": "Cloud-maskiner bruger konti fra det team, der ejer dem. Hvis en agent melder, at ingen konto er tilgængelig, så tilføj en, eller del en eksisterende med teamet.",
+      "modelsTitle": "Modeller",
+      "modelsCodex": "Codex og Pi bruger modelkataloget fra den konto, CodeRouter vælger, leveret på /v1/models, så Codex' modelvælger viser, hvad dine konti kan bruge. Vælg en model med Codex' -m-flag eller dens /model-kommando. For en OpenRouter-nøgle sender CodeRouter et rent OpenAI-model-id som openai/'<model>'.",
+      "modelsOpencode": "OpenCode viser modellerne fra teamets OpenCode Go-konti.",
+      "modelsClaude": "Claude Code sender den model, du vælger med --model eller /model, og CodeRouter videresender den til den valgte konto. Abonnements- og API-nøglekonti betjener de modeller, som Anthropic tillader for kontoen.",
+      "modelsBedrock": "Bedrock-konti oversætter Claude-model-id'er til Bedrock-model-id'er med en indbygget tabel, og Bedrock-id'er sendes uændret videre. En model uden en tilknytning returnerer not_found_error. Tilføj kontoen med --model for at tilknytte en anden model:",
+      "modelsList": "Inde i en Cloud-maskine udskriver cmux coderouter models Codex-modelkataloget som JSON."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI og fejlfinding",
+      "metaTitle": "CodeRouter CLI og fejlfinding",
+      "metaDescription": "Kommandoer til cr CLI og cmux coderouter, hvad der virker inde i en cmux Cloud-maskine, og løsninger på almindelige CodeRouter-fejl.",
+      "intro": "CodeRouter har to sæt kommandoer. cr, også installeret som coderouter, logger dig ind, administrerer abonnementer og starter agenter. cmux coderouter administrerer teamets Claude-konti og Cloud-maskinernes forbrug gennem den cmux-app, der er logget ind, og sender alle andre verber videre til cr.",
+      "installTitle": "Installer og log ind",
+      "installDesc": "Installationsprogrammet henter en checksumverificeret binærfil til ~/.coderouter/bin, linker cr til den og tilføjer mappen til din shells PATH. Kør det igen for at opdatere. Det understøtter macOS og Linux på arm64 og x64. Den samme CLI er udgivet på npm og PyPI.",
+      "loginDesc": "cr login åbner din browser og udskriver et reservelink. Uden en lokal browser kan du bruge --device-auth og åbne linket på en anden enhed, eller cr login --code for at indsætte en kode eller et magisk link.",
+      "crTitle": "cr",
+      "crDesc": "Uden en kommando viser cr dine konti og deres forbrug. Routing af agenter er altid eksplicit: almindelig codex, opencode og pi virker fortsat uden CodeRouter.",
+      "crAddCodex": "Et personligt og et team-ChatGPT-arbejdsområde kan dele én e-mail. Kør cr add codex én gang pr. arbejdsområde, og vælg arbejdsområdet i browseren; CodeRouter holder dem som separate konti.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Disse verber kører gennem cmux-appen, som skal køre og være logget ind (cmux auth login). Tilføj --json for maskinlæsbart output og --team '<id>' for at bruge et andet team end det valgte.",
+      "claudeAddDesc": "claude add oauth-token læser CLAUDE_CODE_OAUTH_TOKEN eller --stdin. I en terminal uden nogen af dem kører den claude setup-token og læser det token, som kommandoen udskriver. claude add api-key læser ANTHROPIC_API_KEY, --stdin eller en skjult prompt. claude add bedrock læser AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY og den valgfrie AWS_SESSION_TOKEN og tager regionen fra --region, AWS_REGION eller AWS_DEFAULT_REGION.",
+      "accountSelector": "En '<account>' kan være dens id, dens etiket eller dens maskerede identifikator. disable tager en konto ud af rotation, indtil du aktiverer den igen.",
+      "passthroughDesc": "Alle andre cmux coderouter-verber og alle cmux cr-kommandoer kører cr uændret. Når cr mangler, tilbyder cmux at køre installationsprogrammet. cmux giver ikke sine egne miljøvariabler eller sit login videre til cr.",
+      "guestTitle": "Inde i en Cloud-maskine",
+      "guestDesc": "Hver Cloud-maskine har sin egen cmux med CodeRouter-verber, der ikke kræver login. Kontoadministration forbliver på din Mac, så claude, login og logout afvises inde i en maskine.",
+      "troubleTitle": "Fejlfinding",
+      "troubleDesc": "Meddelelserne i første kolonne er det, som agenten, cr eller cmux udskriver.",
+      "symptomColumn": "Meddelelse eller symptom",
+      "fixColumn": "Løsning",
+      "errSignIn": "Sign in with `cr login` and retry. (Også: Missing coderouter route token.)",
+      "fixSignIn": "Kør cr login. For en API-klient skal du tjekke, at nøglen er sat og starter med crk_.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "Kør cr login igen. En tilbagekaldt API-nøgle holder op med at virke med det samme; opret en ny.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Kør cr for at se hver kontos tilstand. Tilføj en konto med cr add, eller vent på, at en nedkøling slutter. For en organisations Cloud-maskiner skal du dele kontoen med teamet.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "Tilføj en med cr add claude eller cmux coderouter claude add. For en organisations Cloud-maskiner skal du dele den med teamet.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Prøv igen efter nedkølingen, aktiver en deaktiveret konto med cmux coderouter claude enable, eller tilføj en anden konto.",
+      "errBedrockModel": "not_found_error fra en Bedrock-konto",
+      "fixBedrockModel": "Modellen har ingen Bedrock-tilknytning. Fjern kontoen, og tilføj den igen med --model '<claude-id>=<bedrock-id>'.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Fjern kontoen, og tilføj den igen med --region, eller med AWS_REGION sat.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Kør installationsprogrammet, eller svar y, når cmux cr tilbyder at installere den.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (eller OpenCode, eller Pi).",
+      "fixAgentMissing": "Installer agenten. cr starter den kopi, den finder på din PATH.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "Din codex-kommando peger på cr. Sæt den rigtige Codex-eksekverbare fil først på din PATH.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "Vælg en model fra dine OpenCode Go-konti, eller kør almindelig opencode for en anden udbyder.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "Maskinen kunne ikke hente OpenCode-udbyderlisten. Vent et minut, og start OpenCode igen.",
+      "errEdge": "CodeRouter: TLS edge unreachable, eller route rejected, i cmux auth status inde i en maskine.",
+      "fixEdge": "Maskinen kan ikke nå CodeRouter, eller CodeRouter afviste maskinens legitimationsoplysninger. Prøv igen om lidt. Hvis det fortsætter, så kontakt support med maskinens navn og outputtet fra cmux auth status --json.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter eller kontolageret er kortvarigt utilgængeligt. Prøv igen; hvis fejlen fortsætter, så rapporter den med anmodnings-id'et.",
+      "diagnoseTitle": "Diagnosticer",
+      "diagnoseDesc": "cr doctor udskriver, om cr er logget ind, og hvilke CodeRouter-endpoints den bruger. cmux coderouter status viser cmux-login, det valgte team og teamets Claude-konti.",
+      "supportTitle": "Få hjælp",
+      "supportDesc": "Når du rapporterer en mislykket anmodning, så medtag værdien af svarheaderen x-coderouter-request-id. Den identificerer netop den anmodning i CodeRouters registreringer."
     }
   },
   "legal": {
@@ -4321,7 +4506,7 @@
         "description": "Rapportér fejl, og ønsk nye funktioner i fuld åbenhed."
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "Foretrækker du e-mail? Skriv direkte til os."
       }
     },
@@ -4343,8 +4528,8 @@
       "privacy": "Vi bruger kun din e-mailadresse til at svare på din supporthenvendelse. Vi sælger ikke kontaktoplysninger.",
       "submit": "Send besked",
       "submitting": "Sender…",
-      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@manaflow.com.",
-      "error": "Noget gik galt. Prøv igen, eller skriv til founders@manaflow.com."
+      "success": "Tak. Vi har modtaget din besked og svarer på din e-mail fra founders@cmux.com.",
+      "error": "Noget gik galt. Prøv igen, eller skriv til founders@cmux.com."
     }
   },
   "emails": {
@@ -4383,7 +4568,10 @@
     "emailUnavailable": "e-mail ikke tilgængelig",
     "organization": "Organisation",
     "personalAccount": "personlig konto",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "signedOutTitle": "Log ind for at godkende coderouter",
+    "signedOutBody": "Et kommandolinjeprogram venter på, at du logger ind. Log ind med din cmux-konto for at færdiggøre forbindelsen af denne terminal. Hvis du ikke startede denne anmodning, så luk denne side.",
+    "signInButton": "Log ind"
   },
   "MobileRelease106": {
     "title": "Nyt i 1.0.6",

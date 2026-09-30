@@ -136,6 +136,28 @@ struct TerminalLinkLocationAndDockTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Dock treats a terminal it cannot place as remote")
+    @MainActor
+    func dockUnplacedTerminalIsRemote() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let store = DockSplitStore(
+            workspaceId: workspace.id,
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: false)
+        )
+
+        #expect(!store.terminalLinkIsRemoteTerminal(terminalPanelId))
+        #expect(store.terminalLinkIsRemoteTerminal(UUID()))
+        // Dock terminals report their workspace as owner; their paths stay local.
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: terminalPanelId))
+    }
+
     @Test("path:line Cmd-click forwards the location to the preferred editor")
     @MainActor
     func pathLocationUsesPreferredEditor() async throws {
