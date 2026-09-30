@@ -82,7 +82,7 @@ The UI only knows `AgentEvent` (types.ts): `user`, `delta`, `assistant`, `thinki
 Two adapter families are enough, and family 2 is a single implementation:
 
 1. **Native stream-JSON/JSON-RPC CLIs.** Claude Code (`--output-format stream-json`), Codex (`app-server`, the JSON-RPC server its IDE extension uses), and pi (`--mode rpc`) have the same shape. Each needs a ~100-line adapter because event names differ, but they all reduce to the same event set: text deltas, tool start/end, turn done. Use a native adapter when the native protocol carries things ACP doesn't yet (Claude permission modes/hooks, Codex thread/turn model and approvals).
-2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`), gemini (`gemini --acp`), and Cursor Agent (`cursor-agent acp`), and gets claude (`@zed-industries/claude-code-acp`), goose, marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
+2. **ACP (Agent Client Protocol, agentclientprotocol.com).** One generic client (`adapters/acp.ts`) speaks initialize → session/new → session/prompt, renders `session/update` notifications, and answers reverse requests (`session/request_permission`). That single file already runs opencode (`opencode acp`), gemini (`gemini --experimental-acp`), goose (`goose acp`), and Cursor Agent (`cursor-agent acp`), and gets claude (`@zed-industries/claude-code-acp`), marimo, and future agents for free. ACP is the long-term contract: it's the protocol Zed drove, adapters keep appearing, and it standardizes exactly the hard parts (permissions, fs proxying, tool call lifecycle, plans).
 Amp is not listed because it has no documented native ACP command. Supporting it would require a deliberate choice of a third-party bridge or a native adapter.
 
 Capability differences are absorbed by the schema, not the UI:
@@ -92,7 +92,9 @@ Capability differences are absorbed by the schema, not the UI:
 | claude    | persistent stdio     | deltas    | yes           | persistent proc            | permission mode |
 | codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approvals + sandbox options |
 | opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
+| goose     | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle (`--yolo` at start) |
+| cursor-agent | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
 
 Runtime options are declared by adapters as `SessionOption[]` and replayed as
