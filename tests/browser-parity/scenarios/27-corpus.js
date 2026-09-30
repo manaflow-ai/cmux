@@ -5,10 +5,14 @@
 // the same page (Aside drops some visible text cmux keeps, such as card
 // descriptions). Exact byte counts are printed, not compared.
 // oracle: skip (compares cmux snapshots against Chrome records made by lib/corpus.mjs)
+// ---- cell session=corpus
 const squash = (s) => String(s).replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
 const aside = await (await fetch(`${PRIMARY}/corpus/aside-sizes.json`)).json();
 globalThis.corpusCheck = async (name) => {
   const oracle = await (await fetch(`${PRIMARY}/corpus/${name}.oracle.json`)).json();
+  // The Chrome records were made at 1280x800; a tab shown in a pane would
+  // otherwise render at the pane's size.
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${PRIMARY}/corpus/${name}.html`);
   const tree = (await snapshot()).tree;
   const entries = [];
@@ -56,21 +60,21 @@ globalThis.corpusCheck = async (name) => {
   console.log(`${name}: cmux ${bytes} bytes, Aside ${aside[name]} bytes, Chrome AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
   return { missing, leaks, withinAside: bytes <= 1.1 * aside[name] };
 };
-// ---- cell
+// ---- cell session=corpus
 for (const name of ["wikipedia", "hackernews", "github"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
   emitCmux(`${name}:leaks`, r.leaks);
   emitCmux(`${name}:within-aside-10pct`, r.withinAside);
 }
-// ---- cell
+// ---- cell session=corpus
 for (const name of ["mdn", "mdn-iframe", "npr"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
   emitCmux(`${name}:leaks`, r.leaks);
   emitCmux(`${name}:within-aside-10pct`, r.withinAside);
 }
-// ---- cell
+// ---- cell session=corpus
 for (const name of ["bbc", "books", "vercel"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
