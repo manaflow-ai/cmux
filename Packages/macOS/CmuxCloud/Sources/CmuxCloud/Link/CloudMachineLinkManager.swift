@@ -67,6 +67,7 @@ public actor CloudMachineLinkManager {
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
+    private var machineStatuses: [String: String] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -176,6 +177,15 @@ public actor CloudMachineLinkManager {
     }
 
     private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
+        if let status = machineStatuses[machineID], !Self.backgroundUpkeepShouldConnect(status: status) {
+            if Self.isBackgroundUpkeep {
+                throw ManagerError.retryLater("Cloud machine is \(status); waiting for it to run.")
+            }
+            guard let client = await MainActor.run(body: { VMClient.shared }) else {
+                throw ManagerError.clientMissing
+            }
+            machineStatuses[machineID] = try await client.resume(id: machineID)
+        }
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
@@ -324,6 +334,15 @@ public actor CloudMachineLinkManager {
 
     public func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
+    }
+
+    public static func backgroundUpkeepShouldConnect(status: String) -> Bool {
+        status == "running"
+    }
+
+
+    public func setMachineStatus(_ status: String, for machineID: String) {
+        machineStatuses[machineID] = status
     }
 
     /// A browser carrier can present the machine's stored device identity directly.

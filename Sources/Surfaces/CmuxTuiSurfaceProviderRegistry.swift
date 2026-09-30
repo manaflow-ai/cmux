@@ -421,6 +421,13 @@ final class CmuxTuiSurfaceProviderRegistry {
         unregisterMachine(rawID)
     }
 
+    /// Stops machine-bound transports while retaining the provider and its graph.
+    func machineBecameInactive(_ rawID: String, status: String = "paused") async {
+        await links.setMachineStatus(status, for: rawID)
+        guard let provider = providers[registeredMachineID(matching: rawID)] else { return }
+        scheduleTransportTeardown(rawID, provider: provider)
+    }
+
     /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
     private func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
@@ -434,11 +441,21 @@ final class CmuxTuiSurfaceProviderRegistry {
         // the earlier pass instead of racing it (cancellation would not stop
         // a pass already inside the managers), so a refresh that re-lists the
         // machine awaits the whole chain through the newest task.
+        scheduleTeardown(id, provider: provider, retireProvider: true)
+    }
+
+    private func scheduleTransportTeardown(_ rawID: String, provider: CmuxTuiSurfaceProvider) {
+        scheduleTeardown(rawID, provider: provider, retireProvider: false)
+    }
+
+    private func scheduleTeardown(_ rawID: String, provider: CmuxTuiSurfaceProvider?, retireProvider: Bool) {
+        let id = registeredMachineID(matching: rawID)
         let previousTeardown = machineTeardowns[id]
         machineTeardowns[id] = Task { [links, portForwards, portAccess] in
             await previousTeardown?.value
             if let provider {
-                await provider.stop()
+                if retireProvider { await provider.stop() }
+                else { provider.stopTransportResources(); await portAccess.remove(machineID: id) }
             } else {
                 await portAccess.remove(machineID: id)
             }
@@ -511,12 +528,16 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard generation == refreshGeneration else { return nil }
             }
             await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
+            await links.setMachineStatus(summary.status, for: summary.id)
             // A delete that ran while that await was suspended bumped the
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
             guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
+                if summary.status != "running" {
+                    scheduleTransportTeardown(summary.id, provider: provider)
+                }
             } else {
                 let provider = CmuxTuiSurfaceProvider(
                     summary: summary, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope, links: links, catalog: catalog,

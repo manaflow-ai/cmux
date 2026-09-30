@@ -190,7 +190,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             stats: nil,
             portDiscoveryState: portDiscovery.state
         )
-        installNotificationSync()
+        if summary.status == "running" {
+            installNotificationSync()
+        }
     }
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
@@ -204,6 +206,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
+        if summary.status == "running", notificationSync == nil {
+            installNotificationSync()
+        }
         portDiscovery.reconcile(
             supportsPreviews: summary.capabilities.ports || summary.preferredPrivateAddress != nil,
             isAwake: summary.status == "running",

@@ -356,6 +356,11 @@ extension TerminalController {
                 let status = resume
                     ? try await VMClient.shared.resume(id: vmId)
                     : try await VMClient.shared.pause(id: vmId)
+                if !resume {
+                    await MainActor.run {
+                        await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
+                    }
+                }
                 return ["id": vmId, "status": status]
             }
         case "vm.reflection":
