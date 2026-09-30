@@ -299,3 +299,27 @@ public enum TerminalDetachReason: Hashable, Sendable {
         }
     }
 }
+
+extension TerminalSizingPolicy {
+    /// The same policy with each legacy two-segment priority key
+    /// (`<user>/<device_kind>`) replaced, in place, by the per-device keys of
+    /// the given participants it matches. Keys that match no participant, and
+    /// keys already per device, stay. Size panels apply this before an edit,
+    /// so a stored policy moves to per-device keys the first time it changes.
+    ///
+    /// - Parameter participants: the attached participants, in host order.
+    /// - Returns: the migrated policy, without duplicate keys.
+    public func migratingLegacyPriorityKeys(_ participants: [TerminalSizingParticipant]) -> TerminalSizingPolicy {
+        var keys: [String] = []
+        var seen = Set<String>()
+        for key in priority {
+            let expanded = participants
+                .filter { $0.priorityKey != $0.legacyPriorityKey && $0.legacyPriorityKey == key }
+                .map(\.priorityKey)
+            for next in expanded.isEmpty ? [key] : expanded where seen.insert(next).inserted {
+                keys.append(next)
+            }
+        }
+        return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed)
+    }
+}

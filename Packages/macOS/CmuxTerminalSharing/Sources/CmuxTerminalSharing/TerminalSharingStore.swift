@@ -147,7 +147,9 @@ public final class TerminalSharingStore {
         guard let snapshot = snapshots[surfaceID],
               let me = snapshot.selfParticipant,
               let controller = controller(surfaceID) else { return false }
-        let policy = snapshot.state.policy.sizedTo(me.participant)
+        let policy = snapshot.state.policy
+            .migratingLegacyPriorityKeys(snapshot.state.participants.map(\.participant))
+            .sizedTo(me.participant)
         if policy != snapshot.state.policy {
             guard controller.sharingSetPolicy(policy) else { return false }
         }

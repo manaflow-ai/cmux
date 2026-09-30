@@ -190,8 +190,9 @@ struct TerminalSizeSheet: View {
     ) -> [TerminalSizingParticipantState] {
         let rows = allRows(presentation)
         guard presentation.policy.mode == .priority else { return rows }
+        let priority = presentation.policy.migratingLegacyPriorityKeys(rows.map(\.participant)).priority
         let rank = Dictionary(
-            presentation.policy.priority.enumerated().map { ($1, $0) },
+            priority.enumerated().map { ($1, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return rows.enumerated().sorted { lhs, rhs in
@@ -301,8 +302,8 @@ struct TerminalSizeSheet: View {
         let ranked = keys.filter { seen.insert($0).inserted }
         // Keep ranked keys of participants that are not attached right now,
         // after the attached ones, so a reconnect finds its old slot.
-        let detachedKeys = presentation.policy.priority.filter { !seen.contains($0) }
-        var policy = presentation.policy
+        var policy = presentation.policy.migratingLegacyPriorityKeys(allRows(presentation).map(\.participant))
+        let detachedKeys = policy.priority.filter { !seen.contains($0) }
         policy.priority = ranked + detachedKeys
         run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
     }
