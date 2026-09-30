@@ -11296,6 +11296,12 @@ enum CmuxExtensionSidebarSelection {
         defaults.set(providerId, forKey: defaultsKey)
     }
 
+    static func clearStaleTemplatePreviewSelection(defaults: UserDefaults = .standard) {
+        guard let providerId = defaults.string(forKey: defaultsKey),
+              providerId.hasPrefix(customSidebarProviderPrefix + ".cmux-preview-") else { return }
+        defaults.removeObject(forKey: defaultsKey)
+    }
+
     @MainActor
     static func setInMemoryTemplatePreview(providerId: String, source: String) {
         inMemoryTemplatePreview = (providerId, source)
