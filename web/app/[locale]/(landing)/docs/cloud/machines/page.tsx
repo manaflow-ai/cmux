@@ -50,10 +50,9 @@ cmux vm new --detach --json`}</CodeBlock>
         <tbody>
           <tr><td><code>4g</code></td><td>4 GB</td><td>2</td><td>16 GB</td><td>{t("planPaid")}</td></tr>
           <tr><td><code>8g</code></td><td>8 GB</td><td>4</td><td>32 GB</td><td>{t("planPaid")}</td></tr>
-          <tr><td><code>16g</code></td><td>16 GB</td><td>8</td><td>64 GB</td><td>{t("planPaid")}</td></tr>
-          <tr><td><code>24g</code></td><td>24 GB</td><td>12</td><td>96 GB</td><td>{t("planPaid")}</td></tr>
+          <tr><td><code>16g</code></td><td>16 GB</td><td>8</td><td>64 GB</td><td>{t("planMax")}</td></tr>
+          <tr><td><code>24g</code></td><td>24 GB</td><td>12</td><td>96 GB</td><td>{t("planMax")}</td></tr>
           <tr><td><code>32g</code></td><td>32 GB</td><td>16</td><td>128 GB</td><td>{t("planMax")}</td></tr>
-          <tr><td><code>64g</code></td><td>64 GB</td><td>32</td><td>128 GB</td><td>{t("planMax")}</td></tr>
         </tbody>
       </table>
       <p>{t("sizesDefault")}</p>

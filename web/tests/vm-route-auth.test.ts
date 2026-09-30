@@ -532,7 +532,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -825,7 +825,7 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
     }));
   });
 
@@ -919,12 +919,12 @@ describe("VM REST auth", () => {
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 32768,
-      maxMemoryMb: 24576,
+      maxMemoryMb: 8192,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("starts a 64 GB machine on Max", async () => {
+  test("starts a 32 GB machine on Max", async () => {
     getUser.mockResolvedValue(stackUserForPlan("max"));
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-max",
@@ -938,12 +938,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 65536 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 32768 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -1910,7 +1910,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 200,
+      maxActiveVms: 20,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -2021,7 +2021,7 @@ describe("VM REST auth", () => {
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
@@ -2269,7 +2269,7 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       callerPlanId: "pro",
       command: "true",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       timeoutMs: 30_000,
       modelPlane: expect.objectContaining({}),
     });

@@ -92,23 +92,23 @@ final class NewMachineModel {
 
     /// The base-image sizes the backend exposes, in ascending memory order.
     /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
+    /// 24/96, or 32/128 GB of memory/disk. The server's list trims
     /// this set for plan limits. The 128 MiB BusyBox image is intentionally
     /// not a coding-machine option because it has no baked dev tools.
-    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768]
     static let planMachineMemoryMb = 8192
     /// The pre-ladder backend default. It is used only when the server omits
     /// `limits.memoryOptionsMb`, so the client does not send an unsupported
     /// `--size` flag during a rolling upgrade.
     static let legacyPlanMachineMemoryMb = 20480
-    /// The plan that sells the ladder's 32 GB and 64 GB rows
+    /// The plan that sells the ladder's 16, 24, and 32 GB rows
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
     /// The largest machine every plan except Max may start
     /// (`PLAN_MAX_MEMORY_MB` on the server).
-    nonisolated static let standardPlanMaxMemoryMb = 24576
+    nonisolated static let standardPlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder, every other plan (and an unknown plan) stops at 24 GB.
+    /// whole ladder, every other plan (and an unknown plan) stops at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
@@ -344,7 +344,7 @@ final class NewMachineModel {
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
 
-    /// "32 GB and 64 GB machines need cmux Max."; nil when nothing is locked
+    /// "16 GB, 24 GB, and 32 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
