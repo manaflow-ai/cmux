@@ -21,6 +21,8 @@ final class TerminalPortalGeometryFixture {
     private var dividerResizeActive = false
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
     var hostedID: ObjectIdentifier { ObjectIdentifier(hosted) }
+    /// The longest this surface's first runtime may wait for its command-shim install.
+    private let shimInstallDeadline: Duration
 
     /// - Parameter stalledShimInstallDeadline: When set, the surface's agent
     ///   command-shim install never finishes, so only this install deadline
@@ -39,6 +41,7 @@ final class TerminalPortalGeometryFixture {
         window.contentView?.addSubview(anchor)
         portal = WindowTerminalPortal(window: window)
         let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        shimInstallDeadline = stalledShimInstallDeadline ?? live.agentCommandShimInstallDeadline
         surface = TerminalSurface(
             tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, workingDirectory: nil,
@@ -117,11 +120,19 @@ final class TerminalPortalGeometryFixture {
         }
     }
 
+    /// How long a published geometry may take to reach Ghostty's grid and the
+    /// PTY. A visible exec surface creates its runtime only after its agent
+    /// command shims install or the install deadline passes (#9769). That
+    /// install is utility-priority file I/O, so a busy host can hold the first
+    /// runtime for up to the deadline after the geometry has already settled
+    /// (main run 36748094366, app-host shard 4: settled, pending=false, no runtime).
+    private var commitWaitBound: Duration { shimInstallDeadline + .seconds(2) }
+
     func requireCommit(
         width: CGFloat? = nil,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        let deadline = ContinuousClock.now.advanced(by: commitWaitBound)
         repeat {
             if let geometry = surface.committedPaneGeometry,
                geometry.phase == .settled, gridMatchesPTY(),
