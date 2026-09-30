@@ -205,9 +205,11 @@ final class CloudTuiManualMirrorSession {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
             previous.onManualSizeApplied = nil
+            previous.onNaturalGridInputsChanged = nil
             previous.onRuntimeReady = nil
             previous.onManualWindowAttached = nil
             previous.onManualVisibilityChanged = nil
+            previous.clearAssignedGrid()
             previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
@@ -224,6 +226,15 @@ final class CloudTuiManualMirrorSession {
         }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
+        }
+        // While the grid is pinned to the daemon's, a view resize changes no
+        // Ghostty size, so it arrives here instead of onManualSizeApplied.
+        surface.onNaturalGridInputsChanged = { [weak self] in
+            // Hop out of the in-progress updateSize before re-reporting.
+            Task { @MainActor [weak self] in
+                guard let self, let sample = self.surface?.rawSizingSample() else { return }
+                self.apply(size: sample, validatePanePixels: false)
+            }
         }
         surface.onRuntimeReady = { [weak self] in
             self?.runtimeReady()
@@ -427,11 +438,17 @@ final class CloudTuiManualMirrorSession {
         validatePanePixels: Bool = false
     ) {
         defer { localGridChanged(to: sample) }
+        // `sample` is the grid Ghostty holds (the fidelity tracker needs it).
+        // The viewport reported to the daemon is the view's own grid, which
+        // differs while the grid is pinned to the daemon's.
         guard phase != .stopped,
               let surface,
               surface.isNativeViewInRealWindow,
               surface.isRendererPortalVisible,
-              let grid = CloudTuiManualIOGrid.usable(from: sample, validatePanePixels: validatePanePixels) else {
+              let grid = CloudTuiManualIOGrid.usable(
+                  from: surface.viewSizingSample() ?? sample,
+                  validatePanePixels: validatePanePixels
+              ) else {
             return
         }
         let canSend = attachResponseReceived && !claimInFlight
@@ -508,9 +525,11 @@ final class CloudTuiManualMirrorSession {
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
             surface.hostedView.cloudTerminalOverlay.unbindSession(self)
             surface.onManualSizeApplied = nil
+            surface.onNaturalGridInputsChanged = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
+            surface.clearAssignedGrid()
         }
         self.surface = nil
     }
@@ -651,6 +670,10 @@ final class CloudTuiManualMirrorSession {
         _ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int, pending: Data
     ) {
         lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+        // The daemon owns the grid, and the replay addresses rows and wraps at
+        // its size. Pin Ghostty to it before parsing; the view letterboxes or
+        // clips the difference and keeps reporting its own grid.
+        surface?.setAssignedGrid(columns: columns, rows: rows)
         applyReplay(bytes, colors: colors, remote: lastRemoteGrid, pending: pending)
         hasReceivedRemoteReplay = true
         diagnosticReplayReceived = true

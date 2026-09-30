@@ -144,7 +144,7 @@ function geminiDefaultModel(): string | undefined {
   return agentModelCatalog.provider("gemini")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "gemini-3.1-pro-preview");
 }
 
-const PROVIDERS: ProviderDef[] = [
+export const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
   { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
@@ -153,7 +153,7 @@ const PROVIDERS: ProviderDef[] = [
     id: "gemini",
     label: "Gemini",
     adapter: "acp",
-    cmd: ["gemini", "--acp"],
+    cmd: ["gemini", "--experimental-acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
     models: geminiCatalogModels(),
