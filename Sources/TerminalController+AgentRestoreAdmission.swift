@@ -35,7 +35,7 @@ extension TerminalController {
     #endif
     nonisolated func agentRestoreAdmissionResponse(
         _ request: ControlRequest
-    ) async -> String {
+    ) async throws -> String {
         guard let inputs = Self.agentRestoreAdmissionInputs(request.params) else {
             return Self.v2Encoder.error(
                 id: request.id,
@@ -48,7 +48,7 @@ extension TerminalController {
         }
         let admissionStart = ContinuousClock.now
 
-        let record = await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
+        let record = try await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return nil }
             return self.agentRestoreTargetRecord(inputs)
         }
@@ -111,7 +111,7 @@ extension TerminalController {
             indexComplete: indexComplete,
             writerLock: writer?.state
         )
-        let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
+        let decision = try await v2MainAsync { () -> AgentRestoreAdmissionDecision in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
                   self.agentRestoreTargetRecord(inputs) == record else { return .targetChanged }
             if inputs.launchLeasePending || liveOwner != nil {
@@ -143,6 +143,9 @@ extension TerminalController {
             guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
                 kind: inputs.kind, sessionId: inputs.sessionID
             ) else { return .concurrentLaunch }
+            // The admitted CLI already holds the record with any update continuation prompt;
+            // a later restore of this panel resumes without it.
+            UpdateRelaunchContinuationNudges.shared.consume(panelId: inputs.surfaceID)
             return .admitted(claim)
         }
         // The CLI keeps the original restore operation alive. Each subsequent
@@ -175,7 +178,7 @@ extension TerminalController {
     #endif
     nonisolated func agentRestoreAdmissionReleaseResponse(
         _ request: ControlRequest
-    ) async -> String {
+    ) async throws -> String {
         guard case .string(let rawKind)? = request.params["kind"],
               case .string(let rawSessionID)? = request.params["session_id"],
               case .string(let rawClaimID)? = request.params["claim_id"],
@@ -201,7 +204,7 @@ extension TerminalController {
                 )
             )
         }
-        let released = await v2MainAsync {
+        let released = try await v2MainAsync {
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return false }
             return AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: kind,

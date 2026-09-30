@@ -205,4 +205,62 @@ extension ReconnectRouteSelectionTests {
         #expect(shell.connectionState == .connected)
         await shell.remoteClient?.disconnect()
     }
+
+    /// Startup must begin dialing the cached local route while the backup
+    /// refresh runs. A slow backup server must not add a round trip before the
+    /// connection that the app already has enough local state to attempt.
+    @Test func startupRestoreDialsWhileBackupRefreshIsInFlight() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac",
+            instanceTag: "default",
+            displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox(),
+            failingKinds: []
+        )
+        let mac = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "default"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [mac]],
+            blockedTeams: []
+        )
+        await pairedStore.blockBackupRefresh()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability()
+        )
+
+        let reconnect = Task {
+            await shell.reconnectActiveMacIfAvailable(
+                stackUserID: "user-1",
+                hydratePairedMacs: true
+            )
+        }
+        await pairedStore.waitUntilBackupRefreshStarted()
+        #expect(await reconnect.value)
+        #expect(factory.attemptedKinds() == [.iroh])
+
+        await pairedStore.releaseBackupRefresh()
+        await pairedStore.waitUntilBackupRefreshFinished()
+        await shell.remoteClient?.disconnect()
+    }
 }

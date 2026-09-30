@@ -193,6 +193,11 @@ public abstract class GeneratedCmuxClient {
         return FrontendProjection.fromWire(result);
     }
 
+    public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_SIZE_STATE, request.toWire());
+        return GetSizeStateResult.fromWire(result);
+    }
+
     public final IdentifyResult identify() throws CmuxException {
         Object result = execute(Commands.IDENTIFY, Map.of());
         return IdentifyResult.fromWire(result);
@@ -301,6 +306,11 @@ public abstract class GeneratedCmuxClient {
     public final SurfaceResult newWorkspace(NewWorkspaceRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_WORKSPACE, request.toWire());
         return SurfaceResult.fromWire(result);
+    }
+
+    public final NoteSizeActivityResult noteSizeActivity(NoteSizeActivityRequest request) throws CmuxException {
+        Object result = execute(Commands.NOTE_SIZE_ACTIVITY, request.toWire());
+        return NoteSizeActivityResult.fromWire(result);
     }
 
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
@@ -483,9 +493,24 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final SetSizeCountsResult setSizeCounts(SetSizeCountsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_COUNTS, request.toWire());
+        return SetSizeCountsResult.fromWire(result);
+    }
+
+    public final SetSizePolicyResult setSizePolicy(SetSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SIZE_POLICY, request.toWire());
+        return SetSizePolicyResult.fromWire(result);
+    }
+
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SPLIT_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetTerminalIdlePolicyResult setTerminalIdlePolicy(SetTerminalIdlePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_IDLE_POLICY, request.toWire());
+        return SetTerminalIdlePolicyResult.fromWire(result);
     }
 
     public final EmptyResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
