@@ -284,13 +284,23 @@ class RerunDecisionTests(unittest.TestCase):
             self.assertFalse(rerun)
             self.assertIn("`job 1`", line)
 
-    def test_an_automatic_re_run_is_not_re_run_again(self) -> None:
-        # The bot's own re-run went to Blacksmith; nothing a comment says can restart it.
+    def test_an_automatic_re_run_on_blacksmith_is_not_re_run_again(self) -> None:
+        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it.
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
+                                        {"run_attempt": 3, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
+        self.assertFalse(rerun)
+        self.assertIn("attempt 3", line)
+
+    def test_an_automatic_attempt_2_a_mini_failed_goes_to_blacksmith_once(self) -> None:
+        # The bot's attempt 2 goes back to the minis; an online but broken one (a full
+        # disk, a failed product restore) may fail it again. Its re-run, attempt 3,
+        # takes Blacksmith, which ends the chain.
         rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=2),
                                         {"run_attempt": 2, "status": "completed",
                                          "triggering_actor": {"login": cf.BOT}})
-        self.assertFalse(rerun)
-        self.assertIn("attempt 2", line)
+        self.assertTrue(rerun)
+        self.assertIn("attempt 3", line)
 
     def test_a_persons_re_run_that_a_mini_failed_goes_to_blacksmith_once(self) -> None:
         # A person's re-run follows a code failure back to the minis; a machine
