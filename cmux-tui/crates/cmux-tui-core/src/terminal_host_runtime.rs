@@ -4113,6 +4113,12 @@ mod unix {
             );
         }
 
+        fn note_pty_output(&self) {}
+
+        fn start_resize_gate(_host: &Arc<Self>) -> std::io::Result<()> {
+            Ok(())
+        }
+
         fn set_cell_pixel_size(
             &self,
             width_px: u16,
@@ -8291,6 +8297,64 @@ mod unix {
             .unwrap_err();
             assert!(error.to_string().contains("injected PTY"));
             assert_eq!(*viewers.lock().unwrap(), HashMap::from([(1, (80, 24))]));
+        }
+
+        /// Answer every parser resize command like the parser worker does.
+        fn spawn_parser_resizer(
+            host: Arc<HostShared>,
+            parser_commands: Receiver<ParserCommand>,
+        ) -> thread::JoinHandle<()> {
+            thread::spawn(move || {
+                while let Ok(command) = parser_commands.recv() {
+                    if let ParserCommand::Resize {
+                        cols,
+                        rows,
+                        cell_pixels,
+                        source_cursor,
+                        acknowledge_with_replay,
+                        targeted_ack,
+                        response,
+                    } = command
+                    {
+                        let result = host.apply_parser_resize(
+                            cols,
+                            rows,
+                            source_cursor,
+                            acknowledge_with_replay,
+                            targeted_ack,
+                            cell_pixels,
+                        );
+                        let _ = response.send(result);
+                    }
+                }
+            })
+        }
+
+        /// A size that arrives while the child is still answering the previous
+        /// one waits, and the latest viewer set applies once the child is
+        /// quiet. Intermediate sizes never reach the PTY.
+        #[test]
+        fn viewer_sizes_wait_for_the_child_to_answer_the_previous_resize() {
+            let (host, parser_commands) = exited_host_fixture_with_parser();
+            let _parser = spawn_parser_resizer(host.clone(), parser_commands);
+            HostShared::start_resize_gate(&host).unwrap();
+
+            assert!(host.set_viewer_size(1, 100, 30, false, None).unwrap());
+            assert_eq!(*host.size.lock().unwrap(), (100, 30));
+
+            // The child is answering: its output keeps the gate closed.
+            host.note_pty_output();
+            assert!(host.set_viewer_size(1, 90, 30, false, None).unwrap());
+            assert!(host.set_viewer_size(1, 70, 28, false, None).unwrap());
+            assert!(host.set_viewer_size(2, 72, 26, false, None).unwrap());
+            assert_eq!(*host.size.lock().unwrap(), (100, 30), "a size applied mid-answer");
+
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while *host.size.lock().unwrap() != (70, 26) {
+                assert!(Instant::now() < deadline, "the held size never applied");
+                thread::sleep(Duration::from_millis(2));
+            }
+            host.dead.store(true, Ordering::Release);
         }
 
         #[test]
