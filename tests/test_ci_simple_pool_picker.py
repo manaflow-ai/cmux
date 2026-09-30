@@ -109,6 +109,22 @@ class LiveReaderTests(unittest.TestCase):
         self.assertEqual(values["root_runner"], "glaeda-root-std-xcode-26.6")
         self.assertEqual(values["admission_runner"], '["glaeda-root-std-xcode-26.6"]')
 
+    def test_only_explicitly_allowed_fork_can_use_owned_pool(self):
+        base = {
+            "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+            "CI_PR_POOL_OWNED": "1",
+            "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-26.6": 2}',
+            "RUN_MACOS": "true",
+            "MACOS_RUNNER_PR": picker.BLACKSMITH[1],
+        }
+        trusted = picker.observe(token="", repository="manaflow-ai/cmux", jobs=1,
+                                 env={**base, "CI_PR_POOL_FORK_ALLOWED": "1"},
+                                 fork=False)
+        untrusted = picker.observe(token="", repository="manaflow-ai/cmux", jobs=1,
+                                   env=base, fork=True)
+        self.assertTrue(picker.pick(trusted).owned)
+        self.assertFalse(picker.pick(untrusted).owned)
+
 
 if __name__ == "__main__":
     unittest.main()

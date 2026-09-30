@@ -260,8 +260,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     jobs = max(0, args.jobs if args.jobs is not None else planned_jobs(env))
     repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     head = env.get("HEAD_REPO") or repository
+    trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
-                       jobs=jobs, env=env, fork=head != repository))
+                       jobs=jobs, env=env, fork=head != repository and not trusted_fork))
     values = write_outputs(choice, jobs, env.get("GITHUB_OUTPUT"), env)
     for key, value in values.items():
         print(f"{key}={value}")
