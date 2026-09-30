@@ -870,6 +870,88 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
+    func testCloudCapabilityMatrixClassifiesRepresentativeCommands() {
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.newTerminalTab"),
+            .shared
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.terminalSplitRight"),
+            .shared
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.browserBack"),
+            .shared
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudStatusCommandId),
+            .cloudOnly
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudForkCommandId),
+            .cloudOnly
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudNewMachineCommandId),
+            .shared
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.browserSplitRight"),
+            .localOnly
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.openDirectoryDiffViewer"),
+            .localOnly
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteCloudCapability(for: "palette.terminalOpenDirectory.finder"),
+            .localOnly
+        )
+    }
+
+    func testCloudCapabilityFilterHidesLocalActionsAndScopesCloudActions() {
+        var localContext = CommandPaletteContextSnapshot()
+        var cloudContext = CommandPaletteContextSnapshot()
+        cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
+
+        XCTAssertTrue(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: "palette.terminalSplitRight",
+                context: localContext
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: "palette.terminalSplitRight",
+                context: cloudContext
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: ContentView.commandPaletteCloudStatusCommandId,
+                context: cloudContext
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: ContentView.commandPaletteCloudStatusCommandId,
+                context: localContext
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: "palette.browserSplitRight",
+                context: cloudContext
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteCloudCapabilityAllows(
+                commandId: "palette.browserSplitRight",
+                context: localContext
+            )
+        )
+    }
+
     @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey

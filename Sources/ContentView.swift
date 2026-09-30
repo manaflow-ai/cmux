@@ -7129,6 +7129,10 @@ struct ContentView: View {
         var nextRank = 0
 
         for contribution in contributions {
+            guard Self.commandPaletteCloudCapabilityAllows(
+                commandId: contribution.commandId,
+                context: context
+            ) else { continue }
             let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
                 .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
             if let configuredPaletteAction, !configuredPaletteAction.palette {
@@ -7265,6 +7269,10 @@ struct ContentView: View {
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setBool(Self.commandPaletteWorkspaceIsRemoteKey, workspace.isRemoteWorkspace)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceIsCloud,
+                workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
+            )
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)

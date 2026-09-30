@@ -15,6 +15,11 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
 
     /// Whether a workspace is selected.
     public static let hasWorkspace = CommandPaletteContextKeys(rawValue: "workspace.hasSelection")
+    /// Whether the selected workspace is owned by a managed Cloud machine.
+    ///
+    /// The app sets this key from the workspace's explicit Cloud VM identity.
+    /// SSH and other remote workspaces intentionally do not set it.
+    public static let workspaceIsCloud = CommandPaletteContextKeys(rawValue: "workspace.isCloud")
     /// Selected workspace display name.
     public static let workspaceName = CommandPaletteContextKeys(rawValue: "workspace.name")
     /// Whether the workspace has a custom name.
