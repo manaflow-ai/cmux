@@ -49,6 +49,8 @@ final class AppServices {
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     var paletteObservation: Task<Void, Never>?
+    private(set) var chromiumWarmup: ChromiumWarmup!
+    var chromiumLikelyObservations: [Task<Void, Never>] = []
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -82,6 +84,7 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
+        chromiumWarmup = ChromiumWarmup(engine: cache.cef)
     }
 
     // MARK: Lookup

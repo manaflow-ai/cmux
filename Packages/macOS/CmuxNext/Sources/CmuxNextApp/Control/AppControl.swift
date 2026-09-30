@@ -37,6 +37,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(SurfaceDiagnosticsReport.make(services))
             },
+            // Chromium start: trigger (tab or warm reason), timings, footprint.
+            .mainActor("debug.cef") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugCEF.report(services))
+            },
         ])
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).

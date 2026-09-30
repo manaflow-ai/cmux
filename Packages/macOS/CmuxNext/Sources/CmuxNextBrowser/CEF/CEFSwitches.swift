@@ -36,7 +36,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
     /// `CMUX_NEXT_CEF_EXTRA_SWITCHES` is a colon-separated list of switches
-    /// without leading dashes, read only by development bundles.
+    /// (leading dashes optional). Debug builds of development bundles only;
+    /// see plans/cmux-next/browser.md ("Chromium diagnostics").
     static func current(
         forkAPIVersion: Int32,
         bundleIdentifier: String?,
@@ -48,17 +49,23 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        let extra = dev
-            ? (environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"] ?? "")
-                .split(separator: ":")
-                .map { String($0.drop { $0 == "-" }) }
-                .filter { !$0.isEmpty }
-            : []
+        #if DEBUG
+        let extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
+        #else
+        let extra: [String] = []
+        #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             useMockKeychain: dev,
             loadExtensions: extensions,
             extraSwitches: extra
         )
+    }
+
+    static func extraSwitches(_ value: String?) -> [String] {
+        (value ?? "")
+            .split(separator: ":")
+            .map { String($0.drop { $0 == "-" }) }
+            .filter { !$0.isEmpty }
     }
 }

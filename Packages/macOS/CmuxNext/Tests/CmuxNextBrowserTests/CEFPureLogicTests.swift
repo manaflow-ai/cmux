@@ -35,8 +35,12 @@ import Testing
 
     @Test func extraSwitchesOnlyForDevelopmentBundles() {
         let environment = ["CMUX_NEXT_CEF_EXTRA_SWITCHES": "--enable-ui-devtools=9311::show-browser-frame-regions"]
+        #expect(CEFSwitches.extraSwitches("--enable-ui-devtools=9311::show-browser-frame-regions")
+            == ["enable-ui-devtools=9311", "show-browser-frame-regions"])
+        #if DEBUG
         let dev = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app.debug.x", environment: environment)
         #expect(dev.arguments.suffix(2) == ["enable-ui-devtools=9311", "show-browser-frame-regions"])
+        #endif
         let release = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: "com.cmuxterm.app", environment: environment)
         #expect(release.extraSwitches.isEmpty)
     }

@@ -47,6 +47,19 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.preload(layout: layout)
     }
 
+    /// Runs `CefInitialize` before any Chromium tab needs it, when a caller
+    /// predicts one (`reason`: `restoredTab`, `newTabMenu`, `palette`). The
+    /// framework load stays off the main thread; `CefInitialize` (about
+    /// 100-160 ms on the main thread) should run at an idle moment, which the
+    /// caller picks. No-op once CEF is running, failed or shut down.
+    public func warmStart(reason: String) async {
+        guard layout != nil else { return }
+        try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
+    }
+
+    /// How this process started CEF (for `debug.cef`).
+    public var startReport: CEFStartReport { CEFRuntime.shared.report }
+
     /// Synchronous tab creation for the debug window: the first call maps
     /// the framework on the main thread. App code uses `makeTab`.
     public func makeCEFTab(_ configuration: BrowserTabConfiguration) throws -> CEFTab {
