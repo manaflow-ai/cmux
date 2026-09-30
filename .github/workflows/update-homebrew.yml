@@ -43,14 +43,19 @@ jobs:
     # build job succeeded.
     # `workflow_run` matches the source by display name, so a run of any
     # workflow with that name (a fork pull request's copy, for one) triggers
-    # this. Accept only the real release workflow run from a tag push in this
-    # repository; everything else about the run is attacker-controlled.
+    # this. Accept only a real release workflow run from this repository;
+    # everything else about the run is attacker-controlled.
+    #
+    # release.yml runs on both a `v*` tag push and a manual dispatch, and the
+    # dispatch is the recovery path when a tag-push run fails after the DMG
+    # publishes. Both need write access to this repository, so both are
+    # trusted; `pull_request` and the rest stay out.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion != 'cancelled' &&
         github.event.workflow_run.path == '.github/workflows/release.yml' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
-        github.event.workflow_run.event == 'push'
+        contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event)
       ) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -90,7 +95,7 @@ jobs:
       - name: Get version
         id: version
         # Run metadata and the dispatch input reach the script only through
-        # env: substituted into the script text, a branch name like
+        # `env:`. Substituted into the script text, a branch name like
         # `$(cmd)` would run with this job's tap token.
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
@@ -124,8 +129,9 @@ jobs:
       - name: Download DMG and get SHA256
         id: sha
         if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
