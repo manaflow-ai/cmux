@@ -243,12 +243,16 @@ final class CloudTreeNode: NSObject {
         }
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
-    /// Whether a native drag may export a pane projection. Only terminals and
-    /// displays leave the tree; machine and descendant ordering admit internal-only row
-    /// drags without granting an external projection capability.
+    /// Whether a native drag may export a pane projection. Remote workspace rows
+    /// export their complete placement group; local workspace rows remain
+    /// reorder-only because their group refers to live panes that cannot be
+    /// materialized without moving them out of the source workspace.
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
+        case .workspace(let machine, _, _, _, _) where !machine.isLocal:
+            guard let group = dragGroup, !group.isEmpty else { return false }
+            return group.resources.allSatisfy { !$0.machine.isLocal }
         default: return false
         }
     }

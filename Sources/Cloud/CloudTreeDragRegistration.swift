@@ -1,8 +1,9 @@
 import Bonsplit
 import Foundation
 
-/// One lifetime for native row drags, with projection capability only for
-/// terminal/display sources. Folder organization works even with no resources.
+/// One lifetime for native row drags, with projection capability for eligible
+/// leaves and remote workspace groups. Folder organization works even with no
+/// resources, and local workspace groups stay reorder-only.
 @MainActor
 enum CloudTreeDragRegistration {
     case organization(UUID)
