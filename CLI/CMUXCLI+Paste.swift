@@ -288,6 +288,18 @@ extension CMUXCLI {
                 screen = refreshedText
                 lastState = Self.submitInputStateFromScreen(refreshedText)
             }
+            if let lastState,
+               (lastState["state"] as? String) == "dialog",
+               !((lastState["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.send.error.dialogOpen",
+                        defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
+                    ),
+                    command,
+                    (target["surface_id"] as? String) ?? (lastState["surface_id"] as? String) ?? "?"
+                ))
+            }
             let popupStillVisible = (lastState?["slash_command_popup"] as? Bool) == true
                 || Self.screenShowsSlashPopup(screen)
             if let lastState,
