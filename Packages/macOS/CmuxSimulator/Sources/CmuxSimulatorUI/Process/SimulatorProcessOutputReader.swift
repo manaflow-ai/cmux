@@ -8,6 +8,9 @@ final class SimulatorProcessOutputReader: @unchecked Sendable {
     private let cancellationReadDescriptor: Int32
     private let cancellationWriteDescriptor: Int32
 
+    /// The first reader failure, available before the batches stream finishes.
+    var failure: SimulatorProcessOutputFailure? { nil }
+
     init(fileDescriptor: Int32) {
         descriptor = dup(fileDescriptor)
         var cancellationDescriptors: [Int32] = [-1, -1]
