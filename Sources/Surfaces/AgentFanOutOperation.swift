@@ -255,8 +255,7 @@ actor AgentFanOutOperationStore {
                     return current
                 }
                 if current.terminalID != nil && candidate.terminalID == nil {
-                    candidate.terminalID = current.terminalID
-                    candidate.startedAt = candidate.startedAt ?? current.startedAt
+                    return current
                 }
                 return candidate
             }

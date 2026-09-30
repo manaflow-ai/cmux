@@ -49,9 +49,9 @@ extension TerminalController {
         return AgentFanOutOperation.digest(argv: argv, identity: identity)
     }
 
-    /// `vm.agent_fan_out` creates the workspace first, then records the
-    /// operation before starting a child. A duplicate operation id returns the
-    /// recorded operation without touching the provider.
+    /// `vm.agent_fan_out` records the operation before creating child
+    /// workspaces. A duplicate operation id returns the recorded operation
+    /// without touching the provider.
     nonisolated func socketWorkerVMAgentFanOutResponse(id: Any?, params: [String: Any]) -> String {
         guard let machineID = Self.fanOutString(params["machine"] ?? params["id"]),
               let agent = Self.fanOutString(params["agent"])?.lowercased(),
