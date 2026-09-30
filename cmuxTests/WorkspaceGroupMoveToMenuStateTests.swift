@@ -35,10 +35,9 @@ struct WorkspaceGroupMoveToMenuStateTests {
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            originalIds[1],
-            originalIds[2],
-        ]))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        manager.addWorkspaceToGroup(workspaceId: originalIds[1], groupId: groupId)
+        manager.addWorkspaceToGroup(workspaceId: originalIds[2], groupId: groupId)
         let movingWorkspaceID = originalIds[1]
         #expect(manager.tabs.first { $0.id == movingWorkspaceID }?.groupId == groupId)
 
@@ -63,10 +62,9 @@ struct WorkspaceGroupMoveToMenuStateTests {
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            originalIds[1],
-            originalIds[2],
-        ]))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        manager.addWorkspaceToGroup(workspaceId: originalIds[1], groupId: groupId)
+        manager.addWorkspaceToGroup(workspaceId: originalIds[2], groupId: groupId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let originalGroupMemberIDs = manager.tabs
             .filter { $0.groupId == groupId }
@@ -103,7 +101,10 @@ struct WorkspaceGroupMoveToMenuStateTests {
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: originalIds))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        for workspaceId in originalIds {
+            manager.addWorkspaceToGroup(workspaceId: workspaceId, groupId: groupId)
+        }
 
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         TerminalController.shared.setActiveTabManager(manager)

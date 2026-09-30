@@ -75,7 +75,7 @@ enum CmuxEmbeddedConfigSchema {
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
@@ -106,6 +106,27 @@ enum CmuxEmbeddedConfigSchema {
       "items": {
         "type": "object",
         "additionalProperties": true
+      }
+    },
+    "settingPresets": {
+      "x-cmux-scopes": ["global"],
+      "title": "settingPresets",
+      "description": "Named groups of settings applied together by a \"settingPreset\" action or `cmux config preset <name>`. Each preset is a partial cmux.json holding only settings sections, for example {\"sidebar\": {\"showPorts\": false}}. Nested objects merge key by key; other values replace the current one. Keys the preset doesn't name keep their values.",
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "allOf": [
+          { "$ref": "#" },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "not": {
+                "enum": ["$schema", "schemaVersion", "actions", "commands", "newWorkspaceCommand", "packs", "rightSidebar", "settingPresets", "surfaceTabBarButtons", "ui", "vault"]
+              }
+            }
+          }
+        ]
       }
     },
     "computerUse": {
@@ -835,6 +856,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
         },
+        "predictiveLocalEcho": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw typed characters immediately in a terminal whose shell runs on another machine (cmux ssh, Cloud, remote tmux) when the link is slow, underlined until the remote echo confirms them, and withdraw them if the remote disagrees. Local terminals, password prompts and full-screen apps are excluded."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
@@ -1468,7 +1494,9 @@ enum CmuxEmbeddedConfigSchema {
           "properties": {
             "error": { "type": "string", "minLength": 1 },
             "needsInput": { "type": "string", "minLength": 1 },
+            "subagents": { "type": "string", "minLength": 1 },
             "running": { "type": "string", "minLength": 1 },
+            "waiting": { "type": "string", "minLength": 1 },
             "starting": { "type": "string", "minLength": 1 },
             "unseen": { "type": "string", "minLength": 1 },
             "pullRequestOpen": { "type": "string", "minLength": 1 },
@@ -2202,7 +2230,8 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerNextFile",
               "diffViewerPreviousFile",
               "diffViewerNextHunk",
-              "diffViewerPreviousHunk"
+              "diffViewerPreviousHunk",
+              "diffViewerToggleViewed"
             ]
           },
           "properties": {
@@ -2249,6 +2278,9 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerToggleViewed": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

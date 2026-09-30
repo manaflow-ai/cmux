@@ -13,6 +13,9 @@ import { useAsyncAction } from "./use-async-action";
  *
  * - `acknowledgement` adds a checkbox the user must tick first.
  * - `typedConfirmation` requires typing that exact text first.
+ * - `confirmDisabled` holds the confirm button, e.g. while a price loads.
+ * - `dismissLabel` names the dismiss button when "Cancel" would be ambiguous
+ *   (a dialog that cancels a plan says "Keep Pro").
  *
  * `onConfirm` may throw; the dialog stays open and shows `errorMessage` (or
  * a generic translated error). On success the dialog closes. Transient input
@@ -30,6 +33,8 @@ export function ConfirmDialog({
   typedConfirmation,
   errorMessage,
   describeError,
+  confirmDisabled = false,
+  dismissLabel,
   children,
 }: {
   readonly open: boolean;
@@ -43,6 +48,8 @@ export function ConfirmDialog({
   readonly typedConfirmation?: string;
   readonly errorMessage?: string;
   readonly describeError?: (error: unknown) => string | null;
+  readonly confirmDisabled?: boolean;
+  readonly dismissLabel?: string;
   readonly children?: ReactNode;
 }) {
   const t = useTranslations("dashboard.settings.ui");
@@ -62,6 +69,7 @@ export function ConfirmDialog({
   };
 
   const blocked =
+    confirmDisabled ||
     (acknowledgement !== undefined && !acknowledged) ||
     (typedConfirmation !== undefined && typed.trim() !== typedConfirmation);
 
@@ -112,7 +120,7 @@ export function ConfirmDialog({
           onClick={() => setOpen(false)}
           className={settingsButtonClass("secondary")}
         >
-          {t("cancel")}
+          {dismissLabel ?? t("cancel")}
         </button>
         <button
           type="button"
