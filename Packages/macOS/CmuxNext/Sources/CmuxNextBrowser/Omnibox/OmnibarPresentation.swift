@@ -19,6 +19,20 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
     /// The one highlighted row.
     public var highlighted: Int?
     public var hasFocus: Bool
+    /// What the leading page-info button shows.
+    public var chip: Chip
+
+    /// The leading button: the page's security indicator, or while user
+    /// input is in progress an icon for that input (Chrome's location icon
+    /// shows the match type and opens nothing then).
+    public enum Chip: Equatable, Sendable {
+        /// User input, or nothing to describe: search, or the highlighted
+        /// suggestion's kind.
+        case input(symbol: String)
+        /// The page's indicator (`PageInfoIndicator`). While focused it keeps
+        /// the icon but drops the text label.
+        case page(focused: Bool)
+    }
 
     public init(_ state: OmnibarState) {
         text = state.fieldText
@@ -31,5 +45,21 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
         selection = state.hasFocus ? OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(text)) : nil
         rows = state.isPopupOpen ? state.popup.rows : []
         highlighted = state.isPopupOpen ? state.popup.highlighted : nil
+        chip = Self.chip(for: state)
+    }
+
+    private static func chip(for state: OmnibarState) -> Chip {
+        let search = PageInfoIndicator.Symbol.search
+        switch state.phase {
+        case .editing:
+            if let row = state.popup.highlighted, state.popup.rows.indices.contains(row) {
+                return .input(symbol: state.popup.rows[row].kind == .search ? search : "globe")
+            }
+            return .input(symbol: search)
+        case .focused:
+            return state.pageURL == nil ? .input(symbol: search) : .page(focused: true)
+        case .idle, .committing:
+            return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page(focused: false)
+        }
     }
 }

@@ -123,7 +123,7 @@ public enum ContextMenuCatalog {
     static let browserPage: [ContextMenuEntry] =
         actions("browserBack", "browserForward", "browserReload") + [.separator]
         + actions("palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
-        + actions("toggleBrowserDeveloperTools")
+        + actions("browser.pageInfo", "toggleBrowserDeveloperTools")
 
     static let link: [ContextMenuEntry] =
         actions("openLinkInNewTab", "openLinkInDefaultBrowser") + [.separator] + actions("terminalCopy")

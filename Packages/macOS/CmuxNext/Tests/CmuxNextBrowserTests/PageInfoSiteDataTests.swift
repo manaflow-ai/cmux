@@ -1,0 +1,99 @@
+import Foundation
+import Testing
+@testable import CmuxNextBrowser
+
+/// Cookie counts and deletion through fake stores, DevTools result
+/// parsing, and the registry command contract.
+@MainActor
+struct PageInfoSiteDataTests {
+    private func makeTab() -> MockBrowserTab {
+        MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .webkit, completesNavigationsImmediately: true)
+    }
+
+    @Test func registrableDomains() {
+        #expect(SiteDomain.registrable(".cdn.example.com") == "example.com")
+        #expect(SiteDomain.registrable("www.bbc.co.uk") == "bbc.co.uk")
+        #expect(SiteDomain.registrable("user.github.io") == "user.github.io")
+        #expect(SiteDomain.registrable("localhost") == "localhost")
+        #expect(SiteDomain.registrable("10.0.0.1") == "10.0.0.1")
+    }
+
+    @Test func cookieCountsSplitFirstAndThirdParty() async {
+        let tab = makeTab()
+        tab.pageInfoFake.cookieDomains = ["example.com", ".example.com", "www.example.com", ".doubleclick.net", "ads.doubleclick.net", ".cdn.fonts.test"]
+        tab.pageInfoFake.otherDataDomains = ["example.com", "storage.widgets.test"]
+        let summary = await tab.pageInfoSiteData(pageHost: "www.example.com")
+        #expect(summary.firstPartyCookies == 3)
+        #expect(summary.thirdPartySites.map(\.domain) == ["doubleclick.net", "fonts.test", "widgets.test"])
+        #expect(summary.thirdPartySites.first?.cookieCount == 2)
+        #expect(summary.thirdPartySites.last?.hasOtherData == true)
+        #expect(summary.siteCount == 4)
+        #expect(summary.entries.first?.domain == "example.com")
+    }
+
+    @Test func deletingASiteRemovesItsCookiesOnly() async {
+        let tab = makeTab()
+        tab.pageInfoFake.cookieDomains = ["example.com", ".doubleclick.net"]
+        await tab.pageInfoDeleteSiteData(domains: ["doubleclick.net"])
+        let summary = await tab.pageInfoSiteData(pageHost: "example.com")
+        #expect(summary.entries.map(\.domain) == ["example.com"])
+    }
+
+    @Test func devToolsParsing() {
+        #expect(CEFPageInfoParsing.certificates(#"{"tableNames":["AAEC","AwQ="]}"#) == [Data([0, 1, 2]), Data([3, 4])])
+        let cookies = CEFPageInfoParsing.cookies(#"{"cookies":[{"name":"a","domain":".x.com","path":"/"},{"name":"b","domain":"y.com"}]}"#)
+        #expect(cookies.map(\.domain) == [".x.com", "y.com"])
+        #expect(cookies.last?.path == "/")
+        let tree = #"{"frameTree":{"frame":{"url":"https://a.test/"},"resources":[{"url":"https://cdn.b.test/x.js"},{"url":"data:image/png;base64,"},{"url":"https://a.test/y.css"}],"childFrames":[{"frame":{"url":"https://c.test:8443/f"},"resources":[]}]}}"#
+        #expect(CEFPageInfoParsing.resourceOrigins(tree) == ["https://a.test", "https://cdn.b.test", "https://c.test:8443"])
+        #expect(CEFPageInfoParsing.browserContextID(#"{"targetInfo":{"browserContextId":"CTX"}}"#) == "CTX")
+        #expect(CEFPageInfoParsing.permissionQueryScript(names: ["camera", "midi"]).contains("sysex: true"))
+    }
+
+    @Test func commandsRoundTripThroughRegistryArguments() throws {
+        let commands: [PageInfoCommand] = [
+            .show(.main), .show(.security), .show(.cookies), .showCertificate, .setPermission(.camera, .block),
+            .resetPermissions, .siteSettings, .manageSiteData, .deleteSiteData(domain: "x.test"), .deleteSiteData(domain: nil),
+            .aboutThisPage,
+        ]
+        for command in commands {
+            let action = try #require(command.action)
+            #expect(try PageInfoCommand.from(actionID: action.id, arguments: action.arguments) == command)
+        }
+        #expect(PageInfoCommand.show(.permission(.camera)).action == nil)
+        #expect(throws: PageInfoCommandError.invalidArgument(name: "setting", value: "ask")) {
+            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "sound", "setting": "ask"])
+        }
+        #expect(throws: PageInfoCommandError.invalidArgument(name: "permission", value: "teleport")) {
+            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "teleport", "setting": "allow"])
+        }
+    }
+
+    @Test func controllerWritesTheStoreAndTellsTheEngine() async throws {
+        let tab = makeTab()
+        tab.load(URL(string: "https://permission.site/")!)
+        let controller = PageInfoController(tab: { tab }, anchor: { nil })
+        try controller.run(.setPermission(.camera, .block))
+        let store = tab.sitePermissions
+        #expect(store.setting(.camera, for: "https://permission.site") == .block)
+        #expect(tab.pageInfoActivity.changedSinceLoad == [.camera])
+        await Task.yield()
+        for _ in 0 ..< 10 where tab.pageInfoFake.appliedChanges.isEmpty { await Task.yield() }
+        #expect(tab.pageInfoFake.appliedChanges.first?.1 == .block)
+
+        controller.refreshPermissions()
+        #expect(controller.model.permissions.map(\.kind) == [.camera])
+        try controller.run(.resetPermissions)
+        #expect(store.decisions["https://permission.site"] == nil)
+    }
+
+    @Test func blankAndLocalPagesRefuseSiteCommands() {
+        let blank = makeTab()
+        let controller = PageInfoController(tab: { blank }, anchor: { nil })
+        #expect(throws: PageInfoCommandError.noSiteInformation) { try controller.run(.show(.main)) }
+        let file = makeTab()
+        file.load(URL(filePath: "/tmp/page.html"))
+        let fileController = PageInfoController(tab: { file }, anchor: { nil })
+        #expect(throws: PageInfoCommandError.notAWebPage) { try fileController.run(.setPermission(.camera, .allow)) }
+    }
+}

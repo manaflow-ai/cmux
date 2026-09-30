@@ -14,6 +14,8 @@ public final class WebKitEngine: BrowserEngine {
     public let faviconLoader: any BrowserFaviconLoading
     /// Where downloads go. Read when each download starts.
     public var downloadsDirectory: URL
+    /// Per-profile site permissions, shared with the Chromium engine.
+    public var siteSettings: SiteSettingsRegistry = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
     public var applicationNameForUserAgent: String?
 

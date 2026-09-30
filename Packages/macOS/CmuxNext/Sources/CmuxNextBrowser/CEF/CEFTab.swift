@@ -20,6 +20,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
+    /// Permission use of the current document (Page Info).
+    @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?

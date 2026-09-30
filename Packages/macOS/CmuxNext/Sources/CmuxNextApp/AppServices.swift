@@ -64,6 +64,7 @@ final class AppServices {
         keyRouter.services = self
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.onBrowserEntryCreated = { [registry] entry in PageInfoHandlers.installRouter(on: entry, registry: registry) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             self?.keyRouter.interceptKeyDown(event, in: window) ?? false

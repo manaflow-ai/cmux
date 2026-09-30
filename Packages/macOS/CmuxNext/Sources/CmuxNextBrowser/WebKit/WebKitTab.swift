@@ -24,7 +24,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     public var contentView: NSView { webView }
 
     private var machine = BrowserTabStateMachine()
-    @ObservationIgnored private weak var engine: WebKitEngine?
+    @ObservationIgnored private(set) weak var engine: WebKitEngine?
+    /// Permission use and certificate failures of the current document (Page Info).
+    @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
@@ -328,7 +330,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
         var security = BrowserTabStateMachine.security(for: webView.url)
         if security == .secure, !webView.hasOnlySecureContent {
-            security = .insecure
+            security = .mixedContent
         }
         apply(.securityChanged(security))
     }

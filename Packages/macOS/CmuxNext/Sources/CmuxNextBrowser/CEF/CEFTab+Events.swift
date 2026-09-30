@@ -26,6 +26,7 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            pageInfoDocumentCommitted(URL(string: url))
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             // Extensions finish loading after the first window exists and

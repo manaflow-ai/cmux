@@ -14,11 +14,20 @@ public nonisolated enum BrowserLoadPhase: Hashable, Sendable {
     case failed(BrowserLoadError)
 }
 
-/// Transport security of the committed page, as shown by the address bar.
+/// Transport security of the committed page, as shown by the address bar
+/// and the page info bubble (Chromium `security_state::SecurityLevel`).
 public nonisolated enum BrowserSecurityState: Hashable, Sendable {
     case none
+    /// HTTPS with a valid certificate and no insecure subresources.
     case secure
+    /// Plain HTTP.
     case insecure
+    /// HTTPS that loaded insecure subresources ("not fully secure").
+    case mixedContent
+    /// HTTPS with a certificate error (Chromium `DANGEROUS` for a bad cert).
+    case broken
+    /// A site the engine flagged as malware or phishing.
+    case dangerous
     case local
 }
 

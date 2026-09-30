@@ -108,37 +108,3 @@ final class OmnibarCardTopView: NSView {
         }
     }
 }
-
-/// The page-info chip at the bar's leading edge (Helium: transparent chip,
-/// 6 pt hover shape, a tune icon for secure pages).
-final class OmnibarChipView: NSView {
-    var symbol = "" { didSet { if oldValue != symbol { applySymbol() } } }
-    private let icon = NSImageView()
-    private let density = DensityBinding()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.imageScaling = .scaleNone
-        icon.contentTintColor = OmnibarStyle.textPrimary
-        addSubview(icon)
-        NSLayoutConstraint.activate([
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-        density.update { [unowned self] in applySymbol() }
-        density.start()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    private func applySymbol() {
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
-    }
-}

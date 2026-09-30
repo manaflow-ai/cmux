@@ -42,6 +42,8 @@ final class TabContentCache {
     /// closed, address bar editing ended); the App routes it through the
     /// window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
+    /// Every new page's chrome gets this (the page info bubble's registry router).
+    var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -164,6 +166,7 @@ final class TabContentCache {
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        onBrowserEntryCreated?(entry)
         browsers[key] = entry
         return entry
     }

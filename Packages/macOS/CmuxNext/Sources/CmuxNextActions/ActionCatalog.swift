@@ -32,6 +32,7 @@ public enum ActionCatalog {
         all += tabGroupsActions()
         all += terminalActions()
         all += browserActions()
+        all += pageInfoActions()
         all += sidebarActions()
         all += notificationsActions()
         all += agentsActions()

@@ -36,6 +36,7 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        applySiteSettings(to: preferences, for: navigationAction)
         decisionHandler(.allow, preferences)
     }
 
@@ -76,6 +77,7 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
+        pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
         // The title can arrive before the commit (back/forward cache), and
         // the commit clears it, so read the authoritative value again.
         apply(.titleChanged(webView.title))
@@ -170,9 +172,8 @@ extension WebKitTab: WKUIDelegate {
         case .microphone: .microphone
         default: .cameraAndMicrophone
         }
-        enqueuePrompt(.permission(kind), origin: Self.displayOrigin(origin)) { response in
-            decisionHandler(response == .allow ? .grant : .deny)
-        }
+        // Stored per-site decisions answer without asking (PageInfo).
+        decideMediaCapture(kind, origin: Self.displayOrigin(origin), decisionHandler: decisionHandler)
     }
 
     public func webView(

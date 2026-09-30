@@ -20,6 +20,7 @@ public final class BrowserChromeView: NSView {
     public let extensionSlot = NSStackView()
 
     public let addressBar: AddressBarView
+    public private(set) lazy var pageInfo = makePageInfoController()
 
     /// Which part of the chrome holds a responder view.
     public enum Region: Hashable, Sendable {
@@ -134,7 +135,7 @@ public final class BrowserChromeView: NSView {
         returnFocusToPage()
     }
 
-    private func returnFocusToPage() {
+    func returnFocusToPage() {
         if let onReturnFocusToPage { onReturnFocusToPage() } else { tab.setFocused(true) }
     }
 
@@ -271,6 +272,7 @@ public final class BrowserChromeView: NSView {
         if let old, old !== tab {
             old.contentView.removeFromSuperview()
         }
+        pageInfo.tabDidChange()
         let content = tab.contentView
         content.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.addSubview(content)
@@ -299,7 +301,7 @@ public final class BrowserChromeView: NSView {
             showsStop = loading
             reloadButton.setSymbol(loading ? "xmark" : "arrow.clockwise", label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: state.url, security: state.security)
+        addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
         recordHistory(state)
         progressLine.set(progress: state.progress, visible: loading)
 

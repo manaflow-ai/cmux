@@ -89,8 +89,10 @@ final class PromptBarView: NSView {
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
             }
-            addButton(Strings.dontAllow, prominent: false, response: .deny)
-            addButton(Strings.allow, prominent: true, response: .allow)
+            // Chrome's permission prompt: never, this time, while visiting.
+            addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
+            addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
+            addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
         case .alert(let message):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.ok, prominent: true, response: .accept)

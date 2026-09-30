@@ -1,0 +1,88 @@
+// Page Info (the omnibar's "View site information" bubble). Titles live in
+// PageInfoActions.xcstrings. Ids match `PageInfoCommand.ActionID` in
+// CmuxNextBrowser; every bubble control runs one of these.
+
+extension ActionCatalog {
+    static func pageInfoActions() -> [ActionDescriptor] {
+        [
+            page("browser.pageInfo", title: t("action.pageInfo", "View Site Information"), symbol: "slider.horizontal.3",
+                 keywords: ["site", "information", "security", "certificate", "permissions", "cookies", "lock"],
+                 cli: "browser page-info", surfaces: [.palette, .keyboard, .contextMenu]),
+            page("browser.pageInfo.connection", title: t("action.pageInfo.connection", "Show Connection Details"), symbol: "lock",
+                 keywords: ["site", "security", "https", "connection", "secure"], cli: "browser page-info-connection"),
+            page("browser.pageInfo.certificate", title: t("action.pageInfo.certificate", "Show Certificate"), symbol: "checkmark.seal",
+                 keywords: ["site", "certificate", "tls", "ssl", "fingerprint"], cli: "browser page-info-certificate"),
+            page("browser.pageInfo.cookies", title: t("action.pageInfo.cookies", "Show Cookies and Site Data"), symbol: "cylinder.split.1x2",
+                 keywords: ["site", "cookies", "storage", "data"], cli: "browser page-info-cookies"),
+            page("browser.pageInfo.manageSiteData", title: t("action.pageInfo.manageSiteData", "Manage On-Device Site Data"),
+                 symbol: "tray.full", keywords: ["site", "cookies", "storage", "data", "delete"], cli: "browser manage-site-data"),
+            ActionDescriptor(
+                id: "browser.pageInfo.deleteSiteData",
+                title: t("action.pageInfo.deleteSiteData", "Delete Site Data"),
+                keywords: ["site", "cookies", "storage", "clear", "delete"], category: .browser, symbol: "trash",
+                surfaces: [.palette], requires: [.browserFocused], arguments: [domainArgument.optional], targets: [.pane],
+                cliName: "browser delete-site-data", destructive: true
+            ),
+            ActionDescriptor(
+                id: "browser.pageInfo.setPermission",
+                title: t("action.pageInfo.setPermission", "Set Site Permission…"),
+                keywords: ["site", "permission", "camera", "microphone", "location", "notifications", "javascript", "allow", "block"],
+                category: .browser, symbol: "hand.raised", surfaces: [.palette], requires: [.browserFocused],
+                arguments: [permissionArgument, settingArgument], targets: [.pane], cliName: "browser set-site-permission"
+            ),
+            page("browser.pageInfo.resetPermissions", title: t("action.pageInfo.resetPermissions", "Reset Site Permissions"),
+                 symbol: "arrow.counterclockwise", keywords: ["site", "permission", "reset"], cli: "browser reset-site-permissions"),
+            page("browser.pageInfo.siteSettings", title: t("action.pageInfo.siteSettings", "Site Settings"), symbol: "gearshape",
+                 keywords: ["site", "settings", "permissions"], cli: "browser site-settings"),
+            page("browser.pageInfo.aboutThisPage", title: t("action.pageInfo.aboutThisPage", "About This Page"),
+                 symbol: "doc.text.magnifyingglass", keywords: ["site", "about", "source"], cli: "browser about-this-page"),
+        ]
+    }
+
+    private static func page(_ id: ActionID, title: String, symbol: String, keywords: [String], cli: String,
+                             surfaces: ActionSurfaces = [.palette]) -> ActionDescriptor {
+        ActionDescriptor(id: id, title: title, keywords: keywords, category: .browser, symbol: symbol, surfaces: surfaces,
+                         requires: [.browserFocused], targets: [.pane], cliName: cli)
+    }
+
+    private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
+        String(localized: key, defaultValue: english, table: "PageInfoActions", bundle: .module)
+    }
+
+    /// Permission ids (`SitePermissionKind.rawValue` in CmuxNextBrowser).
+    static let permissionIDs = ["location", "camera", "microphone", "notifications", "javascript", "images", "popups",
+                                "sound", "automaticDownloads", "midi", "usb", "serial", "hid", "clipboard"]
+
+    private static var permissionArgument: ActionArgument {
+        let titles: [String: String] = [
+            "location": t("argument.permission.location", "Location"),
+            "camera": t("argument.permission.camera", "Camera"),
+            "microphone": t("argument.permission.microphone", "Microphone"),
+            "notifications": t("argument.permission.notifications", "Notifications"),
+            "javascript": t("argument.permission.javascript", "JavaScript"),
+            "images": t("argument.permission.images", "Images"),
+            "popups": t("argument.permission.popups", "Pop-ups and redirects"),
+            "sound": t("argument.permission.sound", "Sound"),
+            "automaticDownloads": t("argument.permission.automaticDownloads", "Automatic downloads"),
+            "midi": t("argument.permission.midi", "MIDI device control & reprogram"),
+            "usb": t("argument.permission.usb", "USB devices"),
+            "serial": t("argument.permission.serial", "Serial ports"),
+            "hid": t("argument.permission.hid", "HID devices"),
+            "clipboard": t("argument.permission.clipboard", "Clipboard"),
+        ]
+        return ActionArgument(name: "permission", title: t("argument.permission", "Permission"),
+                              kind: .enumeration(permissionIDs.map { ActionEnumCase(value: $0, title: titles[$0] ?? $0) }))
+    }
+
+    private static var settingArgument: ActionArgument {
+        ActionArgument(name: "setting", title: t("argument.setting", "Setting"), kind: .enumeration([
+            ActionEnumCase(value: "ask", title: t("argument.setting.ask", "Ask")),
+            ActionEnumCase(value: "allow", title: t("argument.setting.allow", "Allow")),
+            ActionEnumCase(value: "block", title: t("argument.setting.block", "Block")),
+        ]))
+    }
+
+    private static var domainArgument: ActionArgument {
+        ActionArgument(name: "domain", title: t("argument.domain", "Site"), kind: .string)
+    }
+}

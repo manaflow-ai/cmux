@@ -80,6 +80,9 @@ public final class MockBrowserTab: BrowserTab {
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
+    /// Page Info fakes (`MockBrowserTab+PageInfo`).
+    @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
+    @ObservationIgnored public var pageInfoFake = MockPageInfoData()
 
     private var machine = BrowserTabStateMachine()
     /// The current back/forward list entry. Updated when a navigation

@@ -17,7 +17,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
 
 /// The user's answer to a prompt.
 public nonisolated enum BrowserPromptResponse: Hashable, Sendable {
+    /// Permission: "Allow while visiting the site" (remembered for the origin).
     case allow
+    /// Permission: "Allow this time" (this page load only, not remembered).
+    case allowOnce
+    /// Permission: "Never allow" (remembered as blocked).
     case deny
     /// Alert or confirm accepted.
     case accept

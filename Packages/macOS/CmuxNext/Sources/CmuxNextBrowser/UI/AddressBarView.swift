@@ -13,13 +13,24 @@ public final class AddressBarView: NSView {
     /// decides where focus goes.
     public var onEvent: ((OmnibarEvent) -> Void)?
 
+    /// The page-info button was pressed (click, Space or Return on it).
+    /// The chrome opens or closes the page info bubble, anchored at
+    /// `pageInfoAnchor`.
+    public var onPageInfo: (() -> Void)? {
+        get { chip.onPress }
+        set { chip.onPress = newValue }
+    }
+
+    /// The page-info button, for anchoring the bubble.
+    public var pageInfoAnchor: NSView { chip }
+
     public var suggestionEngine: OmniboxSuggestionEngine {
         didSet { controller.send(.searchEngineChanged) }
     }
 
     private let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = OmnibarChipView()
+    private let chip = PageInfoChipButton()
     private let field = AddressField()
     private let panel = OmniboxSuggestionPanel()
     private let density = DensityBinding()
@@ -71,7 +82,7 @@ public final class AddressBarView: NSView {
 
             chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
-            density.bind(chip.widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
+            density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
             field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
@@ -205,33 +216,8 @@ public final class AddressBarView: NSView {
         let state = controller.state
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen
-        chip.symbol = chipSymbol(state)
-        let insecure = security == .insecure && !state.hasFocus
-        chip.setAccessibilityLabel(insecure ? Strings.notSecure : nil)
-        chip.toolTip = insecure ? Strings.notSecure : nil
-    }
-
-    private func chipSymbol(_ state: OmnibarState) -> String {
-        switch state.phase {
-        case .editing:
-            if let row = state.popup.highlighted, state.popup.rows.indices.contains(row) {
-                return state.popup.rows[row].kind == .search ? "magnifyingglass" : "globe"
-            }
-            return "magnifyingglass"
-        case .focused:
-            return state.pageURL == nil ? "magnifyingglass" : securitySymbol
-        case .idle, .committing:
-            return state.fieldText.isEmpty || state.retainedText != nil ? "magnifyingglass" : securitySymbol
-        }
-    }
-
-    private var securitySymbol: String {
-        switch security {
-        case .secure: "slider.horizontal.3"
-        case .insecure: "exclamationmark.triangle"
-        case .local: "doc"
-        case .none: "info.circle"
-        }
+        let site = PageInfoSite(url: state.pageURL, security: security)
+        chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
