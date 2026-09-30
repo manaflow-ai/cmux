@@ -429,10 +429,14 @@ Cg==
         path=\"\(path)\"
         mkdir -p \"$HOME/.cmux\"
         helper_updated=0
-        if [ ! -x \"$path\" ] || ! grep -q 'cmux-wallpaper' \"$path\" 2>/dev/null; then
-          printf %s \"\(encodedSource)\" | base64 -d > \"$path\"
-          chmod 700 \"$path\"
+        candidate=\"$(mktemp \"$HOME/.cmux/cmux-display.XXXXXX\")\"
+        printf %s \"\(encodedSource)\" | base64 -d > \"$candidate\"
+        chmod 700 \"$candidate\"
+        if [ ! -x \"$path\" ] || ! cmp -s \"$candidate\" \"$path\"; then
+          mv -f \"$candidate\" \"$path\"
           helper_updated=1
+        else
+          rm -f \"$candidate\"
         fi
         if [ \"$helper_updated\" = 1 ] && pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
           pkill -TERM -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1 || true
