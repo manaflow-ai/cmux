@@ -51,6 +51,28 @@ struct TeamsClientModelsTests {
         #expect(detail.openSeats == nil)
     }
 
+    @Test("decodes the millisecond timestamps the team API actually sends")
+    func decodesFractionalSecondTimestamps() throws {
+        // Every team date on the wire is written by `Date.toISOString()`, which
+        // always emits milliseconds. Whole-second strings have to keep decoding
+        // too, so that a trimmed or hand-built payload is not a hard failure.
+        let detail = try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(detailJSON.utf8))
+        #expect(detail.invitations.first?.expiresAt == Date(timeIntervalSince1970: 1_791_201_600))
+        #expect(detail.links.first?.createdAt == Date(timeIntervalSince1970: 1_790_596_800))
+
+        let wholeSeconds = detailJSON.replacingOccurrences(of: ".000Z", with: "Z")
+        let trimmed = try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(wholeSeconds.utf8))
+        #expect(trimmed.invitations.first?.expiresAt == detail.invitations.first?.expiresAt)
+        #expect(trimmed.links.first?.createdAt == detail.links.first?.createdAt)
+
+        // A string that is not a date still has to fail, so that accepting two
+        // shapes does not turn into accepting anything.
+        let garbage = detailJSON.replacingOccurrences(of: "2026-10-05T12:00:00.000Z", with: "whenever")
+        #expect(throws: DecodingError.self) {
+            try TeamsClient.decoder.decode(CloudTeamDetail.self, from: Data(garbage.utf8))
+        }
+    }
+
     @Test("maps the team API error envelope to a coded error")
     func mapsErrorEnvelope() {
         let body = Data(#"{"error":{"code":"seat_limit","message":"This plan includes 3 members."}}"#.utf8)
