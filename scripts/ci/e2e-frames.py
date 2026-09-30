@@ -38,7 +38,11 @@ REPO = "manaflow-ai/cmux"
 FRAMES_ARTIFACT = "ui-frames"
 RESULTS_ARTIFACT = "test-results"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic"}
-VIDEO_SUFFIXES = {".mp4", ".mov"}
+# A gif counts: `record` tours default to mp4 but a tour that asks for a gif
+# still has to reach the pull request, and pr_media.py builds its tour.gif out
+# of sampled frames. Sampling a gif needs ffmpeg; the AVFoundation fallback
+# below cannot read one and says so instead of sampling.
+VIDEO_SUFFIXES = {".mp4", ".mov", ".gif"}
 FRAME_WIDTH = 960
 SHEET_COLUMNS, SHEET_ROWS = 3, 4
 TILE_WIDTH, TILE_HEIGHT = 640, 360
@@ -287,9 +291,12 @@ def extract_test(xcresult: Path, exported: Path, entry: dict, outcome: dict, tes
         before = [s for s in steps if s["time"] <= failed_at + 0.5 and s["title"] != AT_FAILURE]
         failed_step = (before or steps)[-1]["number"]
 
-    # Text a test attached on purpose, under the name it gave.
+    # Text and clips a test attached on purpose, under the name it gave. Images
+    # are excluded because they become the numbered frames above; a clip is both
+    # sampled into frames and kept whole, since the frames show what happened and
+    # only the clip can be put on a pull request.
     kept = [a for a in entry.get("attachments", [])
-            if Path(a.get("exportedFileName", "")).suffix.lower() not in IMAGE_SUFFIXES | VIDEO_SUFFIXES
+            if Path(a.get("exportedFileName", "")).suffix.lower() not in IMAGE_SUFFIXES
             and not a.get("suggestedHumanReadableName", "").startswith(XCUITEST_NOISE)]
     for attachment in kept:
         # "<name>_0_<UUID>.<ext>" -> "<name>.<ext>"

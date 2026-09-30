@@ -127,6 +127,20 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test func windowRecordingRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // A recording samples the window for as long as the clip lasts, so its
+        // verbs must never be callable inline on the main thread: the window
+        // being filmed has to keep drawing while the sampler runs.
+        for method in [
+            "window.record.start", "window.record.stop", "window.record.status",
+            "window.record.note", "window.record.list",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+            #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")
+            #expect(policy.runsOnSocketWorker, "\(method)")
+        }
+    }
+
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         // Tranche D (issue #5757): the implicit handle-normalization reads.
         // One controlResolveOnMain hop (refresh + witness + ref minting),

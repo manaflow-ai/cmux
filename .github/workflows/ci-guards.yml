@@ -652,6 +652,10 @@ jobs:
           python3 tests/test_ci_pr_media.py
           python3 tests/test_ci_guard_tests_emit_no_workflow_commands.py
 
+      - name: Validate dogfood tours
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_dogfood_scenarios.py
+
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_manual_macos_package_cache.py

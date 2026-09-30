@@ -77,6 +77,10 @@ PATH_OWNERS = {
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
+    # test_dogfood_scenarios.py reads the tour decoder with read_text to check
+    # that every step kind and record option is documented, rather than naming
+    # it in a `run:`, so the router cannot see it.
+    "cmuxUITests/DogfoodScenarioUITests.swift": frozenset(("app-host-execution",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),

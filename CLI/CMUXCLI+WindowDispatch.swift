@@ -24,6 +24,11 @@ extension CMUXCLI {
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current" {
             return false
         }
+        // Recording films whatever is on screen; activating a window first
+        // would put the recording's own side effect in the clip.
+        if normalizedCommand == "record" {
+            return false
+        }
         if normalizedCommand == "rpc",
            commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 == "surface.read_selection" {

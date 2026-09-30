@@ -1,0 +1,37 @@
+{
+  "paths": [
+    "Sources/WindowRecording*",
+    "Sources/TerminalController+WindowRecording.swift",
+    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/*",
+    "CLI/CMUXCLI+Record.swift",
+    "Sources/*Split*",
+    "Sources/*CommandPalette*",
+    "Packages/macOS/CmuxCommandPalette/*",
+    "cmuxUITests/DogfoodScenarioUITests.swift"
+  ],
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Record", "initial_input": "echo recording\n", "focus": true}, "save": "record"},
+    {"wait": 1},
+    {"shot": "before"},
+    {"record": "split-and-palette", "format": "gif", "maxSeconds": 30, "fps": 8, "scale": 0.5, "steps": [
+      {"note": "split right"},
+      {"key": "d", "modifiers": ["command"]},
+      {"wait": 1.5},
+      {"shot": "split-right"},
+      {"note": "command palette"},
+      {"key": "p", "modifiers": ["command", "shift"]},
+      {"wait": 0.5},
+      {"type": "split"},
+      {"wait": 1},
+      {"shot": "palette-filtered"},
+      {"key": "escape"},
+      {"note": "hide the sidebar"},
+      {"key": "b", "modifiers": ["command"]},
+      {"wait": 1},
+      {"key": "b", "modifiers": ["command"]},
+      {"wait": 1}
+    ]},
+    {"shot": "after"},
+    {"socket": "window.record.list"}
+  ]
+}

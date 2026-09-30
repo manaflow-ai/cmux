@@ -85,7 +85,8 @@ closed PR comments can stop loading. It is a dry run unless dispatched with
 Give a new tour a `paths` list of `fnmatch` globs (`*` crosses directories),
 for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.
 Without one, only a `Dogfood-tours:` line or an edit to the tour file picks it.
-The test reads only `steps` and `launch`, so `paths` changes nothing about a run.
+The test checks that `paths` is a list of non-empty strings and otherwise
+ignores it, so `paths` changes nothing about a run.
 
 ## Write a tour
 
@@ -117,12 +118,66 @@ the `paths` globs [PR media](#pr-media) picks it by:
 | `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
 | `{"socketLine": "agent_journal_append {...}"}` | One raw v1 socket line, for verbs with no v2 method. Every `${name.path}` inside it is replaced with a saved value; numeric path parts index arrays (`${ws.surfaces.0.id}`). A reply starting with `ERROR` fails the step. |
+| `{"record": "name", "steps": [...]}` | Records the window while the nested steps run and attaches the clip. See below. |
+| `{"note": "dragging the workspace"}` | Draws a caption into the clip being recorded. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |
 
 A target is an accessibility identifier string, or an object with `id`,
 `label`, or `labelContains`, plus optional `type` (`button`, `textField`,
 `staticText`, `menuItem`, `checkBox`, `image`, `group`, `cell`, `tab`, `window`,
 `popover`) and `index`.
+
+## Record a clip
+
+A screenshot cannot show a drag, an animation or the order two views settle in.
+Wrap the steps that matter in a `record` step and the tour attaches a clip of
+them:
+
+```json
+{"record": "sidebar-drag", "format": "gif", "maxSeconds": 30, "fps": 8, "scale": 0.5, "steps": [
+  {"note": "dragging the workspace"},
+  {"clickAt": {"x": 0.08, "y": 0.12}},
+  {"wait": 1},
+  {"shot": "mid-drag"}
+]}
+```
+
+- Options, with the default for `mp4` then `gif`: `format` (`mp4`), `fps` (12, 8;
+  1 to 30), `maxSeconds` (15 both; 0.5 to 120), `scale` (1.0, 0.5; 0.1 to 1.0),
+  `maxWidth` (none, 960; 64 to 4096), `region` (`"x,y,w,h"` in window points),
+  `captions` (true) and `label`. They are the flags of `cmux record start` and the
+  app owns the limits, so an out of range value is refused with a message naming
+  the socket field rather than the tour spelling: `maxSeconds: 300` comes back as
+  "max_seconds must be between 0.5 and 120". An unknown option is a typo and fails
+  the step.
+- A `gif` at `fps` 8 and `scale` 0.5 is the one to paste into a PR; an `mp4` is
+  sharper and needs a click to play. `scripts/pr-media.py` uploads either and
+  converts an mp4 to a gif on the way.
+- Nested steps behave as they do at the top level, including `shot`, and a nested
+  failure still lets the rest run so the recording is always stopped and the clip
+  of the failure survives. Nested steps are numbered `03.1`, `03.2` in `steps.log`.
+- A `record` needs at least one nested step and may not contain another `record`,
+  since the app records one window at a time. Both are refused by
+  `tests/test_dogfood_scenarios.py` before CI runs anything, and again by the
+  step decoder, which is what an ad-hoc file handed to `run-e2e.sh --scenario`
+  meets first. Recording nothing is the one outcome worth failing over.
+- A recording never gates what it records: on a machine that cannot capture at
+  all, the start failure is recorded and the nested steps still run, unrecorded.
+- `note` draws a caption into the clip. It is worth one before each thing you
+  want a reviewer to notice, because a clip has no step list beside it. It only
+  means anything among a record's own steps, so it is refused anywhere else.
+  A `note` that arrives after the clip stopped itself at `maxSeconds` is logged
+  as "note not written" and passes, since that is the limit talking and a
+  recording never gates what it observes. Every other `note` failure fails the
+  step.
+- The clip lands in `attachments/` next to the trees and socket replies, named
+  after the step and the tour's name for it. `scripts/ci/e2e-frames.py` samples
+  a `.gif` the same way it samples an `.mp4`, one frame a second, so either
+  format reaches the pull request through the frame strip; the clip itself is
+  uploaded whole as well.
+- The app records only its own windows, one at a time, and stops by itself at
+  `maxSeconds` (default 15, max 120). Keep `maxSeconds` above the time the nested
+  steps take, or the clip ends early.
 
 The window is zoomed to fill the display at launch (`"zoom": false` keeps the
 default size). Every tour starts with `00-launched` and ends with `99-final` plus

@@ -1150,6 +1150,7 @@
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
 		126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */; };
 		A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */; };
+		A10021000000000000000001 /* CMUXCLI+Record.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10021000000000000000002 /* CMUXCLI+Record.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
@@ -3583,6 +3584,7 @@
 		A10020000000000000000005 /* TerminalController+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000006 /* TerminalController+SurfaceSelection.swift */; };
 		DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */; };
 		D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */; };
+		9065A1010000000000000001 /* TerminalController+WindowRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1010000000000000002 /* TerminalController+WindowRecording.swift */; };
 		9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */; };
 		C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */; };
 		D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */; };
@@ -3945,6 +3947,13 @@
 		8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */; };
 		129170000000000000000001 /* WindowOverlayChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 129170000000000000000002 /* WindowOverlayChromeTests.swift */; };
 		973DC7D4CD41516D459E17FC /* WindowPointHitTestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02BCEFD7668C02FB795ED26F /* WindowPointHitTestTests.swift */; };
+		3D9E5674AF892C5F1A2C7720 /* WindowRecordingErrorCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */; };
+		9065A1020000000000000001 /* WindowRecordingFrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1020000000000000002 /* WindowRecordingFrameComposer.swift */; };
+		9065A1030000000000000001 /* WindowRecordingFrameWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1030000000000000002 /* WindowRecordingFrameWriter.swift */; };
+		A6CC55B334F22314E39BE6A6 /* WindowRecordingPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */; };
+		9065A1040000000000000001 /* WindowRecordingRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1040000000000000002 /* WindowRecordingRegistry.swift */; };
+		9065A1050000000000000001 /* WindowRecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1050000000000000002 /* WindowRecordingSession.swift */; };
+		9065A1060000000000000001 /* WindowRecordingWindowSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1060000000000000002 /* WindowRecordingWindowSelection.swift */; };
 		6042C0056042C0056042C005 /* WindowScopedShortcutHintModifierMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */; };
 		9065A0090000000000000001 /* WindowScreenshotBackendAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0090000000000000002 /* WindowScreenshotBackendAttempt.swift */; };
 		9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */; };
@@ -5425,6 +5434,7 @@
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
 		126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ProcessSignalState.swift"; sourceTree = "<group>"; };
 		0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PromptSubmit.swift"; sourceTree = "<group>"; };
+		A10021000000000000000002 /* CMUXCLI+Record.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Record.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
@@ -7724,6 +7734,7 @@
 		A10020000000000000000006 /* TerminalController+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SurfaceSelection.swift"; sourceTree = "<group>"; };
 		78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+VaultCommands.swift"; sourceTree = "<group>"; };
 		D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowDockBrowserRouting.swift"; sourceTree = "<group>"; };
+		9065A1010000000000000002 /* TerminalController+WindowRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowRecording.swift"; sourceTree = "<group>"; };
 		9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowScreenshotCapture.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreate.swift"; sourceTree = "<group>"; };
 		D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateExecutionPreparation.swift"; sourceTree = "<group>"; };
@@ -8084,6 +8095,13 @@
 		B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowKeyDownReplayGuardTests.swift; sourceTree = "<group>"; };
 		129170000000000000000002 /* WindowOverlayChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowOverlayChromeTests.swift; sourceTree = "<group>"; };
 		02BCEFD7668C02FB795ED26F /* WindowPointHitTestTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowPointHitTestTests.swift; sourceTree = "<group>"; };
+		04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowRecordingErrorCodeTests.swift"; sourceTree = "<group>"; };
+		9065A1020000000000000002 /* WindowRecordingFrameComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingFrameComposer.swift; sourceTree = "<group>"; };
+		9065A1030000000000000002 /* WindowRecordingFrameWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingFrameWriter.swift; sourceTree = "<group>"; };
+		7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowRecordingPipelineTests.swift"; sourceTree = "<group>"; };
+		9065A1040000000000000002 /* WindowRecordingRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingRegistry.swift; sourceTree = "<group>"; };
+		9065A1050000000000000002 /* WindowRecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingSession.swift; sourceTree = "<group>"; };
+		9065A1060000000000000002 /* WindowRecordingWindowSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingWindowSelection.swift; sourceTree = "<group>"; };
 		6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScopedShortcutHintModifierMonitor.swift; sourceTree = "<group>"; };
 		9065A0090000000000000002 /* WindowScreenshotBackendAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotBackendAttempt.swift; sourceTree = "<group>"; };
 		9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotCaptureCoordinator.swift; sourceTree = "<group>"; };
@@ -10140,6 +10158,12 @@
 				9065A0060000000000000002 /* WindowScreenshotLabel.swift */,
 				9065A00A0000000000000002 /* WindowScreenshotScreenCapturePolicy.swift */,
 				9065A0070000000000000002 /* WindowScreenshotTarget.swift */,
+				9065A1010000000000000002 /* TerminalController+WindowRecording.swift */,
+				9065A1020000000000000002 /* WindowRecordingFrameComposer.swift */,
+				9065A1030000000000000002 /* WindowRecordingFrameWriter.swift */,
+				9065A1040000000000000002 /* WindowRecordingRegistry.swift */,
+				9065A1050000000000000002 /* WindowRecordingSession.swift */,
+				9065A1060000000000000002 /* WindowRecordingWindowSelection.swift */,
 				9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */,
 				A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */,
 				A79840040000000000000001 /* TerminalController+SocketCleanup.swift */,
@@ -11449,6 +11473,7 @@
 				C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 				A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */,
+				A10021000000000000000002 /* CMUXCLI+Record.swift */,
 				5A57E0000000000000000002 /* CMUXCLI+Paste.swift */,
 				A64B5058972147F941BD6FA5 /* CMUXCLI+WindowDispatch.swift */,
 				E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */,
@@ -12647,6 +12672,8 @@
 				3D5E43A566AB0B441162EC5A /* CloudTreeNodeCacheTests.swift */,
 				23E35F95320CBED308AD98CF /* CloudTreeTogglePerformanceTests.swift */,
 				0C37EA14DE74095FB1BB23E1 /* CloudTreeDisclosureIntentTests.swift */,
+				7AB0A04BC0DF676A62F70094 /* WindowRecordingPipelineTests.swift */,
+				04A01C2D99463F9AB538969F /* WindowRecordingErrorCodeTests.swift */,
 				CFC1331AFB8F2E75331D0CAC /* CloudTerminalSharedSizingTests.swift */,
 				B5098129202D8E8E7807CB3E /* UITestFixtureTeamsAuthClientTests.swift */,
 				11822CDB20B44810673F9B9A /* CloudCreateTeamSheetPresenterTests.swift */,
@@ -15507,6 +15534,7 @@
 				A10020000000000000000005 /* TerminalController+SurfaceSelection.swift in Sources */,
 				DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */,
 				D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */,
+				9065A1010000000000000001 /* TerminalController+WindowRecording.swift in Sources */,
 				9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */,
 				C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */,
 				D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */,
@@ -15757,6 +15785,11 @@
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */,
 				313585583035A1E685010A97 /* WindowKeyDownReplayGuard.swift in Sources */,
+				9065A1020000000000000001 /* WindowRecordingFrameComposer.swift in Sources */,
+				9065A1030000000000000001 /* WindowRecordingFrameWriter.swift in Sources */,
+				9065A1040000000000000001 /* WindowRecordingRegistry.swift in Sources */,
+				9065A1050000000000000001 /* WindowRecordingSession.swift in Sources */,
+				9065A1060000000000000001 /* WindowRecordingWindowSelection.swift in Sources */,
 				6042C0056042C0056042C005 /* WindowScopedShortcutHintModifierMonitor.swift in Sources */,
 				9065A0090000000000000001 /* WindowScreenshotBackendAttempt.swift in Sources */,
 				9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */,
@@ -16079,6 +16112,7 @@
 					B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
 					126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */,
 				A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */,
+				A10021000000000000000001 /* CMUXCLI+Record.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
@@ -17432,6 +17466,8 @@
 				8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */,
 		129170000000000000000001 /* WindowOverlayChromeTests.swift in Sources */,
 				973DC7D4CD41516D459E17FC /* WindowPointHitTestTests.swift in Sources */,
+				3D9E5674AF892C5F1A2C7720 /* WindowRecordingErrorCodeTests.swift in Sources */,
+				A6CC55B334F22314E39BE6A6 /* WindowRecordingPipelineTests.swift in Sources */,
 				606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */,
 				604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */,
 				7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */,
