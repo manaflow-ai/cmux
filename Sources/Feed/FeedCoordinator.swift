@@ -155,8 +155,10 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
         observeSemanticLifecycle(event)
-        retirePendingDecisionsSuperseded(by: event)
-        clearAgentPromptNotificationsSuperseded(by: event)
+        let retiredDecision = retirePendingDecisionsSuperseded(by: event)
+        if !retiredDecision {
+            clearAgentPromptNotificationsSuperseded(by: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -503,7 +505,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// prompt, or stop hook can only follow the decision. AskUserQuestion and
     /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
     static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
-        guard ["claude", "codex"].contains(event.source), event.feedHookSentAtMs != nil else { return false }
+        guard event.feedHookSentAtMs != nil,
+              event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
+            return false
+        }
         switch event.hookEventName {
         case .preToolUse:
             return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
@@ -521,12 +526,20 @@ final class FeedCoordinator: @unchecked Sendable {
         guard Self.supersedesPendingDecisions(event),
               let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
               let surfaceId = event.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
-        let sessionId = FeedWorkstreamIdentifier(rawValue: event.sessionId)?.sessionID ?? event.sessionId
+        let canonicalSessionId = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: event.source,
+            rawValue: event.sessionId
+        )
+        let sessionId = FeedWorkstreamIdentifier(rawValue: canonicalSessionId)?.sessionID ?? event.sessionId
+        let sentAt = event.feedHookSentAtMs.map {
+            Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+        }
         _ = TerminalNotificationStore.shared.clearAgentAttentionNotification(
             forTabId: workspaceId,
             surfaceId: surfaceId,
             agentKind: event.source,
-            sessionId: sessionId
+            sessionId: sessionId,
+            before: sentAt
         )
     }
 
@@ -534,15 +547,18 @@ final class FeedCoordinator: @unchecked Sendable {
     /// the waiting hook returns no decision, the card expires, and the
     /// needs-input overlay and banner clear, as when the user replies in Feed.
     @MainActor
-    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) {
-        guard Self.supersedesPendingDecisions(event) else { return }
+    @discardableResult
+    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) -> Bool {
+        guard Self.supersedesPendingDecisions(event) else { return false }
+        var retiredDecision = false
         for (reply, itemID) in waiterRegistry.supersede(by: event) {
+            retiredDecision = true
             cancelNotification(requestId: reply.requestID)
             concludeAttentionOnMain(reply.target)
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
                 agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
                 requestID: reply.requestID, resolvesRequest: true))
-            clearSemanticFeedNotification(
+            _ = clearSemanticFeedNotification(
                 requestId: reply.requestID,
                 source: reply.event.source,
                 sessionId: reply.event.sessionId,
@@ -552,6 +568,7 @@ final class FeedCoordinator: @unchecked Sendable {
             expireTimedOutItem(itemID)
             waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
         }
+        return retiredDecision
     }
 
     private static func findItemId(

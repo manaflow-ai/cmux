@@ -2098,7 +2098,8 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID,
         agentKind: String? = nil,
         sessionId: String? = nil,
-        correlationKey: String? = nil
+        correlationKey: String? = nil,
+        before: Date? = nil
     ) -> Bool {
         let liveTabId = AppDelegate.shared?
             .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
@@ -2108,11 +2109,21 @@ final class TerminalNotificationStore: ObservableObject {
                   notification.matchesClear(tabId: tabId, liveTabId: liveTabId, surfaceId: surfaceId) else {
                 return false
             }
+            if let before, notification.createdAt > before { return false }
             if let agentKind, notification.agentKind != agentKind { return false }
             if let sessionId, notification.agentSessionId != sessionId { return false }
             return correlationKey == nil || notification.correlationKey == correlationKey
         }
-        guard let index = matching.first?.offset else { return false }
+        guard let index = matching.min(by: { lhs, rhs in
+            let lhsNotification = notifications[lhs.offset]
+            let rhsNotification = notifications[rhs.offset]
+            if lhsNotification.createdAt != rhsNotification.createdAt {
+                return lhsNotification.createdAt < rhsNotification.createdAt
+            }
+            // Notifications are inserted newest-first. Preserve that order
+            // when two test or restored records have the same timestamp.
+            return lhs.offset > rhs.offset
+        })?.offset else { return false }
         remove(id: notifications[index].id)
         return true
     }

@@ -47,13 +47,14 @@ extension FeedCoordinator {
         return true
     }
     @MainActor
+    @discardableResult
     func clearSemanticFeedNotification(
         requestId: String,
         source: String? = nil,
         sessionId: String? = nil,
         workspaceId: UUID? = nil,
         surfaceId: UUID? = nil
-    ) {
+    ) -> Bool {
         let store = TerminalNotificationStore.shared
         let before = store.notifications.count
         for notification in store.notifications where notification.correlationKey == requestId {
@@ -61,7 +62,7 @@ extension FeedCoordinator {
             store.clearNotifications(forTabId: notification.tabId, surfaceId: notificationSurfaceID,
                 correlationKey: requestId)
         }
-        guard store.notifications.count == before else { return }
+        guard store.notifications.count == before else { return true }
 
         // Some older agent hooks did not carry a producer key. The later
         // same-session hook still identifies the prompt by agent and surface;
@@ -72,13 +73,16 @@ extension FeedCoordinator {
                 (workspaceId == nil || $0.tabId == workspaceId) &&
                 (surfaceId == nil || $0.surfaceId == surfaceId)
         }
-        guard candidates.count == 1, let candidate = candidates.first,
-              let candidateSurfaceID = candidate.surfaceId else { return }
-        _ = store.clearAgentAttentionNotification(
+        guard let source, let sessionId, let workspaceId, let surfaceId,
+              candidates.count == 1, let candidate = candidates.first,
+              candidate.agentKind == source,
+              candidate.agentSessionId == sessionId,
+              candidate.surfaceId == surfaceId else { return false }
+        return store.clearAgentAttentionNotification(
             forTabId: candidate.tabId,
-            surfaceId: candidateSurfaceID,
-            agentKind: source ?? candidate.agentKind,
-            sessionId: sessionId ?? candidate.agentSessionId
+            surfaceId: surfaceId,
+            agentKind: source,
+            sessionId: sessionId
         )
     }
 
