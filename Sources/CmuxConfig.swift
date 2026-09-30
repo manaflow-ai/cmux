@@ -2814,8 +2814,6 @@ final class CmuxConfigStore: ObservableObject {
                         iconSourcePath: entry.iconSourcePath
                     ),
                     terminalCommandSourcePath: nil,
-                    // The button is the referenced action itself, unrelabeled,
-                    // so it keeps that action's identity for discovery.
                     actionReferenceID: resolvedIdentifier
                 )
             }
