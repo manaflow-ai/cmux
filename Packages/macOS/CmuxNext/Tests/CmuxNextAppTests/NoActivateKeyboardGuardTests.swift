@@ -95,10 +95,12 @@ extension NoActivateKeyboardGuardTests {
         host.isAppActive = true
         guardian.windowDidBecomeKey()
         host.isAppActive = true  // macOS still reports active for this batch
-        host.now += .milliseconds(7)
+        host.now += .milliseconds(30)
         guardian.appDidBecomeActive()
         #expect(guardian.giveBackCount == 1)
-        host.now += .milliseconds(50)
+        #expect(host.givenBackTo.count == 2, "the second notification still steps aside")
+        // The app really resigned; a new activation is counted again.
+        guardian.appDidResignActive()
         host.isAppActive = true
         guardian.appDidBecomeActive()
         #expect(guardian.giveBackCount == 2)

@@ -66,6 +66,9 @@ final class NoActivateKeyboardGuard {
     /// window in an inactive app is left alone.
     func windowDidBecomeKey() { check(.windowKey) }
 
+    /// Not implemented yet (red).
+    func appDidResignActive() {}
+
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
     private var userIntends: Bool {
