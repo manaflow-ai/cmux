@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
+  teamEmailInvitations,
   teamInviteLinkRedemptions,
   teamInviteLinks,
   teamInviteRoles,
@@ -28,6 +29,21 @@ export type StoredInviteRole = {
 };
 
 export type LinkClaimResult = "claimed" | "already_redeemed" | "unavailable";
+
+export type StoredEmailInvitation = {
+  readonly id: string;
+  readonly stackTeamId: string;
+  readonly email: string;
+  readonly role: TeamRole;
+  readonly invitedByUserId: string;
+  readonly createdAt: Date;
+  readonly lastSentAt: Date;
+  readonly expiresAt: Date;
+  readonly revokedAt: Date | null;
+  readonly acceptedAt: Date | null;
+  readonly acceptedByUserId: string | null;
+  readonly declinedAt: Date | null;
+};
 
 /**
  * Persistence for invite roles and invite links. The database version is the
@@ -67,6 +83,35 @@ export type TeamInviteStore = {
   claimLink(linkId: string, userId: string): Promise<LinkClaimResult>;
   /** Undo a claim whose Stack membership write failed. */
   releaseLinkClaim(linkId: string, userId: string): Promise<void>;
+
+  createEmailInvitation(input: {
+    readonly stackTeamId: string;
+    readonly email: string;
+    readonly role: TeamRole;
+    readonly invitedByUserId: string;
+    readonly tokenHash: string;
+    readonly expiresAt: Date;
+  }): Promise<StoredEmailInvitation>;
+  /** Pending: not accepted, declined, revoked or expired. Newest first. */
+  listPendingEmailInvitations(stackTeamId: string): Promise<StoredEmailInvitation[]>;
+  /** Pending invitations addressed to any of `emails`, across teams. */
+  listPendingEmailInvitationsForEmails(emails: readonly string[]): Promise<StoredEmailInvitation[]>;
+  /** Any row by id, whatever its state. */
+  findEmailInvitation(id: string): Promise<StoredEmailInvitation | null>;
+  /** A pending row by token hash. */
+  findPendingEmailInvitationByTokenHash(tokenHash: string): Promise<StoredEmailInvitation | null>;
+  /** Give a pending row a fresh token and expiry for a resend. */
+  refreshEmailInvitation(id: string, input: { readonly tokenHash: string; readonly expiresAt: Date }): Promise<void>;
+  /** Set `revoked_at`. False when no such invitation belongs to the team. */
+  revokeEmailInvitation(stackTeamId: string, id: string): Promise<boolean>;
+  /** Revoke every other pending row for the same team and email. */
+  revokeOtherPendingEmailInvitations(stackTeamId: string, email: string, keepId: string): Promise<void>;
+  /** Delete a row whose email never went out. */
+  deleteEmailInvitation(id: string): Promise<void>;
+  /** Mark accepted only while pending. False when the row was no longer pending. */
+  acceptEmailInvitation(id: string, userId: string): Promise<boolean>;
+  /** Mark declined only while pending. */
+  declineEmailInvitation(id: string): Promise<void>;
   /**
    * Drop a departing member's redemptions of the team's links. The spent uses
    * stay counted, so rejoining through a link claims a new use.
@@ -95,6 +140,30 @@ const linkColumns = {
   maxUses: teamInviteLinks.maxUses,
   useCount: teamInviteLinks.useCount,
 };
+
+const emailInvitationColumns = {
+  id: teamEmailInvitations.id,
+  stackTeamId: teamEmailInvitations.stackTeamId,
+  email: teamEmailInvitations.email,
+  role: teamEmailInvitations.role,
+  invitedByUserId: teamEmailInvitations.invitedByUserId,
+  createdAt: teamEmailInvitations.createdAt,
+  lastSentAt: teamEmailInvitations.lastSentAt,
+  expiresAt: teamEmailInvitations.expiresAt,
+  revokedAt: teamEmailInvitations.revokedAt,
+  acceptedAt: teamEmailInvitations.acceptedAt,
+  acceptedByUserId: teamEmailInvitations.acceptedByUserId,
+  declinedAt: teamEmailInvitations.declinedAt,
+};
+
+function pendingEmailInvitationCondition() {
+  return and(
+    isNull(teamEmailInvitations.revokedAt),
+    isNull(teamEmailInvitations.acceptedAt),
+    isNull(teamEmailInvitations.declinedAt),
+    gt(teamEmailInvitations.expiresAt, sql`now()`),
+  );
+}
 
 function liveLinkCondition() {
   return and(
@@ -154,6 +223,10 @@ export const databaseTeamInviteStore: TeamInviteStore = {
         .update(teamInviteLinks)
         .set({ revokedAt: sql`now()` })
         .where(and(eq(teamInviteLinks.stackTeamId, stackTeamId), isNull(teamInviteLinks.revokedAt)));
+      await tx
+        .update(teamEmailInvitations)
+        .set({ revokedAt: sql`now()` })
+        .where(and(eq(teamEmailInvitations.stackTeamId, stackTeamId), pendingEmailInvitationCondition()));
     });
   },
 
@@ -256,6 +329,115 @@ export const databaseTeamInviteStore: TeamInviteStore = {
     });
   },
 
+  async createEmailInvitation(input) {
+    const [row] = await cloudDb()
+      .insert(teamEmailInvitations)
+      .values({
+        stackTeamId: input.stackTeamId,
+        email: input.email,
+        role: input.role,
+        invitedByUserId: input.invitedByUserId,
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+      })
+      .returning(emailInvitationColumns);
+    if (!row) throw new Error("team email invitation insert returned no row");
+    return row;
+  },
+
+  async listPendingEmailInvitations(stackTeamId) {
+    return cloudDb()
+      .select(emailInvitationColumns)
+      .from(teamEmailInvitations)
+      .where(and(eq(teamEmailInvitations.stackTeamId, stackTeamId), pendingEmailInvitationCondition()))
+      .orderBy(desc(teamEmailInvitations.createdAt));
+  },
+
+  async listPendingEmailInvitationsForEmails(emails) {
+    if (emails.length === 0) return [];
+    return cloudDb()
+      .select(emailInvitationColumns)
+      .from(teamEmailInvitations)
+      .where(and(inArray(teamEmailInvitations.email, [...emails]), pendingEmailInvitationCondition()))
+      .orderBy(desc(teamEmailInvitations.createdAt));
+  },
+
+  async findEmailInvitation(id) {
+    const [row] = await cloudDb()
+      .select(emailInvitationColumns)
+      .from(teamEmailInvitations)
+      .where(eq(teamEmailInvitations.id, id))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async findPendingEmailInvitationByTokenHash(tokenHash) {
+    const [row] = await cloudDb()
+      .select(emailInvitationColumns)
+      .from(teamEmailInvitations)
+      .where(and(eq(teamEmailInvitations.tokenHash, tokenHash), pendingEmailInvitationCondition()))
+      .limit(1);
+    return row ?? null;
+  },
+
+  async refreshEmailInvitation(id, input) {
+    await cloudDb()
+      .update(teamEmailInvitations)
+      .set({ tokenHash: input.tokenHash, expiresAt: input.expiresAt, lastSentAt: sql`now()` })
+      .where(and(eq(teamEmailInvitations.id, id), pendingEmailInvitationCondition()));
+  },
+
+  async revokeEmailInvitation(stackTeamId, id) {
+    const db = cloudDb();
+    const revoked = await db
+      .update(teamEmailInvitations)
+      .set({ revokedAt: sql`now()` })
+      .where(and(
+        eq(teamEmailInvitations.id, id),
+        eq(teamEmailInvitations.stackTeamId, stackTeamId),
+        isNull(teamEmailInvitations.revokedAt),
+      ))
+      .returning({ id: teamEmailInvitations.id });
+    if (revoked.length > 0) return true;
+    const existing = await db
+      .select({ id: teamEmailInvitations.id })
+      .from(teamEmailInvitations)
+      .where(and(eq(teamEmailInvitations.id, id), eq(teamEmailInvitations.stackTeamId, stackTeamId)))
+      .limit(1);
+    return existing.length > 0;
+  },
+
+  async revokeOtherPendingEmailInvitations(stackTeamId, email, keepId) {
+    await cloudDb()
+      .update(teamEmailInvitations)
+      .set({ revokedAt: sql`now()` })
+      .where(and(
+        eq(teamEmailInvitations.stackTeamId, stackTeamId),
+        eq(teamEmailInvitations.email, email),
+        sql`${teamEmailInvitations.id} <> ${keepId}`,
+        pendingEmailInvitationCondition(),
+      ));
+  },
+
+  async deleteEmailInvitation(id) {
+    await cloudDb().delete(teamEmailInvitations).where(eq(teamEmailInvitations.id, id));
+  },
+
+  async acceptEmailInvitation(id, userId) {
+    const accepted = await cloudDb()
+      .update(teamEmailInvitations)
+      .set({ acceptedAt: sql`now()`, acceptedByUserId: userId })
+      .where(and(eq(teamEmailInvitations.id, id), pendingEmailInvitationCondition()))
+      .returning({ id: teamEmailInvitations.id });
+    return accepted.length > 0;
+  },
+
+  async declineEmailInvitation(id) {
+    await cloudDb()
+      .update(teamEmailInvitations)
+      .set({ declinedAt: sql`now()` })
+      .where(and(eq(teamEmailInvitations.id, id), pendingEmailInvitationCondition()));
+  },
   async forgetLinkRedemptions(stackTeamId, userId, lockDb) {
     const db = lockDb ?? cloudDb();
     await db
