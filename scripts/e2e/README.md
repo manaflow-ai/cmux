@@ -1,10 +1,22 @@
 # scripts/e2e - iOS E2E drivers
 
 Driver contract for [.github/workflows/ios-e2e.yml](../../.github/workflows/ios-e2e.yml).
-The workflow owns runner selection, tailnet join, GCP backend provisioning,
-both app builds, relay-only configuration, simulator lifecycle, evidence
-upload, and cleanup. `ios-e2e-run.sh` owns the six terminal steps after the
-apps are signed in, paired, and connected.
+The workflow owns runner selection, tailnet join, the per-run backend, both
+app builds, relay-only configuration, simulator lifecycle, evidence upload,
+and cleanup. `ios-e2e-run.sh` owns the six terminal steps after the apps are
+signed in, paired, and connected.
+
+## backend-up.sh and backend-env.sh
+
+`backend-up.sh up` starts this run's backend on the Linux runner: the iroh-v2
+and presence Workers in local workerd, Postgres, and iroh-relay behind
+`tls-forward.mjs` on the runner's tailnet address, with per-phase timings in
+the step summary. `backend-up.sh hold` serves until `CMUX_E2E_BACKEND_DONE_FILE`
+appears, and `backend-up.sh down` removes everything `up` created.
+`backend-env.sh env` prints the app-side origins and accepts `--simctl` to add
+the simulator launch copies, `hosts` and `unhosts` map and unmap the fixed name
+in `/etc/hosts`, and `wait` blocks until both Workers answer. Contract:
+[docs/ci/ios-e2e.md](../../docs/ci/ios-e2e.md#per-run-backend).
 
 ## ios-e2e-run.sh
 
@@ -23,8 +35,7 @@ simulator explicitly through flags.
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. The workflow obtains it from `scripts/e2e/gcp-backend.sh url --tag`. |
-| `CMUX_IROH_BROKER_BASE_URL` | Same backend origin baked into both app builds for broker discovery. |
+| `CMUX_IROH_V2_BASE_URL`, `CMUX_PRESENCE_BASE_URL` | This run's backend origins from `backend-env.sh env`, baked into both app builds. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account used by the Mac and simulator. The workflow stores it as `CMUX_UITEST_*` in a mode `0600` file for the `agent` profile. |
 
 The workflow sets `CMUX_IROH_V2_FORCE_RELAY=1` for the Mac build and writes the
@@ -65,6 +76,6 @@ its coverage.
    Regression: a pre-bootstrap recovery cooldown stalled a fresh session
    ([#14124](https://github.com/manaflow-ai/cmux/pull/14124)).
 
-The workflow stops the tagged Mac app, deletes the isolated simulator, removes
-the tagged backend stack, and deletes the temporary credentials file after the
-driver exits, including on failure.
+The workflow stops the tagged Mac app, deletes the isolated simulator, releases
+the backend hold over Tailscale SSH, and deletes the temporary credentials file
+after the driver exits, including on failure.

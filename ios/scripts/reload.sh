@@ -7,6 +7,7 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
+       ios/scripts/reload.sh --tag <tag> --build-only
 
 Build, install, and launch the cmux iOS app with an isolated tag.
 
@@ -18,6 +19,13 @@ If the iPhone is unreachable, the signed build is parked in the offline install
 queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
 reconnects. Unless a simulator is named explicitly, the simulator leg uses the
 tag's own isolated device ("cmux-dev-<slug>"), created on demand.
+
+--build-only compiles the tagged simulator app for the generic simulator
+destination and prints its path: no simulator is resolved, created, booted or
+installed into, and no device leg runs. CI builds the app this way on machines
+whose one simulator belongs to other jobs, then installs it elsewhere.
+CMUX_IOS_DERIVED_DATA (an absolute path) replaces the per-tag DerivedData, so
+a caller that keeps one warm directory per build slot can reuse it.
 
 When a trusted phone leg is enabled, the simulator app is installed but not
 launched. The simulator's agent auto-pair would replace the phone's personal
@@ -164,6 +172,7 @@ NO_SETUP=0
 # the simulator installed but unlaunched during a trusted phone reload; use
 # --simulator-only for a connected simulator run.
 SIMULATOR_LAUNCH=1
+BUILD_ONLY=0
 # Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
 # can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
 # "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
@@ -194,6 +203,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --simulator-only|--sim-only)
       SIMULATOR_ONLY=1
+      shift
+      ;;
+    --build-only)
+      BUILD_ONLY=1
+      SIMULATOR_ONLY=1
+      LAUNCH=0
       shift
       ;;
     --device)
@@ -430,7 +445,11 @@ SCHEME="cmux-ios"
 TAG_SLUG="$(sanitize_tag "$TAG")"
 DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
-DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
+DERIVED_DATA="${CMUX_IOS_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG}"
+if [[ "$DERIVED_DATA" != /* ]]; then
+  echo "error: CMUX_IOS_DERIVED_DATA must be an absolute path, got '$DERIVED_DATA'" >&2
+  exit 1
+fi
 QUEUE_SCRIPT="$IOS_DIR/../scripts/iphone-install-queue.sh"
 
 # Enforced verification default: simulator + iPhone. When a default device id
@@ -468,7 +487,7 @@ fi
 # Isolated per-tag simulator by default: unless the caller explicitly picked a
 # simulator (flag or IOS_SIMULATOR_NAME/IOS_SIMULATOR_ID), resolve or create
 # "cmux-dev-<slug>" so concurrent agent sessions never share a simulator.
-if [[ "$RELOAD_SIMULATOR" -eq 1 && "$SIMULATOR_EXPLICIT" -eq 0 ]]; then
+if [[ "$RELOAD_SIMULATOR" -eq 1 && "$SIMULATOR_EXPLICIT" -eq 0 && "$BUILD_ONLY" -eq 0 ]]; then
   # shellcheck source=../../scripts/lib/ios-sim-isolate.sh
   source "$IOS_DIR/../scripts/lib/ios-sim-isolate.sh"
   SIMULATOR_ID="$(cmux_ios_isolated_sim_udid "$TAG_SLUG")"
@@ -479,6 +498,9 @@ fi
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
 if [[ -n "$SIMULATOR_ID" ]]; then
   DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
+fi
+if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  DESTINATION="generic/platform=iOS Simulator"
 fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
@@ -862,6 +884,8 @@ reload_simulator() {
     CMUX_IROH_V2_BASE_URL="$CMUX_IROH_V2_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
+    ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=YES \
     SWIFT_OPTIMIZATION_LEVEL=-O \
     SWIFT_COMPILATION_MODE=wholemodule \
     GCC_OPTIMIZATION_LEVEL=s \
@@ -872,6 +896,10 @@ reload_simulator() {
   if [[ ! -d "$APP_PATH" ]]; then
     echo "error: built app not found at $APP_PATH" >&2
     exit 1
+  fi
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    echo "==> build only: $APP_PATH"
+    return 0
   fi
 
   if [[ -n "$SIMULATOR_ID" ]]; then
