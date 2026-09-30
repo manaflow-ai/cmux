@@ -11,16 +11,17 @@ import GhosttyKit
 /// without limit (state-audit.md T1).
 ///
 /// Geometry: the mirror's grid must equal the PTY's grid at every point in
-/// the byte stream, or later output lands in the wrong cells. A `.resize`
-/// event resizes the live surface in place (`ghostty_surface_set_grid_size`)
-/// after every earlier chunk was parsed; it never replaces the surface. When
-/// ``ownsGeometry`` is true the view size decides the grid, changes are sent
-/// with `io.resize`, and a `.resize` that matches the view is a no-op; one
-/// that differs (another client sized the terminal) is rendered until the
-/// view size changes. When false the surface always renders the `.resize`
-/// grid, which is how a second view of the same daemon terminal stays
-/// consistent (native-frontend.md: "selecting a visible terminal view
-/// explicitly transfers canonical geometry").
+/// the byte stream, or later output lands in the wrong cells. The IO owner
+/// decides the PTY size; every `.resize` event resizes the live surface in
+/// place (`ghostty_surface_set_grid_size`) after every earlier chunk was
+/// parsed, and never replaces the surface. Once one arrived the surface
+/// renders only `.resize` grids (``TerminalGridPolicy``). When
+/// ``ownsGeometry`` is true the grid the view fits is sent with `io.resize`,
+/// once per change, as a request: the surface follows when the owner
+/// announces the grid it applied. A request the owner does not apply
+/// (another client holds geometry) never shows as a grid the PTY does not
+/// have. An IO that never sends `.resize` (a bare PTY, resized by the
+/// request itself) keeps the surface sized to the view.
 public final class TerminalSession {
     public let model = TerminalSurfaceModel()
     public let view: TerminalHostView
@@ -50,11 +51,8 @@ public final class TerminalSession {
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
-    /// Grids this view reported most recently, oldest first. A `.resize`
-    /// carrying an older one is the daemon's late echo of a size the view
-    /// already left, not another client's geometry.
-    private var recentReports: [TerminalGridSize] = []
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
@@ -217,21 +215,18 @@ public final class TerminalSession {
         }
     }
 
-    /// Resizes the live mirror to the daemon's grid in stream order: output
+    /// Resizes the live mirror to the owner's grid in stream order: output
     /// queued before this event is parsed first, so Ghostty reflows the same
-    /// screen the daemon reflowed.
+    /// screen the owner reflowed. Every `.resize` applies; there is no
+    /// "late echo": the event is the PTY's size at this point in the stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
         canonicalGrid = grid
-        if ownsGeometry, let index = recentReports.firstIndex(of: grid), index < recentReports.count - 1 {
-            recentReports.removeFirst(index + 1)
-            return
-        }
         // Parse queued output at the old grid first; skip the wait when the
-        // grid is already right (the echo of this view's own report). The
-        // event loop is suspended meanwhile, so later output stays behind
-        // this grid change, and the main thread keeps running.
+        // grid is already right. The event loop is suspended meanwhile, so
+        // later output stays behind this grid change, and the main thread
+        // keeps running.
         if surfaceView.currentGrid != grid, let lane = surfaceView.lane { await lane.drained() }
-        surfaceView.applyCanonicalGrid(grid)
+        surfaceView.applyAnnouncedGrid(grid)
     }
 
     /// Ghostty has no reset API, so a new replay goes into a new surface
@@ -246,7 +241,7 @@ public final class TerminalSession {
         surfaceView = fresh
         view.install(fresh)
         // Nothing was parsed into the fresh surface yet: no drain needed.
-        if let canonicalGrid { fresh.applyCanonicalGrid(canonicalGrid) }
+        if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
     }
@@ -255,15 +250,12 @@ public final class TerminalSession {
 
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
-        recentReports.removeAll { $0 == grid }
-        recentReports.append(grid)
-        if recentReports.count > 4 { recentReports.removeFirst() }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }
 
 /// Container the App embeds. Holds the current surface view (swapped on
-/// replay) and paints the config background behind a follower grid that is
+/// replay) and paints the config background behind an announced grid that is
 /// smaller than the view.
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?

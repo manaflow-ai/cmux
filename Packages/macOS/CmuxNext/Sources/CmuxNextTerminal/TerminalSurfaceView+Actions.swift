@@ -40,8 +40,8 @@ extension TerminalSurfaceView {
         case .mouseOverLink(let link):
             model.hoveredLink = link
         case .cellSize:
-            // Font size changed: followers re-apply the canonical grid at the
-            // new cell size; owners report the grid that now fits.
+            // Font size changed: re-apply the announced grid at the new cell
+            // size; an owner reports the grid the view now fits.
             updateSurfaceSize()
         case .rendererHealthy(let healthy):
             model.isRendererHealthy = healthy

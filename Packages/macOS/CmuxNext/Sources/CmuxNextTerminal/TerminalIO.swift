@@ -20,7 +20,10 @@ public nonisolated protocol TerminalIO: Sendable {
     /// paste.
     func write(_ data: Data) async
 
-    /// Reports this view's grid when it owns canonical geometry.
+    /// Requests this view's grid when it owns canonical geometry. An IO that
+    /// sends `.resize` events answers with one once the PTY has the size;
+    /// one that does not must apply the size itself (the surface keeps
+    /// fitting the view).
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async
 
     /// True when the owner keeps its own VT state and answers terminal
@@ -47,8 +50,10 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     case kittyReplay(TerminalKittyReplay)
     /// Live PTY output, fed to `ghostty_surface_process_output`.
     case output(Data)
-    /// Canonical grid decided by the daemon. Applied with
-    /// `ghostty_surface_set_grid_size` when this view does not own geometry.
+    /// The PTY's grid from this point in the stream (the daemon applied a
+    /// size). Always applied with `ghostty_surface_set_grid_size`; after the
+    /// first one the surface renders only these grids. Send one for every
+    /// size the PTY takes, including the initial one.
     case resize(cols: Int, rows: Int)
     /// The terminal's process exited. The surface stays readable.
     case exited
