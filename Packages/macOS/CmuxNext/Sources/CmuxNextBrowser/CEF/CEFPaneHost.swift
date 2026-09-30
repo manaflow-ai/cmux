@@ -190,7 +190,7 @@ final class CEFPaneHost {
     /// chrome.tabs.create, a window request the fork placed here). It is
     /// handed to the host app through the opener's delegate as `.adoptTab`,
     /// which keeps `window.opener`.
-    func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab) {
+    func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
         let opener = visibleTab ?? tabs.last
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
         // Same window, same store: a popup of a remote machine's localhost

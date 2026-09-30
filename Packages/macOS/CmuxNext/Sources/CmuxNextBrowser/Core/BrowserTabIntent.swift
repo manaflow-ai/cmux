@@ -20,6 +20,10 @@ public enum BrowserTabIntent {
     /// window object (`window.opener`), so the engine must create the tab
     /// synchronously. The host must insert or close it.
     case adoptTab(any BrowserTab, BrowserNewTabDisposition)
+    /// Show an already-created page in a floating popup panel over the
+    /// opener's window (`window.open` with window features). The page keeps
+    /// `window.opener`. The host must show or close it.
+    case openPopup(any BrowserTab, BrowserPopupRequest)
     /// The page called `window.close()`.
     case close
     /// A download started. Observe the object for progress.
@@ -40,6 +44,9 @@ public enum BrowserTabIntent {
     /// cancelled it. The host re-creates the tab in the other store with
     /// `url` (plans/cmux-next/remote-localhost.md section 3).
     case rerouteStore(URL)
+    /// The page did not handle an Escape key down (a popup panel closes on
+    /// it; a tab ignores it).
+    case unhandledEscape
 }
 
 /// Receives intents from a tab.

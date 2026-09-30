@@ -82,6 +82,14 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
+        case .openPopup(let child, _):
+            // The debug window has no panels: the popup becomes a tab.
+            child.delegate = self
+            tabs.append(child)
+            chrome.tab = child
+            observe()
+        case .unhandledEscape:
+            break
         case .openURL(let url, _):
             chrome.tab.load(url)
         case .close:

@@ -61,6 +61,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
             break
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
+        case .openPopup(let child, _):
+            open(url: child.state.url, adopting: child, engine: engine, in: pane, background: false)
+        case .unhandledEscape:
+            break
         }
     }
 
