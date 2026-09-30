@@ -101,12 +101,15 @@ public struct WorktreeSeedRepository: Sendable {
             var rebuilt = URL(fileURLWithPath: components[0], isDirectory: true)
             var foundSymlink = false
 
-            for component in components.dropFirst() {
+            for (offset, component) in components.dropFirst().enumerated() {
                 rebuilt.appendPathComponent(component)
                 if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: rebuilt.path) {
                     guard followed.insert(rebuilt.path).inserted else { return nil }
                     current = URL(fileURLWithPath: destination, relativeTo: rebuilt.deletingLastPathComponent())
-                        .standardizedFileURL
+                    for suffix in components.dropFirst(offset + 2) {
+                        current.appendPathComponent(suffix)
+                    }
+                    current = current.standardizedFileURL
                     foundSymlink = true
                     break
                 }
