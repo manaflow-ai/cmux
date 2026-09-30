@@ -40,6 +40,19 @@ struct RemoteRelayRoutingSchema {
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "agent.hook.enqueue":
             return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+        case "agent.message.poll":
+            return ["surface_id", "poller_key", "register", "mark_delivered_read"]
+        case "agent.message.claim":
+            return ["surface_id", "via", "mark_delivered_read"]
+        case "agent.message.mark_read":
+            return ["surface_id", "id", "ids"]
+        case "agent.message.list":
+            return ["surface", "state", "limit"]
+        case "agent.message.send":
+            return [
+                "target", "reply_to", "body", "from", "thread_id",
+                "sender_surface_id", "sender_workspace_id",
+            ]
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body"])
         default: return nil
