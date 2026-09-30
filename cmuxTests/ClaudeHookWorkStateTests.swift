@@ -91,4 +91,23 @@ struct ClaudeHookWorkStateTests {
         #expect(status?.contains("--icon=bolt.fill") == true)
         #expect(status?.contains("subagents") == false)
     }
+
+    /// The work option is appended after every option the command already
+    /// had. Suites that have nothing to do with work states pin the running
+    /// command as a prefix up to `--tab=`
+    /// (`CLINotifyProcessIntegrationRegressionTests`,
+    /// `test_claude_hook_clear_running_status.py`), and a flag inserted
+    /// ahead of that breaks them while saying nothing about what they check.
+    @Test func workStateGoesLastAndLeavesTheOlderPrefixIntact() throws {
+        let commands = try runPreToolUse(name: "work-state-order", toolName: "Bash", pid: "43404")
+        let status = statusLine(commands)
+        #expect(
+            status?.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=") == true,
+            "The work option must not split the prefix other suites pin; saw \(commands)"
+        )
+        #expect(
+            status?.hasSuffix("--work=running") == true,
+            "The work option must come last; saw \(commands)"
+        )
+    }
 }
