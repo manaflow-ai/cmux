@@ -2248,7 +2248,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "subscribe": {
       const sessionId = String(msg.sessionId);
-      const sess = sessions.get(sessionId) ?? resolveTranscriptSessionById(sessionId);
+      // The agent may have resumed elsewhere while this page was offline.
+      // Refresh terminal transcript bindings even when the session is cached;
+      // retain cached history if the hook record is temporarily unavailable.
+      const sess = resolveTranscriptSessionById(sessionId) ?? sessions.get(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
