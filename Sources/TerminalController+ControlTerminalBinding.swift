@@ -200,7 +200,7 @@ extension TerminalController {
               let owned = resolved.workspace.terminalInputTarget(forPanelID: surfaceID) else {
             return nil
         }
-        let target = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID)
+        let target = resolved.workspace.controlSocketTerminalTarget(for: owned)
         if let target, target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
             return (resolved.workspace, surfaceID, target, true)
         }
