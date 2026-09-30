@@ -530,7 +530,7 @@ extension TerminalController {
         if asViewer, cloudSizingRelaysBySurfaceID[surfaceID]?.value?.relaysPhones == true {
             replayParams["counts_override"] = false
         }
-        return v2MobileTerminalReplay(params: replayParams)
+        return await v2MobileTerminalReplay(params: replayParams)
     }
 
     /// `mobile.terminal.size_policy.set {surface_id, policy}`.
