@@ -353,13 +353,15 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
-      "mobileDevices": "ឧបករណ៍ចល័ត"
+      "mobileDevices": "ឧបករណ៍ចល័ត",
+      "settings": "ការកំណត់",
+      "teams": "ក្រុម"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "coderouterLink": "បើក coderouter",
       "iosAppName": "កម្មវិធី iOS",
@@ -367,10 +369,10 @@
       "iosLink": "បើកកម្មវិធី iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "គ្រប់គ្រងគណនី AI ដែលបានចែករំលែក និងបញ្ជូនសំណើដោយប្រើ coderouter។",
-      "title": "coderouter",
-      "description": "coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
+      "title": "Coderouter",
+      "description": "Coderouter បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
       "machines": {
         "title": "ម៉ាស៊ីន",
         "description": "ការប្រើប្រាស់ coderouter តាមម៉ាស៊ីនសម្រាប់ {team} ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយ។",
@@ -381,6 +383,20 @@
         "empty": "គ្មានម៉ាស៊ីនណាបានប្រើ coderouter ក្នុងរយៈពេល {days} ថ្ងៃចុងក្រោយទេ។",
         "unavailable": "ការប្រើប្រាស់តាមម៉ាស៊ីនមិនអាចប្រើបានជាបណ្ដោះអាសន្ន។",
         "estimateNote": "តម្លៃស្មើនឹង API គឺជាការប៉ាន់ស្មានតាមតម្លៃសាធារណៈ មិនមែនជាការចំណាយពិតប្រាកដទេ។"
+      },
+      "metrics": {
+        "title": "ការប្រើប្រាស់ 30 ថ្ងៃ",
+        "scope": "សរុបរបស់ក្រុមសម្រាប់ {team}",
+        "period": "{days} ថ្ងៃចុងក្រោយ",
+        "inputTokens": "តូខិនបញ្ចូល",
+        "outputTokens": "តូខិនបញ្ចេញ",
+        "tokens": "តូខិនសរុប",
+        "apiEquivalent": "តម្លៃស្មើនឹង API",
+        "unpriced": "{share} នៃតូខិនទាំងនេះមកពីម៉ូដែលដែលគ្មានតម្លៃសាធារណៈ ហើយមិនត្រូវបានរាប់បញ្ចូលក្នុងតម្លៃនោះទេ។",
+        "chartLabel": "ការប្រើប្រាស់តូខិន CodeRouter ប្រចាំថ្ងៃ",
+        "privacy": "មិនមានការកត់ត្រា ឬបង្ហាញ prompt លទ្ធផល ស្លាកគណនី ឬអត្តសញ្ញាណសមាជិកទេ។",
+        "estimate": "តម្លៃស្មើនឹង API គឺជាតម្លៃដែលតូខិនទាំងនេះនឹងត្រូវចំណាយតាមតម្លៃ API សាធារណៈ (តារាងតម្លៃ {version})។ វាមិនមែនជាចំនួនដែលអ្នកបានបង់ទេ។",
+        "unavailable": "ការប្រើប្រាស់របស់ក្រុមមិនអាចប្រើបានជាបណ្ដោះអាសន្ន។"
       }
     },
     "accountMenu": {
@@ -391,14 +407,140 @@
       "signingOut": "កំពុងចាកចេញ…",
       "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
       "organizationSwitchError": "មិនអាចប្ដូរអង្គការបានទេ។ សូមព្យាយាមម្តងទៀត។",
-      "signIn": "ចូល"
+      "signIn": "ចូល",
+      "upgrade": "ដំឡើង"
     },
     "billing": {
       "plan": {
         "heading": "គម្រោងផ្ទាល់ខ្លួនរបស់អ្នក",
         "free": "ឥតគិតថ្លៃ",
-        "pro": "Pro",
-        "loading": "កំពុងផ្ទុក…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "ក្រុមនេះមិនអាចប្រើបានទេ។ អ្នកប្រហែលជាបានចាកចេញពីក្រុម ឬក្រុមត្រូវបានលុប។",
+        "unavailable": "មិនអាចផ្ទុកការទូទាត់របស់ក្រុមបានទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
+        "welcome": "Team កំពុងដំណើរការ។ អញ្ជើញមិត្តរួមក្រុមរបស់អ្នកពីទំព័រសមាជិករបស់ក្រុម។",
+        "freeBody": "{team} កំពុងប្រើគម្រោងឥតគិតថ្លៃ។ Team ផ្តល់ភ្នាក់ងារលើពពកដល់សមាជិកគ្រប់រូប ជាមួយវិក្កយបត្ររួមតែមួយ។",
+        "upgradeCta": "ដំឡើងកម្រិតក្រុមនេះ",
+        "askAdmin": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចប្តូរការទូទាត់បាន។ សូមស្នើអ្នកគ្រប់គ្រងរបស់ {team} ឱ្យដំឡើងកម្រិត។",
+        "memberReadOnly": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចប្តូរគម្រោងនេះបាន។",
+        "grantedBody": "ក្រុម cmux បានផ្តល់សិទ្ធិ Team ដល់ {team}។ មិនមានការជាវដែលត្រូវគ្រប់គ្រងទេ។",
+        "seatsUsed": "បានប្រើ {members} ក្នុងចំណោម {seats}",
+        "overSeat": "{team} មានសមាជិក {members} នាក់ និងកៅអីដែលបានបង់ប្រាក់ {seats}។ ការចូលរួមនៅតែដំណើរការ សូមបន្ថែមកៅអីឱ្យគ្រប់គ្រាន់សម្រាប់អ្នកទាំងអស់គ្នា។",
+        "addSeats": "បន្ថែមកៅអី"
+      },
+      "teamList": {
+        "heading": "វិសាលភាពការទូទាត់",
+        "personal": "គណនីផ្ទាល់ខ្លួន",
+        "planBadges": {
+          "free": "ឥតគិតថ្លៃ",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះដែលអាចគ្រប់គ្រងការទូទាត់របស់ក្រុមនេះបាន។",
+        "team_not_found": "ក្រុមនេះមិនអាចប្រើបានទេ។ អ្នកប្រហែលជាបានចាកចេញពីក្រុម ឬក្រុមត្រូវបានលុប។",
+        "authorization_unavailable": "មិនអាចពិនិត្យសិទ្ធិក្រុមបានទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
+        "personal_team_not_upgradable_to_team": "គណនីផ្ទាល់ខ្លួនរបស់អ្នកប្រើ Pro ឬ Max។ បង្កើតក្រុមដើម្បីទិញ Team។"
+      },
+      "team": {
+        "createCta": "បង្កើតក្រុម"
+      },
+      "title": "គម្រោង និងការចេញវិក្កយបត្រ",
+      "picker": {
+        "current": "គម្រោងបច្ចុប្បន្ន",
+        "upgradeTo": "ដំឡើងទៅ {plan}",
+        "switchTo": "ប្ដូរទៅ {plan}",
+        "cancelPlan": "បោះបង់គម្រោង",
+        "resume": "បន្ត {plan}",
+        "renewsOn": "បន្តនៅ {date}",
+        "endsOn": "បញ្ចប់នៅ {date}",
+        "perMonth": "ក្នុងមួយខែ",
+        "perSeatMonth": "ក្នុងមួយកៅអីក្នុងមួយខែ",
+        "paymentMethod": "គ្រប់គ្រងវិធីបង់ប្រាក់",
+        "invoices": "វិក្កយបត្រ",
+        "heading": "គម្រោង",
+        "actionError": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "unavailable": {
+          "cancelScheduled": "សូមបន្តគម្រោងរបស់អ្នកជាមុនសិន ដើម្បីប្ដូរវា។",
+          "granted": "ផ្ដល់ដោយ cmux។ គ្មានអ្វីត្រូវប្ដូរទេ។",
+          "adminOnly": "មានតែអ្នកគ្រប់គ្រងក្រុមប៉ុណ្ណោះ ដែលអាចប្ដូរគម្រោងបាន។"
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "ស្ថានីយ cmux ពេញលេញសម្រាប់ macOS",
+            "ភ្នាក់ងារ CLI ណាមួយជាមួយសោផ្ទាល់ខ្លួនរបស់អ្នក",
+            "ប្រវត្តិវគ្គក្នុងម៉ាស៊ីន"
+          ],
+          "go": [
+            "Cloud VM សកម្ម 1",
+            "40 ម៉ោង VM ក្នុងមួយខែ",
+            "VM ដែលបានរក្សាទុក 2"
+          ],
+          "pro": [
+            "ភ្នាក់ងារពពកនៅលើ Cloud VMs",
+            "RAM 24 GB និង vCPU 6 ចែករំលែកគ្រប់ VM",
+            "កម្មវិធី cmux សម្រាប់ iOS"
+          ],
+          "max": [
+            "RAM 64 GB និង vCPU 16 ចែករំលែកគ្រប់ VM",
+            "ម៉ាស៊ីនធំជាងមុន",
+            "អ្វីៗទាំងអស់ក្នុង Pro"
+          ],
+          "team": [
+            "អ្វីៗទាំងអស់ក្នុង Pro សម្រាប់សមាជិកគ្រប់រូប",
+            "វិក្កយបត្រតែមួយសម្រាប់ក្រុមទាំងមូល",
+            "ការគាំទ្រអាទិភាព"
+          ]
+        },
+        "billedAnnually": "គិតប្រាក់ប្រចាំឆ្នាំ"
+      },
+      "change": {
+        "title": "ប្ដូរទៅ {plan}?",
+        "upgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ថ្ងៃនេះអ្នកបង់ {amount} សម្រាប់រយៈពេលនៅសល់នៃវដ្ដវិក្កយបត្រនេះ។ ចាប់ពី {date} អ្នកបង់ {price} ក្នុងមួយខែ។",
+        "downgradeBody": "{plan} ចាប់ផ្ដើមឥឡូវនេះ។ ផ្នែកមិនបានប្រើនៃគម្រោងបច្ចុប្បន្ន {credit} នឹងកាត់កងក្នុងវិក្កយបត្របន្ទាប់។ វិក្កយបត្របន្ទាប់នៅ {date} គឺ {amount}។",
+        "confirm": "ប្ដូរទៅ {plan}",
+        "keep": "រក្សាគម្រោងបច្ចុប្បន្ន",
+        "switching": "កំពុងប្ដូរ…",
+        "previewError": "មិនអាចគណនាតម្លៃបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "paymentFailed": "កាតរបស់អ្នកត្រូវបានបដិសេធ។ សូមធ្វើបច្ចុប្បន្នភាពវិធីបង់ប្រាក់ រួចព្យាយាមម្ដងទៀត។",
+        "error": "មិនអាចប្ដូរគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+      },
+      "cancelDialog": {
+        "title": "បោះបង់ {plan}?",
+        "body": "អ្នកនៅតែប្រើ {plan} រហូតដល់ {date}។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "bodyNoDate": "អ្នកនៅតែប្រើ {plan} រហូតដល់ចុងវដ្ដវិក្កយបត្រនេះ។ បន្ទាប់មក អ្នកនឹងបាត់បង់៖",
+        "reasonLabel": "ហេតុអ្វីអ្នកបោះបង់? (ស្រេចចិត្ត)",
+        "otherPlaceholder": "ប្រាប់យើងបន្ថែម (ស្រេចចិត្ត)",
+        "confirm": "បោះបង់គម្រោង",
+        "keep": "រក្សា {plan}",
+        "error": "មិនអាចបោះបង់គម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "resumeError": "មិនអាចបន្តគម្រោងបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+        "reasons": {
+          "too_expensive": "ថ្លៃពេក",
+          "missing_feature": "ខ្វះមុខងារដែលខ្ញុំត្រូវការ",
+          "not_using": "មិនសូវប្រើ",
+          "other": "ផ្សេងទៀត"
+        }
+      },
+      "welcome": {
+        "title": "សូមស្វាគមន៍មកកាន់ {plan}",
+        "body": "គម្រោងរបស់អ្នកសកម្មហើយ។ សាកល្បងទាំងនេះមុន៖",
+        "ios": "ដំឡើងកម្មវិធី iOS",
+        "cloud": "បើក Cloud",
+        "team": "បង្កើតក្រុម",
+        "banner": "ឥឡូវនេះអ្នកកំពុងប្រើ {plan}។",
+        "bannerLink": "គម្រោង និងការចេញវិក្កយបត្រ"
       }
     },
     "mobileDevices": {
@@ -409,7 +551,6 @@
       "loading": "កំពុងផ្ទុកឧបករណ៍…",
       "empty": "មិនមានឧបករណ៍បានចុះឈ្មោះសម្រាប់ក្រុមនេះទេ។",
       "unavailable": "មិនអាចផ្ទុកឧបករណ៍របស់អ្នកបានទេ។ ផ្ទុកទំព័រឡើងវិញ ហើយព្យាយាមម្តងទៀត។",
-      "retry": "ព្យាយាមម្ដងទៀត",
       "mutationError": "មិនអាចបញ្ចប់ការផ្លាស់ប្តូរឧបករណ៍បានទេ។",
       "revoke": "ដកសិទ្ធិចូលប្រើ",
       "deviceId": "ឧបករណ៍",
@@ -429,6 +570,516 @@
       "activeDevices": "ឧបករណ៍សកម្ម",
       "directoryRevision": "កំណែបញ្ជី",
       "savingRelaySettings": "កំពុងរក្សាទុក…"
+    },
+    "settings": {
+      "nav": {
+        "title": "ការកំណត់",
+        "profile": "ប្រវត្តិរូប",
+        "auth": "អ៊ីមែល និងការផ្ទៀងផ្ទាត់",
+        "notifications": "ការជូនដំណឹង",
+        "sessions": "វគ្គ",
+        "apiKeys": "សោ API",
+        "account": "គណនី",
+        "billing": "ការទូទាត់",
+        "teamsGroup": "ក្រុម",
+        "createTeam": "បង្កើតក្រុម",
+        "accountGroup": "គណនី",
+        "billingGroup": "ការចេញវិក្កយបត្រ",
+        "planBilling": "គម្រោង និងការចេញវិក្កយបត្រ"
+      },
+      "ui": {
+        "save": "រក្សាទុក",
+        "saving": "កំពុងរក្សាទុក…",
+        "cancel": "បោះបង់",
+        "editLabel": "កែ {label}",
+        "required": "វាលនេះត្រូវតែបំពេញ។",
+        "saveError": "មិនអាចរក្សាទុកបានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "actionError": "មានបញ្ហាអ្វីមួយ។ សូមព្យាយាមម្តងទៀត។",
+        "working": "កំពុងដំណើរការ…",
+        "typeToConfirm": "វាយ {text} ដើម្បីបញ្ជាក់",
+        "imageSaveError": "មិនអាចរក្សាទុករូបភាពបានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "invalidImage": "ជ្រើសរើសឯកសាររូបភាពដែលត្រឹមត្រូវ។",
+        "uploadImage": "ផ្ទុករូបភាពឡើង",
+        "removeImage": "ដករូបភាពចេញ",
+        "zoom": "ពង្រីក"
+      },
+      "profile": {
+        "title": "ប្រវត្តិរូប",
+        "description": "ឈ្មោះ និងរូបតំណាងរបស់អ្នក។",
+        "displayNameTitle": "ឈ្មោះបង្ហាញ",
+        "displayNameDescription": "បង្ហាញដល់មិត្តរួមក្រុម។ មិនត្រូវបានប្រើសម្រាប់ចូលទេ។",
+        "displayNameEmpty": "មិនទាន់កំណត់",
+        "imageTitle": "រូបភាពប្រវត្តិរូប",
+        "imageDescription": "ផ្ទុករូបភាពឡើងដើម្បីប្រើជារូបតំណាងរបស់អ្នក។",
+        "imageUpload": "ប្តូររូបភាពប្រវត្តិរូប"
+      },
+      "auth": {
+        "title": "អ៊ីមែល និងការផ្ទៀងផ្ទាត់",
+        "description": "អ៊ីមែល វិធីចូល និងការផ្ទៀងផ្ទាត់ពហុកត្តា។",
+        "emails": {
+          "title": "អ៊ីមែល",
+          "description": "អ៊ីមែលដែលបានផ្ទៀងផ្ទាត់អាចជាអាសយដ្ឋានទំនាក់ទំនងចម្បងរបស់អ្នក ហើយអាចប្រើសម្រាប់ចូលបាន។",
+          "add": "បន្ថែមអ៊ីមែល",
+          "addSubmit": "បន្ថែម",
+          "adding": "កំពុងបន្ថែម…",
+          "cancel": "បោះបង់",
+          "inputLabel": "អាសយដ្ឋានអ៊ីមែលថ្មី",
+          "placeholder": "បញ្ចូលអ៊ីមែល",
+          "addError": "មិនអាចបន្ថែមអ៊ីមែលបានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "added": "បានបន្ថែម {email}។ សូមពិនិត្យប្រអប់សំបុត្រនោះដើម្បីរកតំណផ្ទៀងផ្ទាត់។",
+          "addedVerificationFailed": "បានបន្ថែម {email} ប៉ុន្តែមិនអាចផ្ញើអ៊ីមែលផ្ទៀងផ្ទាត់បានទេ។ ប្រើ «ផ្ញើអ៊ីមែលផ្ទៀងផ្ទាត់» ដើម្បីព្យាយាមម្តងទៀត។",
+          "verificationSent": "បានផ្ញើអ៊ីមែលផ្ទៀងផ្ទាត់ទៅ {email}។",
+          "actionError": "មិនអាចធ្វើបច្ចុប្បន្នភាពអ៊ីមែលបានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "usedBySomeoneElse": "អ៊ីមែលនេះត្រូវបានអ្នកប្រើម្នាក់ទៀតប្រើសម្រាប់ចូលរួចហើយ។",
+          "removeTitle": "ដកអ៊ីមែលចេញ",
+          "removeBody": "ដក {email} ចេញពីគណនីរបស់អ្នក? អ្នកអាចបន្ថែមវាម្តងទៀតនៅពេលក្រោយ។",
+          "remove": "ដកចេញ",
+          "actionsLabel": "សកម្មភាពសម្រាប់ {email}",
+          "validation": {
+            "required": "ត្រូវការអ៊ីមែល។",
+            "invalid": "បញ្ចូលអាសយដ្ឋានអ៊ីមែលដែលត្រឹមត្រូវ។",
+            "duplicate": "អ៊ីមែលនេះមាននៅក្នុងគណនីរបស់អ្នករួចហើយ។"
+          },
+          "actions": {
+            "sendVerification": "ផ្ញើអ៊ីមែលផ្ទៀងផ្ទាត់",
+            "setPrimary": "កំណត់ជាចម្បង",
+            "useForSignIn": "ប្រើសម្រាប់ចូល",
+            "stopUsingForSignIn": "ឈប់ប្រើសម្រាប់ចូល",
+            "remove": "ដកចេញ"
+          },
+          "disabled": {
+            "verifyFirst": "សូមផ្ទៀងផ្ទាត់អ៊ីមែលនេះជាមុនសិន។",
+            "lastSignInEmail": "អ្នកមិនអាចដកអ៊ីមែលចូលចុងក្រោយរបស់អ្នកចេញបានទេ។"
+          },
+          "badges": {
+            "primary": "ចម្បង",
+            "unverified": "មិនទាន់ផ្ទៀងផ្ទាត់",
+            "usedForSignIn": "ប្រើសម្រាប់ចូល"
+          }
+        },
+        "password": {
+          "title": "ពាក្យសម្ងាត់",
+          "updateDescription": "ធ្វើបច្ចុប្បន្នភាពពាក្យសម្ងាត់របស់អ្នក។",
+          "setDescription": "កំណត់ពាក្យសម្ងាត់សម្រាប់គណនីរបស់អ្នក។",
+          "update": "ធ្វើបច្ចុប្បន្នភាពពាក្យសម្ងាត់",
+          "set": "កំណត់ពាក្យសម្ងាត់",
+          "updateSubmit": "ធ្វើបច្ចុប្បន្នភាពពាក្យសម្ងាត់",
+          "setSubmit": "កំណត់ពាក្យសម្ងាត់",
+          "saving": "កំពុងរក្សាទុក…",
+          "cancel": "បោះបង់",
+          "saved": "បានរក្សាទុកពាក្យសម្ងាត់។",
+          "needsSignInEmail": "ដើម្បីកំណត់ពាក្យសម្ងាត់ សូមបន្ថែមអ៊ីមែលចូលជាមុនសិន។",
+          "saveError": "មិនអាចរក្សាទុកពាក្យសម្ងាត់បានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "oldPassword": "ពាក្យសម្ងាត់ចាស់",
+          "newPassword": "ពាក្យសម្ងាត់ថ្មី",
+          "repeatPassword": "បញ្ចូលពាក្យសម្ងាត់ថ្មីម្តងទៀត",
+          "incorrect": "ពាក្យសម្ងាត់មិនត្រឹមត្រូវ។",
+          "requirements": "ពាក្យសម្ងាត់នេះមិនបំពេញតាមលក្ខខណ្ឌទេ។",
+          "errors": {
+            "oldPassword": {
+              "required": "បញ្ចូលពាក្យសម្ងាត់ចាស់របស់អ្នក។"
+            },
+            "newPassword": {
+              "required": "បញ្ចូលពាក្យសម្ងាត់ថ្មី។",
+              "tooShort": "ប្រើយ៉ាងហោចណាស់ {min} តួអក្សរ។",
+              "tooLong": "ប្រើមិនលើសពី {max} តួអក្សរ។"
+            },
+            "newPasswordRepeat": {
+              "required": "បញ្ចូលពាក្យសម្ងាត់ថ្មីម្តងទៀត។",
+              "mismatch": "ពាក្យសម្ងាត់មិនដូចគ្នាទេ។"
+            }
+          }
+        },
+        "passkey": {
+          "title": "Passkey",
+          "registered": "បានចុះឈ្មោះ passkey រួចហើយ។",
+          "notRegistered": "ចុះឈ្មោះ passkey ដើម្បីចូលដោយមិនចាំបាច់ប្រើពាក្យសម្ងាត់។",
+          "add": "បន្ថែម passkey",
+          "registering": "កំពុងរង់ចាំ passkey…",
+          "registerError": "មិនអាចចុះឈ្មោះ passkey បានទេ។ សំណើត្រូវបានបោះបង់ ឬបរាជ័យ។ សូមព្យាយាមម្តងទៀត។",
+          "delete": "ដក passkey ចេញ",
+          "needsVerifiedEmail": "ដើម្បីបើកការចូលដោយ passkey សូមបន្ថែមអ៊ីមែលចូលដែលបានផ្ទៀងផ្ទាត់។",
+          "onlyMethod": "មិនអាចបិទការចូលដោយ passkey បានទេ ព្រោះវាជាវិធីចូលតែមួយគត់របស់អ្នក។",
+          "disableTitle": "បិទការចូលដោយ passkey",
+          "disableBody": "អ្នកនឹងមិនអាចចូលដោយប្រើ passkey របស់អ្នកទៀតទេ។",
+          "disable": "បិទ",
+          "disableError": "មិនអាចបិទការចូលដោយ passkey បានទេ។ សូមព្យាយាមម្តងទៀត។"
+        },
+        "otp": {
+          "title": "ចូលដោយលេខកូដប្រើម្តង",
+          "enabledDescription": "ការចូលដោយតំណវេទមន្ត ឬលេខកូដប្រើម្តងត្រូវបានបើក។",
+          "disabledDescription": "ចូលដោយតំណវេទមន្ត ឬលេខកូដប្រើម្តងដែលផ្ញើទៅអ៊ីមែលចូលរបស់អ្នក។",
+          "enable": "បើក",
+          "enableError": "មិនអាចបើកការចូលដោយលេខកូដប្រើម្តងបានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "disable": "បិទ",
+          "needsVerifiedEmail": "ដើម្បីបើកការចូលដោយលេខកូដប្រើម្តង សូមបន្ថែមអ៊ីមែលចូលដែលបានផ្ទៀងផ្ទាត់។",
+          "onlyMethod": "មិនអាចបិទការចូលដោយលេខកូដប្រើម្តងបានទេ ព្រោះវាជាវិធីចូលតែមួយគត់របស់អ្នក។",
+          "disableTitle": "បិទការចូលដោយលេខកូដប្រើម្តង",
+          "disableBody": "អ្នកនឹងមិនអាចចូលដោយប្រើតែអ៊ីមែលទៀតទេ។",
+          "disableConfirm": "បិទ",
+          "disableError": "មិនអាចបិទការចូលដោយលេខកូដប្រើម្តងបានទេ។ សូមព្យាយាមម្តងទៀត។"
+        },
+        "mfa": {
+          "title": "ការផ្ទៀងផ្ទាត់ពហុកត្តា",
+          "enabledDescription": "ការផ្ទៀងផ្ទាត់ពហុកត្តាត្រូវបានបើក។",
+          "disabledDescription": "ការផ្ទៀងផ្ទាត់ពហុកត្តាត្រូវបានបិទ។",
+          "enable": "បើក MFA",
+          "disable": "បិទ MFA",
+          "startError": "មិនអាចចាប់ផ្តើមរៀបចំ MFA បានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "enableError": "មិនអាចបើក MFA បានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "scan": "ស្កេនកូដ QR នេះដោយកម្មវិធីផ្ទៀងផ្ទាត់របស់អ្នក។",
+          "qrAlt": "កូដ QR សម្រាប់ការផ្ទៀងផ្ទាត់ពហុកត្តា",
+          "enterCode": "បន្ទាប់មកបញ្ចូលលេខកូដ ៦ ខ្ទង់៖",
+          "incorrect": "លេខកូដមិនត្រឹមត្រូវ។ សូមព្យាយាមម្តងទៀត។",
+          "cancel": "បោះបង់",
+          "disableTitle": "បិទការផ្ទៀងផ្ទាត់ពហុកត្តា",
+          "disableBody": "ការចូលនឹងលែងស្នើសុំលេខកូដពីកម្មវិធីផ្ទៀងផ្ទាត់របស់អ្នកទៀតហើយ។",
+          "disableConfirm": "បិទ MFA",
+          "disableError": "មិនអាចបិទ MFA បានទេ។ សូមព្យាយាមម្តងទៀត។"
+        },
+        "connected": {
+          "title": "គណនីដែលបានភ្ជាប់",
+          "description": "គណនីពីអ្នកផ្តល់សេវាផ្សេងទៀតដែលភ្ជាប់ទៅគណនី cmux របស់អ្នក។",
+          "usedForSignIn": "ប្រើសម្រាប់ចូល",
+          "useForSignIn": "ប្រើសម្រាប់ចូល",
+          "stopUsingForSignIn": "ឈប់ប្រើសម្រាប់ចូល",
+          "remove": "ផ្តាច់",
+          "lastMethod": "នេះជាវិធីចូលតែមួយគត់របស់អ្នក។",
+          "actionsLabel": "សកម្មភាពសម្រាប់ {provider}",
+          "actionError": "មិនអាចធ្វើបច្ចុប្បន្នភាពគណនីដែលបានភ្ជាប់បានទេ។ សូមព្យាយាមម្តងទៀត។",
+          "usedBySomeoneElse": "គណនីនេះត្រូវបានអ្នកប្រើម្នាក់ទៀតប្រើសម្រាប់ចូលរួចហើយ។",
+          "removeTitle": "ផ្តាច់ {provider}",
+          "removeBody": "អ្នកនឹងមិនអាចចូលដោយប្រើគណនីនេះទៀតទេ។ អ្នកអាចភ្ជាប់វាម្តងទៀតដោយចូលជាមួយវា។"
+        }
+      },
+      "notifications": {
+        "title": "ការជូនដំណឹង",
+        "description": "ការជូនដំណឹងតាមអ៊ីមែលពី cmux។",
+        "heading": "ជ្រើសរើសអ៊ីមែលដែលអ្នកចង់ទទួល",
+        "empty": "មិនមានប្រភេទអ៊ីមែលសម្រាប់កំណត់ទេ។",
+        "cannotDisable": "(មិនអាចបិទបាន)",
+        "saveError": "មិនអាចរក្សាទុកចំណូលចិត្តនេះបានទេ។ សូមព្យាយាមម្តងទៀត។"
+      },
+      "sessions": {
+        "title": "វគ្គ",
+        "description": "ឧបករណ៍ដែលអ្នកបានចូល។",
+        "heading": "វគ្គសកម្ម",
+        "explanation": "ទាំងនេះជាឧបករណ៍ដែលអ្នកបានចូល។ ដកហូតវគ្គមួយដើម្បីចាកចេញពីវា។",
+        "revokeAll": "ដកហូតវគ្គផ្សេងទៀតទាំងអស់",
+        "revokeAllTitle": "ដកហូតវគ្គផ្សេងទៀត",
+        "revokeAllBody": "សកម្មភាពនេះនឹងចាកចេញពី{count, plural, other {វគ្គផ្សេងទៀត # វគ្គ}}។ វគ្គនេះនៅតែបានចូលដដែល។",
+        "revokeAllConfirm": "ដកហូតវគ្គ",
+        "revokeAllError": "មិនអាចដកហូតវគ្គទាំងអស់បានទេ។ បញ្ជីបង្ហាញវគ្គដែលនៅសល់។",
+        "revokeError": "មិនអាចដកហូតវគ្គបានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "empty": "រកមិនឃើញវគ្គសកម្មទេ។",
+        "columns": {
+          "session": "វគ្គ",
+          "ip": "អាសយដ្ឋាន IP",
+          "location": "ទីតាំង",
+          "lastUsed": "ប្រើចុងក្រោយ"
+        },
+        "current": "វគ្គបច្ចុប្បន្ន",
+        "other": "វគ្គផ្សេងទៀត",
+        "impersonation": "ការក្លែងខ្លួន",
+        "signedIn": "បានចូល {date}",
+        "actionsLabel": "សកម្មភាពវគ្គ",
+        "revoke": "ដកហូត",
+        "cannotRevokeCurrent": "អ្នកមិនអាចដកហូតវគ្គបច្ចុប្បន្នរបស់អ្នកបានទេ។",
+        "unknownIp": "-",
+        "unknownLocation": "មិនស្គាល់",
+        "never": "មិនដែល"
+      },
+      "apiKeys": {
+        "title": "សោ API",
+        "description": "សោដែលផ្តល់ឱ្យកម្មវិធីនូវសិទ្ធិចូលប្រើគណនីរបស់អ្នក។",
+        "disabled": "សោ API ផ្ទាល់ខ្លួនមិនត្រូវបានបើកសម្រាប់គម្រោងនេះទេ។",
+        "create": "បង្កើតសោ API",
+        "createTitle": "បង្កើតសោ API",
+        "createDescription": "សោ API ផ្តល់សិទ្ធិចូលប្រើគណនីរបស់អ្នកតាមកម្មវិធី។",
+        "descriptionLabel": "ការពិពណ៌នា",
+        "descriptionPlaceholder": "ឧទាហរណ៍៖ Development, Production, CI",
+        "descriptionRequired": "ត្រូវការការពិពណ៌នា។",
+        "expiresIn": "ផុតកំណត់ក្នុងរយៈពេល",
+        "expiry": {
+          "1d": "1 ថ្ងៃ",
+          "7d": "7 ថ្ងៃ",
+          "30d": "30 ថ្ងៃ",
+          "90d": "90 ថ្ងៃ",
+          "1y": "1 ឆ្នាំ",
+          "never": "មិនផុតកំណត់"
+        },
+        "cancel": "បោះបង់",
+        "createSubmit": "បង្កើត",
+        "creating": "កំពុងបង្កើត…",
+        "createError": "មិនអាចបង្កើតសោ API បានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "showTitle": "សោ API",
+        "showBody": "នេះជាសោ API របស់អ្នក។",
+        "showWarning": "ចម្លងវាទៅកន្លែងសុវត្ថិភាព។ អ្នកនឹងមិនអាចមើលវាម្តងទៀតបានទេ។",
+        "secretLabel": "សោ API សម្ងាត់",
+        "copy": "ចម្លង",
+        "copied": "បានចម្លង",
+        "copyError": "មិនអាចចម្លងបានទេ។ ជ្រើសរើសសោ ហើយចម្លងដោយដៃ។",
+        "acknowledge": "ខ្ញុំយល់ថាខ្ញុំនឹងមិនអាចមើលសោនេះម្តងទៀតបានទេ។",
+        "close": "បិទ",
+        "search": "ស្វែងរកសោ",
+        "statusFilter": "តម្រងតាមស្ថានភាព",
+        "status": {
+          "valid": "មានសុពលភាព",
+          "expired": "ផុតកំណត់",
+          "revoked": "បានដកហូត"
+        },
+        "empty": "មិនទាន់មានសោ API ទេ។",
+        "noMatches": "គ្មានសោ API ដែលត្រូវនឹងតម្រងទាំងនេះទេ។",
+        "columns": {
+          "description": "ការពិពណ៌នា",
+          "status": "ស្ថានភាព",
+          "key": "សោ",
+          "expiresAt": "ផុតកំណត់",
+          "createdAt": "បានបង្កើត"
+        },
+        "never": "មិនផុតកំណត់",
+        "actionsLabel": "សកម្មភាពសម្រាប់ {description}",
+        "revoke": "ដកហូត",
+        "revokeTitle": "ដកហូតសោ API",
+        "revokeBody": "ដកហូតសោ API *****{lastFour}? កម្មវិធីដែលប្រើវានឹងបាត់បង់សិទ្ធិចូលប្រើភ្លាមៗ។",
+        "revokeAcknowledge": "ខ្ញុំយល់ថាសកម្មភាពនេះនឹងផ្តាច់កម្មវិធីទាំងអស់ដែលប្រើសោ API នេះ។",
+        "revokeConfirm": "ដកហូតសោ",
+        "revokeError": "មិនអាចដកហូតសោ API បានទេ។ សូមព្យាយាមម្តងទៀត។"
+      },
+      "account": {
+        "title": "គណនី",
+        "description": "ការទូទាត់ ការចាកចេញ និងការលុបគណនី។",
+        "billingTitle": "ការទូទាត់",
+        "billingDescription": "គម្រោង វិក្កយបត្រ និងវិធីបង់ប្រាក់។",
+        "billingLink": "បើកការទូទាត់",
+        "signOutTitle": "ចាកចេញ",
+        "signOutDescription": "បញ្ចប់វគ្គបច្ចុប្បន្នរបស់អ្នក។",
+        "signOut": "ចាកចេញ",
+        "signingOut": "កំពុងចាកចេញ…",
+        "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "deleteTitle": "លុបគណនី",
+        "deleteDescription": "លុបគណនីរបស់អ្នក និងទិន្នន័យពាក់ព័ន្ធទាំងអស់ជាអចិន្ត្រៃយ៍។",
+        "delete": "លុបគណនី",
+        "deleteConfirmTitle": "លុបគណនីរបស់អ្នក?",
+        "deleteConfirmBody": "សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ ហើយនឹងលុបទិន្នន័យទាំងអស់ដែលពាក់ព័ន្ធនឹងគណនីរបស់អ្នក។",
+        "deleteAcknowledge": "ខ្ញុំយល់ថាគណនី និងទិន្នន័យរបស់ខ្ញុំនឹងត្រូវលុបជាអចិន្ត្រៃយ៍។",
+        "deleteConfirm": "លុបគណនី",
+        "deleteError": "មិនអាចលុបគណនីបានទេ។ សូមព្យាយាមម្តងទៀត។"
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "ចម្លង",
+        "copied": "បានចម្លង",
+        "copyFailed": "ចម្លងមិនបានសម្រេច"
+      },
+      "plan": {
+        "free": "ឥតគិតថ្លៃ",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "អ្នកគ្រប់គ្រង",
+        "member": "សមាជិក"
+      },
+      "errors": {
+        "generic": "មានបញ្ហាអ្វីមួយ។ សូមព្យាយាមម្តងទៀត។",
+        "network_error": "មិនអាចភ្ជាប់ទៅ cmux បានទេ។ ពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្តងទៀត។",
+        "unauthorized": "វគ្គរបស់អ្នកបានបញ្ចប់។ សូមចូលម្តងទៀត។",
+        "forbidden": "អ្នកមិនមានសិទ្ធិធ្វើសកម្មភាពនេះទេ។",
+        "team_not_found": "ក្រុមនេះលែងមានទៀតហើយ។",
+        "invalid_request": "សំណើមិនត្រឹមត្រូវ។ ពិនិត្យវាលទាំងឡាយ ហើយព្យាយាមម្តងទៀត។",
+        "rate_limited": "សំណើច្រើនពេក។ រង់ចាំបន្តិច ហើយព្យាយាមម្តងទៀត។",
+        "last_admin": "ក្រុមត្រូវមានអ្នកគ្រប់គ្រងយ៉ាងហោចណាស់ម្នាក់។ សូមតំឡើងសមាជិកម្នាក់ទៀតជាមុនសិន។",
+        "member_not_found": "បុគ្គលនោះលែងជាសមាជិកទៀតហើយ។",
+        "invitation_not_found": "ការអញ្ជើញនោះលែងមានទៀតហើយ។",
+        "invitation_invalid": "ការអញ្ជើញនេះមិនត្រឹមត្រូវ ផុតកំណត់ ឬត្រូវបានប្រើរួចហើយ។",
+        "email_mismatch": "ការអញ្ជើញនេះត្រូវបានផ្ញើទៅអាសយដ្ឋានអ៊ីមែលផ្សេង។",
+        "link_not_found": "តំណអញ្ជើញនោះលែងមានទៀតហើយ។",
+        "link_invalid": "តំណអញ្ជើញនេះមិនត្រឹមត្រូវ ផុតកំណត់ ត្រូវបានដកហូត ឬពេញហើយ។",
+        "team_has_active_subscription": "បោះបង់ការជាវរបស់ក្រុមមុនពេលលុបក្រុម។",
+        "service_unavailable": "សេវាមិនអាចប្រើបានបណ្តោះអាសន្ន។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+      },
+      "list": {
+        "title": "ក្រុម",
+        "description": "ក្រុមចែករំលែកសមាជិក ការទូទាត់ និងគណនី coderouter។ បើកក្រុមមួយដើម្បីគ្រប់គ្រងវា។",
+        "create": "បង្កើតក្រុម",
+        "count": "{count, plural, other {ក្រុម #}}",
+        "selected": "បច្ចុប្បន្ន",
+        "emptyTitle": "មិនទាន់មានក្រុមទេ",
+        "emptyBody": "បង្កើតក្រុមដើម្បីអញ្ជើញមនុស្ស និងចែករំលែកគម្រោងតែមួយ។"
+      },
+      "new": {
+        "title": "បង្កើតក្រុម",
+        "description": "ដាក់ឈ្មោះក្រុម ជ្រើសរើសគម្រោង រួចអញ្ជើញមនុស្ស។",
+        "stepsLabel": "ជំហាន",
+        "steps": {
+          "name": "ឈ្មោះ",
+          "plan": "គម្រោង",
+          "invite": "អញ្ជើញ"
+        },
+        "nameTitle": "ដាក់ឈ្មោះក្រុមរបស់អ្នក",
+        "nameLabel": "ឈ្មោះក្រុម",
+        "namePlaceholder": "ក្រុមវិស្វកម្ម Acme",
+        "nameError": {
+          "empty": "បញ្ចូលឈ្មោះក្រុម។",
+          "tooLong": "ប្រើមិនលើសពី {max} តួអក្សរ។"
+        },
+        "cancel": "បោះបង់",
+        "createAction": "បង្កើតក្រុម",
+        "creating": "កំពុងបង្កើត…",
+        "planTitle": "ជ្រើសរើសគម្រោងសម្រាប់ {team}",
+        "planDescription": "អ្នកអាចប្តូរគម្រោងនៅពេលក្រោយពីទំព័រការទូទាត់របស់ក្រុម។",
+        "freeName": "ឥតគិតថ្លៃ",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} ក្នុងមួយកៅអី ក្នុងមួយខែ",
+        "featureMembers": "សមាជិក តួនាទី និងការអញ្ជើញ",
+        "featureProForEveryone": "គ្រប់យ៉ាងក្នុង Pro សម្រាប់សមាជិកគ្រប់រូប",
+        "featureCentralBilling": "ការទូទាត់រួមសម្រាប់ក្រុមទាំងមូល",
+        "featurePrioritySupport": "ការគាំទ្រអាទិភាព",
+        "chooseFree": "បន្តជាមួយគម្រោងឥតគិតថ្លៃ",
+        "chooseTeam": "ដំឡើងទៅ Team (${price}/កៅអី/ខែ)",
+        "upgradeLater": "កៅអីមានភាពបត់បែន៖ អ្នកអាចអញ្ជើញមនុស្សច្រើនជាងចំនួនដែលអ្នកបង់ ហើយបន្ថែមកៅអីនៅពេលក្រោយ។",
+        "inviteTitle": "អញ្ជើញមនុស្សចូល {team}",
+        "inviteDescription": "ស្រេចចិត្ត។ អ្នកក៏អាចអញ្ជើញមនុស្សនៅពេលក្រោយពីទំព័រសមាជិករបស់ក្រុមផងដែរ។",
+        "inviteByEmail": "អញ្ជើញតាមអ៊ីមែល",
+        "inviteByLink": "តំណអញ្ជើញ",
+        "backToPlan": "ត្រឡប់ទៅគម្រោង",
+        "finish": "ទៅកាន់ក្រុម"
+      },
+      "invite": {
+        "emailsLabel": "អាសយដ្ឋានអ៊ីមែល",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "មិនមែនជាអាសយដ្ឋានអ៊ីមែលត្រឹមត្រូវទេ",
+        "removeEmail": "ដក {email} ចេញ",
+        "roleLabel": "តួនាទី",
+        "roleMember": "សមាជិក",
+        "roleAdmin": "អ្នកគ្រប់គ្រង",
+        "count": "{count}/{max}",
+        "send": "ផ្ញើការអញ្ជើញ",
+        "sending": "កំពុងផ្ញើ…",
+        "invalidCount": "{count, plural, other {កែ ឬដកអាសយដ្ឋានមិនត្រឹមត្រូវ # ចេញមុនពេលផ្ញើ។}}",
+        "overflow": "{count, plural, other {អាសយដ្ឋាន # មិនត្រូវបានបន្ថែមទេ៖ ដែនកំណត់គឺ {max} ក្នុងមួយសំណើ។}}",
+        "sent": "{count, plural, other {បានផ្ញើការអញ្ជើញ #។}}"
+      },
+      "inviteFailure": {
+        "generic": "មិនអាចអញ្ជើញបានទេ",
+        "already_member": "ជាសមាជិករួចហើយ",
+        "invite_failed": "មិនអាចផ្ញើការអញ្ជើញបានទេ"
+      },
+      "links": {
+        "expiryLabel": "ផុតកំណត់",
+        "expiry": {
+          "1": "ក្នុងរយៈពេល 1 ថ្ងៃ",
+          "7": "ក្នុងរយៈពេល 7 ថ្ងៃ",
+          "30": "ក្នុងរយៈពេល 30 ថ្ងៃ",
+          "never": "មិនផុតកំណត់"
+        },
+        "maxUsesLabel": "ចំនួនប្រើអតិបរមា",
+        "maxUsesPlaceholder": "គ្មានដែនកំណត់",
+        "maxUsesInvalid": "ចំនួនប្រើអតិបរមាត្រូវតែជាចំនួនគត់ពី 1 ដល់ {max} ឬទុកទទេសម្រាប់គ្មានដែនកំណត់។",
+        "create": "បង្កើតតំណ",
+        "creating": "កំពុងបង្កើត…",
+        "memberOnly": "អ្នកដែលចូលរួមតាមតំណនឹងក្លាយជាសមាជិក។ តំឡើងពួកគេជាអ្នកគ្រប់គ្រងនៅពេលក្រោយ បើចាំបាច់។",
+        "showOnce": "ចម្លងតំណនេះឥឡូវនេះ។ វាបង្ហាញតែម្តងប៉ុណ្ណោះ។",
+        "empty": "មិនមានតំណអញ្ជើញសកម្មទេ។",
+        "createdAt": "បានបង្កើត {at}",
+        "expiresAt": "ផុតកំណត់ {at}",
+        "neverExpires": "មិនផុតកំណត់",
+        "uses": "បានប្រើ {count}/{max} ដង",
+        "usesUnlimited": "{count, plural, other {បានប្រើ # ដង}}",
+        "revoke": "ដកហូត",
+        "revokeTitle": "ដកហូតតំណអញ្ជើញនេះ?",
+        "revokeBody": "អ្នកដែលមានតំណនឹងមិនអាចចូលរួមទៀតទេ។ អ្នកដែលបានចូលរួមរួចហើយនៅតែជាសមាជិក។",
+        "actionsFor": "សកម្មភាពសម្រាប់តំណ ({created})"
+      },
+      "shell": {
+        "allTeams": "ក្រុមទាំងអស់",
+        "tabsLabel": "ការកំណត់ក្រុម",
+        "tabs": {
+          "general": "ទូទៅ",
+          "members": "សមាជិក",
+          "apiKeys": "សោ API",
+          "billing": "ការទូទាត់"
+        },
+        "notFoundTitle": "រកមិនឃើញក្រុម",
+        "notFoundBody": "ក្រុមនេះមិនមានទេ ឬអ្នកមិនមែនជាសមាជិករបស់វា។",
+        "backToTeams": "ត្រឡប់ទៅក្រុម"
+      },
+      "general": {
+        "imageTitle": "រូបភាពក្រុម",
+        "imageDescription": "បង្ហាញនៅក្បែរឈ្មោះក្រុមនៅទូទាំង cmux។",
+        "imageUpload": "ផ្ទុករូបភាពក្រុមឡើង",
+        "nameTitle": "ឈ្មោះក្រុម",
+        "nameDescription": "សមាជិកគ្រប់រូបអាចមើលឃើញ។",
+        "nameReadOnly": "មានតែអ្នកគ្រប់គ្រងប៉ុណ្ណោះដែលអាចប្តូរឈ្មោះក្រុមបាន។",
+        "nameError": {
+          "empty": "បញ្ចូលឈ្មោះក្រុម។",
+          "tooLong": "ប្រើមិនលើសពី {max} តួអក្សរ។"
+        },
+        "profileTitle": "ឈ្មោះរបស់អ្នកក្នុងក្រុមនេះ",
+        "profileDescription": "របៀបដែលសមាជិកផ្សេងទៀតនៃក្រុមនេះឃើញអ្នក។ ទុកទទេដើម្បីប្រើឈ្មោះគណនីរបស់អ្នក។",
+        "profileLabel": "ឈ្មោះបង្ហាញរបស់អ្នកក្នុងក្រុម",
+        "leaveTitle": "ចាកចេញពីក្រុម",
+        "leaveDescription": "អ្នកនឹងបាត់បង់សិទ្ធិចូលប្រើគណនីរួម និងការទូទាត់របស់ក្រុមនេះ។",
+        "leaveAction": "ចាកចេញពីក្រុម",
+        "leaveBlocked": "អ្នកជាអ្នកគ្រប់គ្រងតែម្នាក់គត់។ សូមតំឡើងសមាជិកម្នាក់ទៀតជាអ្នកគ្រប់គ្រង ឬលុបក្រុម មុនពេលចាកចេញ។",
+        "leaveConfirmTitle": "ចាកចេញពី {team}?",
+        "leaveConfirmBody": "អ្នកត្រូវការការអញ្ជើញថ្មីដើម្បីចូលរួមវិញ។",
+        "deleteTitle": "លុបក្រុម",
+        "deleteDescription": "លុបក្រុម សិទ្ធិចូលប្រើរបស់សមាជិក និងតំណអញ្ជើញរបស់ក្រុមជាអចិន្ត្រៃយ៍។",
+        "deleteAction": "លុបក្រុម",
+        "deleteConfirmTitle": "លុប {team}?",
+        "deleteConfirmBody": "សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។",
+        "openBilling": "បើកការទូទាត់របស់ក្រុម"
+      },
+      "members": {
+        "title": "សមាជិក",
+        "count": "{count, plural, other {សមាជិក # នាក់}}",
+        "memberColumn": "សមាជិក",
+        "roleColumn": "តួនាទី",
+        "actionsColumn": "សកម្មភាព",
+        "you": "អ្នក",
+        "unnamed": "សមាជិកគ្មានឈ្មោះ",
+        "remove": "ដកចេញ",
+        "removeTitle": "ដក {name} ចេញ?",
+        "removeBody": "ពួកគេនឹងបាត់បង់សិទ្ធិចូលប្រើក្រុមនេះភ្លាមៗ។ អ្នកអាចអញ្ជើញពួកគេម្តងទៀតនៅពេលក្រោយ។",
+        "inviteTitle": "អញ្ជើញមនុស្ស",
+        "inviteDescription": "ផ្ញើការអញ្ជើញតាមអ៊ីមែល។ បិទភ្ជាប់បញ្ជីដែលបំបែកដោយសញ្ញាក្បៀស ដកឃ្លា ឬបន្ទាត់ថ្មី (រហូតដល់ 20)។",
+        "pendingTitle": "ការអញ្ជើញកំពុងរង់ចាំ",
+        "pendingDescription": "ការអញ្ជើញដែលមិនទាន់ត្រូវបានទទួលយក។",
+        "pendingEmpty": "មិនមានការអញ្ជើញកំពុងរង់ចាំទេ។",
+        "unknownEmail": "អាសយដ្ឋានមិនស្គាល់",
+        "expires": "ផុតកំណត់ {at}",
+        "resend": "ផ្ញើម្តងទៀត",
+        "resent": "បានផ្ញើ",
+        "revoke": "ដកហូត",
+        "linksTitle": "តំណអញ្ជើញ",
+        "linksDescription": "តំណដែលអាចប្រើឡើងវិញបាន ដែលអ្នកណាក៏អាចប្រើដើម្បីចូលរួមជាសមាជិក។",
+        "seatNudge": "មានមនុស្ស {used} នាក់ជាសមាជិក ឬត្រូវបានអញ្ជើញ ប៉ុន្តែគម្រោងមានកៅអី {seats}។ ការអញ្ជើញនៅតែដំណើរការ សូមបន្ថែម{over, plural, other {កៅអី #}}ដើម្បីឱ្យគ្រប់គ្រាន់សម្រាប់អ្នកទាំងអស់គ្នា។",
+        "seatNudgeAction": "គ្រប់គ្រងកៅអី",
+        "actions": {
+          "makeAdmin": "ដាក់ជាអ្នកគ្រប់គ្រង",
+          "makeMember": "ដាក់ជាសមាជិក",
+          "remove": "ដកចេញពីក្រុម",
+          "leave": "ចាកចេញពីក្រុម"
+        },
+        "actionsFor": "សកម្មភាពសម្រាប់ {name}",
+        "lastAdminReason": "ក្រុមត្រូវមានអ្នកគ្រប់គ្រងយ៉ាងហោចណាស់ម្នាក់។ សូមតំឡើងអ្នកផ្សេងជាមុនសិន។",
+        "demoteSelfTitle": "ឈប់ធ្វើជាអ្នកគ្រប់គ្រង?",
+        "demoteSelfBody": "អ្នកនឹងបាត់បង់សិទ្ធិអ្នកគ្រប់គ្រងលើក្រុមនេះ។ អ្នកគ្រប់គ្រងផ្សេងអាចផ្តល់វាវិញបាន។",
+        "demoteSelfConfirm": "ដាក់ខ្ញុំជាសមាជិក"
+      },
+      "apiKeys": {
+        "title": "សោ API របស់ក្រុម",
+        "description": "សោដែលធ្វើសកម្មភាពជំនួសក្រុមនេះ។ អ្នកណាដែលមានសោអាចប្រើសិទ្ធិចូលប្រើរបស់ក្រុម ដូច្នេះសូមរក្សាទុកសោឱ្យមានសុវត្ថិភាព។",
+        "create": "បង្កើតសោ API របស់ក្រុម",
+        "disabled": "សោ API របស់ក្រុមមិនត្រូវបានបើកសម្រាប់គម្រោងនេះទេ។",
+        "forbidden": "អ្នកត្រូវការសិទ្ធិគ្រប់គ្រងសោ API នៅក្នុងក្រុមនេះ ដើម្បីមើលសោរបស់វា។"
+      }
     },
     "coderouterAccounts": {
       "transferAction": "ផ្ទេរ",
@@ -455,10 +1106,6 @@
       "apiKeysTitle": "សោ API",
       "apiKeysDescription": "បង្កើតសោរយៈពេលវែងសម្រាប់ស្គ្រីប និងភ្នាក់ងារ។ សម្ងាត់បង្ហាញតែម្តង។",
       "apiKeysCount": "{count, plural, one {សោ #} other {សោ #}}",
-      "apiKeysLoading": "កំពុងផ្ទុកសោ API…",
-      "apiKeysLoadError": "មិនអាចផ្ទុកសោ API បានទេ។ សូមព្យាយាមម្តងទៀតឆាប់ៗនេះ។",
-      "apiKeysRetry": "ព្យាយាមម្តងទៀត",
-      "apiKeysEmptyBody": "មិនទាន់មានសោ API ទេ។ បង្កើតសោដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
       "apiKeyPrefixColumn": "សោ",
       "apiKeyStatusColumn": "ស្ថានភាព",
       "apiKeySecretTitle": "ចម្លងសោនេះឥឡូវនេះ",
@@ -478,7 +1125,38 @@
       "revokeApiKeyConfirmTitle": "ដកហូតសោ API នេះ?",
       "apiKeyUsageDetail": "30 ថ្ងៃចុងក្រោយ៖ បញ្ចប់ {completions} · ថូខឹន {tokens} ({input} ចូល / {output} ចេញ) · តម្លៃស្មើ API {value}",
       "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
-      "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។"
+      "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។",
+      "apiKeysEmptyTitle": "មិនទាន់មាន API key នៅឡើយទេ",
+      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
+      "unavailableTitle": "គណនីដែលបានចែករំលែកមិនអាចប្រើបានទេ",
+      "unavailableBody": "cmux មិនអាចភ្ជាប់ទៅសេវាគណនីចែករំលែកបានទេពេលនេះ។ គណនីដែលបន្ថែមដោយ cr add និងគណនី Anthropic និង Bedrock នៅតែដំណើរការ។"
+    },
+    "notFound": {
+      "title": "រកមិនឃើញទំព័រ",
+      "body": "ទំព័រផ្ទាំងគ្រប់គ្រងនេះមិនមាន ឬត្រូវបានផ្លាស់ទីហើយ។",
+      "home": "ទៅកាន់ផ្ទាំងគ្រប់គ្រង"
+    },
+    "states": {
+      "errorTitle": "មិនអាចផ្ទុក {section} បានទេ",
+      "errorTitleGeneric": "មិនអាចផ្ទុកផ្នែកនេះបានទេ",
+      "reason": {
+        "network": "សូមពិនិត្យការតភ្ជាប់របស់អ្នក រួចព្យាយាមម្តងទៀត។",
+        "unavailable": "cmux មិនអាចប្រើបានជាបណ្តោះអាសន្ន។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
+        "forbidden": "អ្នកមិនមានសិទ្ធិចូលប្រើវាទេ។",
+        "notFound": "វាលែងមានទៀតហើយ ឬអ្នកមិនមានសិទ្ធិចូលប្រើ។",
+        "rateLimited": "សំណើច្រើនពេក។ សូមរង់ចាំបន្តិច រួចព្យាយាមម្តងទៀត។",
+        "generic": "មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្តងទៀត។"
+      },
+      "retry": "ព្យាយាមម្តងទៀត",
+      "retrying": "កំពុងព្យាយាមម្តងទៀត…"
+    },
+    "upgrade": {
+      "title": "ត្រូវការ Pro",
+      "cloud": "Cloud VMs និងភ្នាក់ងារពពកជាផ្នែកមួយនៃ Pro។",
+      "testflight": "កម្មវិធី cmux សម្រាប់ iOS ជាផ្នែកមួយនៃ Pro។",
+      "mobileDevices": "ការភ្ជាប់ទូរសព្ទ និងថេប្លេតរបស់អ្នកជាផ្នែកមួយនៃ Pro។",
+      "action": "ដំឡើងទៅ Pro",
+      "comparePlans": "ប្រៀបធៀបគម្រោង"
     }
   },
   "community": {
@@ -1416,7 +2094,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         },
         "fileEditor": {
@@ -1470,9 +2148,17 @@
       "customActionsDesc": "<actions>actions</actions> គឺជាធាតុដែល cmux រត់ឡើងវិញបាន។ ប្រើ actions នៅពេល behavior ដូចគ្នាត្រូវមានពី Command Palette, surface tab bar, shortcuts ឬ menu របស់ plus button។ ទុក <commands>commands</commands> សម្រាប់ shell commands និង workspace layouts ដែលប្រើឡើងវិញ។ ដាក់ <palette>palette</palette> ជា false នៅពេល action មិនគួរបង្ហាញក្នុង Command Palette។",
       "actionTypes": "ប្រភេទ action",
       "actionTypeBuiltin": "Alias ទៅ built-in cmux action ដូចជា cmux.newTerminal, cmux.newBrowser, cmux.splitRight ឬ cmux.splitDown។",
+      "actionTypeBuiltinCopy": "សកម្មភាពចម្លងដែលមានស្រាប់៖ cmux.copyWorkingDirectory ចម្លងថតធ្វើការរបស់ terminal, cmux.copyProjectRoot ចម្លងឫសនៃ git repository របស់វា (ឬថតធ្វើការ នៅពេលនៅក្រៅ repository) ហើយ cmux.copyScreen ចម្លងអេក្រង់ដែលមើលឃើញ។",
+      "actionTypeBuiltinCopyRemote": "នៅក្នុង workspace SSH, cloud ឬ tmux ពីចម្ងាយ cmux.copyProjectRoot ចម្លងថតធ្វើការពីចម្ងាយ ព្រោះ cmux មិនអាចរក git repository នៅលើ host ផ្សេងបានទេ។",
       "actionTypeCommand": "រត់ shell text ក្នុង terminal។ ប្រើ target ដើម្បីជ្រើស terminal បច្ចុប្បន្ន ឬ tab ថ្មីក្នុង pane បច្ចុប្បន្ន។",
       "actionTypeAgent": "ចាប់ផ្តើម coding agent ដែលគាំទ្រ។ បច្ចុប្បន្នគាំទ្រ codex និង claude ជាមួយ args ជម្រើស។",
       "actionTypeWorkspaceCommand": "រត់ named workspace definition ពី commands។ ប្រើវាសម្រាប់ multi-pane layouts, working directories ផ្ទាល់ខ្លួន និង startup commands។",
+      "actionTypeSetting": "ប្តូរ setting មួយក្នុង cmux.json global របស់អ្នក ឧទាហរណ៍ បិទ/បើក setting true/false ឬប្តូរទៅតម្លៃបន្ទាប់ក្នុងបញ្ជីតម្លៃ។ មើល Action ការកំណត់ ខាងក្រោម។",
+      "actionTypeSettingPreset": "អនុវត្តក្រុម settings ដែលមានឈ្មោះពី settingPresets ក្នុងមួយជំហាន។",
+      "settingActions": "Action ការកំណត់",
+      "settingActionsDesc": "Action ការកំណត់មួយកំណត់ <path>path</path> របស់ setting និងមួយគត់ក្នុងចំណោម <set>set</set> (សរសេរតម្លៃ), <toggle>toggle: true</toggle> (បិទ/បើក setting true/false), <cycle>cycle</cycle> (ទៅតម្លៃបន្ទាប់ក្នុងបញ្ជី ហើយត្រឡប់ទៅតម្លៃដំបូងវិញក្រោយតម្លៃចុងក្រោយ) ឬ <unset>unset: true</unset> (លុប key ចេញពី cmux.json ដើម្បីឱ្យប្រើតម្លៃពីបង្អួច ការកំណត់ ឬតម្លៃលំនាំដើម)។ toggle និង cycle ចាប់ផ្តើមពីតម្លៃដែល cmux កំពុងប្រើ រួមទាំងតម្លៃដែលអ្នកកំណត់ក្នុងបង្អួច ការកំណត់។ Action settingPreset អនុវត្ត entry មួយពី <presets>settingPresets</presets> ដែលជា cmux.json មួយផ្នែក ហើយ nested objects របស់វាត្រូវ merge តាម key នីមួយៗ។ cmux ពិនិត្យការផ្លាស់ប្តូរនីមួយៗជាមួយ schema មុនរក្សាទុក រក្សា comments និង keys ផ្សេងទៀតរបស់អ្នក ហើយអនុវត្តភ្លាមៗ។ Action ការកំណត់ និង presets រត់បានតែពី cmux.json global របស់អ្នក និង packs ដែលវាយោងទៅប៉ុណ្ណោះ; project configs មិនអាចប្រកាសវាបានទេ។",
+      "settingActionsCli": "ការផ្លាស់ប្តូរដូចគ្នាអាចធ្វើពី terminal បានដែរ: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> និង <preset>cmux config preset sidebar.quiet</preset>។",
+      "settingActionsLimits": "ជាមួយ <confirm>confirm: true</confirm>, cmux សួរមុនរក្សាទុក ហើយបង្ហាញ command cmux config ដែលស្មើគ្នា។ Paths ត្រូវបំបែកនៅគ្រប់ \".\" ដូច្នេះ key ដែលមាន \".\" ក្នុងឈ្មោះខ្លួនឯង (ដូចជា entry <byCwd>workspaceGroups.byCwd</byCwd> សម្រាប់ ~/src/app.web) មិនអាចប្តូរតាមវិធីនេះបានទេ។ សូមកែវាដោយផ្ទាល់ក្នុង cmux.json។",
       "actionFields": "វាល action",
       "actionFieldTitle": "ចំណងជើង row ក្នុង Command Palette, label របស់ surface button, title របស់ menu item និង title របស់ trust prompt លុះត្រាតែ entry មួយ override វា។",
       "actionFieldSubtitle": "អត្ថបទ secondary ក្នុង Command Palette។ description អាចប្រើជា alias សម្រាប់ subtitle។",
@@ -4581,5 +5267,27 @@
     "updateDetail": "ត្រូវការ cmux {stableVersion} ឬថ្មីជាងនេះ ឬ NIGHTLY {nightlyVersion} ឬថ្មីជាងនេះ។ បើកការផ្គូផ្គង iOS ក្នុង ការកំណត់ > ទូរសព្ទ នៅលើ Mac នីមួយៗ។",
     "rollbackTitle": "ត្រូវការរក្សាកំណែ Mac ចាស់មែនទេ?",
     "rollbackDetail": "ប្រើ cmux BETA 1.0.5 ({rollbackBuild}) ពី TestFlight > កំណែមុន ខណៈដែលវានៅអាចប្រើបាន។ ជ្រើសរើសកំណែនេះឱ្យបានច្បាស់ ព្រោះកំណែក្រោយប្រើសេវាតភ្ជាប់ថ្មីជាង។"
+  },
+  "teamInvite": {
+    "loading": "កំពុងផ្ទុកការអញ្ជើញ…",
+    "title": "ចូលរួម {team}",
+    "titleUnknown": "ចូលរួមក្រុមនេះ",
+    "body": "អ្នកត្រូវបានអញ្ជើញឱ្យចូលរួមក្រុមនេះនៅលើ cmux។",
+    "join": "ចូលរួមក្រុម",
+    "joining": "កំពុងចូលរួម…",
+    "signedInAs": "បានចូលជា {email}",
+    "alreadyMemberTitle": "អ្នកជាសមាជិករបស់ {team} រួចហើយ",
+    "alreadyMemberTitleUnknown": "អ្នកជាសមាជិករបស់ក្រុមនេះរួចហើយ",
+    "alreadyMemberBody": "បើកក្រុមដើម្បីគ្រប់គ្រងវា។",
+    "openTeam": "បើកក្រុម",
+    "mismatchTitle": "ការអញ្ជើញនេះសម្រាប់គណនីផ្សេង",
+    "mismatchBody": "អ្នកបានចូលជា {email} ប៉ុន្តែការអញ្ជើញត្រូវបានផ្ញើទៅអាសយដ្ឋានផ្សេង។ ចូលដោយប្រើអាសយដ្ឋានដែលបានអញ្ជើញ ឬបន្ថែម និងផ្ទៀងផ្ទាត់វានៅលើគណនីនេះ។",
+    "mismatchBodyUnknown": "ការអញ្ជើញត្រូវបានផ្ញើទៅអាសយដ្ឋានផ្សេង។ ចូលដោយប្រើអាសយដ្ឋានដែលបានអញ្ជើញ ឬបន្ថែម និងផ្ទៀងផ្ទាត់វានៅលើគណនីនេះ។",
+    "switchAccount": "ចាកចេញ ហើយប្តូរគណនី",
+    "switching": "កំពុងចាកចេញ…",
+    "switchFailed": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
+    "invalidTitle": "ការអញ្ជើញនេះលែងមានសុពលភាពទៀតហើយ",
+    "invalidBody": "វាបានផុតកំណត់ ត្រូវបានដកហូត ឬត្រូវបានប្រើរួចហើយ។ សូមស្នើការអញ្ជើញថ្មីពីអ្នកគ្រប់គ្រងក្រុម។",
+    "goToTeams": "ទៅកាន់ក្រុមរបស់អ្នក"
   }
 }

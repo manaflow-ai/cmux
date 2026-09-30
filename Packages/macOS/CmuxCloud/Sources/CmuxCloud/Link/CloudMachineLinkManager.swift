@@ -62,6 +62,10 @@ public actor CloudMachineLinkManager {
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// The team that owns each machine, captured when its provider was
+    /// registered. Control-plane calls a link makes name this team, so a link
+    /// to another team's machine keeps working after the selected team changes.
+    private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
@@ -80,6 +84,9 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
+    /// Races the private addresses of a dual-stack machine through the hub.
+    /// Tests that expect every address to fail pass a short deadline.
+    let privateRouteConnector: CloudHubConnector
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -101,8 +108,10 @@ public actor CloudMachineLinkManager {
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
-        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
+        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
+        privateRouteConnector: CloudHubConnector = CloudHubConnector()
     ) {
+        self.privateRouteConnector = privateRouteConnector
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
         self.operations = operations
@@ -148,6 +157,16 @@ public actor CloudMachineLinkManager {
         }
         let host = address.contains(":") ? "[\(address)]" : address
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
+    }
+
+    /// Records the team that owns `machineID`; nil clears it (selected team).
+    public func setOwnerTeam(_ teamID: String?, for machineID: String) {
+        ownerTeams[machineID] = teamID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The owning team recorded for `machineID`, if any.
+    public func ownerTeam(for machineID: String) -> String? {
+        ownerTeams[machineID]
     }
 
     public func privateAddresses(for machineID: String) -> [String] {
@@ -231,7 +250,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: capabilities
+                    clientCapabilities: capabilities,
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 session = endpoint.session
                 guard endpoint.trustedCarrier else {
@@ -368,7 +388,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
+                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL),
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
@@ -504,6 +525,7 @@ public actor CloudMachineLinkManager {
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
+        ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload
