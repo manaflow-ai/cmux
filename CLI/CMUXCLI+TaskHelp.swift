@@ -201,7 +201,11 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
+        \(String(localized: "cli.help.agents.message", defaultValue: "agent message <target> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.reply", defaultValue: "agent message --reply-to <id> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.inbox", defaultValue: "agent inbox [--surface <target>] [--state <state>] [--mark-read]"))
         agent-hibernation <on|off>
+        agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]

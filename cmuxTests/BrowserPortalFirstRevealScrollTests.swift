@@ -69,7 +69,7 @@ struct BrowserPortalFirstRevealScrollTests {
 
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
-        _ = browserLoadRequest(URLRequest(url: URL(fileURLWithPath: #filePath)), in: webView)
+        _ = browserLoadRequest(URLRequest(url: SwiftTestingAssertions.sourceURL()), in: webView)
 
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
     }

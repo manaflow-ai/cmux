@@ -195,4 +195,29 @@ struct CloudTeamPickerMenuTests {
             RunLoop.main.perform(inModes: [.default]) { continuation.resume() }
         }
     }
+
+    @Test func listsReceivedInvitationsWithJoinRowsAboveCreate() throws {
+        var joined: [String] = []
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: false, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            invitations: [.init(id: "inv-1", teamName: "Launch Crew")],
+            onJoin: { joined.append($0.id) }
+        )
+        let header = try #require(item(menu, CloudTeamPickerMenu.invitedHeaderIdentifier))
+        #expect(!header.isEnabled)
+        let join = try #require(item(menu, CloudTeamPickerMenu.invitationIdentifier("inv-1")))
+        #expect(join.title == "Join Launch Crew")
+        #expect(join.isEnabled)
+        _ = join.target?.perform(join.action, with: join)
+        #expect(joined == ["inv-1"])
+        let headerIndex = menu.items.firstIndex(of: header)!
+        let createIndex = menu.items.firstIndex { $0.identifier?.rawValue == CloudTeamPickerMenu.createTeamIdentifier }!
+        #expect(headerIndex < createIndex)
+        let plain = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: false, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {}
+        )
+        #expect(item(plain, CloudTeamPickerMenu.invitedHeaderIdentifier) == nil)
+    }
 }
