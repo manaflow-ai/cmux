@@ -716,17 +716,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 #endif
 
             let dockAfterShortcut = appDelegate.existingWindowDock(forWindowId: windowId)
-            if let dockBeforeShortcut {
-                XCTAssertTrue(
-                    dockAfterShortcut === dockBeforeShortcut,
-                    "Font zoom should not replace an existing Dock"
-                )
-            } else {
-                XCTAssertNil(
-                    dockAfterShortcut,
-                    "Font zoom should not eagerly create a hidden Dock"
-                )
-            }
+            XCTAssertTrue(dockAfterShortcut === dockBeforeShortcut, "Font zoom should not create or replace a hidden Dock")
             guard let expectedLineage =
                     workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance(),
                   let dockPane = appDelegate.windowDock(forWindowId: windowId)
