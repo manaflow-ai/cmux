@@ -10073,6 +10073,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ["cleared": true, "count": 1, "profiles": []]
             ),
             (
+                "delete-terminator",
+                ["browser", "profiles", "delete", "--", "--literal-profile"],
+                "browser.profiles.delete",
+                [#""profile":"--literal-profile""#],
+                [
+                    "deleted": true,
+                    "profile": [
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "name": "--literal-profile",
+                        "slug": "literal-profile",
+                        "built_in_default": false,
+                        "current": false,
+                    ],
+                ]
+            ),
+            (
                 "delete",
                 ["browser", "profiles", "delete", "Agent Smoke"],
                 "browser.profiles.delete",
@@ -10131,6 +10147,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(
                 state.commands.contains { $0.contains(#""method":"\#(testCase.expectedMethod)""#) },
                 "Expected \(testCase.expectedMethod), saw \(state.commands)"
+            )
+        }
+    }
+
+    func testBrowserProfileMutationsRejectUnexpectedArgumentsBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String])] = [
+            ("create-flag", ["browser", "profiles", "create", "Work", "--typo"]),
+            ("create-extra", ["browser", "profiles", "create", "--name", "Work", "extra"]),
+            ("rename-flag", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "--typo"]),
+            ("rename-extra", ["browser", "profiles", "rename", "--profile", "Work", "--name", "New", "extra"]),
+            ("clear-flag", ["browser", "profiles", "clear", "--all", "--typo"]),
+            ("clear-extra", ["browser", "profiles", "clear", "--all", "extra"]),
+            ("delete-flag", ["browser", "profiles", "delete", "Work", "--typo"]),
+            ("delete-extra", ["browser", "profiles", "delete", "Work", "extra"]),
+        ]
+
+        for testCase in cases {
+            let socketPath = makeSocketPath("browser-profile-invalid-\(testCase.name)")
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0, testCase.name)
+            XCTAssertTrue(
+                result.stderr.contains("unexpected arguments"),
+                "\(testCase.name): \(result.stderr)"
             )
         }
     }
