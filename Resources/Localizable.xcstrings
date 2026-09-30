@@ -113222,55 +113222,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         }
       }
@@ -554436,55 +554436,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mit der Befehls- oder Wahltaste und einer Pfeiltaste oder der Löschtaste bewegen Sie die Einfügemarke bzw. löschen Text zeilen- oder wortweise. Auch Terminal-Apps im Vollbildmodus erhalten die umgeschriebenen Tasten. Deaktivieren Sie diese Option für Apps, die die ursprünglichen Tasten benötigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Commande ou Option associée à une touche fléchée ou à Supprimer déplace le point d’insertion ou supprime du texte par ligne ou par mot. Les apps de terminal en plein écran reçoivent aussi les touches réécrites : désactivez cette option pour les apps qui ont besoin des touches d’origine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يؤدي الضغط على Command أو Option مع مفتاح سهم أو مفتاح الحذف إلى التنقل أو الحذف سطرًا سطرًا أو كلمةً كلمة. وتتلقى تطبيقات الطرفية بملء الشاشة أيضًا المفاتيح المعاد كتابتها، لذا أوقف هذا الخيار للتطبيقات التي تحتاج إلى المفاتيح الأصلية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comando u Opción junto con una tecla de flecha o Eliminar mueve el punto de inserción o borra por líneas o palabras. Las apps de terminal a pantalla completa también reciben las teclas reescritas, así que desactiva esta opción para las apps que necesitan las teclas originales."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Option 鍵再按方向鍵或 Delete 鍵，可按行或字詞移動或刪除。全螢幕終端機 App 也會收到改寫後的按鍵，因此若 App 需要原始按鍵，請關閉此選項。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Option 键再按箭头键或 Delete 键，可按行或按词移动或删除。全屏终端 App 也会收到改写后的按键，因此如果 App 需要原始按键，请关闭此选项。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 또는 Option 키를 누른 채 화살표 키나 Delete 키를 누르면 줄 또는 단어 단위로 이동하거나 삭제합니다. 전체 화면 터미널 앱에도 변환된 키가 전달되므로, 원래 키가 필요한 앱에서는 이 옵션을 끄세요."
+            "value": "Command and Option arrow and delete keys move and delete by line and word at the shell prompt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command キーまたは Option キーを押しながら矢印キーや Delete キーを押すと、行単位または単語単位で移動・削除します。フルスクリーンのターミナルアプリにも書き換えたキーが送られるため、元のキーが必要なアプリではこの設定をオフにしてください。"
+            "value": "シェルのプロンプトでは、Command と Option の矢印キー・削除キーで行単位・単語単位に移動・削除します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示符下，Command 和 Option 加方向键和删除键按行和按词移动和删除。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehls- und Wahltaste mit Pfeil- und Löschtasten bewegen und löschen an der Shell-Eingabeaufforderung zeilen- und wortweise."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À l'invite du shell, les flèches et la touche Supprimer avec Commande et Option déplacent et suppriment par ligne et par mot."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في موجه الصدفة، تنقل مفاتيح الأسهم والحذف مع Command وOption وتحذف حسب السطر والكلمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el prompt de la shell, las flechas y la tecla Eliminar con Comando y Opción mueven y borran por línea y por palabra."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示字元下，Command 與 Option 加方向鍵與刪除鍵會依行與依字移動與刪除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 프롬프트에서 Command 및 Option 화살표와 삭제 키가 줄 및 단어 단위로 이동하고 삭제합니다."
           }
         }
       }
@@ -581502,6 +581502,4862 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 工作階段已結束"
+          }
+        }
+      }
+    },
+    "cli.restore.error.routedLauncherNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session was started with '%1$@ claude proxy', but '%1$@' is not on PATH in this shell. Add it to PATH, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションは「%1$@ claude proxy」で起動されましたが、このシェルの PATH に「%1$@」がありません。PATH に追加してから、再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此会话是通过“%1$@ claude proxy”启动的，但此 shell 的 PATH 中没有“%1$@”。请将其添加到 PATH，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung wurde mit „%1$@ claude proxy“ gestartet, aber „%1$@“ ist in dieser Shell nicht im PATH. Fügen Sie es zum PATH hinzu und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session a été démarrée avec « %1$@ claude proxy », mais « %1$@ » n'est pas dans le PATH de ce shell. Ajoutez-le au PATH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: بدأت هذه الجلسة باستخدام '%1$@ claude proxy'، لكن '%1$@' غير موجود في PATH في هذه الصدفة. أضفه إلى PATH، ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión se inició con '%1$@ claude proxy', pero '%1$@' no está en el PATH de este shell. Agréguelo al PATH y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段是以「%1$@ claude proxy」啟動的，但此 shell 的 PATH 中沒有「%1$@」。請將其加入 PATH，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션은 '%1$@ claude proxy'로 시작되었지만 이 셸의 PATH에 '%1$@'이(가) 없습니다. PATH에 추가한 후 다시 시도하십시오."
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Moves by Word"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command ينقل حسب الكلمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste bewegt wortweise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando mueve por palabra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande déplace par mot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command で単語単位に移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command로 단어 단위 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 按词移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 依字移動"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command arrow and delete keys move and delete by word, like Option. Control Left and Right Arrow move to the start and end of the line."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنقل مفاتيح الأسهم والحذف مع Command وتحذف حسب الكلمة، مثل Option. وينقل Control مع السهمين الأيسر والأيمن إلى بداية السطر ونهايته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste mit Pfeil- und Löschtasten bewegt und löscht wortweise, wie die Wahltaste. Control mit Links- und Rechtspfeil springt an Anfang und Ende der Zeile."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las flechas y la tecla Eliminar con Comando mueven y borran por palabra, como Opción. Control con las flechas izquierda y derecha va al inicio y al final de la línea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les flèches et la touche Supprimer avec Commande déplacent et suppriment par mot, comme Option. Contrôle avec les flèches gauche et droite va au début et à la fin de la ligne."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と矢印キー・削除キーで、Option と同じく単語単位に移動・削除します。Control と左右矢印キーで行頭・行末に移動します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 화살표 및 삭제 키가 Option처럼 단어 단위로 이동하고 삭제합니다. Control 왼쪽 및 오른쪽 화살표는 줄의 시작과 끝으로 이동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向键和删除键按词移动和删除，与 Option 相同。Control 加左右方向键移到行首和行尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向鍵與刪除鍵會依字移動與刪除，與 Option 相同。Control 加左右方向鍵會移到行首與行尾。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingCommandMovesByWord.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command arrow and delete keys move and delete by line, as in macOS text fields."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنقل مفاتيح الأسهم والحذف مع Command وتحذف حسب السطر، كما في حقول النص في macOS."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlstaste mit Pfeil- und Löschtasten bewegt und löscht zeilenweise, wie in macOS-Textfeldern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las flechas y la tecla Eliminar con Comando mueven y borran por línea, como en los campos de texto de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les flèches et la touche Supprimer avec Commande déplacent et suppriment par ligne, comme dans les champs de texte de macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と矢印キー・削除キーで、macOS のテキストフィールドと同じく行単位に移動・削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 화살표 및 삭제 키가 macOS 텍스트 필드처럼 줄 단위로 이동하고 삭제합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向键和删除键按行移动和删除，与 macOS 文本框相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 加方向鍵與刪除鍵會依行移動與刪除，與 macOS 文字欄位相同。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editing Gestures in Full-Screen Apps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيماءات تحرير النص في التطبيقات بملء الشاشة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbearbeitungsgesten in Vollbild-Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos de edición de texto en apps a pantalla completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestes d’édition de texte dans les apps plein écran"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーンアプリでのテキスト編集ジェスチャー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱에서 텍스트 편집 제스처"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏应用中的文本编辑手势"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全螢幕 App 中的文字編輯手勢"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنطبق الإيماءات أيضًا أثناء تشغيل تطبيق بملء الشاشة مثل vim أو less أو tmux، فتظل تعمل في الصدفة داخل tmux أو screen أو zellij."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesten gelten auch, während eine Vollbild-App wie vim, less oder tmux läuft, und funktionieren so weiter an einer Shell in tmux, screen oder zellij."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los gestos también se aplican mientras se ejecuta una app a pantalla completa como vim, less o tmux, así que siguen funcionando en una shell dentro de tmux, screen o zellij."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les gestes s’appliquent aussi lorsqu’une app plein écran comme vim, less ou tmux est en cours d’exécution, et continuent donc de fonctionner dans un shell sous tmux, screen ou zellij."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less、tmux などのフルスクリーンアプリの実行中もジェスチャーが有効になるため、tmux、screen、zellij 内のシェルでも引き続き使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim, less, tmux 같은 전체 화면 앱이 실행 중일 때도 제스처가 적용되므로 tmux, screen, zellij 안의 셸에서도 계속 작동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全屏应用运行时手势也会生效，因此在 tmux、screen 或 zellij 中的 shell 里仍可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全螢幕 App 執行時手勢也會生效，因此在 tmux、screen 或 zellij 中的 shell 裡仍可使用。"
+          }
+        }
+      }
+    },
+    "cloudTree.action.newCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز سحابي جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle machine cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいクラウドマシン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 클라우드 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建云主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增雲端機器"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova cloud mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny cloud-maskine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova macchina cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ថ្មី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny sky-maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa maszyna w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova máquina na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая облачная машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องคลาวด์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bulut makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова хмарна машина"
+          }
+        }
+      }
+    },
+    "shortcut.sizeTerminalToMyWindow.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size Terminal to My Window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضبط حجم الطرفية على نافذتي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal an mein Fenster anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar la terminal a mi ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapter le terminal à ma fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを自分のウィンドウに合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 내 창 크기에 맞추기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让终端适配我的窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓終端機符合我的視窗大小"
+          }
+        }
+      }
+    },
+    "command.terminalDisconnectOtherClients.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect Other Terminal Clients…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع اتصال عملاء الطرفية الآخرين…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Terminal-Clients trennen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar otros clientes de la terminal…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter les autres clients du terminal…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のターミナルクライアントを切断…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 터미널 클라이언트 연결 끊기…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开其他终端客户端…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷其他終端機用戶端的連線…"
+          }
+        }
+      }
+    },
+    "command.terminalShowSizePanel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal Size Panel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار لوحة حجم الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalgrößen-Bereich anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el panel de tamaño de la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le panneau de taille du terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルサイズパネルを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 크기 패널 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示终端大小面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示終端機大小面板"
+          }
+        }
+      }
+    },
+    "command.terminalSizeToMyWindow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size Terminal to My Window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضبط حجم الطرفية على نافذتي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal an mein Fenster anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar la terminal a mi ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapter le terminal à ma fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを自分のウィンドウに合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 내 창 크기에 맞추기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让终端适配我的窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓終端機符合我的視窗大小"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.hostShutdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal host shut down at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف مضيف الطرفية في %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Terminal-Host wurde um %@ beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El host de la terminal se detuvo a las %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’hôte du terminal s’est arrêté à %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルホストが %@ に終了しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 호스트가 %@에 종료되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端主机已于 %@ 关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機主機已於 %@ 關閉。"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network dropped."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع اتصال الشبكة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Netzwerkverbindung wurde unterbrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se perdió la conexión de red."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion réseau a été interrompue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク接続が切れました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 연결이 끊어졌습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络连接已中断。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路連線中斷。"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.reattach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة الإرفاق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新連接"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.reattachAsViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach as Viewer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة الإرفاق كمشاهد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Zuschauer erneut verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a conectar como espectador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter en lecture seule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閲覧者として再接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보기 전용으로 다시 연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以查看者身份重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以檢視者身分重新連接"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.reattachAsViewer.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach without changing the terminal size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة الإرفاق دون تغيير حجم الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut verbinden, ohne die Terminalgröße zu ändern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a conectar sin cambiar el tamaño de la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter sans modifier la taille du terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルサイズを変えずに再接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 크기를 바꾸지 않고 다시 연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接但不更改终端大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新連接但不變更終端機大小"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.someone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شخص ما"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jemand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguien"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelqu’un"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誰か"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누군가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有人"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.superseded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another window of this Mac replaced this one at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدلت نافذة أخرى على جهاز Mac هذا هذه النافذة في %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes Fenster dieses Macs hat dieses um %@ ersetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra ventana de este Mac reemplazó a esta a las %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre fenêtre de ce Mac a remplacé celle-ci à %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacの別のウィンドウが %@ にこのウィンドウを置き換えました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 다른 창이 %@에 이 창을 대체했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的另一个窗口已于 %@ 替换此窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 的另一個視窗已於 %@ 取代此視窗。"
+          }
+        }
+      }
+    },
+    "terminalSharing.participant.personDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتصفح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigateur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.ipad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPad"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPad"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.iphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.tui": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal client"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عميل طرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Client"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliente de terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルクライアント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 클라이언트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端客户端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機用戶端"
+          }
+        }
+      }
+    },
+    "terminalSharing.device.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerät"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appareil"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم محتفظ به"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beibehaltene Größe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño conservado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille conservée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持されたサイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유지된 크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的大小"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.largest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largest window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أكبر نافذة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größtes Fenster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana más grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus grande fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大のウィンドウ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 큰 창"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大的窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大的視窗"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم مشترك"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsame Größe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño compartido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille partagée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有サイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用大小"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.smallest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fits everyone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يناسب الجميع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passt für alle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ajusta a todos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convient à tous"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全員に合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두에게 맞춤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适合所有人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "符合所有人"
+          }
+        }
+      }
+    },
+    "terminalSharing.participant.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.possessiveDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@'s %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@の%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@的%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@的%2$@"
+          }
+        }
+      }
+    },
+    "terminalSharing.owner.fixedShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثابت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        }
+      }
+    },
+    "terminalSharing.tab.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size set by %1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحجم يحدده %1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe festgelegt von %1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño definido por %1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille définie par %1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@がサイズを設定 · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기 설정: %1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸由%1$@设定 · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸由%1$@設定 · %2$@"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.sizeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحجم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尺寸"
+          }
+        }
+      }
+    },
+    "terminalSharing.sizeMode.latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow Latest"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتباع الأحدث"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Eingabe folgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir la última entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivre la dernière saisie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の入力に合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 입력 따르기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随最新输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨最新輸入"
+          }
+        }
+      }
+    },
+    "terminalSharing.sizeMode.smallest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fit Everyone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملاءمة الجميع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allen anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar a todos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapter à tous"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全員に合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두에게 맞추기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适合所有人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適合所有人"
+          }
+        }
+      }
+    },
+    "terminalSharing.sizeMode.largest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largest Window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أكبر نافذة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größtes Fenster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana más grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus grande fenêtre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大のウインドウ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 큰 윈도우"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大視窗"
+          }
+        }
+      }
+    },
+    "terminalSharing.sizeMode.priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priority"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأولوية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priorité"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先順位"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先级"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先順序"
+          }
+        }
+      }
+    },
+    "terminalSharing.sizeMode.fixed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ثابت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.setsSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sets size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد الحجم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "legt Größe fest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "define el tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "définit la taille"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズを設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기 설정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设定尺寸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定尺寸"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.notCounted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not counted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير محتسب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht gezählt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non compté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カウント対象外"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계산 안 됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不计入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不計入"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.rowOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options for %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionen für %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options pour %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 옵션"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@的选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@的選項"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.disconnectOthersButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect Others"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع اتصال الآخرين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere trennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar a los demás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter les autres"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の接続を切断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 연결 끊기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开其他连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷其他連線"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.titleShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detached"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الفصل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détaché"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분리됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已分离"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已分離"
+          }
+        }
+      }
+    },
+    "terminalSharing.detached.byMessageShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ disconnected this Mac at %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع %1$@ اتصال هذا الـMac في %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat diesen Mac um %2$@ getrennt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ desconectó este Mac a las %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a déconnecté ce Mac à %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が%2$@にこのMacを切断しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@이(가) %2$@에 이 Mac의 연결을 끊었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@于%2$@断开了这台Mac的连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@於%2$@中斷了這台Mac的連線。"
+          }
+        }
+      }
+    },
+    "terminalSharing.chip.hiddenColumns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld col hidden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld cols hidden"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لا أعمدة مخفية (%ld)"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "عمود واحد مخفي (%ld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "عمودان مخفيان (%ld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld أعمدة مخفية"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld عمودًا مخفيًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld عمود مخفي"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld Spalte ausgeblendet"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld Spalten ausgeblendet"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld columna oculta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld de columnas ocultas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld columnas ocultas"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld colonne masquée"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld de colonnes masquées"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld colonnes masquées"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld列が非表示"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%ld열 숨겨짐"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "隐藏 %ld 列"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "隱藏 %ld 欄"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.disconnectOthers.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect all other clients?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد قطع اتصال جميع العملاء الآخرين؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle anderen Clients trennen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desconectar todos los demás clientes?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter tous les autres clients ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のすべてのクライアントを切断しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 모든 클라이언트의 연결을 끊을까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要断开其他所有客户端吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要中斷其他所有用戶端的連線嗎？"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.disconnectOthers.confirmButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع الاتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 끊기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷連線"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.fixedColumns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columns"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأعمدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonnes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欄數"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.fixedRows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفوف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lignes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列數"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is not shared."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الطرفية غير مشتركة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal wird nicht geteilt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal no está compartida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n’est pas partagé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルは共有されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널은 공유되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端未共享。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機未共用。"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.counts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Counts toward size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُحتسب في الحجم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zählt für die Größe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta para el tamaño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte pour la taille"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズに反映"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기에 반영"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计入大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計入大小"
+          }
+        }
+      }
+    },
+    "terminalSharing.panel.disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع الاتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 끊기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷連線"
+          }
+        }
+      }
+    },
+    "cloudMenu.machine.freeAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free access"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصول مجاني"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenloser Zugang"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso gratuito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès gratuit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料アクセス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무료 이용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免费访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免費存取"
+          }
+        }
+      }
+    },
+    "cloudMenu.machine.locked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقفلة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verrouillée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠김"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已锁定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已鎖定"
+          }
+        }
+      }
+    },
+    "cloudMenu.dashboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Cloud Dashboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح لوحة تحكم السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Dashboard öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir el panel de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le tableau de bord Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドダッシュボードを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 대시보드 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开云端控制面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開雲端控制面板"
+          }
+        }
+      }
+    },
+    "cloudMenu.diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Diagnostics"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشخيصات السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Diagnose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnóstico de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド診断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 진단"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端诊断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端診斷"
+          }
+        }
+      }
+    },
+    "cloudMenu.machines.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No machines yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أجهزة بعد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Maschinen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay máquinas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine pour le moment"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 머신이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無機器"
+          }
+        }
+      }
+    },
+    "cloudMenu.machines.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器"
+          }
+        }
+      }
+    },
+    "cloudMenu.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المزيد من السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus de Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のクラウド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 더 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多云端项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多雲端項目"
+          }
+        }
+      }
+    },
+    "cloudMenu.problem.requiresPro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need cmux Pro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب أجهزة السحابة cmux Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen erfordern cmux Pro"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas de Cloud requieren cmux Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud nécessitent cmux Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンには cmux Pro が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신에는 cmux Pro가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器需要 cmux Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器需要 cmux Pro"
+          }
+        }
+      }
+    },
+    "cloudMenu.problem.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Cloud session expired"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية جلسة السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Cloud-Sitzung ist abgelaufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu sesión de Cloud ha caducado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre session Cloud a expiré"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドのセッションが期限切れです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 세션이 만료되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的云端会话已过期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的雲端工作階段已過期"
+          }
+        }
+      }
+    },
+    "cloudMenu.problem.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reach cmux Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الوصول إلى cmux Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ist nicht erreichbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con cmux Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de joindre cmux Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud に接続できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud에 연결할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 cmux Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到 cmux Cloud"
+          }
+        }
+      }
+    },
+    "cloudMenu.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        }
+      }
+    },
+    "cloudMenu.showMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Machines Sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الشريط الجانبي للأجهزة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen-Seitenleiste anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la barra lateral de máquinas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la barre latérale des machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのサイドバーを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 사이드바 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示机器侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示機器側邊欄"
+          }
+        }
+      }
+    },
+    "cloudMenu.signOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الخروج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se déconnecter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出"
+          }
+        }
+      }
+    },
+    "cloudMenu.signedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入"
+          }
+        }
+      }
+    },
+    "cloudMenu.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفريق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équipe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊"
+          }
+        }
+      }
+    },
+    "cloudMenu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端"
+          }
+        }
+      }
+    },
+    "cloudMenu.tone.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs attention"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج إلى انتباه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert Aufmerksamkeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere atención"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite une attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要處理"
+          }
+        }
+      }
+    },
+    "menu.cloud.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端"
+          }
+        }
+      }
+    },
+    "cloudMenu.machines.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines · Loading…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة السحابة · جارٍ التحميل…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen · Wird geladen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas de Cloud · Cargando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines Cloud · Chargement…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン · 読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신 · 불러오는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器 · 正在加载…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器 · 正在載入…"
+          }
+        }
+      }
+    },
+    "cloudMenu.machines.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All Machines…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض كل الأجهزة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Maschinen anzeigen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar todas las máquinas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher toutes les machines…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのマシンを表示…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 머신 보기…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示所有机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示所有機器…"
+          }
+        }
+      }
+    },
+    "cloudMenu.newMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Machine…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز سحابي جديد…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Cloud-Maschine…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva máquina de Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle machine Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規クラウドマシン…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 클라우드 머신…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建云端机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增雲端機器…"
+          }
+        }
+      }
+    },
+    "cloudMenu.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In to cmux Cloud…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى cmux Cloud…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei cmux Cloud anmelden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en cmux Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à cmux Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud にサインイン…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud에 로그인…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux Cloud…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux Cloud…"
+          }
+        }
+      }
+    },
+    "cloudMenu.signInAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In Again…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول مجددًا…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut anmelden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a iniciar sesión…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reconnecter…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度サインイン…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 로그인…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新登录…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新登入…"
+          }
+        }
+      }
+    },
+    "cloudMenu.signingIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing In…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تسجيل الدخول…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung läuft…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando sesión…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在登录…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在登入…"
+          }
+        }
+      }
+    },
+    "cloudMenu.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Pro…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Pro upgraden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejorar a Pro…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Pro…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro로 업그레이드…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Pro…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Pro…"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.copyLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Link"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الرابط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le lien"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製連結"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.openLinkInCmuxBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Link in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الرابط في متصفح cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir enlace en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le lien dans le navigateur cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをcmuxブラウザで開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 cmux 브라우저에서 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 浏览器中打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.openLinkInDefaultBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Link in Default Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الرابط في المتصفح الافتراضي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link im Standardbrowser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir enlace en el navegador predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le lien dans le navigateur par défaut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをデフォルトブラウザで開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 기본 브라우저에서 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在默认浏览器中打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在預設瀏覽器中開啟連結"
           }
         }
       }

@@ -2435,8 +2435,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // SSH and Cloud workspaces show their host after the title (`title · host`).
+        let title = tabManager.resolvedWorkspaceWindowTitle(for: tab)
         if titlebarText != title {
             titlebarText = title
         }
@@ -8471,6 +8471,33 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalSizeToMyWindow",
+                title: constant(String(localized: "command.terminalSizeToMyWindow.title", defaultValue: "Size Terminal to My Window")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "resize", "window", "grid", "shared", "phone", "iphone", "fit", "mine"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalShowSizePanel",
+                title: constant(String(localized: "command.terminalShowSizePanel.title", defaultValue: "Show Terminal Size Panel")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "participants", "shared", "clients", "policy", "latest", "smallest", "priority", "fixed"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalDisconnectOtherClients",
+                title: constant(String(localized: "command.terminalDisconnectOtherClients.title", defaultValue: "Disconnect Other Terminal Clients…")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "disconnect", "detach", "clients", "phone", "iphone", "shared", "kick"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalPasteLastScreenshot",
                 title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
                 subtitle: terminalPanelSubtitle,
@@ -9440,6 +9467,21 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalSizeToMyWindow") {
+            if !tabManager.sizeFocusedTerminalToMyWindow() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalShowSizePanel") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: false) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalDisconnectOtherClients") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: true) {
                 NSSound.beep()
             }
         }
@@ -17111,10 +17153,12 @@ extension String {
         var lineCount = 1
         var characterCount = 0
         var truncated = false
+        var cutMidToken = false
 
         for character in self {
             if characterCount >= maxDisplayedCharacters {
                 truncated = true
+                cutMidToken = true
                 break
             }
             if character == "\n" {
@@ -17130,7 +17174,24 @@ extension String {
 
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
+        guard !trimmed.isEmpty else { return "…" }
+
+        // A single ellipsis character, not three periods, and attached in the
+        // way the cut earns. Sidebar text is scanned for GitHub references
+        // after it is bounded, and the reference parser trims a trailing `.`
+        // before reading a number but leaves `…` alone, so the marker decides
+        // whether the last token still parses.
+        //
+        // The character bound can stop in the middle of a token, and a cut
+        // `owner/repo#8471` reads as `owner/repo#847`, which links to an issue
+        // nobody wrote. Attaching the marker to that token is what keeps it
+        // from parsing, so the row shows text instead of a wrong link.
+        //
+        // The line bound cannot: the loop breaks on `\n` before appending it,
+        // so the kept text always ends with a whole line and a whole token.
+        // Attaching the marker there would only break a reference that is
+        // complete and correct, which is why it gets a space first.
+        return cutMidToken ? trimmed + "…" : trimmed + " …"
     }
 }
 

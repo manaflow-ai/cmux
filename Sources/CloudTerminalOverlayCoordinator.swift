@@ -40,7 +40,10 @@ final class CloudTerminalOverlayCoordinator {
 
     /// Creates a coordinator backed by the app's standard user defaults.
     convenience init() {
-        self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+        self.init(
+            dismissalStore: AppDelegate.shared?.cloudBannerDismissalStore
+                ?? CloudBannerDismissalStore(defaults: .standard)
+        )
     }
 
     /// A replaced representable may still emit layout and hide callbacks. Only

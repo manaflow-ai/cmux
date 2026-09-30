@@ -8,7 +8,8 @@ name: CI failure attribution
 #   red or cancelled   each failed job gets a verdict (machine, code, unknown)
 #                      in the job summary and in one comment on the pull
 #                      request, edited in place; when every failed job of a
-#                      failed attempt 1 is machine, the failed jobs are re-run
+#                      failed attempt 1 or 2 is machine, the failed jobs are
+#                      re-run (attempt 3 goes to Blacksmith, which ends it)
 #   green              that comment, if any, says it passes now
 #
 # A PR's code never runs here: main's script reads the run's job logs and
