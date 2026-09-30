@@ -372,7 +372,7 @@ export class TranscriptTail {
   constructor(
     readonly path: string,
     private readonly onLines: (lines: string[], mtimeMs: number) => void,
-    private readonly opts: { pollMs?: number; initialWindowBytes?: number } = {},
+    private readonly opts: { pollMs?: number; initialWindowBytes?: number; onReset?: () => void } = {},
   ) {}
 
   start() {
@@ -409,6 +409,9 @@ export class TranscriptTail {
       // Use the opened file's identity and size: an atomic rename can replace
       // the path between the probe and open, even with unchanged size/mtime.
       const info = await handle.stat();
+      const reset = this.identity !== null && (
+        this.identity.dev !== info.dev || this.identity.ino !== info.ino || info.size < this.offset
+      );
       if (this.identity?.dev !== info.dev || this.identity.ino !== info.ino) {
         this.offset = -1;
         this.pending = "";
@@ -426,6 +429,7 @@ export class TranscriptTail {
         this.pending = "";
         this.decoder = new TextDecoder();
       }
+      if (reset) this.opts.onReset?.();
       if (info.size === this.offset) return;
       const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
       while (this.offset < info.size) {
@@ -487,7 +491,7 @@ export function attachTranscript(
   onTitle?: (title: string) => void,
   opts: { pollMs?: number; initialWindowBytes?: number; onTick?: () => void } = {},
 ): TranscriptTail {
-  const parser = transcriptParser(agent);
+  let parser = transcriptParser(agent);
   const refreshStatus = () => {
     const st = transcriptState(sess);
     if (!st) return;
@@ -505,7 +509,19 @@ export function attachTranscript(
     }
     if (parser.title && parser.title !== title) onTitle?.(parser.title);
     refreshStatus();
-  }, opts);
+  }, {
+    ...opts,
+    onReset: () => {
+      const st = transcriptState(sess);
+      if (!st || st.tail !== tail) return;
+      parser = transcriptParser(agent);
+      st.parser = parser;
+      st.lastWriteMs = 0;
+      if (sess.resetHistory) sess.resetHistory();
+      else sess.events.length = 0;
+      refreshStatus();
+    },
+  });
   const state: TranscriptState = {
     tail,
     parser,

@@ -131,7 +131,7 @@ describe("transcript file replacement", () => {
     const row = (id: string, text: string) => agent === "claude"
       ? { type: "user", uuid: id, message: { role: "user", content: text } }
       : { type: "event_msg", payload: { type: "user_message", message: text } };
-    const original = [row("old-1", "first"), row("old-2", "second")].map(JSON.stringify).join("\n") + "\n";
+    const original = [row("old-1", "first"), row("old-2", "second")].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
     writeFileSync(path, original);
     const sess = {
       events: [] as AgentEvent[], internal: {} as Record<string, unknown>,
@@ -145,6 +145,43 @@ describe("transcript file replacement", () => {
       expect(sess.events).toEqual([
         { kind: "user", text: "first" }, { kind: "user", text: "second" }, { kind: "user", text: "third" },
       ]);
+    } finally {
+      transcriptAdapter.dispose(sess);
+    }
+  });
+
+  test("notifies subscribed views of the reset before replaying replacement events", async () => {
+    const { emitSessionEventForTest, resetSessionHistory } = await import("../server");
+    const path = fixture();
+    const row = (text: string) => JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: text } }) + "\n";
+    const original = row("first") + row("second");
+    writeFileSync(path, original);
+    const messages: any[] = [];
+    const sess = {
+      id: "t-replacement", provider: "codex", cwd: join(path, ".."), title: "fixture", status: "idle",
+      autoApprove: false, startOptions: {}, events: [], internal: {}, createdAt: 0,
+      adapter: transcriptAdapter, transcript: { agent: "codex", path },
+      sockets: new Set([{ send(data: any) { messages.push(JSON.parse(String(data))); return 1; } }]),
+      resetHistory() { resetSessionHistory(sess); },
+      emit(event: AgentEvent) { emitSessionEventForTest(sess, event); },
+      setStatus(status: SessionCtx["status"]) { sess.status = status; },
+    } as unknown as Parameters<typeof resetSessionHistory>[0];
+    const tail = attachTranscript(sess, "codex", path, undefined, { pollMs: 10_000 });
+    try {
+      await tail.poll();
+      messages.length = 0;
+      replace(path, original + row("third"));
+      await tail.poll();
+      expect(messages[0]).toMatchObject({ kind: "history", sessionId: sess.id, events: [] });
+      expect(messages.filter((message) => message.kind === "history")).toHaveLength(1);
+      expect(messages.filter((message) => message.kind === "event").map((message) => message.evt.text)).toEqual(["first", "second", "third"]);
+      expect(sess.internal.eventGenerations).toEqual([0, 0, 0]);
+      messages.length = 0;
+      replace(path, "");
+      await tail.poll();
+      expect(sess.events).toEqual([]);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ kind: "history", sessionId: sess.id, events: [] });
     } finally {
       transcriptAdapter.dispose(sess);
     }
