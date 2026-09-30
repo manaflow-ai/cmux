@@ -201,6 +201,12 @@ struct ComputerUseWatchTargetRuntimeTests {
         }
 
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
+        // The scan reports the session before the presentation controller's
+        // scheduled focus effect runs, so wait for the focus itself.
+        let focusDeadline = ContinuousClock.now + .seconds(10)
+        while focusedTerminalSessions.count < 2, ContinuousClock.now < focusDeadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(activatedProcessIdentifiers.isEmpty)
         #expect(focusedTerminalSessions.count == 2)
 
