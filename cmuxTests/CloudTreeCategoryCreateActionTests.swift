@@ -44,6 +44,19 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
 
+    @Test("Disabled Cloud omits the no-machine workspace fallback")
+    func disabledCloudOmitsResolvedWorkspaceAction() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        fixture.apply(machines: [], canCreateCloudMachine: false)
+
+        let section = try #require(fixture.cloudSection)
+        #expect(section.children.allSatisfy { node in
+            if case .createAction = node.kind { return false }
+            return true
+        })
+    }
+
     @Test("Each Cloud machine's Workspaces category ends with New Workspace")
     func workspacesCategoryHasPersistentWorkspaceAction() throws {
         let fixture = Fixture()
@@ -201,7 +214,7 @@ struct CloudTreeCategoryCreateActionTests {
             container.frame = NSRect(x: 0, y: 0, width: 320, height: 420)
         }
 
-        func apply(machines: [MachineSnapshot]) {
+        func apply(machines: [MachineSnapshot], canCreateCloudMachine: Bool = true) {
             let snapshot = SurfaceCatalogSnapshot(
                 machines: machines.map { machine in
                     SurfaceMachineInfo(
@@ -218,7 +231,7 @@ struct CloudTreeCategoryCreateActionTests {
                 localWorkspaces: [],
                 includeLocalMachine: false,
                 source: .cloudWithDevicesSection,
-                canCreateCloudMachine: true
+                canCreateCloudMachine: canCreateCloudMachine
             ))
             coordinator.outlineView?.expandItem(nil, expandChildren: true)
             container.layoutSubtreeIfNeeded()
