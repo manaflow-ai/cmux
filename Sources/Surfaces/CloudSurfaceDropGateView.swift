@@ -7,10 +7,22 @@ import UniformTypeIdentifiers
 @MainActor
 final class CloudSurfaceDropGateView: NSView {
     weak var workspace: Workspace? {
-        didSet { if oldValue !== workspace { feedback.clear() } }
+        didSet {
+            if oldValue !== workspace {
+                feedback.clear()
+                forwardedDestination = nil
+                forwardedSequenceNumber = nil
+            }
+        }
     }
     var isActive = false {
-        didSet { if !isActive { feedback.clear() } }
+        didSet {
+            if !isActive {
+                feedback.clear()
+                forwardedDestination = nil
+                forwardedSequenceNumber = nil
+            }
+        }
     }
     let feedback = SurfaceDropFeedback()
     private let sourceResolver: PaneTransferSourceResolver
@@ -53,6 +65,7 @@ final class CloudSurfaceDropGateView: NSView {
     /// pane drop target), which is the one pointer hit testing finds with this
     /// overlay passing through.
     private weak var forwardedDestination: NSView?
+    private var forwardedSequenceNumber: Int?
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         update(sender)
@@ -66,9 +79,10 @@ final class CloudSurfaceDropGateView: NSView {
         let rejection = rejection(for: sender.draggingPasteboard)
         feedback.update(rejection, over: self)
         let destination = rejection == nil ? destinationBeneath(sender) : nil
-        if destination !== forwardedDestination {
+        if destination !== forwardedDestination || sender.draggingSequenceNumber != forwardedSequenceNumber {
             forwardedDestination?.draggingExited(sender)
             forwardedDestination = destination
+            forwardedSequenceNumber = sender.draggingSequenceNumber
 #if DEBUG
             dlog(
                 "cloud.dropGate.forward rejected=\(rejection != nil ? 1 : 0) " +
@@ -127,6 +141,7 @@ final class CloudSurfaceDropGateView: NSView {
         feedback.clear()
         forwardedDestination?.draggingExited(sender)
         forwardedDestination = nil
+        forwardedSequenceNumber = nil
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
@@ -137,6 +152,7 @@ final class CloudSurfaceDropGateView: NSView {
             destination.draggingEnded(sender)
         }
         forwardedDestination = nil
+        forwardedSequenceNumber = nil
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
@@ -148,16 +164,26 @@ final class CloudSurfaceDropGateView: NSView {
 
     override func viewDidHide() {
         feedback.clear()
+        forwardedDestination = nil
+        forwardedSequenceNumber = nil
         super.viewDidHide()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if window !== newWindow { feedback.clear() }
+        if window !== newWindow {
+            feedback.clear()
+            forwardedDestination = nil
+            forwardedSequenceNumber = nil
+        }
         super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewWillMove(toSuperview newSuperview: NSView?) {
-        if newSuperview == nil { feedback.clear() }
+        if newSuperview == nil {
+            feedback.clear()
+            forwardedDestination = nil
+            forwardedSequenceNumber = nil
+        }
         super.viewWillMove(toSuperview: newSuperview)
     }
 }
