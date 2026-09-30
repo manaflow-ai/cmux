@@ -44,6 +44,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
