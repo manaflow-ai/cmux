@@ -110,9 +110,9 @@ function providerStatusFromVm(response) {
   return undefined;
 }
 
-async function pauseStatusSeries(vmId, pauseReturnedAt) {
+async function pauseStatusSeries(vmId, pauseReturnedAt, targets = [1_000, 5_000, 15_000]) {
   const series = [];
-  for (const targetMs of [1_000, 5_000, 15_000]) {
+  for (const targetMs of targets) {
     const waitMs = targetMs - (performance.now() - pauseReturnedAt);
     if (waitMs > 0) await sleep(waitMs);
     const observedAt = Math.round(performance.now() - pauseReturnedAt);
@@ -494,7 +494,7 @@ try {
 
   // A freshly enrolled peer can take a moment to reach the provider, and the
   // hub gives its first handshake about 10 s.
-  await timed("hub", async () => {
+  const startHub = async () => {
     for (let attempt = 1; ; attempt += 1) {
       hub = startJsonProcess("wg hub", ["wg", "hub", "--config", configPath, "--socket", hubSocket]);
       try {
@@ -507,7 +507,8 @@ try {
         await sleep(3000);
       }
     }
-  });
+  };
+  await timed("hub", startHub);
 
   // The app asks once so an older daemon is brought to the trusted build; a
   // fresh image already serves the trusted listener.
@@ -531,11 +532,14 @@ try {
   });
   const session = attach.session ?? "cmux";
 
-  const connected = await timed("connect", async () => {
-    link = startJsonProcess("remote connect", connectArgv(route, session, hubSocket));
+  const startLink = async (name = "remote connect") => {
+    link = startJsonProcess(name, connectArgv(route, session, hubSocket));
     return link.waitFor(isConnected, 90_000, "connected snapshot");
+  };
+  const connected = await timed("connect", async () => {
+    return startLink();
   });
-  const localSocket = connected.local_socket;
+  let localSocket = connected.local_socket;
   result.transportPath = connected.connection?.transport?.selected_path?.kind ?? null;
 
   // The shell computes the suffix, so the echoed command line never matches.
@@ -572,6 +576,47 @@ try {
   }));
 
   if (!skipSleep) {
+    const resumeAnchor = `${marker}-6`;
+    await typeLine(terminal, `echo ${marker}-$((3+3))`);
+    await waitForScreen(localSocket, terminal, resumeAnchor, 30_000);
+    let linkDownOk = true;
+
+    // First remove every source of link traffic, then observe whether the
+    // provider wakes the machine without a connected client or WireGuard hub.
+    try {
+      await link.stop();
+      link = undefined;
+      await hub.stop();
+      hub = undefined;
+      await timed("pauseLinkDown", async () => {
+        expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause with link down");
+      });
+      result.statusAfterPauseLinkDown = await pauseStatusSeries(vmId, performance.now(), [1_000, 5_000, 15_000, 30_000]);
+    } catch (error) {
+      linkDownOk = false;
+      note(`pause with link down failed: ${error.message.slice(0, 400)}`);
+    } finally {
+      try {
+        await timed("resumeLinkDown", async () => {
+          expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/resume`, {}, 5 * 60 * 1000), [200], "resume with link down");
+        });
+      } catch (error) {
+        linkDownOk = false;
+        note(`resume with link down failed: ${error.message.slice(0, 400)}`);
+      }
+      try {
+        await timed("relinkAfterLinkDown", async () => {
+          await startHub();
+          const relinked = await startLink("remote connect (after link down)");
+          localSocket = relinked.local_socket;
+        });
+      } catch (error) {
+        linkDownOk = false;
+        note(`relink after link down failed: ${error.message.slice(0, 400)}`);
+      }
+    }
+    result.linkDownPauseOk = linkDownOk;
+
     const beforePause = link.mark();
     await timed("pause", async () => {
       expectStatus(await api("POST", `/api/vm/${encodeURIComponent(vmId)}/pause`, {}, 3 * 60 * 1000), [200, 202], "pause");
@@ -603,7 +648,7 @@ try {
       await link.waitFor(isConnected, 120_000, "connected snapshot after resume", beforeResume);
     });
     await timed("terminalAfterResume", async () => {
-      await waitForScreen(localSocket, terminal, `${marker}-2`, 30_000);
+      await waitForScreen(localSocket, terminal, resumeAnchor, 30_000);
       await typeLine(terminal, `echo ${marker}-$((1+2))`);
       await waitForScreen(localSocket, terminal, `${marker}-3`, 30_000);
     });
@@ -619,11 +664,11 @@ try {
   // one dials the same machine with no control-plane call.
   await link.stop("SIGKILL");
   const relaunched = await timed("relaunchReconnect", async () => {
-    link = startJsonProcess("remote connect (relaunch)", connectArgv(route, session, hubSocket));
-    return link.waitFor(isConnected, 90_000, "connected snapshot after relaunch");
+    return startLink("remote connect (relaunch)");
   });
   await timed("restoredTerminal", async () => {
-    await waitForScreen(relaunched.local_socket, terminal, `${marker}-2`, 30_000);
+    const anchor = skipSleep ? `${marker}-2` : `${marker}-6`;
+    await waitForScreen(relaunched.local_socket, terminal, anchor, 30_000);
   });
   await saveScreen(relaunched.local_socket, terminal, "03-after-relaunch");
 
@@ -642,6 +687,7 @@ try {
 
   const failedProbes = ["agentHooks", "agentStatusWorking", "agentStatusIdle", "notifyReachesHost"]
     .filter((name) => !result[name].ok);
+  if (result.linkDownPauseOk === false) failedProbes.push("linkDownPause");
   const output = summary({
     ok: failedProbes.length === 0,
     ...(failedProbes.length > 0 ? { stage: failedProbes[0], error: `failed probes: ${failedProbes.join(", ")}` } : {}),
@@ -652,6 +698,15 @@ try {
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
+  if (vmId && authHeaders) {
+    try {
+      const deleted = await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`);
+      if ([200, 404].includes(deleted.status)) vmId = undefined;
+      else note(`failure cleanup delete returned ${deleted.status}`);
+    } catch (cleanupError) {
+      note(`failure cleanup delete failed: ${cleanupError.message.slice(0, 300)}`);
+    }
+  }
   const output = summary({ ok: false, stage, error: message, ...result });
   console.log(JSON.stringify(output, null, 2));
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
