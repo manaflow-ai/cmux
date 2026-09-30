@@ -13,6 +13,61 @@ import CMUXAgentLaunch
 @Suite(.serialized)
 struct CMUXCLIForkVerbRegressionTests {
     private final class BundleToken {}
+
+    @Test
+    func claudeForkSeedsTranscriptWhenDestinationCwdDiffers() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-fork-seed-\(UUID().uuidString)")
+        let config = root.appendingPathComponent("claude-config")
+        let source = root.appendingPathComponent("source")
+        let destination = root.appendingPathComponent("destination")
+        let sessionID = "seed-session"
+        let sourceProject = config.appendingPathComponent("projects/-tmp-source")
+        try FileManager.default.createDirectory(at: sourceProject, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let sourceTranscript = sourceProject.appendingPathComponent("\(sessionID).jsonl")
+        try Data(#"{"type":"user"}
+"#.utf8).write(to: sourceTranscript)
+        try FileManager.default.createDirectory(at: sourceProject.appendingPathComponent(sessionID), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let record = CMUXCLI.RestoreRecord(
+            mode: AgentRestoreRequestMode.forkAgent.rawValue,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: nil,
+            workingDirectory: source.path,
+            environment: ["CLAUDE_CONFIG_DIR": config.path],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                executablePath: nil,
+                arguments: ["claude", "--resume", sessionID],
+                workingDirectory: source.path,
+                environment: [:]
+            ),
+            preparedArguments: nil,
+            preparedArgumentsWorkingDirectory: nil,
+            forkArguments: nil,
+            forkArgumentsWorkingDirectory: nil,
+            permissionMode: nil,
+            legacyCommand: nil,
+            legacyForkCommand: nil,
+            continuationPrompt: nil
+        )
+
+        try CMUXCLI.seedClaudeTranscriptForForkIfNeeded(
+            record: record,
+            targetWorkingDirectory: destination.path,
+            homeDirectory: root.path
+        )
+
+        let targetTranscript = config.appendingPathComponent("projects/-tmp-destination/\(sessionID).jsonl")
+        #expect(FileManager.default.fileExists(atPath: targetTranscript))
+        #expect(Data(contentsOf: targetTranscript) == Data(contentsOf: sourceTranscript))
+        #expect(FileManager.default.fileExists(atPath: targetTranscript.replacingOccurrences(of: ".jsonl", with: "")))
+    }
+
     @Test
     func snapshotForkVerbUsesNativeAndRegistrationForkArgv() throws {
         let sessionID = "fork-session"
