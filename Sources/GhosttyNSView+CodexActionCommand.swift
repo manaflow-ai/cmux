@@ -24,8 +24,16 @@ extension GhosttyNSView {
         let row = Int((gridRect.maxY - point.y) / cellHeight)
         guard row == Int(metrics.rows) - 1 else { return nil }
         let column = Int((point.x - gridRect.minX) / cellWidth)
-        guard let line = terminalSurface.readText(region: .viewportRow(row, columns: Int(metrics.columns))),
-              let command = CodexActionCommandDetector().command(in: line, atColumn: column) else { return nil }
+        guard let rendered = terminalSurface.mobileRenderGridFrame(
+            stateSeq: 0,
+            includeTheme: false,
+            anchor: .viewport
+        ),
+        row < rendered.rows.count,
+        let command = CodexActionCommandDetector().command(
+            in: rendered.rows[row],
+            atColumn: column
+        ) else { return nil }
         return (panel, command)
     }
 
