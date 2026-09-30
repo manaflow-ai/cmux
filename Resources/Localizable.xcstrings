@@ -586106,6 +586106,65 @@
           }
         }
       }
+    },
+    "cli.restore.error.routedLauncherNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session was started with '%1$@ claude proxy', but '%1$@' is not on PATH in this shell. Add it to PATH, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションは「%1$@ claude proxy」で起動されましたが、このシェルの PATH に「%1$@」がありません。PATH に追加してから、再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此会话是通过“%1$@ claude proxy”启动的，但此 shell 的 PATH 中没有“%1$@”。请将其添加到 PATH，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung wurde mit „%1$@ claude proxy“ gestartet, aber „%1$@“ ist in dieser Shell nicht im PATH. Fügen Sie es zum PATH hinzu und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session a été démarrée avec « %1$@ claude proxy », mais « %1$@ » n'est pas dans le PATH de ce shell. Ajoutez-le au PATH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: بدأت هذه الجلسة باستخدام '%1$@ claude proxy'، لكن '%1$@' غير موجود في PATH في هذه الصدفة. أضفه إلى PATH، ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión se inició con '%1$@ claude proxy', pero '%1$@' no está en el PATH de este shell. Agréguelo al PATH y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段是以「%1$@ claude proxy」啟動的，但此 shell 的 PATH 中沒有「%1$@」。請將其加入 PATH，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션은 '%1$@ claude proxy'로 시작되었지만 이 셸의 PATH에 '%1$@'이(가) 없습니다. PATH에 추가한 후 다시 시도하십시오."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
