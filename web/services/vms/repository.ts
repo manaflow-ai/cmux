@@ -13,6 +13,7 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNetworks,
+  cloudVmRetiredNetworks,
   cloudVmAccessGrants,
   cloudVmAccessGrantSessions,
   cloudVmSessions,
@@ -76,6 +77,7 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
+export type CloudVmRetiredNetworkRow = typeof cloudVmRetiredNetworks.$inferSelect;
 export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
 export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
@@ -147,6 +149,30 @@ export type VmRepositoryShape = {
     readonly cidrV6?: string | null;
   }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
   readonly deleteNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
+  /** The owner's earlier networks, oldest first. */
+  readonly listRetiredNetworks?: (
+    userId: string,
+    provider: ProviderId,
+  ) => Effect.Effect<CloudVmRetiredNetworkRow[], VmDatabaseError>;
+  /**
+   * Move the owner from a full network to its successor: record the current
+   * network as retired and point the owner's row (same id, so tunnel rows keep
+   * their reference) at `to`. A compare-and-set on `fromProviderNetworkId`:
+   * when another request already moved the owner, nothing changes and the
+   * current row is returned.
+   */
+  readonly rotateNetwork?: (input: {
+    readonly userId: string;
+    readonly provider: ProviderId;
+    readonly fromProviderNetworkId: string;
+    readonly to: {
+      readonly providerNetworkId: string;
+      readonly slug: string | null;
+      readonly cidr: string | null;
+      readonly cidrV6: string | null;
+    };
+  }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
+  readonly deleteRetiredNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly findAccessGrant?: (input: {
     readonly userId: string;
     readonly accessGrantId?: string;
@@ -1232,6 +1258,64 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     dbEffect("deleteNetwork", async () => {
       const db = cloudDb();
       await db.delete(cloudVmNetworks).where(eq(cloudVmNetworks.id, id));
+    }),
+
+  listRetiredNetworks: (userId, provider) =>
+    dbEffect("listRetiredNetworks", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVmRetiredNetworks)
+        .where(and(eq(cloudVmRetiredNetworks.userId, userId), eq(cloudVmRetiredNetworks.provider, provider)))
+        .orderBy(asc(cloudVmRetiredNetworks.retiredAt), asc(cloudVmRetiredNetworks.id));
+    }),
+
+  rotateNetwork: (input) =>
+    dbEffect("rotateNetwork", async () => {
+      const db = cloudDb();
+      return db.transaction(async (tx) => {
+        // Same per-owner lock as upsertNetwork, so a first provisioning and a
+        // rotation never interleave.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${networkUpsertLockKey(input)}, 0))`);
+        const [current] = await tx
+          .select()
+          .from(cloudVmNetworks)
+          .where(and(eq(cloudVmNetworks.userId, input.userId), eq(cloudVmNetworks.provider, input.provider)))
+          .limit(1);
+        if (!current) throw new Error("rotateNetwork found no current network");
+        if (current.providerNetworkId !== input.fromProviderNetworkId) return current;
+        await tx
+          .insert(cloudVmRetiredNetworks)
+          .values({
+            userId: current.userId,
+            provider: current.provider,
+            providerNetworkId: current.providerNetworkId,
+            slug: current.slug,
+            cidr: current.cidr,
+            cidrV6: current.cidrV6,
+            createdAt: current.createdAt,
+          })
+          .onConflictDoNothing({ target: [cloudVmRetiredNetworks.provider, cloudVmRetiredNetworks.providerNetworkId] });
+        const [row] = await tx
+          .update(cloudVmNetworks)
+          .set({
+            providerNetworkId: input.to.providerNetworkId,
+            slug: input.to.slug,
+            cidr: input.to.cidr,
+            cidrV6: input.to.cidrV6,
+            updatedAt: new Date(),
+          })
+          .where(eq(cloudVmNetworks.id, current.id))
+          .returning();
+        if (!row) throw new Error("rotateNetwork returned no row");
+        return row;
+      });
+    }),
+
+  deleteRetiredNetwork: (id) =>
+    dbEffect("deleteRetiredNetwork", async () => {
+      const db = cloudDb();
+      await db.delete(cloudVmRetiredNetworks).where(eq(cloudVmRetiredNetworks.id, id));
     }),
 
   findAccessGrant: (input) =>

@@ -94,7 +94,9 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   persist that id and issue one exact `remote enroll revoke` command per device;
   revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
-- `cloud_vm_networks` records the one provider private network per (user, provider).
+- `cloud_vm_networks` records the current provider private network per (user, provider).
+- `cloud_vm_retired_networks` records the owner's earlier networks after a move to a
+  successor (see "Address capacity").
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
   fingerprint, the client's **public** key, and its address inside the network. No private
   key is ever sent to or stored by the backend.
@@ -614,7 +616,15 @@ addresses`), the control plane reclaims what it can prove unused and retries onc
 (`networkCapacity.ts`): it deletes tunnels whose row is revoked, and detaches from that
 network (never deletes) tunnels no row here describes and that have not changed for a day,
 oldest first, at most 16. It never touches a tunnel with a live row, because the Mac reuses
-its saved config without contacting the control plane. If the network is still full the
+its saved config without contacting the control plane. Freestyle does not always release a
+deleted tunnel's IPv4 reservation, so an owner network that is still full is replaced: the
+control plane provisions a successor (`<slug>-g<n>`, a /20 that overlaps none of the
+owner's earlier ranges), records the full one in `cloud_vm_retired_networks`, points the
+owner's `cloud_vm_networks` row at the successor, and creates the machine or tunnel there.
+Machines stay where they were created. Enrollment keeps every tunnel attached to every
+retired network and returns all ranges in `networks`, so the Mac routes each CIDR through
+the same WireGuard interface; the terminal hub re-enrolls when a machine's address falls
+outside its routes. Team networks have no successor. If the successor is also full, the
 route answers non-retryable `409 vm_network_full`. The provider-status cron also deletes
 provider tunnels whose row is revoked.
 

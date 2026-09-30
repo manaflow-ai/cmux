@@ -94,10 +94,10 @@ import {
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
-import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
+import { networkSlugForTeam, networkSlugForUser, placeInOwnerNetwork, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNetworkAddressExhausted, isProviderNotFoundError } from "./providerErrors";
-import { reconcileRevokedProviderTunnels, retryAfterNetworkReclaim } from "./networkCapacity";
+import { reconcileRevokedProviderTunnels } from "./networkCapacity";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -979,7 +979,9 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      retryAfterNetworkReclaim({ provider: input.provider, networkId: network.providerNetworkId }, providers.create(input.provider, {
+      // A full owner network is reclaimed, then replaced by a successor, before
+      // the create gives up (placeInOwnerNetwork).
+      placeInOwnerNetwork({ userId: input.userId, provider: input.provider, network }, (target) => providers.create(input.provider, {
         image: input.image,
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -996,7 +998,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         memoryMb: input.memoryMb,
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
+        network: { id: target.providerNetworkId, memberIngress: target.memberIngress },
       })),
     ).pipe(
       Effect.tapError((err) =>
@@ -1373,7 +1375,7 @@ function finishBaseCreate(
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      retryAfterNetworkReclaim({ provider: input.provider, networkId: network.providerNetworkId }, providers.create(input.provider, {
+      placeInOwnerNetwork({ userId: input.userId, provider: input.provider, network }, (target) => providers.create(input.provider, {
         image: input.image,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
@@ -1381,7 +1383,7 @@ function finishBaseCreate(
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
+        network: { id: target.providerNetworkId, memberIngress: target.memberIngress },
       })).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),

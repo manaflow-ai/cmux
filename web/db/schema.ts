@@ -297,6 +297,35 @@ export const cloudVmNetworks = pgTable(
 );
 
 /**
+ * An owner's earlier private networks. When the current network in
+ * `cloud_vm_networks` has no free address left, the owner moves to a
+ * successor network and the old one is recorded here. Machines already on it
+ * stay there, so every tunnel keeps an attachment to every retired network,
+ * and account deletion deletes them. Keyed by the provider network id so a
+ * repeated rotation records it once.
+ */
+export const cloudVmRetiredNetworks = pgTable(
+  "cloud_vm_retired_networks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    provider: vmProvider("provider").notNull(),
+    providerNetworkId: text("provider_network_id").notNull(),
+    slug: text("slug"),
+    cidr: text("cidr"),
+    cidrV6: text("cidr_v6"),
+    /** When the network was first provisioned (copied from its `cloud_vm_networks` row). */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_retired_networks_provider_network_id_unique")
+      .on(table.provider, table.providerNetworkId),
+    index("cloud_vm_retired_networks_user_provider_idx").on(table.userId, table.provider),
+  ],
+);
+
+/**
  * One WireGuard tunnel per (user, device): the user's Mac as a member of their
  * own private network.
  *
