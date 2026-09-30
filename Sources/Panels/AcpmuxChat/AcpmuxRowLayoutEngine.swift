@@ -60,13 +60,41 @@ final class AcpmuxRowLayoutEngine {
 
     /// The height at `width` without measuring: the exact cached height when there is one,
     /// otherwise an estimate scaled from the row's last measurement (text reflows roughly in
-    /// inverse proportion to width). Returns `nil` when the row was never measured.
+    /// inverse proportion to width), or a character-count guess for a row never measured.
+    /// Returns `nil` only for a zero width.
     func height(for row: TranscriptRow, position: AcpmuxRowGroupPosition, width: CGFloat, expanded: Bool) -> (height: CGFloat, exact: Bool)? {
         let key = Key(id: row.id, version: row.version, width: Int(width.rounded()), position: position, expanded: expanded)
         if let cached = cache[key] { return (cached.height, true) }
-        guard let last = lastMeasured[row.id], last.version == row.version, width > 0 else { return nil }
+        guard width > 0 else { return nil }
+        guard let last = lastMeasured[row.id], last.version == row.version else {
+            return (roughHeight(for: row, width: width), false)
+        }
         let scale = min(3, max(0.5, last.width / width))
         return (max(24, (last.height * scale).rounded()), false)
+    }
+
+    /// A cheap height guess for a row never measured, from its character count; the
+    /// transcript replaces it with the measured height a few rows per frame.
+    private func roughHeight(for row: TranscriptRow, width: CGFloat) -> CGFloat {
+        let lineHeight: CGFloat = 19
+        func textHeight(_ text: String, bubbleWidth: CGFloat) -> CGFloat {
+            let usable = max(80, bubbleWidth - 2 * Self.bubbleHorizontalPadding)
+            let charactersPerLine = max(10, usable / 7.4)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false).reduce(0) { total, line in
+                total + max(1, Int((CGFloat(line.count) / charactersPerLine).rounded(.up)))
+            }
+            return CGFloat(lines) * lineHeight + 2 * Self.bubbleVerticalPadding + 11
+        }
+        switch row.content {
+        case .user(let message): return textHeight(message.text, bubbleWidth: min(width * 0.7, 560))
+        case .assistant(let text, _): return textHeight(text, bubbleWidth: min(width * 0.7, 760))
+        case .turnSummary: return 42
+        case .typing: return 48
+        case .activity: return 26
+        case .permission: return 26
+        case .notice: return 32
+        case .plan(let entries): return 40 + CGFloat(entries.count) * 20
+        }
     }
 
     private func surfacePath(for layout: AcpmuxRowLayout, position: AcpmuxRowGroupPosition) -> CGPath? {
@@ -98,7 +126,9 @@ final class AcpmuxRowLayoutEngine {
             // Room on the leading side for the red retry badge of an undelivered message.
             let maxBubble = min(width * 0.7, 560) - (message.failed ? 30 : 0)
             var layout = bubble(text, trailing: true, maxBubble: maxBubble, width: width, position: position,
-                                surface: .userBubble, dimmed: message.isPending, timestamp: timestamp)
+                                // Messages shows a sending bubble at full color; dimming it made the
+                                // morph hand-off pop from the overlay's color to a faded cell.
+                                surface: .userBubble, dimmed: false, timestamp: timestamp)
             layout.showsRetry = message.failed
             return layout
         case .assistant(let markdown, _):

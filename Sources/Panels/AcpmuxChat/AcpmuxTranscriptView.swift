@@ -178,7 +178,8 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         }
         if !estimatedRows.isEmpty {
             // Refine offscreen estimates a batch per frame, smaller while the user drags.
-            refineEstimatedRows(limit: inLiveResize ? 20 : 120)
+            // Small batches keep each frame's measuring well under a 120 Hz frame budget.
+            refineEstimatedRows(limit: inLiveResize ? 12 : 30)
         }
         if !needsFlush && estimatedRows.isEmpty { link.isPaused = true }
     }
@@ -210,7 +211,13 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         defer { isAdjustingScroll = false }
 
         if isInitial || diff.inserted.count > 200 || diff.removed.count > 200 {
+            // A large reload measures only the rows at the bottom (where a pinned transcript
+            // shows) now; the rest start from estimates and are measured a few per frame.
+            estimatedRows = IndexSet()
+            measureWindow = max(0, newRows.count - 80)..<newRows.count
             tableView.reloadData()
+            _ = tableView.rect(ofRow: max(0, newRows.count - 1))
+            measureWindow = 0..<0
         } else {
             tableView.beginUpdates()
             if !diff.removed.isEmpty {
