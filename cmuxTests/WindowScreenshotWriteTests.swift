@@ -94,18 +94,28 @@ private actor NonCooperativeCaptureOperation {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.sorted() ?? []
     }
 
-    private static func waitUntilStarted(_ operation: NonCooperativeCaptureOperation) async {
-        for _ in 0..<10_000 {
-            if await operation.hasStarted { return }
+    /// Yields until `isReady` answers true, or the deadline passes.
+    ///
+    /// A deadline rather than a yield count: N yields is however long N
+    /// reschedules take, so a counted loop tightens exactly when the runner is
+    /// busy, which is when a passing test turns into a flake.
+    private static func waitUntil(
+        _ isReady: () async -> Bool,
+        within duration: Duration = .seconds(5)
+    ) async {
+        let deadline = ContinuousClock.now + duration
+        while ContinuousClock.now < deadline {
+            if await isReady() { return }
             await Task.yield()
         }
     }
 
+    private static func waitUntilStarted(_ operation: NonCooperativeCaptureOperation) async {
+        await waitUntil { await operation.hasStarted }
+    }
+
     private static func waitUntilIdle(_ gate: OwnWindowFrameCapture.OperationGate) async {
-        for _ in 0..<10_000 {
-            if !(await gate.isClaimed) { return }
-            await Task.yield()
-        }
+        await waitUntil { !(await gate.isClaimed) }
     }
 
     // MARK: Writer
