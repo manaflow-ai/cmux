@@ -27,9 +27,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private var downloadPaths: [String: String] = [:]
     private var downloadWaiters: [String: [CheckedContinuation<String?, Never>]] = [:]
     private var dragSequence = 0
-    /// Tabs this session opened (`tabs.open` and page popups). Like Aside's
-    /// temporary sessions, they close when the session ends.
+    /// Tabs this session opened (`tabs.open` and page popups). They close
+    /// when the session ends unless `tab.keep` released them.
     private var openedTargetIDs: [UUID] = []
+    /// `session.name` label, shown as the title of tabs this session opened.
+    private var sessionLabel: String?
     private var fileChooserDirectories: [URL] = []
 
     init(
@@ -96,6 +98,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
+        case "tab.keep": return try keepTab(params)
+        case "session.name": return try nameSession(params)
         case "tab.navigate": return try await navigate(params)
         case "tab.history": return try await history(params)
         case "tab.reload": return try await reload(params)
@@ -182,7 +186,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         if name == "tab.created", let id = payload["targetId"] as? String, payload["openerTargetId"] != nil {
             activeTargetID = id
-            if let uuid = UUID(uuidString: id) { openedTargetIDs.append(uuid) }
+            if let uuid = UUID(uuidString: id) {
+                openedTargetIDs.append(uuid)
+                applySessionLabel(to: uuid)
+            }
         }
         guard let json = BrowserReplJSON.encode(payload) else { return }
         let sink = lock.withLock { self.sink }
@@ -228,6 +235,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         attach(panel)
         openedTargetIDs.append(panel.id)
+        applySessionLabel(to: panel.id)
         if params["background"] as? Bool != true {
             activeTargetID = panel.id.uuidString
         }
@@ -254,6 +262,36 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         _ = workspace.closePanel(panel.id, force: true)
         if activeTargetID == panel.id.uuidString { activeTargetID = nil }
         return nil
+    }
+
+    /// `tab.keep`: the tab stays open after the session ends.
+    @MainActor
+    private func keepTab(_ params: [String: Any]) throws -> Any? {
+        let panel = try panel(params)
+        openedTargetIDs.removeAll { $0 == panel.id }
+        return nil
+    }
+
+    /// `session.name`: labels the tabs this session opened, now and later,
+    /// with an automatic tab title. A title the user set is never replaced.
+    @MainActor
+    private func nameSession(_ params: [String: Any]) throws -> Any? {
+        let name = (params["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        sessionLabel = name.isEmpty ? nil : name
+        for id in openedTargetIDs { applySessionLabel(to: id) }
+        return nil
+    }
+
+    @MainActor
+    private func applySessionLabel(to panelID: UUID) {
+        guard let sessionLabel, let workspace = try? workspace() else { return }
+        _ = workspace.setPanelCustomTitle(
+            panelId: panelID,
+            title: sessionLabel,
+            source: .auto,
+            propagateToRemoteTmux: false,
+            propagateToCloud: false
+        )
     }
 
     @MainActor

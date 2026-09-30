@@ -34,6 +34,13 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.info` | `{ targetId }` | `{ url, title, loadState, viewport: { width, height }, deviceScaleFactor }` |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
+| `tab.keep` | `{ targetId }` | |
+| `session.name` | `{ name }` | |
+
+Tabs the session opened (`tabs.open`, popups) close when the session ends;
+`tab.keep` releases one so it stays open. `session.name` labels the tabs the
+session opened, now and later, with an automatic tab title; a title the user
+set is kept. An empty name stops labeling new tabs.
 
 `tab.info.url` is the live document URL, including `history.pushState` changes.
 
