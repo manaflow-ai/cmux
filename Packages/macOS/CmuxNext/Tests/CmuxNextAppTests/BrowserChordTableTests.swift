@@ -94,6 +94,69 @@ struct BrowserChordTableTests {
         #expect(services.keyRouter.candidate(for: user, focus: K.page) == K.ghosttyFocusLeft)
     }
 
+    static let pageUp = String(UnicodeScalar(NSPageUpFunctionKey)!)
+    static let pageDown = String(UnicodeScalar(NSPageDownFunctionKey)!)
+
+    /// Chrome's tab-switching chords as AppKit delivers them: Ctrl-Tab,
+    /// Ctrl-Shift-Tab (Shift turns Tab into back-tab, U+0019), and
+    /// Ctrl-PageDown / Ctrl-PageUp (function keys; Ctrl-Fn-Down/Up on a
+    /// laptop keyboard).
+    static func tabSwitchChords() throws -> [(name: String, event: NSEvent, action: ActionID)] {
+        [
+            ("ctrl-tab", try K.key("\t", keyCode: 48, [.control]), "nextSurface"),
+            ("ctrl-shift-tab", try K.key("\u{19}", keyCode: 48, [.control, .shift]), "prevSurface"),
+            ("ctrl-pagedown", try K.key(pageDown, keyCode: 121, [.control, .function]), "nextSurface"),
+            ("ctrl-pageup", try K.key(pageUp, keyCode: 116, [.control, .function]), "prevSurface"),
+        ]
+    }
+
+    /// Ctrl-Tab and its siblings switch cmux tabs in a page, the omnibar
+    /// and the find bar, like in Chrome, whatever the user's Ghostty
+    /// keybinds say (this router binds none for them). They are tier 1, so
+    /// the app-wide interceptor runs them before Chromium or a field sees
+    /// the key.
+    @Test func tabSwitchChordsSwitchCmuxTabsInABrowserContext() throws {
+        let services = Self.services()
+        var ran: [ActionID] = []
+        for id: ActionID in ["nextSurface", "prevSurface"] {
+            services.registry.bind(id, invoke: { _ in ran.append(id) })
+        }
+        services.registry.context.insert(.browserFocused)
+        for chord in try Self.tabSwitchChords() {
+            #expect(BrowserChordTable.isChromeChord(chord.event), "\(chord.name) is a Chrome chord")
+            for focus in [K.page, K.omnibar, K.find] {
+                let candidate = try #require(services.keyRouter.candidate(for: chord.event, focus: focus), "\(chord.name)")
+                #expect(candidate.id == chord.action, "\(chord.name)")
+                #expect(candidate.tier == .navigation, "\(chord.name)")
+                #expect(KeyRouter.intercepts(candidate, focus: focus, keyWindow: .content), "\(chord.name) beats the page and fields")
+            }
+            // Browser focus mode: the page gets every non-system chord.
+            if let candidate = services.keyRouter.candidate(for: chord.event, focus: K.focusMode) {
+                #expect(!KeyRouter.intercepts(candidate, focus: K.focusMode, keyWindow: .content))
+            }
+        }
+    }
+
+    /// In a terminal the chords stay the terminal's (its own Ghostty
+    /// keybinds, `ctrl+tab=next_tab` by default), not a cmux shortcut.
+    @Test func tabSwitchChordsInATerminalAreTheTerminals() throws {
+        let services = Self.services()
+        services.registry.context.insert(.terminalFocused)
+        for chord in try Self.tabSwitchChords() {
+            #expect(services.keyRouter.candidate(for: chord.event, focus: K.terminal) == nil, "\(chord.name)")
+        }
+    }
+
+    /// Unbinding the action in cmux.json also removes its Chrome aliases:
+    /// the chord goes to the page.
+    @Test func unboundTabActionLeavesTheChordToThePage() throws {
+        let services = Self.services()
+        services.registry.context.insert(.browserFocused)
+        services.registry.setShortcutOverride(nil, for: "nextSurface")
+        let ctrlTab = try K.key("\t", keyCode: 48, [.control])
+        #expect(services.keyRouter.candidate(for: ctrlTab, focus: K.page) == nil)
+    }
+
     @Test func shiftedChordsMatchTheirBase() throws {
         let event = try K.key("{", keyCode: 33, [.command, .shift])
         #expect(BrowserChordTable.isChromeChord(event))
