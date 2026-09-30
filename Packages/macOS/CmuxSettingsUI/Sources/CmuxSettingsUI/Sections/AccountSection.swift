@@ -39,6 +39,9 @@ public struct AccountSection: View {
                 }
             }
             .settingsSearchAnchors(["setting:account:account"])
+            if let accountFlow, accountFlow.supportsTeamManagement {
+                AccountInvitationsCard(flow: accountFlow)
+            }
             if let accountFlow, accountFlow.supportsTeamManagement, accountFlow.selectedTeamID != nil {
                 SettingsCard {
                     AccountTeamCard(flow: accountFlow)

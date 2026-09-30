@@ -41,7 +41,29 @@ public actor TeamsClient {
         return try Self.decoder.decode(CloudTeamDetail.self, from: data)
     }
 
-    /// Invite up to 20 emails with one role. Stack sends the email.
+    /// Pending invitations addressed to the signed-in user's verified emails.
+    public func receivedInvitations() async throws -> [CloudReceivedInvitation] {
+        let (data, http) = try await request("GET", path: "/api/teams/invitations")
+        try ensureOK(http, data: data)
+        struct Envelope: Decodable { let invitations: [CloudReceivedInvitation] }
+        return try Self.decoder.decode(Envelope.self, from: data).invitations
+    }
+
+    /// Join the team an invitation names. The verified email is the proof.
+    public func acceptInvitation(invitationID: String) async throws -> CloudTeamAcceptResult {
+        let invitation = try Self.pathSegment(invitationID)
+        let (data, http) = try await request("POST", path: "/api/teams/invitations/\(invitation)/accept")
+        try ensureOK(http, data: data)
+        return try Self.decoder.decode(CloudTeamAcceptResult.self, from: data)
+    }
+
+    public func declineInvitation(invitationID: String) async throws {
+        let invitation = try Self.pathSegment(invitationID)
+        let (data, http) = try await request("POST", path: "/api/teams/invitations/\(invitation)/decline")
+        try ensureOK(http, data: data)
+    }
+
+    /// Invite up to 20 emails with one role. cmux emails each address.
     public func invite(
         teamID: String,
         emails: [String],

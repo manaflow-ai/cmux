@@ -33,6 +33,20 @@ final class CloudTeamPickerPresentation {
         }
     }
 
+    /// Joins the team of a received invitation and makes it active. Shares the
+    /// switch guard: a join during a pending switch would race it.
+    func joinInvitation(_ invitationID: String, accountFlow: HostAccountFlow) {
+        guard !accountFlow.isSelectingTeam else { return }
+        teamChangeError = nil
+        Task { @MainActor in
+            do {
+                try await accountFlow.cloudAcceptInvitation(invitationID: invitationID)
+            } catch {
+                report(HostAccountFlow.teamMembersUserMessage(error))
+            }
+        }
+    }
+
     func presentCreateTeamSheet(accountFlow: HostAccountFlow, preferredWindow: NSWindow?) {
         createTeamSheet.present(
             accountFlow: accountFlow,
