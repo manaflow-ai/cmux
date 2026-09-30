@@ -104,7 +104,7 @@ MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-install -m 0644 scripts/ci/catch_up_pr.py "$MERGE_DRIVER_DIR/ci/catch_up_pr.py"
+install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
 printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"

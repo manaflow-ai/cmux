@@ -45,7 +45,7 @@ class InstallGitHooksTests(unittest.TestCase):
             INSTALLER,
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
-            "scripts/ci/catch_up_pr.py",
+            "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
@@ -104,7 +104,7 @@ class InstallGitHooksTests(unittest.TestCase):
         installed = self.common_dir() / "cmux-merge-drivers"
         for name in ("merge-xcstrings.py", "merge-pbxproj.py", "normalize-pbxproj.py"):
             self.assertTrue((installed / name).is_file(), name)
-        self.assertTrue((installed / "ci" / "catch_up_pr.py").is_file())
+        self.assertTrue((installed / "ci" / "merge_main_resolver.py").is_file())
 
         for key, name in (
             ("merge.xcstrings-v2.driver", "merge-xcstrings.py"),
