@@ -38,10 +38,7 @@ final class CloudWorkspaceRowOpenFixture {
     init() throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         base = try CloudWorkspaceCreationSidebarFixture()
-        base.manager.window = base.window
-        NSApp.activate(ignoringOtherApps: true)
-        base.window.orderFrontRegardless()
-        base.window.makeKeyAndOrderFront(nil)
+        base.manager.window = nil
         base.catalog.unregister(machine: base.provider.machine)
         provider = CloudWorkspaceRowOpenProvider(machine: base.provider.machine)
         base.catalog.register(provider)

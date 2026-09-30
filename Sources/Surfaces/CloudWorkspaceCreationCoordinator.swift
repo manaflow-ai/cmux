@@ -67,6 +67,18 @@ final class CloudWorkspaceCreationCoordinator {
                       && (placement.remoteWorkspaceID == nil || placement.remoteWorkspaceID == workspace.id)
         }) else { throw CancellationError() }
         try validateOperation()
+        if let local = host.manager?.tabs.first(where: { candidate in
+            candidate.cloudVMBinding?.vmID == provider.machine.rawValue
+                && candidate.cloudVMBinding?.remoteWorkspaceID == workspace.id
+        }) {
+            let projections = catalog.projections.filter { $0.workspaceID == local.id }
+            if !projections.isEmpty {
+                if focus, let manager = host.manager {
+                    manager.selectWorkspace(local)
+                }
+                return (local.id, Array(projections))
+            }
+        }
         if let existing = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings().first(where: { localID, binding in
             binding.vmID == provider.machine.rawValue
                 && binding.remoteWorkspaceID == workspace.id
@@ -203,6 +215,9 @@ final class CloudWorkspaceCreationCoordinator {
                         into: .workspace(id: reservation.workspaceID, placement: .tab),
                         focus: false
                     )
+                    guard rest.count == remaining.count else {
+                        throw SurfaceCatalogError.destinationNotFound("workspace placement incomplete")
+                    }
                     projections.append(contentsOf: rest)
                 }
             } else {
