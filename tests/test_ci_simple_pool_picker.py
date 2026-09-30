@@ -109,6 +109,19 @@ class LiveReaderTests(unittest.TestCase):
         self.assertEqual(values["root_runner"], "glaeda-root-std-xcode-26.6")
         self.assertEqual(values["admission_runner"], '["glaeda-root-std-xcode-26.6"]')
 
+    def test_full_suite_release_build_keeps_swift_package_off_the_minis(self):
+        """swift-package-tests builds the SDK 15 helper there, which the minis cannot."""
+        owned = picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True)
+        helper = picker.write_outputs(owned, 3, env={
+            "RUN_MACOS": "true", "RUN_FULL_SUITE": "true",
+            "RUN_SWIFT_PACKAGES": "true", "RUN_RELEASE_BUILD": "true"})
+        self.assertNotIn(" swift-package ", helper["owned_jobs"])
+        self.assertIn(" release-build ", helper["owned_jobs"])
+
+        routed = picker.write_outputs(owned, 1, env={
+            "RUN_MACOS": "true", "RUN_SWIFT_PACKAGES": "true"})
+        self.assertIn(" swift-package ", routed["owned_jobs"])
+
     def test_only_explicitly_allowed_fork_can_use_owned_pool(self):
         base = {
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
