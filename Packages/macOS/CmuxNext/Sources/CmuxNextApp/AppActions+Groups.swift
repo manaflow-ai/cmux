@@ -16,8 +16,16 @@ extension AppActions {
             ("browserZoomIn", .zoomIn), ("browserZoomOut", .zoomOut), ("browserZoomReset", .resetZoom),
             ("focusBrowserAddressBar", .focusAddressBar),
         ]
-        for (id, command) in commands {
+        for (id, command) in commands where command != .focusAddressBar {
             registry.bind(ActionID(rawValue: id), isEnabled: { chrome() != nil }, invoke: { chrome($0)?.perform(command) })
         }
+        // Cmd-L goes through the window's focus coordinator, which also takes
+        // key back from a focused Chromium page window.
+        registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in
+            guard let pane = scope(services, invocation).pane, case .browser = pane.currentContent,
+                  let window = services.windowController(showing: pane) else { return }
+            window.focus.send(.focusPane(pane.paneKey, source: .intent))
+            window.focus.send(.focusTarget(.addressBar, source: .intent))
+        })
     }
 }

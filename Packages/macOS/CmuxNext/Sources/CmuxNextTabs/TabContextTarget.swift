@@ -12,8 +12,8 @@ public enum TabContextTarget: Hashable, Sendable {
     case savedGroup(TabGroupID)
     /// Empty strip space.
     case emptyStrip
-    /// The new tab (+) button: a click or right-click shows this menu (which
-    /// kind of tab to open). Without a menu a click opens a tab directly.
+    /// The new tab (+) button's menu (which kind of tab to open), shown on
+    /// right-click and press-and-hold. A plain click opens a tab directly.
     case newTabButton
 }
 

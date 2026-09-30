@@ -353,3 +353,24 @@ Items I did not verify, or did out of laziness:
 - Commit `909710c` keeps a private-API override (`-_getCachedWindowCornerRadius`) that had no visible effect. I kept it because the dist was built from it; it can be removed in the next fork change.
 - The spike's GhosttyKit symlink target (ghostty `e168fd3`) was pruned from the cache. I built the spike with ghostty `72ff13a` (a descendant) and restored the symlink after.
 - Each case ran once. No video.
+
+## Known issue: Chromium top band (2026-09-29)
+
+In the cmux-next app, every CEF tab shows a dark band about 31 pt high at the top of the page area. The page is shifted down by the band's height, and the bottom of the page is cut off by the same amount.
+
+Measured on local tagged build `omnib` (`feat-cmux-next` after PR #15772, artifact `cef-154.0.28-cmux.2-clip`, fork `909710c`), window 1100x720 pt:
+
+- The host geometry is correct. The CEF child window is exactly the pane's content rect: 880x629 pt, 91 pt below the main window's top, directly under the toolbar.
+- The page viewport reports `innerHeight` 628 in that 629 pt window, so Chromium sizes the web contents to the full window.
+- A `position: fixed; top: 0` element draws about 31 pt below the child window's top, under the band. A `bottom: 0` element is not visible.
+- The band is flat `#111` with a 1 px separator line at its bottom edge. That line looks like Chromium's top-container separator.
+
+Conclusion: the web contents view is offset inside the fork's child `NSWindow`. Chromium's layout still reserves a title-bar-sized top inset (about macOS's 28 pt title bar plus the separator) above the contents. `SupportsWindowFeature` hides `kFeatureTitleBar`, tab strip, toolbar, location bar and bookmark bar (fork `libcef/browser/chrome/chrome_browser_delegate.cc:420`), but the frame view's top inset for a normal-type `Browser` without a tab strip is not zeroed.
+
+cmux cannot fix this in its host view: a child window is always drawn above the main window, so moving or growing it to hide the band would cover the toolbar.
+
+Not compared:
+- The user's `nxdog2` build. It uses the same artifact and would need its tag's socket, which the user's running instance owns.
+- The spike screenshot `docs/spike-2026-09-28-clip/01-static-two-browsers.png` (cmux2-spike, same fork) shows no band. The spike created its browsers differently (`--spike` mode, one first tab per window), which points at a path difference, not at a different dist.
+
+Follow-up (fork): in `--cmux-tabbed-windows`, make the browser frame's top inset 0 when the title bar and tab strip features are off (look at `BrowserFrameMac`/`BrowserNonClientFrameViewMac::GetTopInset` and the tabbed layout's top container). Verify with a `top:0`/`bottom:0` fixed-element page in the cmux-next app, then bump `scripts/cmux-next/cef-manifest.json`.

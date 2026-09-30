@@ -33,6 +33,9 @@ final class TabContentCache {
     /// Presentation changed (for the blank-pane invariant).
     var onPresentationChange: (() -> Void)?
     weak var sessionDelegate: (any TerminalSessionDelegate)?
+    /// Routes app shortcuts before a Chromium page window sees them (a CEF
+    /// page window is key, so `ShellWindow` never gets the key).
+    weak var keyRouter: KeyRouter?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -76,6 +79,12 @@ final class TabContentCache {
         return entry
     }
 
+    /// Tab ids whose Ghostty surface has focus (first responder in the key
+    /// window), for `debug.focus`.
+    var focusedTerminalTabs: [String] {
+        terminals.filter { $0.value.session.model.isFocused }.map(\.key).sorted()
+    }
+
     /// The tab id whose surface is `session`.
     func tabKey(for session: TerminalSession) -> String? {
         terminals.first { $0.value.session === session }?.key
@@ -110,6 +119,7 @@ final class TabContentCache {
         Task { [weak tab] in
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
+            page.keyRouter = keyRouter
             browsers[key] = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
             if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)

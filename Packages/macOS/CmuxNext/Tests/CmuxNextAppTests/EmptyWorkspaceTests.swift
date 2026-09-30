@@ -32,13 +32,14 @@ struct EmptyWorkspaceTests {
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        await Self.settle { controller.pendingFocusSurface != nil }
+        await Self.settle { controller.focus.state.expectation != nil }
         // Re-applying the still-empty tree (the delta has not landed) must not ask again.
         controller.applyCurrent()
         controller.applyCurrent()
         await Self.settle { false }
         #expect(recorder.keys == [Self.key])
-        #expect(controller.pendingFocusSurface == SurfaceID(rawValue: 42))
+        // The new terminal is focused once the daemon reports it.
+        #expect(controller.focus.state.expectation?.key == .surface("42"))
         controller.teardown()
         withExtendedLifetime((services, state)) {}
     }

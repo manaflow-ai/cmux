@@ -49,7 +49,11 @@ struct BrowserTabTests {
         }
         let workspace = try #require(store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
-        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        // A real window: its focus coordinator publishes the context.
+        let window = WindowController(state: state, services: services, frame: nil)
+        services.windows.didActivate(window)
+        await Self.settle { window.content != nil }
+        let content = try #require(window.content)
         let paneModel = try #require(workspace.screens.first?.panes.first)
         let paneID = LayoutPaneIDFixture.id(paneModel)
         await Self.settle { content.panes[paneID] != nil }
@@ -70,7 +74,8 @@ struct BrowserTabTests {
         #expect(services.registry.context.contains(.browserFocused))
         #expect(services.registry.isAvailable("browserBack"))
         #expect(browserTabs.isTracking(try #require(pane.selectedTab).id))
-        content.teardown()
+        #expect(window.focus.state.resolved.tab == pane.selectedTab?.id)
+        window.teardown()
         withExtendedLifetime((services, state)) {}
     }
 

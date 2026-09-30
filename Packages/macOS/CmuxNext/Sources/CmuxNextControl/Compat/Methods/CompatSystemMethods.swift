@@ -5,7 +5,9 @@ import Foundation
 /// its own workspaces (every workspace belongs to exactly one window).
 enum CompatSystemMethods {
     static let table: [String: CompatHandler] = [
-        "system.ping": .read({ _ in ["pong": true] }),
+        // No "system.ping": the router's built-in answers it with `app` and
+        // `protocol_version`, which the bundled CLI reads to route shared
+        // nouns (`cmux tab …`) to generated verbs. Replacing it broke them.
         "system.capabilities": .read(capabilities),
         "system.identify": .async(identify),
         "system.tree": .async(tree),

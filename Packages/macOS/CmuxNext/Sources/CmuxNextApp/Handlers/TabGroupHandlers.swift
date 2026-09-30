@@ -97,6 +97,7 @@ enum TabGroupHandlers {
                     if let controller {
                         controller.pendingSelectSurface = created.surface
                         controller.apply(controller.snapshot())
+                        controller.workspace?.expectFocus(on: created.surface)
                     }
                 } catch {
                     ctx.services.daemon.logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")

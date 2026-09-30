@@ -58,7 +58,7 @@ extension CMUXCLI {
                 try cli.runActionCommand(commandArgs)
                 return true
             }
-            return try cli.runNounCommand(noun: command, arguments: commandArgs)
+            return try cli.runNounCommand(noun: command, arguments: commandArgs, fallsBackOnUnknownVerb: isSharedNoun)
         } catch is CmuxActionCLI.ServerLacksActions {
             guard isActionCommand else { return false }
             throw CLIError(message: String(

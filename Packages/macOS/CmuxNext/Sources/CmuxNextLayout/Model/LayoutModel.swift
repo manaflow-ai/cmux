@@ -173,11 +173,17 @@ public final class LayoutModel {
 
     /// Focuses `pane` (client-local) and reports `.focus`.
     public func focus(_ pane: PaneID) {
+        focus(pane, notify: true)
+    }
+
+    /// Focuses `pane`. `notify: false` mirrors a focus decided elsewhere
+    /// (the app's focus coordinator) without emitting an intent.
+    public func focus(_ pane: PaneID, notify: Bool) {
         guard let screen = screen(containing: pane) else { return }
         if activeScreenID != screen.id { activeScreenID = screen.id }
         guard focusedPane != pane else { return }
         focusedPane = pane
-        emit(.focus(pane))
+        if notify { emit(.focus(pane)) }
     }
 
     /// Moves focus to the neighboring pane in `direction` on the active screen.

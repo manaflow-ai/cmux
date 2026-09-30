@@ -10,9 +10,8 @@ extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
         case .focus(let pane):
-            state.focusedPane[workspace.id] = pane
-            if let controller = panes[pane], !controller.containsFirstResponder { controller.focusContent() }
-            publishContext()
+            // Mouse-down in a pane or layout keyboard navigation.
+            focus.send(.focusPane(pane.rawValue, source: .intent))
         case .setSplitRatio(let split, let ratio, let transaction, let phase):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
             let daemonTransaction = gestureTransaction(transaction, phase: phase)
@@ -55,10 +54,10 @@ extension WorkspaceContentController {
     /// Runs a pane-creating command and focuses the new pane when it lands.
     private func spawnPane(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
+        let intent = beginFocusIntent()
         Task {
             do {
-                pendingFocusSurface = try await body(connection).surface
-                applyCurrent()
+                expectFocus(on: try await body(connection).surface, generation: intent)
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
@@ -94,7 +93,8 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
-        guard let (tab, _) = services.locateTab(tabID.rawValue) else { return }
+        guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
+        focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }
         switch target {
         case .pane(let pane, let zone):
