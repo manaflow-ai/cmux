@@ -219,7 +219,9 @@ impl Hub {
         // normally still failed it: answer the prompt with that error.
         let harness_error = session.stream.lock().unwrap().harness_error.clone();
         let harness_failure = match (&result, &harness_error) {
-            (Ok(v), Some(h)) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
+            (Ok(v), Some(h))
+                if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
+            {
                 let text = h.get("text").and_then(Value::as_str).unwrap_or("");
                 let text =
                     if text.is_empty() { "the harness reported an error" } else { text }.to_owned();
@@ -260,7 +262,8 @@ impl Hub {
                 );
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
-                    let agent_error = (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
+                    let agent_error =
+                        (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
                     o.extend(self.turn_error_fields(session, agent_error));
                 }
                 self.record_last_turn(session, &msg);
