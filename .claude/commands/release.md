@@ -8,18 +8,35 @@ Ship a stable cmux release built by CI: bump version, update changelog, open a P
 
 1. **Pick the version.** Read `MARKETING_VERSION` from `cmux.xcodeproj/project.pbxproj`. Bump minor unless the user says otherwise (0.12.0 to 0.13.0).
 
-2. **Gather changes and contributors since the last tag.**
+2. **Gather the changelog lines since the last stable tag.** Every PR carries its release-note line in the `## Changelog` section of its description (one `Added`/`Changed`/`Fixed`/`Removed` line, or `none`). Take the PR numbers from main's first-parent history, then fetch every PR in one GraphQL query:
 
    ```bash
-   git describe --tags --abbrev=0
-   git log --oneline <last-tag>..HEAD --no-merges
-   gh pr view <N> --repo manaflow-ai/cmux --json author --jq '.author.login'
-   gh issue view <N> --repo manaflow-ai/cmux --json author --jq '.author.login'
+   TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*')   # plain describe finds `nightly`
+   git log --first-parent --format=%s "$TAG"..HEAD \
+     | sed -nE 's/^Merge pull request #([0-9]+) .*/\1/p; s/.*\(#([0-9]+)\)$/\1/p' | sort -un > /tmp/release-prs.txt
+   q='query { repository(owner: "manaflow-ai", name: "cmux") {'
+   for n in $(cat /tmp/release-prs.txt); do q+=" pr$n: pullRequest(number: $n) { ...P }"; done
+   q+=' } } fragment P on PullRequest { number title body url authorAssociation author { login }
+     mergeCommit { oid } closingIssuesReferences(first: 10) { nodes { authorAssociation author { login } } } }'
+   gh api graphql -f query="$q" --jq '.data.repository[]' > /tmp/release-prs.jsonl
+   git rev-list "$TAG"..HEAD > /tmp/release-range.txt
+   git log --format=%B "$TAG"..HEAD | sed -nE 's/.*This reverts commit ([0-9a-f]{40}).*/\1/p' > /tmp/release-reverted.txt
+   jq -r -s --rawfile range /tmp/release-range.txt --rawfile reverted /tmp/release-reverted.txt \
+     -f skills/cmux-release/references/changelog-lines.jq /tmp/release-prs.jsonl > /tmp/release-lines.tsv
    ```
 
-   Keep only end-user visible changes, categorize into Added, Changed, Fixed, Removed, and build a deduplicated list of contributor `@handle`s from PR authors and linked issue reporters. If nothing is user-facing, ask the user whether to release anyway.
+   The query is one request (about 1,200 PRs took 20 seconds). If it times out, run it on each half of `/tmp/release-prs.txt` and concatenate the output; don't fall back to one `gh` call per PR. The search API is not a substitute: it stops at 1,000 results, which ten days of merges exceed.
 
-3. **Update `CHANGELOG.md`.** Add a section at the top with the new version and today's date, written as user-facing descriptions rather than raw commit messages, with inline contributor credit. The docs changelog page renders from `CHANGELOG.md`, so there is no second changelog file to edit.
+   Each row of `/tmp/release-lines.tsv` is `status`, `#number`, `url`, `credit`, `line`:
+
+   - `entry`: use the line, filed under the category its prefix names (drop the prefix), with the PR link and credit appended.
+   - `check-title`: the PR has no Changelog section, so `line` is its title. Write a user-facing line from the PR if it is user-visible under the guidelines below, or drop it, and list every such PR for the human to check before the release PR merges.
+   - `skip-none`, `skip-reverted`: leave out. A PR reverted later in the same range never shipped.
+   - `revert-of-N`: leave out when N is in this range. When N shipped in an earlier release, the revert is itself user-visible; write a line for it and flag it for the human.
+
+   Also list for the human any first-parent commit without a PR number (`git log --first-parent --format='%h %s' "$TAG"..HEAD | grep -vE '\(#[0-9]+\)$| Merge pull request #'`); the query can't see them. Credit follows [Contributor credits](#contributor-credits): the `credit` column already names outside authors, or outside issue reporters on team PRs, from each PR's author association and closing issues. If nothing is user-facing, ask the user whether to release anyway.
+
+3. **Update `CHANGELOG.md`.** Add a section at the top with the new version and today's date, built from step 2, with inline contributor credit and the contributor summary. Then fold any entries under `## Unreleased` into that section (they predate the Changelog section in PR descriptions): move each into its category, drop any that duplicate a step 2 line for the same PR, and remove the emptied `## Unreleased` heading. The docs changelog page renders from `CHANGELOG.md`, so there is no second changelog file to edit.
 
 4. **Bump the version.** `./scripts/bump-version.sh` (minor by default) updates `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` everywhere in the Xcode project.
 
@@ -58,7 +75,7 @@ Write in present tense ("Add feature", not "Added feature"), grouped by Added, C
 
 Credit the people who made each release happen. This builds community and encourages contributions.
 
-Per-entry attribution goes after each changelog bullet: `— thanks @user!` for a PR author, `— thanks @reporter for the report!` for an issue reporter who is not the PR author. Core team (`lawrencecchen`, `austinywang`) work is the baseline and gets no per-entry callout.
+Per-entry attribution goes after each changelog bullet: `-- thanks @user!` for a PR author outside the team, `-- thanks @reporter for the report!` for an issue reporter outside the team who is not the PR author. `CHANGELOG.md` uses two hyphens, not an em dash. Team work (a PR author whose association is `MEMBER` or `OWNER`, including core team `lawrencecchen` and `austinywang`) is the baseline and gets no per-entry callout.
 
 Every release ends with a summary section listing all contributors alphabetically by handle, core team included, each linked to their GitHub profile. The published GitHub Release body carries the same section.
 
@@ -75,11 +92,11 @@ Every release ends with a summary section listing all contributors alphabeticall
 ## [0.13.0] - 2025-01-30
 
 ### Added
-- New keyboard shortcut for quick tab switching ([#42](https://github.com/manaflow-ai/cmux/pull/42)) — thanks @contributor!
+- New keyboard shortcut for quick tab switching ([#42](https://github.com/manaflow-ai/cmux/pull/42)) -- thanks @contributor!
 
 ### Fixed
-- Memory leak when closing split panes ([#38](https://github.com/manaflow-ai/cmux/pull/38)) — thanks @fixer!
-- Notification badges not clearing properly ([#35](https://github.com/manaflow-ai/cmux/pull/35)) — thanks @reporter for the report!
+- Memory leak when closing split panes ([#38](https://github.com/manaflow-ai/cmux/pull/38)) -- thanks @fixer!
+- Notification badges not clearing properly ([#35](https://github.com/manaflow-ai/cmux/pull/35)) -- thanks @reporter for the report!
 
 ### Changed
 - Improved terminal rendering performance ([#40](https://github.com/manaflow-ai/cmux/pull/40))

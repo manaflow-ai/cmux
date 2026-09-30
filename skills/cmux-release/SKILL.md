@@ -5,7 +5,17 @@ description: "cmux release workflow, version bumping, changelog updates, pretag 
 
 # cmux Release
 
-Prefer the `/release` command. It determines the new version (minor by default), gathers commits since the last tag, updates `CHANGELOG.md`, runs `./scripts/bump-version.sh`, commits, runs `./scripts/release-pretag-guard.sh`, then tags and pushes.
+Prefer the `/release` command. It determines the new version (minor by default), gathers the Changelog line from each PR merged since the last stable tag, updates `CHANGELOG.md`, runs `./scripts/bump-version.sh`, commits, runs `./scripts/release-pretag-guard.sh`, then tags and pushes.
+
+## Changelog source
+
+Feature PRs don't edit `CHANGELOG.md`. Each PR description has a `## Changelog` section with one user-facing line (`Added`, `Changed`, `Fixed`, or `Removed`, present tense) or `none`. At release time, [`/release` step 2](../../.claude/commands/release.md#shared-prep-all-three-release-commands) fetches every PR merged since the last `v*` tag in one GraphQL query and classifies it with [references/changelog-lines.jq](references/changelog-lines.jq):
+
+- a Changelog line becomes an entry, with the PR link and `-- thanks @user!` for outside authors or reporters;
+- `none`, PRs reverted later in the range, and the revert PRs themselves are skipped;
+- a PR with no section falls back to its title and is listed for the human to check.
+
+The release then folds any leftover `## Unreleased` entries into the new version section and removes that heading.
 
 The docs changelog page at `web/app/[locale]/(landing)/docs/changelog/page.tsx` renders from `CHANGELOG.md`, so there is no separate docs changelog source to update.
 

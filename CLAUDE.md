@@ -45,7 +45,7 @@ Before drafting or revising a top-level issue or PR description, read [STYLE.md]
 
 ## Changelog
 
-When a user-visible change merges, add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) (PR link, `-- thanks @user!` for outside authors).
+A user-visible PR fills in the `## Changelog` section of its PR description with one line (`Added`, `Changed`, `Fixed`, or `Removed`, then what the user sees); internal-only PRs write `none`. Don't edit [CHANGELOG.md](CHANGELOG.md) in feature PRs: `/release` builds the version section from those lines and adds the PR link and `-- thanks @user!` credit for outside authors ([release changelog rules](.claude/commands/release.md#changelog-guidelines)).
 
 ## Outside contributors
 
