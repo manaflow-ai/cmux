@@ -274,7 +274,7 @@ function parseLabel(value: unknown): string | null {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") return null;
   const label = value.trim();
-  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[\x00-\x1f\x7f]/.test(label)) return null;
   return label;
 }
 
@@ -471,7 +471,7 @@ export function rendezvousPick<T extends { readonly id: string }>(key: string, c
   let best: T | null = null;
   let bestScore = "";
   for (const candidate of candidates) {
-    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    const score = createHash("sha256").update(`${key}\x00${candidate.id}`).digest("hex");
     if (best === null || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -672,9 +672,22 @@ const drizzleStore: ClaudeAccountStore = {
     return deleted.length;
   },
   async markCooldown(accountId, until, failureCode, signal) {
+    const cooldownUntilIso = until.toISOString();
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .set({
+        // A late provider error must never shorten a longer cooldown already
+        // recorded by another request. Keep the database value authoritative so
+        // every web instance avoids a capacity-hit account consistently.
+        cooldownUntil: sql`GREATEST(COALESCE(${coderouterClaudeAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
+        lastFailureCode: sql`CASE
+          WHEN ${coderouterClaudeAccounts.cooldownUntil} IS NULL
+            OR ${cooldownUntilIso}::timestamptz > ${coderouterClaudeAccounts.cooldownUntil}
+          THEN ${failureCode}
+          ELSE ${coderouterClaudeAccounts.lastFailureCode}
+        END`,
+        updatedAt: new Date(),
+      })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async touchUsed(accountId, at, signal) {

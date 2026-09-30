@@ -2435,8 +2435,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // SSH and Cloud workspaces show their host after the title (`title · host`).
+        let title = tabManager.resolvedWorkspaceWindowTitle(for: tab)
         if titlebarText != title {
             titlebarText = title
         }
