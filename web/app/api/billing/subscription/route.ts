@@ -15,10 +15,24 @@ import {
 } from "../../../../services/billing/subscriptionManagement";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
+import {
+  explicitTeamId,
+  resolveTeamBillingAccess,
+  type TeamBillingAccessError,
+  type TeamBillingAccessUser,
+} from "../../../../services/billing/teamBillingAccess";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type BillingScope = "user" | "team";
+type BillingRedirectCode = "cancelled" | "resumed" | "nosub" | "error" | TeamBillingAccessError;
+
+class TeamBillingRefusal extends Error {
+  override readonly name = "TeamBillingRefusal";
+  constructor(readonly code: TeamBillingAccessError, readonly teamId: string) {
+    super(code);
+  }
+}
 
 export async function POST(request: NextRequest) {
   let stackUserId: string | undefined;
@@ -67,17 +81,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const applied = await applySubscriptionAction({
-      scope,
-      ownerId: scope === "team" ? await verifiedBillingTeamId(user, formData) : user.id,
-      action,
-    });
+    const ownerId = scope === "team" ? await verifiedBillingTeamId(user, formData) : user.id;
+    const teamId = scope === "team" ? ownerId : null;
+    const applied = await applySubscriptionAction({ scope, ownerId, action });
     if (!applied) {
-      return billingRedirect(request, "nosub");
+      return billingRedirect(request, "nosub", teamId);
     }
 
-    return billingRedirect(request, action === "cancel" ? "cancelled" : "resumed");
+    return billingRedirect(request, action === "cancel" ? "cancelled" : "resumed", teamId);
   } catch (error) {
+    if (error instanceof TeamBillingRefusal) {
+      return billingRedirect(request, error.code, error.code === "personal_team_not_upgradable_to_team" ? null : error.teamId);
+    }
     captureBillingError(error, {
       route: "/api/billing/subscription",
       stackUserId,
@@ -105,27 +120,28 @@ function billingScope(formData: FormData): BillingScope {
   return formData.get("scope") === "team" ? "team" : "user";
 }
 
+/**
+ * With a `teamId` field the named team is the subject. Without one (older app
+ * forms) the implicit billing team applies. Either way the caller must be the
+ * team's admin.
+ */
 async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise<string> {
-  const team = await resolveBillingTeam(user as BillingTeamUserLike);
-  const clientTeamId = formData.get("teamId");
-  if (
-    typeof clientTeamId === "string" &&
-    clientTeamId.trim() &&
-    clientTeamId.trim() !== team?.id
-  ) {
-    throw new Error("Billing team does not belong to the current user");
-  }
-  if (!team?.id) {
+  const teamId = explicitTeamId(formData.get("teamId")) ?? (await resolveBillingTeam(user as BillingTeamUserLike))?.id;
+  if (!teamId) {
     throw new Error("No billing team is available for the current user");
   }
-  return team.id;
+  const access = await resolveTeamBillingAccess(user as TeamBillingAccessUser, teamId, { requireAdmin: true });
+  if (!access.ok) throw new TeamBillingRefusal(access.error, teamId);
+  return access.team.id;
 }
 
 function billingRedirect(
   request: NextRequest,
-  billing: "cancelled" | "resumed" | "nosub" | "error",
+  billing: BillingRedirectCode,
+  teamId: string | null = null,
 ) {
   const url = new URL(localizedBillingPath(request), request.url);
+  if (teamId) url.searchParams.set("team", teamId);
   url.searchParams.set("billing", billing);
   return NextResponse.redirect(url, 303);
 }
