@@ -1168,10 +1168,9 @@ enum FilePreviewKindResolver {
         // One byte past the window, so a truncated tail is observed rather than
         // inferred from the prefix length.
         let probe = (try? handle.read(upToCount: sniffPrefixByteCount + 1)) ?? Data()
-        return prefixLooksLikeText(
-            probe.prefix(sniffPrefixByteCount),
-            hasMoreBytes: probe.count > sniffPrefixByteCount
-        )
+        let prefix = Data(probe.prefix(sniffPrefixByteCount))
+        let nextByte = probe.count > sniffPrefixByteCount ? probe[sniffPrefixByteCount] : nil
+        return prefixLooksLikeText(prefix, nextByte: nextByte)
     }
 
     /// Classifies the head of a file that neither its name nor its UTType could
@@ -1183,10 +1182,10 @@ enum FilePreviewKindResolver {
     /// still source. The control-byte gate applies only to the single-byte
     /// fallback below, where a successful decode proves nothing because
     /// ISO Latin-1 maps every byte.
-    /// - Parameter hasMoreBytes: whether the file continues past this prefix.
-    ///   Only then can the tail have been cut mid-scalar; otherwise a malformed
-    ///   tail is a defect in the file rather than an artifact of the read.
-    static func prefixLooksLikeText(_ data: Data, hasMoreBytes: Bool = false) -> Bool {
+    /// - Parameter nextByte: the byte immediately after this prefix, when the
+    ///   file continues. A malformed continuation means the trailing lead byte
+    ///   is part of the file's content, not a read boundary.
+    static func prefixLooksLikeText(_ data: Data, nextByte: UInt8? = nil) -> Bool {
         guard !data.isEmpty else { return true }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
@@ -1197,8 +1196,8 @@ enum FilePreviewKindResolver {
         if String(data: data, encoding: .utf8) != nil {
             return true
         }
-        if hasMoreBytes,
-           let completedSequences = droppingTrailingPartialUTF8Sequence(data),
+        if let nextByte,
+           let completedSequences = droppingTrailingPartialUTF8Sequence(data, nextByte: nextByte),
            String(data: completedSequences, encoding: .utf8) != nil {
             return true
         }
@@ -1210,7 +1209,8 @@ enum FilePreviewKindResolver {
     /// Drops the trailing UTF-8 sequence that the fixed-size read cut in half.
     /// Returns nil when the tail is malformed rather than truncated, so the
     /// caller keeps classifying the bytes it actually has.
-    private static func droppingTrailingPartialUTF8Sequence(_ data: Data) -> Data? {
+    private static func droppingTrailingPartialUTF8Sequence(_ data: Data, nextByte: UInt8) -> Data? {
+        guard nextByte & 0b1100_0000 == 0b1000_0000 else { return nil }
         var continuations: [UInt8] = []
         for byte in Array(data.suffix(maximumUTF8SequenceLength)).reversed() {
             if byte & 0b1100_0000 == 0b1000_0000 {
@@ -1219,7 +1219,11 @@ enum FilePreviewKindResolver {
             }
             guard let sequenceLength = utf8SequenceLength(leadByte: byte),
                   sequenceLength > continuations.count + 1,
-                  isTruncatedSequence(leadByte: byte, continuations: continuations) else { return nil }
+                  isTruncatedSequence(
+                      leadByte: byte,
+                      continuations: continuations,
+                      nextByte: nextByte
+                  ) else { return nil }
             return data.dropLast(continuations.count + 1)
         }
         return nil
@@ -1232,8 +1236,12 @@ enum FilePreviewKindResolver {
     ///
     /// - Parameter continuations: the trailing continuation bytes in reverse
     ///   order, so the byte right after the lead is the last element.
-    private static func isTruncatedSequence(leadByte: UInt8, continuations: [UInt8]) -> Bool {
-        guard let byteAfterLead = continuations.last else { return true }
+    private static func isTruncatedSequence(
+        leadByte: UInt8,
+        continuations: [UInt8],
+        nextByte: UInt8
+    ) -> Bool {
+        let byteAfterLead = continuations.last ?? nextByte
         let allowed: ClosedRange<UInt8>
         switch leadByte {
         case 0xE0: allowed = 0xA0...0xBF
