@@ -470,7 +470,7 @@ extension TerminalSurface {
             return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
-        case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
+        case 0x50, 0x58, 0x5E, 0x5F: // DCS / SOS / PM / APC: ESC P/X/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
         default:
             return nil
