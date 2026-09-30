@@ -159,6 +159,7 @@ final class CloudPlacementCoordinator {
     /// Applies accepted daemon coordinates, including edits from another client. Older
     /// snapshots cannot undo a local move whose mutation receipt is still ahead of them.
     func reconcileRemoteState(_ state: CloudVMState, catalog: SurfaceCatalog) {
+        NSLog("DIAGCOORD lanes=\(lanes[state.machine] != nil)")
         guard lanes[state.machine] == nil else { return }
         var replacements: [SurfaceProjection: SurfaceProjection] = [:]
         for projection in catalog.projections where projection.resource.machine == state.machine {

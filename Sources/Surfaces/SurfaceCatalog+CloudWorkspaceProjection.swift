@@ -4,6 +4,7 @@ import Foundation
 
 extension SurfaceCatalog {
     func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState, observation: CloudVMStateObservation? = nil) {
+        NSLog("DIAGREMOTE equal=\(cloudStates[machine] == state) stored=\(cloudStates[machine] != nil) projections=\(projections.filter { $0.resource.machine == machine }.map { "\($0.remoteWorkspaceID ?? "nil")/\($0.remoteTabID ?? "nil")" })")
         guard cloudStates[machine] == state else { return }
         cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
         cloudWorkspaceProjectionCoordinator.request(machine: machine, catalog: self)

@@ -1232,9 +1232,15 @@ final class SurfaceCatalog {
     /// Applies one accepted graph's coordinate changes in O(changed projections).
     func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
         guard !replacements.isEmpty else { return }
-        for (previous, updated) in replacements where projections.contains(previous) {
-            projections.remove(previous)
-            projections.insert(updated)
+        for (previous, updated) in replacements {
+            let contained = projections.contains(previous)
+            let linear = projections.contains { $0 == previous }
+            let before = projections.count
+            if contained {
+                projections.remove(previous)
+                projections.insert(updated)
+            }
+            NSLog("DIAGPLACE contained=\(contained) linear=\(linear) before=\(before) after=\(projections.count) prevHash=\(previous.hashValue) liveHashes=\(projections.filter { $0.panelID == previous.panelID }.map { "\($0.hashValue):\($0.remoteTabID ?? "nil")" }) updated=\(updated.remoteWorkspaceID ?? "nil")/\(updated.remoteTabID ?? "nil")")
         }
         for replacement in replacements.values {
             notifyChange(for: replacement.resource.machine)
