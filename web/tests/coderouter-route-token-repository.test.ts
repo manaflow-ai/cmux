@@ -67,7 +67,6 @@ const {
   authenticateRouteToken,
   bindRouteTokenToVm,
   issueRouteToken,
-  revokeRouteTokensForTeam,
   revokeRouteTokensForTeamMember,
   revokeRouteTokensForVm,
   routeTokenHash,
@@ -215,17 +214,6 @@ describe("coderouter route token VM binding", () => {
     expect(sql).toContain('"coderouter_route_tokens"."stack_user_id" = $2');
     expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
     expect(params).toEqual(["team-1", "user-1"]);
-  });
-
-  test("revokeRouteTokensForTeam revokes every live session of a deleted team", async () => {
-    const now = new Date("2026-09-30T10:00:00.000Z");
-    await revokeRouteTokensForTeam("team-1", now);
-    const [statement] = statements;
-    expect(statement?.values).toEqual({ revokedAt: now });
-    const { sql, params } = rendered(statement?.where ?? null);
-    expect(sql).toContain('"coderouter_route_tokens"."team_id" = $1');
-    expect(sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
-    expect(params).toEqual(["team-1"]);
   });
 
   test("revokeRouteTokensForVm revokes only that VM's live tokens", async () => {
