@@ -221,17 +221,6 @@ struct DockTerminalPointerFocusTests {
     }
 
     fileprivate func exerciseDockSelectionAndRestoration() throws {
-        let defaults = UserDefaults.standard
-        let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
-        defaults.set(true, forKey: dockEnabledKey)
-        defer {
-            if let previousDockEnabled {
-                defaults.set(previousDockEnabled, forKey: dockEnabledKey)
-            } else {
-                defaults.removeObject(forKey: dockEnabledKey)
-            }
-        }
         try #require(RightSidebarMode.dock.isAvailable())
 
         let previousAppDelegate = AppDelegate.shared

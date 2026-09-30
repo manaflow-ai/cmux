@@ -13,6 +13,7 @@ struct SubrouterClaudeRestoreRoutingTests {
     private let marker = "sr claude proxy --resume"
     private let markerKey = "SUBROUTER_CLAUDE_RESUME_COMMAND"
     private let launchBoundMarkerKey = "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND"
+    private let accountKey = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
     private let localPoolBaseURL = "http://127.0.0.1:31415/v1"
     private let capturedClaude = "/opt/homebrew/bin/claude"
     private let capturedConfigDir = "/Users/me/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a"
@@ -36,7 +37,8 @@ struct SubrouterClaudeRestoreRoutingTests {
         environment: [String: String],
         launcher: String? = nil,
         mode: AgentRestoreRequestMode = .resumeAgent,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        launcherPrefix: [String]? = nil
     ) -> AgentRestoreRequest {
         AgentRestoreRequest(
             mode: mode,
@@ -52,7 +54,8 @@ struct SubrouterClaudeRestoreRoutingTests {
                 workingDirectory: "/tmp/project",
                 environment: environment,
                 capturedAt: 1,
-                source: "test"
+                source: "test",
+                launcherPrefix: launcherPrefix
             ),
             preparedArguments: nil,
             observedPermissionMode: observedPermissionMode
@@ -126,6 +129,154 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.environment["CMUX_CUSTOM_CLAUDE_PATH"] == capturedClaude)
         #expect(invocation.environment["PATH"] == ambientEnvironment["PATH"])
         #expect(invocation.preflightInvocations.isEmpty)
+        #expect(invocation.notices.isEmpty)
+    }
+
+    /// The 2026-09-27 failure: sessions launched with `sr claude proxy --account x`
+    /// came back as bare `claude --resume` and were logged out. The captured
+    /// launcher argv keeps the pinned account on the routed restore.
+    @Test("A captured launcher argv keeps its pinned account on the routed restore")
+    func routedRestoreKeepsCapturedLauncherAccount() throws {
+        let launcher = ["/opt/homebrew/bin/sr", "claude", "proxy", "--account", "me@example.com"]
+        for environment in [
+            routedLaunchEnvironment(baseURL: localPoolBaseURL, marker: marker, launchBoundMarker: marker),
+            // Pre-marker record: only the proxy config directory and base URL.
+            routedLaunchEnvironment(baseURL: localPoolBaseURL),
+        ] {
+            let request = resumeRequest(environment: environment, launcherPrefix: launcher)
+
+            let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+                for: request,
+                ambientEnvironment: ambientEnvironment
+            ))
+
+            #expect(
+                invocation.arguments == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", sessionID, "--model", "opus"],
+                "\(invocation.arguments)"
+            )
+            #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == nil)
+            #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
+        }
+    }
+
+    /// The pin recorded for the launch itself holds when the launcher argv
+    /// cannot be split from what it forwarded (a routed launcher that appends
+    /// arguments after the forwarded tail leaves no launcher prefix), and wins
+    /// over a prefix that names another account.
+    @Test("The recorded account pin survives without a launcher prefix and wins over one")
+    func recordedAccountPinSurvivesWithoutLauncherPrefix() throws {
+        for launcherPrefix in [nil, ["sr", "claude", "proxy", "--account", "stale@example.com"]] {
+            var environment = routedLaunchEnvironment(baseURL: localPoolBaseURL)
+            environment[accountKey] = "me@example.com"
+            let request = resumeRequest(environment: environment, launcherPrefix: launcherPrefix)
+
+            let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+                for: request,
+                ambientEnvironment: ambientEnvironment
+            ))
+
+            #expect(
+                invocation.arguments == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", sessionID, "--model", "opus"],
+                "\(invocation.arguments)"
+            )
+            // The pin is launch metadata, never replayed into the environment.
+            #expect(invocation.environment[accountKey] == nil)
+        }
+    }
+
+    @Test(
+        "A recorded account that could read as an option or carry shell text is not a pin",
+        arguments: ["", "--print", "me@example.com; rm -rf /", "me example", "me\nnext"]
+    )
+    func unusableRecordedAccountIsIgnored(account: String) throws {
+        var environment = routedLaunchEnvironment(baseURL: localPoolBaseURL)
+        environment[accountKey] = account
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: resumeRequest(environment: environment),
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        #expect(
+            invocation.arguments == ["sr", "claude", "proxy", "--resume", sessionID, "--model", "opus"],
+            "\(invocation.arguments)"
+        )
+    }
+
+    /// The hook records the pin into the durable launch environment, and a
+    /// replayed resume command never carries it.
+    @Test("The recorded account pin is kept as restore metadata and dropped from replay")
+    func recordedAccountPinIsRestoreMetadataOnly() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let captured = [
+            accountKey: "me@example.com",
+            "ANTHROPIC_BASE_URL": localPoolBaseURL,
+        ]
+        #expect(policy.selectedRestoreEnvironment(from: captured, kind: "claude")[accountKey] == "me@example.com")
+        #expect(policy.selectedRestoreEnvironment(from: captured, kind: "codex")[accountKey] == nil)
+        #expect(policy.selectedRestoreEnvironment(
+            from: [accountKey: "--print"],
+            kind: "claude"
+        )[accountKey] == nil)
+        #expect(policy.selectedReplayEnvironment(
+            from: captured,
+            kind: "claude",
+            launcher: "claude",
+            arguments: ["claude"]
+        )[accountKey] == nil)
+    }
+
+    /// Only the account pin is carried over: a prompt, `--settings`, or
+    /// `--print` sr received stays out of the restore argv, and the program
+    /// is still resolved on PATH even when the captured one moved.
+    @Test("Only the account pin is taken from the captured launcher argv")
+    func onlyAccountPinIsReplayed() throws {
+        let request = resumeRequest(
+            environment: routedLaunchEnvironment(baseURL: localPoolBaseURL, marker: marker, launchBoundMarker: marker),
+            launcherPrefix: [
+                "/gone/bin/sr", "claude", "proxy", "--account=me@example.com",
+                "--settings", "/tmp/unreadable.json", "-p", "hello", "--resume", "other", "--",
+                "--account", "someone-else@example.com",
+            ]
+        )
+
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: request,
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        #expect(
+            invocation.arguments == ["sr", "claude", "proxy", "--account=me@example.com", "--resume", sessionID, "--model", "opus"],
+            "\(invocation.arguments)"
+        )
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
+    }
+
+    @Test(
+        "A launcher argv for another program, or without an account pin, falls back to the marker",
+        arguments: [
+            ["/opt/homebrew/bin/cx", "claude", "proxy", "--account", "me@example.com"],
+            ["sr", "claude", "proxy", "--continue"],
+            ["sr", "codex", "proxy"],
+            ["sr", "claude", "proxy", "--account"],
+            // Past sr's own options, `--account` is Claude input, not a pin.
+            ["sr", "claude", "proxy", "hello", "--account", "me@example.com"],
+        ]
+    )
+    func unusableLauncherArgvFallsBackToMarker(launcher: [String]) throws {
+        let request = resumeRequest(
+            environment: routedLaunchEnvironment(baseURL: localPoolBaseURL, marker: marker, launchBoundMarker: marker),
+            launcherPrefix: launcher
+        )
+
+        let invocation = try #require(plannerWithSubrouterOnPath().invocation(
+            for: request,
+            ambientEnvironment: ambientEnvironment
+        ))
+
+        #expect(
+            invocation.arguments == ["sr", "claude", "proxy", "--resume", sessionID, "--model", "opus"],
+            "\(invocation.arguments)"
+        )
     }
 
     @Test("The routed restore re-applies the observed permission mode after the session id")
@@ -319,6 +470,8 @@ struct SubrouterClaudeRestoreRoutingTests {
         ))
 
         expectPlainClaudeReplay(invocation, baseURL: localPoolBaseURL, "sr missing")
+        // The fallback is reported, so the user knows why the session is not routed.
+        #expect(invocation.notices == [.routedLauncherUnavailable(executable: "sr")])
     }
 
     @Test("A cmux launcher such as claude-teams is never rerouted through Subrouter")

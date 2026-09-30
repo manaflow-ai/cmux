@@ -541,6 +541,44 @@ def check_every_test_executing_lane_pins_its_home() -> None:
                 )
 
 
+def check_console_session_diagnostics():
+    """Exercise fallback diagnostics without depending on the host's login state."""
+    cases = [
+        ("cmux", "501", "Aqua", "already running as console user", False),
+        ("cmux", "501", "Background", "Cannot enter console user", True),
+        ("cmux", "502", "Aqua", "Cannot enter console user", True),
+        ("cmux", "501", "", "Cannot enter console user", True),
+        ("root", "501", "Aqua", "No logged-in console user", True),
+        ("loginwindow", "501", "Aqua", "No logged-in console user", True),
+        ("", "501", "Aqua", "No logged-in console user", True),
+    ]
+    with tempfile.TemporaryDirectory() as directory:
+        bindir = Path(directory)
+        commands = {
+            "stat": 'printf "%s\\n" "$FAKE_CONSOLE_USER"',
+            "id": 'if [ "$#" = 2 ]; then echo 501; else echo "$FAKE_CURRENT_UID"; fi',
+            "sudo": 'exit 1',
+            "launchctl": 'printf "%s\\n" "$FAKE_MANAGER"',
+        }
+        for name, body in commands.items():
+            path = bindir / name
+            path.write_text("#!/bin/bash\n" + body + "\n")
+            path.chmod(0o755)
+        for console, uid, manager, expected, warning in cases:
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
+                       FAKE_CONSOLE_USER=console, FAKE_CURRENT_UID=uid,
+                       FAKE_MANAGER=manager, CMUX_APP_HOST_HOME="")
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts/ci/run-in-console-session.sh"),
+                 "/bin/bash", "-c", 'printf "%s" "$1"; exit 37', "bash", "argument with spaces"],
+                env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            assert result.returncode == 37, result
+            assert result.stdout == "argument with spaces", result
+            assert expected in result.stderr, (console, uid, manager, result.stderr)
+            assert ("::warning::" in result.stderr) == warning, result.stderr
+
+
 def main() -> int:
     override_fixture = """\
 <Scheme>
@@ -1064,6 +1102,7 @@ def main() -> int:
             "cleanup command"
         )
 
+    check_console_session_diagnostics()
     check_every_app_host_home_is_identified_and_cleaned()
     check_e2e_test_derived_data_scope()
     check_every_test_executing_lane_pins_its_home()

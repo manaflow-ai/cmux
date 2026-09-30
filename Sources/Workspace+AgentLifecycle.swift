@@ -510,6 +510,7 @@ extension Workspace {
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            removePanelStatusEntry(key: key, panelId: panelId)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
@@ -530,6 +531,9 @@ extension Workspace {
 
     func clearAgentLifecycleStates(panelId: UUID) {
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        for key in removed.keys {
+            removePanelStatusEntry(key: key, panelId: panelId)
+        }
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
             let host: UUID? = if panels[panelId] != nil {

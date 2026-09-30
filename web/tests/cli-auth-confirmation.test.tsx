@@ -89,10 +89,48 @@ describe("CLI authorization account identity", () => {
   });
 
   test("retains safe fallbacks when no email or organization is available", () => {
-    user = null;
+    user = { primaryEmail: null, selectedTeam: null };
     const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("email unavailable");
     expect(html).toContain("personal account");
+  });
+
+  test("asks a signed-out browser to sign in instead of showing a placeholder account", () => {
+    user = null;
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    expect(html).toContain(en.cliAuthIdentity.signedOutTitle);
+    expect(html).toContain(`<button type="button">${en.cliAuthIdentity.signInButton}</button>`);
+    expect(html).not.toContain("email unavailable");
+    expect(html).not.toContain("personal account");
+    expect(html).not.toContain('<button type="button">Authorize</button>');
+  });
+
+  for (const signedIn of [true, false]) {
+    for (const status of ["idle", "authorizing", "redirecting", "error"] as const) {
+      test(`offers a different account on the ${status} screen when ${signedIn ? "signed in" : "signed out"}`, () => {
+        if (!signedIn) user = null;
+        auth.status = status;
+        const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+        expect(html).toContain(`<button type="button">${en.cliAuthIdentity.switchAccountButton}</button>`);
+      });
+    }
+  }
+
+  test("does not offer a different account after the login code is consumed", () => {
+    auth.status = "success";
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    expect(html).not.toContain(en.cliAuthIdentity.switchAccountButton);
+  });
+
+  test("keeps the signed-out sign-in action wired to CLI authorization", () => {
+    user = null;
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    expect(html).toContain(en.cliAuthIdentity.signedOutBody);
+    auth.status = "redirecting";
+    auth.isLoading = true;
+    const redirecting = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    expect(redirecting).toContain("Completing Authorization...");
+    expect(redirecting).not.toContain("email unavailable");
   });
 
   test("keeps the account visible without exposing raw authorization errors", () => {
@@ -105,11 +143,19 @@ describe("CLI authorization account identity", () => {
   });
 
   test("localizes labels and missing account details", () => {
-    user = null;
+    user = { primaryEmail: null, selectedTeam: null };
     const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={ja.cliAuthIdentity} />);
-    for (const message of Object.values(ja.cliAuthIdentity)) {
+    const { signedOutTitle, signedOutBody, signInButton, ...signedInMessages } = ja.cliAuthIdentity;
+    for (const message of Object.values(signedInMessages)) {
       expect(html).toContain(message);
     }
     expect(html).not.toContain(en.cliAuthIdentity.emailUnavailable);
+
+    user = null;
+    const signedOut = renderToStaticMarkup(<CliAuthConfirmation identityMessages={ja.cliAuthIdentity} />);
+    for (const message of [signedOutTitle, signedOutBody, signInButton]) {
+      expect(signedOut).toContain(message);
+    }
+    expect(signedOut).not.toContain(en.cliAuthIdentity.signedOutTitle);
   });
 });

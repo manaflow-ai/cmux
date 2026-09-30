@@ -48,6 +48,8 @@ import {
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { resolveToolbarOverflow } from "./toolbar-overflow";
 import { useToolbarWidth } from "./useToolbarWidth";
+import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
+import { loadViewerPrefs, readLocalViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs, type ViewerPrefs } from "./viewer-prefs";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -89,12 +91,16 @@ type AppState = {
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
+  /** Bumped by a soft refresh so the render effect re-streams in place. */
+  renderGeneration: number;
   status: DiffViewerStatus;
   treeSource: FileTreeSource | null;
 };
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
+  | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -118,12 +124,14 @@ type AppAction =
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
-const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
-const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
+  // Display toggles persisted by previous sessions are baked into the payload
+  // by the CLI so first paint matches; the viewerPrefs bridge re-syncs them
+  // live after boot. Layout is owned by payload.layout/layoutSource.
+  const { layout: _seededLayout, ...seededOptions } = sanitizeViewerPrefs(payload.viewerOptions);
   return {
     activeItemId: "",
     activeTreePath: "",
@@ -144,13 +152,15 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       collapsed: false,
       diffIndicators: "bars",
       expandUnchanged: false,
-      layout: initialDiffViewerLayout(payload),
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,
       wordWrap: false,
+      ...seededOptions,
+      layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
     optionsOpen: false,
+    renderGeneration: 0,
     status: initialStatus,
     treeSource: null,
   };
@@ -158,6 +168,30 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
+  case "apply-persisted-options": {
+    const { layout, ...prefs } = action.prefs;
+    return {
+      ...state,
+      options: {
+        ...state.options,
+        ...prefs,
+        ...(action.allowLayout && layout != null ? { layout } : {}),
+      },
+    };
+  }
+  case "refresh":
+    return {
+      ...state,
+      activeItemId: "",
+      activeTreePath: "",
+      draft: null,
+      items: [],
+      languages: ["text"],
+      metrics: null,
+      renderGeneration: state.renderGeneration + 1,
+      status: action.status,
+      treeSource: null,
+    };
   case "append-items": {
     const nextItems = action.items.map((item) => {
       resolveDiffItemLanguage(item);
@@ -310,8 +344,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
-  const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
-  const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
+  const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
@@ -399,7 +432,9 @@ export function App({ config, initialStatus }: ConfigProps) {
     closeActiveSession,
     activeSessionSource,
     rememberResolvedSessionSource,
+    state.renderGeneration,
   );
+  useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
   useFileSearchDismiss(state.fileSearchOpen, dispatch);
@@ -451,12 +486,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
+  // Index of the last hunk reached through n/p; -1 once a file-level jump or
+  // refresh makes it stale so the next keypress re-seeds from the active file.
+  const hunkNavIndex = useRef(-1);
   const scrollToItem = useCallback((itemId: string) => {
     const current = latestState.current;
     const target = scrollTargetForItem(itemId, current.items);
     if (!target) {
       return;
     }
+    hunkNavIndex.current = -1;
     codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
     dispatch({
       type: "set-active-item",
@@ -476,6 +515,29 @@ export function App({ config, initialStatus }: ConfigProps) {
       scrollToItem(target);
     }
   }, [latestState, scrollToItem]);
+  const jumpAdjacentHunk = useCallback((direction: -1 | 1) => {
+    const current = latestState.current;
+    const anchors = buildHunkAnchors(current.items);
+    const index = nextHunkIndex(anchors, hunkNavIndex.current, current.activeItemId, direction);
+    if (index < 0) {
+      return;
+    }
+    const anchor = anchors[index];
+    hunkNavIndex.current = index;
+    codeViewRef.current?.scrollTo({
+      type: "line",
+      id: anchor.itemId,
+      lineNumber: anchor.lineNumber,
+      side: anchor.side,
+      align: "center",
+      behavior: "smooth-auto",
+    });
+    dispatch({
+      type: "set-active-item",
+      itemId: anchor.itemId,
+      treePath: current.treeSource?.treePathByItemId.get(anchor.itemId),
+    });
+  }, [latestState]);
   const handleCodeViewScroll = useCallback((scrollTop: number) => {
     codeViewScrollTopRef.current = scrollTop;
   }, []);
@@ -489,14 +551,39 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
   useFindKeyboard(dispatch, findBridgeRef);
-  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, findBridgeRef);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, jumpAdjacentHunk, findBridgeRef);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    persistDiffViewerLayout(layout);
+    saveViewerPrefs({ layout });
     dispatch({ type: "set-option", key: "layout", value: layout });
+  };
+  // Dispatches an options change and persists it globally when the key is a
+  // persisted preference (`collapsed` stays session-local).
+  const setOption = (key: keyof DiffViewerOptions, value: any) => {
+    dispatch({ type: "set-option", key, value });
+    if (key !== "collapsed") {
+      saveViewerPrefs({ [key]: value });
+    }
+  };
+  const refresh = () => {
+    // Pages with nothing to re-stream (baked status messages, or a pending
+    // replacement without a typed session) still need the full reload so a
+    // native replacement page can resolve.
+    if (isStatusOnlyPayload(payload, transport, activeSessionSource)) {
+      void closeActiveSession().then(() => window.location.reload());
+      return;
+    }
+    // Soft refresh: re-open the typed session (or re-stream the patch) in
+    // place so layout and the options-menu toggles survive (#5284).
+    hunkNavIndex.current = -1;
+    const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
+    applyDiffViewerStatusToDocument(status);
+    dispatch({ type: "refresh", status });
+    setActivePatchURL(undefined);
+    void closeActiveSession();
   };
 
   return (
@@ -540,11 +627,9 @@ export function App({ config, initialStatus }: ConfigProps) {
           setResolvedSessionSource(selectedSource);
           setActiveSessionSource(selectedSource);
         }}
-        onReload={async () => {
-          await closeActiveSession();
-          window.location.reload();
-        }}
+        onReload={refresh}
         onSetLayout={setLayout}
+        onSetOption={setOption}
         dispatch={dispatch}
         state={state}
       />
@@ -631,10 +716,6 @@ export function FilesSidebarBackdrop({
       onClick={onClose}
     />
   );
-}
-
-function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
-  return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
 }
 
 /**
@@ -749,27 +830,35 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
   if (payload.layoutSource === "explicit" && payloadLayout) {
     return payloadLayout;
   }
-  return readPersistedDiffViewerLayout() ?? payloadLayout ?? "unified";
-}
-
-function readPersistedDiffViewerLayout(): DiffViewerLayout | null {
-  try {
-    return parseDiffViewerLayout(window.localStorage.getItem(persistedLayoutKey));
-  } catch {
-    return null;
-  }
-}
-
-function persistDiffViewerLayout(layout: DiffViewerLayout): void {
-  try {
-    window.localStorage.setItem(persistedLayoutKey, layout);
-  } catch {
-    // Storage may be unavailable for some generated viewer origins.
-  }
+  // The CLI bakes the globally persisted layout into the payload at generation
+  // time; local storage only matters for pages opened outside cmux. The
+  // viewerPrefs bridge re-syncs the live value right after boot.
+  return readLocalViewerPrefs().layout ?? payloadLayout ?? "unified";
 }
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
+}
+
+function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<AppAction>) {
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) {
+      return;
+    }
+    started.current = true;
+    loadViewerPrefs()
+      .then((prefs) => {
+        dispatch({
+          type: "apply-persisted-options",
+          prefs,
+          allowLayout: payload.layoutSource !== "explicit",
+        });
+      })
+      .catch(() => {
+        // Preferences are a convenience; boot continues with payload defaults.
+      });
+  }, [dispatch, payload]);
 }
 
 function WorkerRenderOptionsSync({
@@ -794,6 +883,7 @@ function Toolbar({
   onSelectSessionSource,
   onReload,
   onSetLayout,
+  onSetOption,
   state,
   transport,
 }: {
@@ -807,6 +897,7 @@ function Toolbar({
   onSelectSessionSource: (source: DiffSource) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
   transport: DiffTransport | null;
 }) {
@@ -932,6 +1023,7 @@ function Toolbar({
           onCopyGitApply={onCopyGitApply}
           onReload={onReload}
           onSetLayout={onSetLayout}
+          onSetOption={onSetOption}
           state={state}
         />
       ) : null}
@@ -1277,6 +1369,7 @@ function OptionsMenu({
   onCopyGitApply,
   onReload,
   onSetLayout,
+  onSetOption,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
@@ -1285,9 +1378,10 @@ function OptionsMenu({
   onCopyGitApply: () => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
 }) {
-  const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
+  const toggle = (key: keyof DiffViewerOptions) => onSetOption(key, !state.options[key]);
   return (
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
@@ -1323,7 +1417,7 @@ function OptionsMenu({
               title={option.label}
               aria-label={option.label}
               aria-pressed={state.options.diffIndicators === option.value}
-              onClick={() => dispatch({ type: "set-option", key: "diffIndicators", value: option.value })}
+              onClick={() => onSetOption("diffIndicators", option.value)}
             >
               <Icon name={option.icon as IconName} />
             </button>
@@ -1703,11 +1797,15 @@ function useRenderDiff(
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
   onResolvedSessionSource: (source: DiffSource) => void,
+  renderGeneration: number,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
       return;
     }
+    // A soft refresh bumps the generation: the cleanup below closes the
+    // superseded session and this effect re-streams in place.
+    document.body.dataset.diffRenderGeneration = String(renderGeneration);
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     for (const theme of [appearance.themes.light, appearance.themes.dark]) {
@@ -1819,7 +1917,7 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, renderGeneration, sessionSource, transport]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
@@ -2012,6 +2110,7 @@ function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
   onJumpAdjacentFile: (direction: -1 | 1) => void,
+  onJumpAdjacentHunk: (direction: -1 | 1) => void,
   findBridgeRef: React.MutableRefObject<{ open: boolean; controller: DiffFindController }>,
 ) {
   useEffect(() => {
@@ -2032,6 +2131,14 @@ function useNativeViewerNavigation(
         case "diffViewerPreviousFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
+          return true;
+        case "diffViewerNextHunk":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentHunk(1);
+          return true;
+        case "diffViewerPreviousHunk":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentHunk(-1);
           return true;
         case "diffViewerOpenFind":
           dispatch({ type: "request-find" });
@@ -2063,7 +2170,7 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, findBridgeRef, onJumpAdjacentFile, viewerRef]);
+  }, [dispatch, findBridgeRef, onJumpAdjacentFile, onJumpAdjacentHunk, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

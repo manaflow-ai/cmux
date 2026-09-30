@@ -75,9 +75,13 @@ public final class NotificationDeliveryCoordinator {
     }
 
     /// Presentation options for a notification delivered while the app is in
-    /// the foreground.
-    public func presentationOptions(for notification: UNNotification) -> UNNotificationPresentationOptions {
-        presentationOptions(notificationHasSound: notification.request.content.sound != nil)
+    /// the foreground. `keepsSoundQuiet` drops the sound for a banner whose
+    /// target pane became focused after the banner was scheduled.
+    public func presentationOptions(
+        for content: UNNotificationContent,
+        keepsSoundQuiet: Bool = false
+    ) -> UNNotificationPresentationOptions {
+        presentationOptions(notificationHasSound: content.sound != nil && !keepsSoundQuiet)
     }
 
     /// Handles a notification response from `UNUserNotificationCenterDelegate`.

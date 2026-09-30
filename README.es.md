@@ -390,7 +390,7 @@ cmux es gratuito y de código abierto, y siempre lo será. Si quieres respaldar 
 
 ### ¿Tengo una solicitud de función o encontré un error?
 
-Queremos saberlo. Abre una [issue](https://github.com/manaflow-ai/cmux/issues) o un [pull request](https://github.com/manaflow-ai/cmux/pulls) en GitHub, o [escríbenos por correo](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Queremos saberlo. Abre una [issue](https://github.com/manaflow-ai/cmux/issues) o un [pull request](https://github.com/manaflow-ai/cmux/pulls) en GitHub, o [escríbenos por correo](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Historial de estrellas
 
@@ -443,4 +443,4 @@ cmux es gratuito, de código abierto, y siempre lo será. Si deseas apoyar el de
 
 cmux es código abierto bajo [GPL-3.0-or-later](LICENSE). El software de servidor de cmux (`web/`, los workers de Cloudflare y los servicios de relay indicados en [LICENSE](LICENSE)) usa en cambio la [Business Source License 1.1](web/LICENSE): puede leerlo, modificarlo y ejecutarlo para uso no productivo; el uso en producción o el autoalojamiento requieren una licencia comercial.
 
-Si su organización no puede cumplir con GPL, hay una licencia comercial disponible. Contacte a [founders@manaflow.com](mailto:founders@manaflow.com) para más detalles.
+Si su organización no puede cumplir con GPL, hay una licencia comercial disponible. Contacte a [founders@cmux.com](mailto:founders@cmux.com) para más detalles.
