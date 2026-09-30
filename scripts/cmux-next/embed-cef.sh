@@ -74,20 +74,12 @@ bundle_id="${PRODUCT_BUNDLE_IDENTIFIER:?}"
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 [[ -z "$identity" ]] && identity="-"
 
-# 1. Shim and helper binary, cached per artifact and shim source.
+# 1. Shim and helper binary, cached per artifact and shim source. The
+# cache is content-addressed and its entries are immutable
+# (build-cef-shim.sh), so concurrent builds from several worktrees share it
+# without a lock.
 cache_root="${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}"
-shim_out="$cache_root/shim/$(basename "$cef_dir")"
-lock="$shim_out.lock"
-mkdir -p "$cache_root/shim"
-waited=0
-until mkdir "$lock" 2>/dev/null; do
-  (( waited++ > 600 )) && rm -rf "$lock"
-  sleep 1
-done
-trap 'rm -rf "$lock"' EXIT
-"$SCRIPT_DIR/build-cef-shim.sh" "$cef_dir" "$shim_out"
-rm -rf "$lock"
-trap - EXIT
+shim_out="$("$SCRIPT_DIR/build-cef-shim.sh" "$cef_dir" "$cache_root/shim" | tail -n 1)"
 
 # 2. Framework and shim.
 mkdir -p "$frameworks"

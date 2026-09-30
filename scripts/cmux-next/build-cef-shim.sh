@@ -4,14 +4,19 @@
 #   libcmux_cef_shim.dylib    Packages/macOS/CmuxNext/CEFShim (C ABI for Swift)
 #   cmux-cef-helper           the subprocess binary for the helper apps
 #
-# Usage: build-cef-shim.sh <cef_dir> <out_dir>
-# Prints nothing but progress; exits non-zero on compile errors. Reuses an
-# existing build when the inputs (artifact, shim sources, this script, clang)
-# are unchanged, so it is cheap to call from every Xcode build.
+# Usage: build-cef-shim.sh <cef_dir> <cache_dir>
+# Prints the output directory on stdout (progress goes to stderr); exits
+# non-zero on compile errors. The output is content-addressed,
+# <cache_dir>/<artifact>-<key>, where the key hashes the artifact, the shim
+# header (the ABI identity) and sources, this script, clang and the target.
+# A finished directory is never changed or deleted, so worktrees and
+# concurrent builds that share the cache cannot disturb each other: a build
+# writes to a private temporary directory and renames it into place; when
+# another build got there first, that result is used.
 set -euo pipefail
 
-CEF_DIR="${1:?usage: build-cef-shim.sh <cef_dir> <out_dir>}"
-OUT_DIR="${2:?usage: build-cef-shim.sh <cef_dir> <out_dir>}"
+CEF_DIR="${1:?usage: build-cef-shim.sh <cef_dir> <cache_dir>}"
+CACHE_DIR="${2:?usage: build-cef-shim.sh <cef_dir> <cache_dir>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SHIM_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/CEFShim"
@@ -35,13 +40,17 @@ key="$(
     echo "$ARCH $MIN_OS"
   } | shasum -a 256 | awk '{print $1}'
 )"
-stamp="$OUT_DIR/.build-key"
-if [[ -f "$stamp" && "$(cat "$stamp")" == "$key" && -f "$OUT_DIR/libcmux_cef_shim.dylib" && -x "$OUT_DIR/cmux-cef-helper" ]]; then
+FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
+complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" ]]; }
+if complete "$FINAL_DIR"; then
+  echo "$FINAL_DIR"
   exit 0
 fi
 
-echo "==> building CEF shim into $OUT_DIR"
-rm -rf "$OUT_DIR"
+mkdir -p "$CACHE_DIR"
+OUT_DIR="$(mktemp -d "$CACHE_DIR/.building.XXXXXX")"
+trap 'rm -rf "$OUT_DIR"' EXIT
+echo "==> building CEF shim into $FINAL_DIR" >&2
 mkdir -p "$OUT_DIR/obj/wrapper" "$OUT_DIR/obj/shim"
 
 common=(
@@ -83,5 +92,14 @@ done
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
 
 rm -rf "$OUT_DIR/obj"
-printf '%s' "$key" > "$stamp"
-echo "==> CEF shim ready (abi ${ABI_ID:0:12})"
+printf '%s' "$key" > "$OUT_DIR/.build-key"
+# Atomic publish: rename(2) fails when the target already exists (another
+# build published the same key meanwhile, from the same inputs); keep that.
+if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$OUT_DIR" "$FINAL_DIR" 2>/dev/null; then
+  complete "$FINAL_DIR" || { echo "error: $FINAL_DIR exists but is incomplete" >&2; exit 1; }
+fi
+# Entries of older inputs: drop those unused for a week (and stale
+# temporary directories of crashed builds).
+find "$CACHE_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +7 ! -path "$FINAL_DIR" -exec rm -rf {} + 2>/dev/null || true
+echo "==> CEF shim ready (abi ${ABI_ID:0:12})" >&2
+echo "$FINAL_DIR"
