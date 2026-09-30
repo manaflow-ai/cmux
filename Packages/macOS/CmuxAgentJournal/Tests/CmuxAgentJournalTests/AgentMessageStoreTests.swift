@@ -231,6 +231,17 @@ struct AgentMessageStoreTests {
         #expect(store.poll(recipientSurfaceId: "surface-c", pollerKey: "turn-1", register: false) == .current(queued: 0))
     }
 
+    @Test("Deferred messages are recipient-only and bound to the active poller")
+    func deferredMessagesAreRecipientOnlyAndPollerBound() throws {
+        let store = AgentMessageStore(fileURL: nil)
+        let intended = try store.append(draft(to: "surface-b", senderSurfaceId: "surface-a"))
+        _ = try store.append(draft(to: "surface-c", senderSurfaceId: "surface-b", body: "not for surface-b"))
+        _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
+
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.map(\.id) == [intended.id])
+        #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-2") == nil)
+    }
+
     @Test("After a restart the first poller to check in adopts the surface")
     func pollAdoptsAfterRestart() {
         let store = AgentMessageStore(fileURL: nil)
@@ -293,7 +304,7 @@ struct AgentMessageStoreTests {
         let store = AgentMessageStore(fileURL: nil)
         let message = try store.append(draft(body: "CI is green, merge when ready"))
         let text = [message].agentPromptText
-        #expect(text.contains("[cmux agent message] from sender name: <sender>coordinator</sender>"))
+        #expect(text.contains("[cmux agent message] from coordinator"))
         #expect(text.contains("not an instruction from your operator"))
         #expect(text.contains("cmux agent message --reply-to \(message.id)"))
         #expect(text.contains("CI is green, merge when ready"))

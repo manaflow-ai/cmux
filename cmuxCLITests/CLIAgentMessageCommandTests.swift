@@ -183,6 +183,7 @@ struct CLIAgentMessageCommandTests {
         let claim = try #require(run.request("agent.message.claim")?["params"] as? [String: Any])
         #expect(claim["via"] as? String == "claude.wake")
         #expect(claim["defer_delivery"] as? Bool == true)
+        #expect((claim["poller_key"] as? String)?.isEmpty == false)
         // The poll claims nothing; the claim is a separate call made right
         // before the message is handed to Claude.
         let methods = run.requests.compactMap { $0["method"] as? String }
