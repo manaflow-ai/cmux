@@ -1,6 +1,7 @@
 "use client";
 
-import { useStackApp, useUser, type CurrentUser } from "@hexclave/next";
+import { useStackApp } from "@hexclave/next";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { type LinkOptions, useLocation } from "@tanstack/react-router";
 import {
@@ -8,6 +9,7 @@ import {
   type SettingsSubnavGroup,
   type SettingsSubnavItem,
 } from "@/dashboard-app/components/settings-ui";
+import { teamCatalogQuery } from "@/dashboard-app/queries/teams";
 
 export type SettingsNavTeam = {
   readonly id: string;
@@ -82,23 +84,19 @@ export function SettingsNav({
   );
 }
 
-/** Navigation with the project's API key flag and the user's teams. */
+/**
+ * Navigation with the project's API key flag and the viewer's teams. Teams
+ * come from the team catalog query, which every team mutation invalidates,
+ * so a created, renamed, left, or deleted team shows here at once.
+ */
 export function SettingsNavWithAccount() {
   const project = useStackApp().useProject();
-  const user = useUser({ or: "return-null" });
-  if (!user) return <SettingsNav allowUserApiKeys={project.config.allowUserApiKeys} />;
-  return <SettingsNavWithTeams user={user} allowUserApiKeys={project.config.allowUserApiKeys} />;
-}
-
-function SettingsNavWithTeams({
-  user,
-  allowUserApiKeys,
-}: {
-  readonly user: CurrentUser;
-  readonly allowUserApiKeys: boolean;
-}) {
-  const teams = user.useTeams();
-  return <SettingsNav allowUserApiKeys={allowUserApiKeys} teams={teams} />;
+  const catalog = useQuery(teamCatalogQuery);
+  const teams: SettingsNavTeam[] = (catalog.data?.teams ?? [])
+    .filter((team) => !team.personal)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((team) => ({ id: team.id, displayName: team.name, profileImageUrl: null }));
+  return <SettingsNav allowUserApiKeys={project.config.allowUserApiKeys} teams={teams} />;
 }
 
 function TeamInitial({ team }: { readonly team: SettingsNavTeam }) {
