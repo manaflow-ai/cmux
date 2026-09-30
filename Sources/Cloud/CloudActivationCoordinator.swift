@@ -72,12 +72,10 @@ final class CloudActivationCoordinator {
         )
     }
 
-    deinit {
-        activationTask?.cancel()
-        for observation in observations {
-            notificationCenter.removeObserver(observation)
-        }
-    }
+    // App composition owns this coordinator for the process lifetime. The
+    // notification closures weakly capture it, so deinit needs no actor-hop
+    // cleanup that Swift 6 would reject from a nonisolated deinitializer.
+    deinit {}
 
     /// Reconciles external flag, policy, and persisted-marker changes.
     func reconcile() {
