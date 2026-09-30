@@ -304,7 +304,7 @@ jobs:
     # Blacksmith on a rerun or outside manaflow-ai. A side runner keeps its
     # DerivedData between jobs under $RUNNER_WORKSPACE/.glaeda-state, so
     # reload.sh (whose tag is not a compiler input) recompiles only what
-    # changed. It runs in parallel with build-ios and the backend.
+    # changed. It runs in parallel with ios-simulator-build and the backend.
     needs: route
     if: >-
       success()
@@ -373,16 +373,134 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  build-ios:
-    # The tagged simulator app, also secret-free and in parallel with
-    # build-mac. Blacksmith: glaeda side runners lack the iOS platform, and
-    # the simulator pool is reached only through the ios_runner_pool picker.
+  runner:
+    # Places ios-simulator-build on a free glaeda simulator mini, as
+    # test-ios.yml's picker does (scripts/ci/ios_runner_pool.py, lane ios-e2e:
+    # one build machine, no simulator): live idle runners through the org's
+    # glaeda-route App, else the 6vcpu Blacksmith default. Its markers put the
+    # run under ci-owned-pool-rescue.yml's watch. Only the simulator mini path
+    # needs a picker: workflows may not name glaeda labels themselves.
     needs: route
     if: >-
       success()
       && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+    steps:
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane ios-e2e \
+            --fork "$FORK_PULL_REQUEST" \
+            --requested auto \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
+
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.persistent == 'true' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  ios-simulator-build:
+    # The tagged simulator app, secret-free and in parallel with build-mac.
+    # The id is glaeda's: its hook classes `ios-simulator-build` isolated (a
+    # build into its own DerivedData, no canonical root, no simulator), which
+    # is what ios/scripts/reload.sh --build-only is. On a simulator mini the
+    # DerivedData stays warm per runner under $RUNNER_WORKSPACE/.glaeda-state;
+    # the picker's Blacksmith fallback and every re-run start cold.
+    needs: [route, runner]
+    if: >-
+      success()
+      && needs.route.outputs.run_clients == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
@@ -399,9 +517,6 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Ensure iOS simulator runtime
-        run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
-
       - name: Point the build at this lane's backend
         run: |
           set -euo pipefail
@@ -417,19 +532,18 @@ jobs:
       - name: Build tagged simulator app
         run: |
           set -euo pipefail
-          # ios/scripts/reload.sh installs into a simulator; a throwaway one
-          # takes the install, and the app itself is what moves on.
-          udid="$(./scripts/e2e/boot-simulator.sh "cmux-e2e-build-${GITHUB_RUN_ID}")"
-          echo "CMUX_E2E_BUILD_SIM_UDID=$udid" >> "$GITHUB_ENV"
+          # Per runner: warm across this runner's jobs on the fleet. No
+          # simulator is touched: the mini's one simulator belongs to
+          # test-ios.yml's simulator jobs.
+          derived="$RUNNER_WORKSPACE/.glaeda-state/ios-e2e-ios-derived-data"
+          mkdir -p "$derived"
           started="$(date +%s)"
-          ./ios/scripts/reload.sh \
+          CMUX_IOS_DERIVED_DATA="$derived" ./ios/scripts/reload.sh \
             --tag "$CMUX_E2E_TAG" \
-            --simulator-id "$udid" \
-            --simulator-only \
-            --no-launch \
+            --build-only \
             --swift-frontend-workaround
           echo "build: $(( $(date +%s) - started ))s on ${RUNNER_NAME:-unknown}" >> "$GITHUB_STEP_SUMMARY"
-          ./scripts/e2e/prebuilt-apps.sh package-ios "$RUNNER_TEMP/prebuilt/ios-app.zip"
+          ./scripts/e2e/prebuilt-apps.sh package-ios "$derived" "$RUNNER_TEMP/prebuilt/ios-app.zip"
 
       - name: Upload simulator app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -439,13 +553,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
-
-      - name: Delete build simulator
-        if: always()
-        run: |
-          [ -n "${CMUX_E2E_BUILD_SIM_UDID:-}" ] || exit 0
-          xcrun simctl shutdown "$CMUX_E2E_BUILD_SIM_UDID" 2>/dev/null || true
-          xcrun simctl delete "$CMUX_E2E_BUILD_SIM_UDID" || true
 
   mac-ios-e2e:
     # The Mac and simulator share one runner. That removes the runner-to-runner
@@ -573,7 +680,7 @@ jobs:
         timeout-minutes: 75
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/e2e/wait-for-jobs.sh 4200 build-mac build-ios
+        run: ./scripts/e2e/wait-for-jobs.sh 4200 build-mac ios-simulator-build
 
       - name: Download prebuilt apps
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -692,7 +799,7 @@ jobs:
     # the route skipped the lane or the Mac job passed, red when the route ran
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
-    needs: [route, backend, build-mac, build-ios, mac-ios-e2e]
+    needs: [route, backend, build-mac, runner, ios-simulator-build, mac-ios-e2e]
     if: always()
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -706,7 +813,7 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           MAC_IOS_RESULT: ${{ needs.mac-ios-e2e.result }}
           BUILD_MAC_RESULT: ${{ needs.build-mac.result }}
-          BUILD_IOS_RESULT: ${{ needs.build-ios.result }}
+          BUILD_IOS_RESULT: ${{ needs.ios-simulator-build.result }}
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
@@ -733,7 +840,7 @@ jobs:
             fail=1
           fi
           if [ "$RUN_CLIENTS" = "true" ]; then
-            for pair in "build-mac:$BUILD_MAC_RESULT" "build-ios:$BUILD_IOS_RESULT" "mac-ios-e2e:$MAC_IOS_RESULT"; do
+            for pair in "build-mac:$BUILD_MAC_RESULT" "ios-simulator-build:$BUILD_IOS_RESULT" "mac-ios-e2e:$MAC_IOS_RESULT"; do
               if [ "${pair#*:}" != "success" ]; then
                 echo "::error::${pair%%:*}: ${pair#*:} (needed because route said run)"
                 fail=1

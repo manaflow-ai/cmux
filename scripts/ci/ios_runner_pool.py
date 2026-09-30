@@ -190,7 +190,7 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "ios-e2e.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -235,6 +235,10 @@ LANES = {
     "test-ios": Lane(jobs=2, measured=True),
     # One capture job.
     "screenshots": Lane(jobs=1, measured=False),
+    # ios-e2e.yml's ios-simulator-build: one build of the tagged simulator app
+    # (ios/scripts/reload.sh --build-only), no simulator on the mini. The
+    # simulator and the secrets stay on its Blacksmith E2E job.
+    "ios-e2e": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -292,6 +296,8 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
     if lane == "screenshots":
         return 1
+    if lane == "ios-e2e":
+        return 0
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
         return 0
@@ -503,6 +509,11 @@ def screenshots_run(run: Mapping[str, Any]) -> bool:
     return str(run.get("path") or "").split("@", 1)[0].endswith("/ios-screenshots.yml")
 
 
+def e2e_run(run: Mapping[str, Any]) -> bool:
+    """An ios-e2e.yml run, by its workflow path: one build job, no simulator on the fleet."""
+    return str(run.get("path") or "").split("@", 1)[0].endswith("/ios-e2e.yml")
+
+
 def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = None,
                      now: dt.datetime | None = None) -> int:
     """The simulator jobs an in-flight iOS run may hold, read from its title; in full when unsure.
@@ -512,6 +523,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     """
     if screenshots_run(run):
         return LANES["screenshots"].jobs
+    if e2e_run(run):
+        return sim_jobs("ios-e2e", None)
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -531,6 +544,8 @@ def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
     if screenshots_run(run):
         return LANES["screenshots"].jobs
+    if e2e_run(run):
+        return LANES["ios-e2e"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):

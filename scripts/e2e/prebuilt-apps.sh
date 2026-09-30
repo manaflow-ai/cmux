@@ -9,7 +9,7 @@
 # way reload.sh does after its own Info.plist edits.
 #
 # Usage: prebuilt-apps.sh package-mac <derived-data> <out.zip>
-#        prebuilt-apps.sh package-ios <out.zip>
+#        prebuilt-apps.sh package-ios <derived-data> <out.zip>
 #        prebuilt-apps.sh install-mac <app.zip> <credentials-file>
 #        prebuilt-apps.sh install-ios <app.zip> <simulator-udid>
 # Env: CMUX_E2E_TAG (the tag both apps were built with).
@@ -44,9 +44,8 @@ case "${1:-}" in
     zip_app "$derived/Build/Products/Debug/cmux DEV $SLUG.app" "${3:?output zip}"
     ;;
   package-ios)
-    app="$(find "$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$SLUG/Build/Products" \
-      -maxdepth 2 -type d -path '*-iphonesimulator/*.app' | head -1)"
-    zip_app "$app" "${2:?output zip}"
+    # ios/scripts/reload.sh --build-only names the product cmux.app.
+    zip_app "${2:?derived data path}/Build/Products/Debug-iphonesimulator/cmux.app" "${3:?output zip}"
     ;;
   install-mac)
     zip="${2:?app zip}"
@@ -80,7 +79,7 @@ case "${1:-}" in
     echo "installed $(basename "$app") on $udid"
     ;;
   *)
-    echo "usage: $0 package-mac <derived-data> <out.zip> | package-ios <out.zip> | install-mac <zip> <credentials> | install-ios <zip> <udid>" >&2
+    echo "usage: $0 package-mac <derived-data> <out.zip> | package-ios <derived-data> <out.zip> | install-mac <zip> <credentials> | install-ios <zip> <udid>" >&2
     exit 2
     ;;
 esac

@@ -3071,9 +3071,20 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}]}[workflow]
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}],
+                        "ios-e2e.yml": []}[workflow]
         # Untitled runs are charged in full: two in flight, two simulators each.
         self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
+
+    def test_an_ios_e2e_run_is_charged_one_build_machine_and_no_simulator(self):
+        # ios-e2e.yml puts only ios-simulator-build (reload.sh --build-only) on
+        # the fleet; its simulator runs on the Blacksmith E2E job.
+        run = {"id": 5, "status": "queued", "path": ".github/workflows/ios-e2e.yml@refs/heads/main",
+               "display_title": "iOS E2E"}
+        self.assertEqual(ios_pool.charged_jobs(run), 1)
+        self.assertEqual(ios_pool.charged_sim_jobs(run), 0)
+        self.assertEqual(ios_pool.sim_jobs("ios-e2e", None), 0)
+        self.assertEqual(ios_pool.run_jobs("ios-e2e"), 1)
 
     def test_in_flight_ios_runs_are_charged_what_their_title_needs(self):
         def title(package="simulator", family="both", runner="auto"):
@@ -3329,7 +3340,7 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "ios-e2e.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
