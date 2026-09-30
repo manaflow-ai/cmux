@@ -12,6 +12,9 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
     public var latestNotificationCreatedAt: Date?
     /// Whether the workspace has a latest notification that can be cleared.
     public var hasLatestNotification: Bool
+    /// Whether the workspace has an unread notification, excluding read
+    /// notification history and local unread indicators.
+    public var hasUnreadNotification: Bool
 
     /// Creates one workspace unread summary.
     public init(
@@ -19,13 +22,15 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
         latestNotificationText: String?,
         latestNotificationId: UUID? = nil,
         latestNotificationCreatedAt: Date? = nil,
-        hasLatestNotification: Bool = false
+        hasLatestNotification: Bool = false,
+        hasUnreadNotification: Bool = false
     ) {
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
         self.latestNotificationId = latestNotificationId
         self.latestNotificationCreatedAt = latestNotificationCreatedAt
         self.hasLatestNotification = hasLatestNotification
+        self.hasUnreadNotification = hasUnreadNotification
     }
 }
 

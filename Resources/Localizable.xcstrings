@@ -301472,6 +301472,124 @@
         }
       }
     },
+    "settings.app.showUnreadStyling.subtitle":     {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a bolder workspace title when an agent session has unread attention."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace-Titel von Sitzungen mit ungelesener Aufmerksamkeit fett anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser un titre d’espace de travail plus gras lorsqu’une session d’agent requiert votre attention."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم عنوان مساحة عمل أكثر سمكًا عندما تتطلب جلسة وكيل الانتباه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar un título de espacio de trabajo en negrita cuando una sesión de agente tenga atención sin leer."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當代理工作階段有未讀提醒時，使用較粗的工作區標題。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当代理会话有未读提醒时，使用更粗的工作区标题。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션에 읽지 않은 알림이 있으면 작업 공간 제목을 굵게 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションに未読の通知があるとき、ワークスペースのタイトルを太字で表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.showUnreadStyling":     {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Unread Session Styling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungelesene Sitzungskennzeichnung anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le style des sessions non lues"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تنسيق الجلسات غير المقروءة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar estilo de sesión no leída"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示未讀工作階段樣式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示未读会话样式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않은 세션 스타일 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読セッションのスタイルを表示"
+          }
+        }
+      }
+    },
     "settings.app.showWorkspaceDescription": {
       "extractionState": "manual",
       "localizations": {

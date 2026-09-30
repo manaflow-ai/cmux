@@ -55,6 +55,7 @@ private struct WorkspacePanelContentHostView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
     let hasUnreadNotification: Bool
+    let notificationCount: Int
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -111,6 +112,11 @@ private struct WorkspacePanelContentHostView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if isVisibleInUI {
+                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+            }
+        }
+        .onChange(of: notificationCount) { _, _ in
             if isVisibleInUI {
                 workspace.markVisibleAgentSessionRead(panelId: panel.id)
             }
@@ -273,6 +279,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         onOuterFocus: { workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId) },
+                        notificationCount: notificationStore.notifications.count,
                         unreadSurfaceIDs: Set(
                             windowMirror.surfaceIDsInLayoutOrder.lazy
                                 .filter {
@@ -308,6 +315,7 @@ struct WorkspaceContentView: View {
                         windowAppearance: windowAppearance,
                         customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        notificationCount: notificationStore.notifications.count,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -385,7 +393,6 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
-            workspace.markVisibleSessionUnreadRead()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()

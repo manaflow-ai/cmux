@@ -37,9 +37,7 @@ extension Workspace {
     func markAgentSessionUnread(panelId: UUID, event _: AgentSessionUnreadEvent) {
         guard panels[panelId] != nil else { return }
         guard !isAgentSessionPanelVisible(panelId) else { return }
-        let hasWorkspaceNotification = AppDelegate.shared?.notificationStore?
-            .hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false
-        guard !hasUnreadNotification(panelId: panelId), !hasWorkspaceNotification else { return }
+        guard !hasUnreadNotification(panelId: panelId) else { return }
         restorePanelUnreadIndicator(panelId, contributesToWorkspaceUnread: true)
     }
 
