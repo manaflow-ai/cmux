@@ -181,6 +181,8 @@ final class PaneDropTargetView: NSView {
             clearDragState(phase: "perform.clear")
             transferDropRouter.clear()
         }
+        // Hide before the drop mutates the layout; see hideDropZoneOverlayForPerformedDrop.
+        hideDropZoneOverlayImmediately()
 
         guard let dropContext else {
 #if DEBUG
@@ -437,6 +439,15 @@ final class PaneDropTargetView: NSView {
                 self.addSubview(self.dropZoneOverlayView, positioned: .above, relativeTo: nil)
             }
         )
+    }
+
+    private func hideDropZoneOverlayImmediately() {
+        activeZone = nil
+        if let hostedView {
+            hostedView.hideDropZoneOverlayForPerformedDrop()
+        } else {
+            dropZoneOverlayAnimator.hideImmediately()
+        }
     }
 
     private func clearDragState(phase: String) {

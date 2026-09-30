@@ -11821,6 +11821,20 @@ final class GhosttySurfaceScrollView: NSView {
         applyDropZoneOverlay(zone: paneDragDropZone ?? forwardedDropZone)
     }
 
+    /// Removes the highlight at once when a drop is performed. The drop may
+    /// split or move this pane in the same turn, and a fading highlight would
+    /// be drawn into the new layout.
+    func hideDropZoneOverlayForPerformedDrop() {
+        paneDragDropZone = nil
+        forwardedDropZone = nil
+        activeDropZone = nil
+        pendingDropZone = nil
+        dropZoneOverlayAnimator.hideImmediately()
+#if DEBUG
+        logDropZoneOverlay(event: "hideForDrop", zone: nil, frame: nil)
+#endif
+    }
+
     private func applyDropZoneOverlay(zone: DropZone?) {
         if let zone, (bounds.width <= 2 || bounds.height <= 2) {
             pendingDropZone = zone
