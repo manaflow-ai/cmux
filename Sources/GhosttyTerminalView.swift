@@ -274,6 +274,11 @@ class GhosttyApp {
         }
     )
 
+    /// The process-wide per-surface "output since last scrollback checkpoint"
+    /// flags. The PTY tee bridge sets them; the app delegate's checkpoint
+    /// coordinator and persist step read and re-arm the same instance.
+    static let terminalScrollbackCheckpointActivity = TerminalScrollbackCheckpointActivity()
+
     /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -317,7 +322,9 @@ class GhosttyApp {
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
-        byteTee: TerminalOutputByteTeeBridge(),
+        byteTee: TerminalOutputByteTeeBridge(
+            scrollbackCheckpointActivity: GhosttyApp.terminalScrollbackCheckpointActivity
+        ),
         rendererRealization: RendererRealizationController.shared,
         hibernationRecorder: TerminalAgentHibernationRecorder(),
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
