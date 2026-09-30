@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -35,6 +36,8 @@ def run_wrapper(
     restore_token: str | None = None,
     inject_args_available: bool = True,
     subrouter_marker: str | None = None,
+    fork_parent_session_id: str | None = None,
+    fork_launch_id: str | None = None,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -71,6 +74,9 @@ done
   printf 'CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND=%s\\n' "${CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_PARENT_SESSION_ID=%s\\n' "${CMUX_AGENT_FORK_PARENT_SESSION_ID-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_LAUNCH_AT=%s\\n' "${CMUX_AGENT_FORK_LAUNCH_AT-__UNSET__}"
+  printf 'CMUX_AGENT_FORK_LAUNCH_ID=%s\\n' "${CMUX_AGENT_FORK_LAUNCH_ID-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -104,6 +110,10 @@ if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "session-start" 
   cat >/dev/null
   exit 0
 fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "monitor" ]]; then
+  printf 'fork-watch=%s\\n' "$*" >> "$FAKE_CMUX_LOG"
+  exit 0
+fi
 exit 1
 """,
         )
@@ -120,6 +130,13 @@ exit 1
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
+        for key in (
+            "CMUX_CUSTOM_CODEX_PATH",
+            "CMUX_CODEX_WRAPPER_SHIM",
+            "CMUX_CODEX_WRAPPER_SHIM_ROOT",
+            "CMUX_CODEX_HOOK_CMUX_BIN",
+        ):
+            env.pop(key, None)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_ENV_LOG"] = str(real_env_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
@@ -143,6 +160,14 @@ exit 1
         else:
             env.pop("SUBROUTER_CODEX_RESUME_COMMAND", None)
             env.pop("CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND", None)
+        if fork_parent_session_id is not None:
+            env["CMUX_AGENT_FORK_PARENT_SESSION_ID"] = fork_parent_session_id
+            env["CMUX_AGENT_FORK_LAUNCH_AT"] = str(time.time())
+            env["CMUX_AGENT_FORK_LAUNCH_ID"] = fork_launch_id or "fork-launch-test"
+        else:
+            env.pop("CMUX_AGENT_FORK_PARENT_SESSION_ID", None)
+            env.pop("CMUX_AGENT_FORK_LAUNCH_AT", None)
+            env.pop("CMUX_AGENT_FORK_LAUNCH_ID", None)
 
         try:
             proc = subprocess.run(
@@ -153,6 +178,13 @@ exit 1
                 text=True,
                 check=False,
             )
+            if fork_parent_session_id is not None:
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    lines = read_lines(cmux_log)
+                    if any("fork-watch=" in line for line in lines):
+                        break
+                    time.sleep(0.01)
         finally:
             if test_socket is not None:
                 test_socket.close()
@@ -254,6 +286,39 @@ def test_direct_fork_is_instrumented(failures: list[str]) -> None:
         )
 
 
+def test_direct_fork_starts_identity_watch(failures: list[str]) -> None:
+    parent = "0198f073-0a5b-7000-8000-000000000059"
+    code, _, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="live",
+        argv=["fork", parent],
+        fork_parent_session_id=parent,
+        fork_launch_id="fork-launch-test",
+    )
+    expect(code == 0, f"fork-watch: wrapper exited {code}: {stderr}", failures)
+    for marker in (
+        "CMUX_AGENT_FORK_PARENT_SESSION_ID",
+        "CMUX_AGENT_FORK_LAUNCH_AT",
+        "CMUX_AGENT_FORK_LAUNCH_ID",
+    ):
+        expect(
+            observed_env.get(marker) == "__UNSET__",
+            f"fork-watch: {marker} leaked into nested Codex process: {observed_env}",
+            failures,
+        )
+    expect(
+        any(
+            "hooks codex monitor" in line
+                and "--fork-parent" in line
+                and parent in line
+                and "--fork-launch-id fork-launch-test" in line
+                and "--fork-owner-pid" in line
+            for line in cmux_log
+        ),
+        f"fork-watch: wrapper did not start a parent-correlated watcher: {cmux_log}",
+        failures,
+    )
+
+
 def test_explicit_disable_still_bypasses_hooks(failures: list[str]) -> None:
     code, real_argv, cmux_log, _, stderr = run_wrapper(
         socket_state="stale",
@@ -350,6 +415,7 @@ def main() -> int:
     failures: list[str] = []
     test_every_resume_route_is_instrumented(failures)
     test_direct_fork_is_instrumented(failures)
+    test_direct_fork_starts_identity_watch(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
     test_stale_socket_fresh_launch_is_instrumented(failures)
     test_restore_tokens_do_not_gate_instrumentation(failures)

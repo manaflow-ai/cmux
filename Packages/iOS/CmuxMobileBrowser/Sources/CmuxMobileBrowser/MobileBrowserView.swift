@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileSupport
 public import SwiftUI
 public import UIKit
 public import WebKit
@@ -16,29 +17,38 @@ public import WebKit
 public struct MobileBrowserView: UIViewRepresentable {
     /// The state this view drives and reflects.
     public let state: BrowserSurfaceState
+    private let serverRoute: BrowserServerRoute?
     private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
 
     /// Creates a browser view bound to a surface state.
-    /// - Parameter state: The browser surface state to host.
+    /// - Parameters:
+    ///   - state: The browser surface state to host.
+    ///   - serverRoute: In an SSH workspace, browses through that computer
+    ///     (its proxy and private data store). Fixed for the web view's
+    ///     lifetime: key the view on it. `nil` browses from the phone.
     public init(
         state: BrowserSurfaceState,
+        serverRoute: BrowserServerRoute? = nil,
         onDiagnosticEvent: @escaping @MainActor (BrowserSurfaceDiagnosticEvent) -> Void = { _ in }
     ) {
         self.state = state
+        self.serverRoute = serverRoute
         self.onDiagnosticEvent = onDiagnosticEvent
     }
 
     /// Builds the coordinator that owns the web view and its observations.
     /// - Returns: A new ``Coordinator``.
     public func makeCoordinator() -> Coordinator {
-        Coordinator(state: state, onDiagnosticEvent: onDiagnosticEvent)
+        let coordinator = Coordinator(state: state, onDiagnosticEvent: onDiagnosticEvent)
+        coordinator.serverRoute = serverRoute
+        return coordinator
     }
 
     /// Creates and configures the hosted `WKWebView`.
     /// - Parameter context: The representable context carrying the coordinator.
     /// - Returns: The configured web view.
     public func makeUIView(context: Context) -> WKWebView {
-        let webView = Self.makeConfiguredWebView()
+        let webView = Self.makeConfiguredWebView(dataStore: serverRoute?.dataStore)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.attach(webView: webView)
@@ -48,11 +58,12 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// Builds the hosted web view with the surface's fixed configuration,
     /// independent of the SwiftUI `Context` so the gesture policy can be
     /// unit-tested.
-    static func makeConfiguredWebView() -> WKWebView {
+    static func makeConfiguredWebView(dataStore: WKWebsiteDataStore? = nil) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // Default persistent data store: cookies/localStorage persist on the
-        // phone across launches. Cross-device sync with the Mac is P2.
-        configuration.websiteDataStore = .default()
+        // phone across launches. Cross-device sync with the Mac is P2. An SSH
+        // computer's browser uses that computer's private proxied store.
+        configuration.websiteDataStore = dataStore ?? .default()
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
         // Off, by design: the browser pane is pushed onto the workspace
@@ -89,6 +100,14 @@ public struct MobileBrowserView: UIViewRepresentable {
         private let onDiagnosticEvent: @MainActor (BrowserSurfaceDiagnosticEvent) -> Void
         private weak var webView: WKWebView?
         private var observations: [NSKeyValueObservation] = []
+        /// Browses through an SSH computer (SSH workspaces).
+        var serverRoute: BrowserServerRoute?
+        /// Readies the route for the latest load or command. A newer one
+        /// cancels it so a slow reconnect never overrides the user.
+        private var routeTask: Task<Void, Never>?
+        /// Whether the current navigation already retried after readying the
+        /// route again, so a dead computer cannot cause a retry loop.
+        private var retriedThroughRoute = false
 
         /// Creates a coordinator for a surface state.
         /// - Parameter state: The surface state to mirror web-view changes into.
@@ -116,7 +135,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             let hadPendingLoad = state.loadRequest != nil
             applyPendingWork()
             if !hadPendingLoad, webView.url == nil, let restore = state.currentURL {
-                webView.load(URLRequest(url: restore))
+                load(URLRequest(url: restore), in: webView)
             }
         }
 
@@ -125,10 +144,18 @@ public struct MobileBrowserView: UIViewRepresentable {
         func applyPendingWork() {
             guard let webView else { return }
             if let url = state.consumeLoadRequest() {
-                webView.load(URLRequest(url: url))
+                retriedThroughRoute = false
+                load(URLRequest(url: url), in: webView)
             }
             if let command = state.consumeCommand() {
-                run(command, on: webView)
+                switch command {
+                case .reload, .goBack, .goForward:
+                    // Reconnects first when the computer dropped meanwhile.
+                    withReadyRoute(for: webView.url, in: webView) { $0.run(command, on: $1) }
+                case .stopLoading:
+                    routeTask?.cancel()
+                    run(command, on: webView)
+                }
             }
         }
 
@@ -145,9 +172,54 @@ public struct MobileBrowserView: UIViewRepresentable {
             }
         }
 
+        /// Loads `request`, first readying the SSH computer's route (proxy
+        /// and loopback ports) in an SSH workspace. The URL is never
+        /// rewritten: the page keeps its real origin.
+        func load(_ request: URLRequest, in webView: WKWebView) {
+            withReadyRoute(for: request.url, in: webView) { _, webView in webView.load(request) }
+        }
+
+        /// Runs `body` now without a route, or after readying it.
+        private func withReadyRoute(
+            for url: URL?,
+            in webView: WKWebView,
+            _ body: @escaping @MainActor (Coordinator, WKWebView) -> Void
+        ) {
+            routeTask?.cancel()
+            routeTask = nil
+            guard let serverRoute else {
+                body(self, webView)
+                return
+            }
+            routeTask = Task { [weak self, weak webView] in
+                self?.state.navigationDidStart()
+                do {
+                    try await serverRoute.ready(for: url)
+                } catch {
+                    guard !Task.isCancelled, let self else { return }
+                    self.routeTask = nil
+                    self.state.navigationDidFail(message: Self.routeFailureMessage, url: url)
+                    self.onDiagnosticEvent(.navigateFailed(error))
+                    return
+                }
+                guard !Task.isCancelled, let self, let webView else { return }
+                self.routeTask = nil
+                body(self, webView)
+            }
+        }
+
+        static var routeFailureMessage: String {
+            L10n.string(
+                "mobile.browser.route.failed",
+                defaultValue: "Couldn't connect to the computer. Check that it's reachable, then try again."
+            )
+        }
+
         /// Cancels all observations and releases the web view. Called on
         /// dismantle so the surface leaves no dangling KVO registrations.
         func detach() {
+            routeTask?.cancel()
+            routeTask = nil
             observations.forEach { $0.invalidate() }
             observations.removeAll()
             webView?.navigationDelegate = nil
@@ -174,11 +246,12 @@ public struct MobileBrowserView: UIViewRepresentable {
                 },
                 webView.observe(\.url) { [state] webView, _ in
                     MainActor.assumeIsolated {
-                        state.currentURL = webView.url
+                        let url = webView.url
+                        state.currentURL = url
                         // Do not clobber the user's in-progress typing: only
                         // mirror the live URL into the address bar when the user
                         // is not editing it.
-                        if let url = webView.url, !state.isAddressEditing {
+                        if let url, !state.isAddressEditing {
                             state.addressText = url.absoluteString
                         }
                     }
@@ -194,12 +267,31 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         // MARK: - WKNavigationDelegate
 
+        /// A link to a `localhost` port the SSH computer has not mirrored
+        /// yet waits until it is, so it reaches the computer's port.
+        public func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let serverRoute,
+                  navigationAction.targetFrame?.isMainFrame != false,
+                  let url = navigationAction.request.url,
+                  serverRoute.needsReady(for: url) else {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            load(navigationAction.request, in: webView)
+        }
+
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             state.navigationDidStart()
             onDiagnosticEvent(.navigateStarted)
         }
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            retriedThroughRoute = false
             state.navigationDidFinish()
             onDiagnosticEvent(.navigateSucceeded)
             if let title = webView.title, !title.isEmpty {
@@ -208,14 +300,28 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            failNavigation(with: error)
+            failNavigation(with: error, beforeCommit: false)
         }
 
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-            failNavigation(with: error)
+            if retryThroughReadiedRoute(after: error, in: webView) { return }
+            failNavigation(with: error, beforeCommit: true)
         }
 
-        private func failNavigation(with error: any Error) {
+        /// The proxy and loopback forwards end with the SSH connection. When
+        /// a load through the computer fails to connect, ready the route
+        /// again (reconnecting SSH) and retry once.
+        private func retryThroughReadiedRoute(after error: any Error, in webView: WKWebView) -> Bool {
+            let nsError = error as NSError
+            guard serverRoute != nil, !retriedThroughRoute,
+                  !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled),
+                  let failing = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL else { return false }
+            retriedThroughRoute = true
+            load(URLRequest(url: failing), in: webView)
+            return true
+        }
+
+        private func failNavigation(with error: any Error, beforeCommit: Bool) {
             // A cancelled load reports `NSURLErrorCancelled`. This is not a
             // failure to surface; it happens on a user stop AND when a new
             // navigation replaces an in-flight one. Mirror the web view's real
@@ -227,7 +333,10 @@ public struct MobileBrowserView: UIViewRepresentable {
                 if !state.isLoading { state.estimatedProgress = 0 }
                 return
             }
-            state.navigationDidFail(message: error.localizedDescription)
+            let failing = beforeCommit
+                ? nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+                : nil
+            state.navigationDidFail(message: error.localizedDescription, url: failing)
             onDiagnosticEvent(.navigateFailed(error))
         }
 

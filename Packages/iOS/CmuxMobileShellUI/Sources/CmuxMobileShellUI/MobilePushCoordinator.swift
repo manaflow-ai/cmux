@@ -120,6 +120,7 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
     @ObservationIgnored private var pendingDeeplinkTimedOutID: UUID?
     @ObservationIgnored private var pendingDeeplinkRecheckTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingDeeplinkRetryTask: Task<Void, Never>?
     /// Set when a tapped terminal is proven unavailable after the connection
     /// is ready. It remains observable so a cold-launch tap can present the
     /// alert after the root mounts.
@@ -1036,6 +1037,7 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(.pushTapped)
         tabUnavailableAlert = nil
         pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkRetryTask?.cancel()
         pendingDeeplinkTimedOutID = nil
         pendingDeeplink = PendingDeeplink(
             id: UUID(),
@@ -1064,21 +1066,30 @@ public final class MobilePushCoordinator {
     public func retryPendingDeeplink() {
         tabUnavailableAlert = nil
         pendingDeeplinkTimedOutID = nil
-        schedulePendingDeeplinkRecheck()
-        applyPendingDeeplinkIfReady()
         guard let pending = pendingDeeplink else { return }
-        // SwiftUI dismisses the alert as soon as its retry action runs. If
-        // the connection is still unavailable, publish a fresh alert identity
-        // so the existing recovery controls remain available until the
-        // parked notification resolves or the user cancels it.
-        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
-        guard let store else { return }
-        Task { @MainActor [weak self] in
+        pendingDeeplinkRetryTask?.cancel()
+        pendingDeeplinkRetryTask = Task { @MainActor [weak self] in
+            guard let self, let store = self.store,
+                  self.pendingDeeplink?.id == pending.id else { return }
+            // Reconnect first. The old implementation re-ran deeplink
+            // resolution and immediately recreated the alert before the
+            // explicit dial started, allowing a concurrent automatic recovery
+            // to win the route gate. Resolve only after the manual recovery
+            // owner has finished publishing its connection and snapshot.
             await store.reconnectToMac(
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
             )
-            self?.workspacesDidChange()
+            guard self.pendingDeeplink?.id == pending.id else { return }
+            self.pendingDeeplinkRetryTask = nil
+            self.schedulePendingDeeplinkRecheck()
+            self.workspacesDidChange()
+            // Keep the recovery control available only when the completed
+            // recovery did not make the target usable. A successful recovery
+            // resolves and clears the parked request synchronously above.
+            if self.pendingDeeplink?.id == pending.id {
+                self.tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+            }
         }
     }
 
@@ -1288,6 +1299,8 @@ public final class MobilePushCoordinator {
         pendingDeeplinkTimedOutID = nil
         pendingDeeplinkRecheckTask?.cancel()
         pendingDeeplinkRecheckTask = nil
+        pendingDeeplinkRetryTask?.cancel()
+        pendingDeeplinkRetryTask = nil
     }
 
     private func schedulePendingDeeplinkRecheck() {

@@ -13,7 +13,8 @@ extension RemoteSessionCoordinator {
     /// Matches the connection-sharing defaults used by foreground authentication.
     var reverseRelayControlMasterSSHOptions: [String] {
         connectionBroker.sharingOptions.mergingDefaults(
-            into: configuration.sshOptions
+            into: configuration.sshOptions,
+            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
     }
 
