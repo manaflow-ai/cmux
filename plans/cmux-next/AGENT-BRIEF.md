@@ -21,7 +21,7 @@
 ## Landing work: push directly, no PRs (user decision 2026-09-29)
 
 - Work in your own worktree/branch as before (isolation is still required), but do NOT open a PR.
-- To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`; cmux-tui changes still need the hosted verification green first.
+- To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`, `scripts/cmux-next/check-crash-safety.sh`; cmux-tui changes still need the hosted verification green first.
 - Then `git push origin HEAD:feat-cmux-next`. If rejected (someone pushed first), rebase again, re-run the gate, push again. Never force-push feat-cmux-next.
 - Keep commits self-describing (what/why, root cause for fixes, failing-test commit before the fix for regressions) since there is no PR body; end each with the Co-Authored-By trailer.
 - Report the landed commit SHAs in your final reply.
