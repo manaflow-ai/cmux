@@ -52,7 +52,10 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
         reports.append(size)
         reportIDs[size] = reportID
         if let mac = autoEchoMacGrid {
-            surfaceView.markViewportReportConfirmed()
+            // The production coordinator settles the report by ID before it
+            // applies the echo (`GhosttySurfaceRepresentable`); the sizing
+            // chrome waits for that settlement.
+            surfaceView.markViewportReportConfirmed(reportID: reportID)
             surfaceView.applyConfirmedViewSize(
                 cols: min(size.columns, mac.cols),
                 rows: min(size.rows, mac.rows),
@@ -166,11 +169,12 @@ private final class ViewportSpacingHarness {
     /// the ID the view stamped on that report — exactly what the production
     /// coordinator hands back when the RPC for that report resolves.
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
-        view.markViewportReportConfirmed()
+        let reportID = delegate.reportIDs[report] ?? 0
+        view.markViewportReportConfirmed(reportID: reportID)
         view.applyConfirmedViewSize(
             cols: min(report.columns, macColumns),
             rows: min(report.rows, macRows),
-            reportID: delegate.reportIDs[report] ?? 0
+            reportID: reportID
         )
     }
 
