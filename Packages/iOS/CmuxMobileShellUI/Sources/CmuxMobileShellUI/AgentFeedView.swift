@@ -27,6 +27,7 @@ struct AgentFeedView: View {
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
     @State private var readingItem: MobileAgentFeedItem?
+    @State private var refreshTimedOut = false
 
     init(
         items: [MobileAgentFeedItem],
@@ -98,7 +99,7 @@ struct AgentFeedView: View {
 
     var body: some View {
         Group {
-            switch status {
+            switch refreshTimedOut ? .unavailable : status {
             case .idle, .loading where items.isEmpty:
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -135,18 +136,35 @@ struct AgentFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
-            await actions.refresh()
+            refreshTimedOut = !(await refreshWithTimeout())
         }
         .onChange(of: items) { _, newItems in
             preparedRows = newItems.map(AgentFeedRowModel.init)
         }
     }
 
+    private func refreshWithTimeout() async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await actions.refresh()
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(15))
+                return false
+            }
+            let completed = await group.next() ?? false
+            group.cancelAll()
+            return completed
+        }
+    }
+
     private var feedList: some View {
         List {
-            if !items.isEmpty, status == .unavailable || status == .requiresMacUpdate {
+            let effectiveStatus = refreshTimedOut ? MobileNotificationFeedStatus.unavailable : status
+            if !items.isEmpty, effectiveStatus == .unavailable || effectiveStatus == .requiresMacUpdate {
                 Section {
-                    AgentFeedAvailabilityBanner(status: status)
+                    AgentFeedAvailabilityBanner(status: effectiveStatus)
                 }
             }
             Section {
