@@ -24,6 +24,11 @@ and duplication. Creating a new browser surface still requires a local browser
 creation path, so browser creation and split commands are intentionally omitted
 from a Cloud workspace until a Cloud browser creation route exists.
 
+The Cloud palette includes **Show Cloud command availability**, which explains
+these local-only categories in the current locale. It is available whenever a
+Cloud workspace is selected, including when the Cloud VM feature gate changes
+while a workspace is already open.
+
 ## Verification
 
 To verify the routing against a real machine, select an authorized Cloud

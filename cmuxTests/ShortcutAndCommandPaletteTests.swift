@@ -870,86 +870,16 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
-    func testCloudCapabilityMatrixClassifiesRepresentativeCommands() {
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.newTerminalTab"),
-            .shared
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.terminalSplitRight"),
-            .shared
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.browserBack"),
-            .shared
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudStatusCommandId),
-            .cloudOnly
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudForkCommandId),
-            .cloudOnly
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: ContentView.commandPaletteCloudNewMachineCommandId),
-            .shared
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.browserSplitRight"),
-            .localOnly
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.openDirectoryDiffViewer"),
-            .localOnly
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteCloudCapability(for: "palette.terminalOpenDirectory.finder"),
-            .localOnly
-        )
-    }
-
-    func testCloudCapabilityFilterHidesLocalActionsAndScopesCloudActions() {
-        var localContext = CommandPaletteContextSnapshot()
+    func testCloudAvailabilityInfoAppearsOnlyForCloudWorkspace() {
+        let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution()
+        let localContext = CommandPaletteContextSnapshot()
         var cloudContext = CommandPaletteContextSnapshot()
         cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
 
-        XCTAssertTrue(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: "palette.terminalSplitRight",
-                context: localContext
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: "palette.terminalSplitRight",
-                context: cloudContext
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: ContentView.commandPaletteCloudStatusCommandId,
-                context: cloudContext
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: ContentView.commandPaletteCloudStatusCommandId,
-                context: localContext
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: "palette.browserSplitRight",
-                context: cloudContext
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteCloudCapabilityAllows(
-                commandId: "palette.browserSplitRight",
-                context: localContext
-            )
-        )
+        XCTAssertFalse(contribution.when(localContext))
+        XCTAssertTrue(contribution.when(cloudContext))
+        XCTAssertEqual(contribution.title(cloudContext), "Show Cloud command availability")
+        XCTAssertEqual(contribution.subtitle(cloudContext), "Cloud workspace")
     }
 
     @MainActor

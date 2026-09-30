@@ -549214,14 +549214,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -600240,6 +600280,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.agentAutoResume auto resume continue retry capacity overloaded agent error 自動再開 続行 再試行 容量 過負荷 エージェント エラー"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-Terminal-, Browser-, Arbeitsbereichs- und VM-Befehle bleiben hier verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de terminal, de navigateur, d’espace de travail et de VM Cloud restent disponibles ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. وتبقى أوامر طرفية Cloud والمتصفح ومساحة العمل والآلة الافتراضية متاحة هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Los comandos de terminal, navegador, espacio de trabajo y VM de Cloud siguen disponibles aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud 終端機、瀏覽器、工作區和 VM 指令在此仍可使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud 终端、浏览器、工作区和 VM 命令在此仍可使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud 터미널, 브라우저, 작업 공간 및 VM 명령은 여기서 계속 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud のターミナル、ブラウザ、ワークスペース、VM コマンドはここで引き続き利用できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some commands are local-only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Befehle sind nur lokal verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines commandes sont uniquement locales"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعض الأوامر محلية فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algunos comandos solo están disponibles localmente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分指令僅限本機使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分命令仅限本地使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 명령어는 로컬에서만 사용 가능"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のコマンドはローカル専用です"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل سحابية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 작업 공간"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペース"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud command availability"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verfügbarkeit von Cloud-Befehlen anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la disponibilité des commandes Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مدى توفر أوامر السحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidad de comandos de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cloud 指令可用性"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cloud 命令可用性"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 명령어 사용 가능 여부 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud コマンドの利用状況を表示"
           }
         }
       }

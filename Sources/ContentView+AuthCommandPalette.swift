@@ -3,78 +3,7 @@ import CmuxCommandPalette
 import AppKit
 import Foundation
 
-/// Describes where a command-palette action can run relative to a managed
-/// Cloud workspace. The command materializer applies this once for every
-/// contribution, keeping palette visibility aligned with the shared action
-/// routing paths instead of duplicating gates in individual contributions.
-enum CommandPaletteCloudCapability: Equatable {
-    /// The action is valid for both local and Cloud workspaces.
-    case shared
-    /// The action needs a selected Cloud workspace and its current VM.
-    case cloudOnly
-    /// The action creates or reads a resource on this Mac's local filesystem
-    /// or local browser stack and cannot target a Cloud workspace.
-    case localOnly
-}
-
 extension ContentView {
-    /// Returns the Cloud capability for every built-in command-palette action.
-    /// Unknown and user-configured actions remain shared so custom actions keep
-    /// their existing behavior unless they opt into their own routing checks.
-    static func commandPaletteCloudCapability(for commandId: String) -> CommandPaletteCloudCapability {
-        if commandId.hasPrefix("palette.terminalOpenDirectory.") {
-            return .localOnly
-        }
-
-        switch commandId {
-        case commandPaletteCloudForkCommandId,
-             commandPaletteCloudSnapshotCommandId,
-             commandPaletteCloudRestoreCommandId,
-             commandPaletteCloudPromoteTemplateCommandId,
-             commandPaletteCloudStatusCommandId,
-             commandPaletteCloudPortsCommandId,
-             commandPaletteCloudToolsCommandId,
-             commandPaletteCloudHandoffCommandId:
-            return .cloudOnly
-        case "palette.newBrowserWorkspace",
-             "palette.newAgentChat",
-             "palette.newBrowserTab",
-             "palette.newSimulatorPane",
-             "palette.openFolder",
-             "palette.openFolderInVSCodeInline",
-             "palette.openWorkspacePullRequests",
-             "palette.openDiffViewer",
-             "palette.openDirectoryDiffViewer",
-             "palette.findInDirectory",
-             "palette.vscodeServeWebStop",
-             "palette.vscodeServeWebRestart",
-             "palette.browserSplitRight",
-             "palette.browserSplitDown",
-             "palette.terminalSplitBrowserRight",
-             "palette.terminalSplitBrowserDown":
-            return .localOnly
-        default:
-            return .shared
-        }
-    }
-
-    /// Applies the capability classification to a palette context snapshot.
-    /// Cloud-only commands are scoped to the selected VM; local-only commands
-    /// are omitted while a Cloud workspace is selected.
-    static func commandPaletteCloudCapabilityAllows(
-        commandId: String,
-        context: CommandPaletteContextSnapshot
-    ) -> Bool {
-        switch commandPaletteCloudCapability(for: commandId) {
-        case .shared:
-            return true
-        case .cloudOnly:
-            return context.bool(CommandPaletteContextKeys.workspaceIsCloud)
-        case .localOnly:
-            return !context.bool(CommandPaletteContextKeys.workspaceIsCloud)
-        }
-    }
-
     static let commandPaletteAuthSignInCommandId = "palette.auth.signIn"
     static let commandPaletteAuthSignOutCommandId = "palette.auth.signOut"
     static let commandPaletteAuthTeamPickerCommandId = "palette.auth.teamPicker"
@@ -169,6 +98,7 @@ extension ContentView {
 }
 
 extension ContentView {
+    static let commandPaletteCloudAvailabilityInfoCommandId = "palette.cloud.availabilityInfo"
     static let commandPaletteCloudForkCommandId = "palette.cloud.fork"
     static let commandPaletteCloudSnapshotCommandId = "palette.cloud.snapshot"
     static let commandPaletteCloudRestoreCommandId = "palette.cloud.restore"
@@ -193,7 +123,7 @@ extension ContentView {
         return [
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudNewMachineCommandId,
-                title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
+                title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine…")),
                 subtitle: subtitle,
                 keywords: ["cloud", "vm", "machine", "new", "create", "desktop", "base"]
             ),
@@ -248,7 +178,43 @@ extension ContentView {
         ]
     }
 
+    /// Builds the Cloud-context explanation for local-only palette actions.
+    /// Keeping this as a normal command makes the availability explanation
+    /// searchable and gives Cloud users a localized reason for omitted rows.
+    static func commandPaletteCloudAvailabilityInfoContribution() -> CommandPaletteCommandContribution {
+        CommandPaletteCommandContribution(
+            commandId: commandPaletteCloudAvailabilityInfoCommandId,
+            title: { _ in
+                String(
+                    localized: "command.cloudVM.availabilityInfo.title",
+                    defaultValue: "Show Cloud command availability"
+                )
+            },
+            subtitle: { _ in
+                String(
+                    localized: "command.cloudVM.availabilityInfo.subtitle",
+                    defaultValue: "Cloud workspace"
+                )
+            },
+            keywords: ["cloud", "workspace", "availability", "local", "unavailable", "actions"],
+            when: { $0.bool(CommandPaletteContextKeys.workspaceIsCloud) }
+        )
+    }
+
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: Self.commandPaletteCloudAvailabilityInfoCommandId) {
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "command.cloudVM.availabilityInfo.alertTitle",
+                defaultValue: "Some commands are local-only"
+            )
+            alert.informativeText = String(
+                localized: "command.cloudVM.availabilityInfo.alertMessage",
+                defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
+            )
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            alert.runModal()
+        }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             _ = AppDelegate.shared?.performNewCloudMachineAction(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,

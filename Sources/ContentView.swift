@@ -7116,6 +7116,8 @@ struct ContentView: View {
         )
     }
 
+    /// Materializes the currently visible, enabled palette commands after
+    /// applying config visibility, Cloud capability, and context gates.
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
@@ -7129,7 +7131,7 @@ struct ContentView: View {
         var nextRank = 0
 
         for contribution in contributions {
-            guard Self.commandPaletteCloudCapabilityAllows(
+            guard CommandPaletteCloudCapabilityPolicy.allows(
                 commandId: contribution.commandId,
                 context: context
             ) else { continue }
@@ -7519,6 +7521,7 @@ struct ContentView: View {
 
         var contributions: [CommandPaletteCommandContribution] = [Self.commandPaletteFindWorkContribution()]
         contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
+        contributions.append(Self.commandPaletteCloudAvailabilityInfoContribution())
         contributions.append(contentsOf: Self.commandPaletteComputerUseContributions())
 
         contributions.append(
