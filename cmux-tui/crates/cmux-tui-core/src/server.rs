@@ -8741,7 +8741,7 @@ fn resize_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok((false, "superseded")),
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
             return Ok((false, "superseded"));
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -8769,7 +8769,7 @@ fn resize_resource_view(
                         lease,
                         previous_view_size,
                     );
-                    if !surface_has_view_placement(mux, surface) {
+                    if !surface_accepts_view_sizing(mux, surface) {
                         return Ok((false, "superseded"));
                     }
                     return Err(ResourceError::operation_failed(
@@ -8801,7 +8801,7 @@ fn release_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok("superseded"),
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
             return Ok("superseded");
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -11959,6 +11959,22 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
 
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
+}
+
+/// Whether a view's sizing still has a live target: a tab placement, or a
+/// kept terminal with no tab (`set-terminal-keep`). A kept terminal may have
+/// its only view in another session's layout (a remote-terminal tab), so an
+/// attached geometry owner keeps sizing it; any other unplaced surface is a
+/// view whose tab closed.
+fn surface_accepts_view_sizing(mux: &Mux, id: SurfaceId) -> bool {
+    if surface_has_view_placement(mux, id) {
+        return true;
+    }
+    let Some(surface) = mux.surface(id).filter(|surface| !surface.is_dead()) else {
+        return false;
+    };
+    mux.resource_terminal_host_identity(&surface)
+        .is_some_and(|identity| mux.terminal_keep(&identity.terminal_id).unwrap_or(false))
 }
 
 fn resolve_workspace(
@@ -15507,7 +15523,7 @@ fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
             if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_has_view_placement(mux, surface)
+                || (!surface_accepts_view_sizing(mux, surface)
                     && mux
                         .control_clients
                         .surface_attachment_is_current_or_retired(client, surface))
@@ -15531,7 +15547,7 @@ fn handle_command_with_cancellation(
                     if mux
                         .control_clients
                         .surface_attachment_is_retired_without_current(client, surface)
-                        || (!surface_has_view_placement(mux, surface)
+                        || (!surface_accepts_view_sizing(mux, surface)
                             && mux
                                 .control_clients
                                 .surface_attachment_is_current_or_retired(client, surface)) =>
@@ -15586,7 +15602,7 @@ fn handle_command_with_cancellation(
                         "outcome": "superseded",
                     }));
                 }
-                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
                     return Ok(json!({
                         "accepted": false,
                         "reservation_id": null,
@@ -15623,7 +15639,7 @@ fn handle_command_with_cancellation(
                                 &lease,
                                 previous_view_size,
                             );
-                            if !surface_has_view_placement(mux, surface) {
+                            if !surface_accepts_view_sizing(mux, surface) {
                                 return Ok(json!({
                                     "accepted": false,
                                     "reservation_id": null,
@@ -15647,7 +15663,7 @@ fn handle_command_with_cancellation(
         Command::ReleaseSurfaceSize { surface } => {
             let _lifecycle = mux.lock_client_sizing_lifecycle();
             if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_has_view_placement(mux, surface)
+                || (!surface_accepts_view_sizing(mux, surface)
                     && mux
                         .control_clients
                         .surface_attachment_is_current_or_retired(client, surface))
@@ -15687,7 +15703,7 @@ fn handle_command_with_cancellation(
                 ViewLeaseStatus::Superseded => {
                     return Ok(json!({"outcome": "superseded"}));
                 }
-                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
                     return Ok(json!({"outcome": "superseded"}));
                 }
                 ViewLeaseStatus::Current { .. } => {}
