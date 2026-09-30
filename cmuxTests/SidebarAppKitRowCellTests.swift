@@ -251,6 +251,43 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
+    @Test
+    func workspaceCloseButtonAccessibilityFollowsRevealState() throws {
+        let model = Self.makeModel(canClose: true)
+        let cell = SidebarWorkspaceRowTableCellView()
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(model: model),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let closeButton = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier() == "sidebarWorkspaceCloseButton" }
+        )
+
+        #expect(closeButton.isHidden)
+        #expect(!closeButton.isAccessibilityElement())
+
+        cell.enforcePointerHovering(true)
+
+        #expect(!closeButton.isHidden)
+        #expect(closeButton.isAccessibilityElement())
+        #expect(closeButton.accessibilityRole() == .button)
+        #expect(
+            closeButton.accessibilityLabel()
+                == String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")
+        )
+        #expect(closeButton.accessibilityIdentifier() == "sidebarWorkspaceCloseButton")
+
+        cell.enforcePointerHovering(false)
+
+        #expect(closeButton.isHidden)
+        #expect(!closeButton.isAccessibilityElement())
+    }
+
     @Test(arguments: [false, true], [
         ("**Pi finished.**", "Pi finished."),
         ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
@@ -1906,14 +1943,21 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func recycledHoveredCellSnapsCloseButtonHidden() {
+    func recycledHoveredCellSnapsCloseButtonHidden() throws {
         let cell = Self.configuredCell(model: Self.makeModel())
         cell.enforcePointerHovering(true)
         #expect(!cell.closeButtonPaintForTesting.isHidden)
+        let closeButton = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier() == "sidebarWorkspaceCloseButton" }
+        )
+        #expect(closeButton.isAccessibilityElement())
 
         cell.prepareForReuse()
         #expect(cell.closeButtonPaintForTesting.isHidden)
         #expect(cell.closeButtonPaintForTesting.alpha == 0)
+        #expect(!closeButton.isAccessibilityElement())
 
         let nextModel = Self.makeModel()
         cell.configure(
@@ -2040,16 +2084,27 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillClipsItsFillToACapsule() throws {
+    func shortcutHintPillKeepsAnOpaqueCapsuleUnderItsText() throws {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
         pill.configure(text: "⌘1", fontSize: 10, emphasis: 1, colorScheme: .dark)
         pill.layoutSubtreeIfNeeded()
 
-        let capsule = try #require(pill.subviews.first)
-        #expect(capsule.layer?.masksToBounds == true)
-        #expect(capsule.layer?.cornerRadius == pill.bounds.height / 2)
-        #expect(capsule.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        let glass = pill.subviews.first { $0.className == "NSGlassEffectView" }
+        let fill = try #require(pill.subviews.first {
+            $0.className != "NSGlassEffectView" && !($0 is NSTextField)
+        })
+        let rim = glass == nil ? 0 : ShortcutHintPalette.glassRimWidth
+        // Glass takes its color from the backdrop, so the text's contrast
+        // comes from this opaque palette fill on every OS.
+        #expect(fill.layer?.backgroundColor == ShortcutHintPalette.background(for: .dark).cgColor)
+        #expect(fill.layer?.masksToBounds == true)
+        #expect(fill.frame == pill.bounds.insetBy(dx: rim, dy: rim))
+        #expect(fill.layer?.cornerRadius == pill.bounds.height / 2 - rim)
+        if let glass {
+            #expect(glass.frame == pill.bounds)
+            #expect(pill.subviews.firstIndex(of: glass)! < pill.subviews.firstIndex(of: fill)!)
+        }
     }
 
     @Test

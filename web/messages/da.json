@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "oversigt",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Oversigt",
+      "team": "Team",
       "mobileDevices": "Mobile enheder",
-      "settings": "indstillinger",
-      "teams": "teams"
+      "settings": "Indstillinger",
+      "teams": "Teams"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Send LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
-      "coderouterLink": "åbn coderouter",
+      "coderouterLink": "Åbn coderouter",
       "iosAppName": "iOS-app",
       "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-adgang).",
       "iosLink": "Åbn iOS-app"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Administrer delte AI-konti, og send anmodninger med coderouter.",
-      "title": "coderouter",
-      "description": "coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
+      "title": "Coderouter",
+      "description": "Coderouter sender LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
       "machines": {
         "title": "Maskiner",
         "description": "coderouter-forbrug pr. maskine for {team} i de seneste {days} dage.",
@@ -407,7 +407,8 @@
       "signingOut": "Logger ud…",
       "signOutError": "Kunne ikke logge ud. Prøv igen.",
       "organizationSwitchError": "Kunne ikke skifte organisation. Prøv igen.",
-      "signIn": "Log ind"
+      "signIn": "Log ind",
+      "upgrade": "Opgrader"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Opret et team"
+      },
+      "title": "Plan og fakturering",
+      "picker": {
+        "current": "Nuværende plan",
+        "upgradeTo": "Opgrader til {plan}",
+        "switchTo": "Skift til {plan}",
+        "cancelPlan": "Opsig plan",
+        "resume": "Genoptag {plan}",
+        "renewsOn": "Fornyes den {date}",
+        "endsOn": "Slutter den {date}",
+        "perMonth": "pr. måned",
+        "perSeatMonth": "pr. plads pr. måned",
+        "paymentMethod": "Administrer betalingsmetode",
+        "invoices": "Fakturaer",
+        "heading": "Planer",
+        "actionError": "Planen kunne ikke ændres. Prøv igen.",
+        "unavailable": {
+          "cancelScheduled": "Genoptag din plan for at ændre den.",
+          "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "adminOnly": "Kun teamadministratorer kan ændre planen."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Hele cmux-terminalen til macOS",
+            "Enhver CLI-agent med dine egne nøgler",
+            "Lokal sessionshistorik"
+          ],
+          "go": [
+            "1 aktiv Cloud VM",
+            "40 VM-timer om måneden",
+            "2 gemte VM'er"
+          ],
+          "pro": [
+            "Cloud-agenter på Cloud VMs",
+            "24 GB RAM og 6 vCPU'er delt mellem VM'er",
+            "cmux-appen til iOS"
+          ],
+          "max": [
+            "64 GB RAM og 16 vCPU'er delt mellem VM'er",
+            "Større maskinstørrelser",
+            "Alt i Pro"
+          ],
+          "team": [
+            "Alt i Pro til hvert medlem",
+            "Én faktura til hele teamet",
+            "Prioriteret support"
+          ]
+        },
+        "billedAnnually": "faktureres årligt"
+      },
+      "change": {
+        "title": "Skift til {plan}?",
+        "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
+        "confirm": "Skift til {plan}",
+        "keep": "Behold nuværende plan",
+        "switching": "Skifter…",
+        "previewError": "Prisen kunne ikke beregnes. Prøv igen.",
+        "paymentFailed": "Dit kort blev afvist. Opdater din betalingsmetode, og prøv igen.",
+        "error": "Planen kunne ikke skiftes. Prøv igen."
+      },
+      "cancelDialog": {
+        "title": "Opsig {plan}?",
+        "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
+        "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
+        "otherPlaceholder": "Fortæl os mere (valgfrit)",
+        "confirm": "Opsig plan",
+        "keep": "Behold {plan}",
+        "error": "Planen kunne ikke opsiges. Prøv igen.",
+        "resumeError": "Planen kunne ikke genoptages. Prøv igen.",
+        "reasons": {
+          "too_expensive": "For dyrt",
+          "missing_feature": "Mangler en funktion, jeg har brug for",
+          "not_using": "Bruger det ikke nok",
+          "other": "Andet"
+        }
+      },
+      "welcome": {
+        "title": "Velkommen til {plan}",
+        "body": "Din plan er aktiv. Prøv først:",
+        "ios": "Installer iOS-appen",
+        "cloud": "Åbn Cloud",
+        "team": "Opret et team",
+        "banner": "Du bruger nu {plan}.",
+        "bannerLink": "Plan og fakturering"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Relayindstillinger",
       "relaySettingsDescription": "Vælg de relayservere, som dette team bruger. Indtast én URL pr. linje.",
       "saveRelaySettings": "Gem relayindstillinger",
-      "eyebrow": "cloud / enheder",
+      "eyebrow": "Cloud / enheder",
       "scopeActive": "Viser dette team",
       "emptyTitle": "Ingen tilsluttede enheder endnu",
       "emptyDescription": "Når en cmux-enhed parres med dette team, vises den her med platform, version og adgangskontrol.",
@@ -488,7 +582,10 @@
         "account": "Konto",
         "billing": "Fakturering",
         "teamsGroup": "Teams",
-        "createTeam": "Opret team"
+        "createTeam": "Opret team",
+        "accountGroup": "Konto",
+        "billingGroup": "Fakturering",
+        "planBilling": "Plan og fakturering"
       },
       "ui": {
         "save": "Gem",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Hemmeligheden vises ikke igen.",
       "apiKeyCopy": "Kopiér API-nøgle",
       "apiKeyCopied": "Kopieret",
-      "apiKeyCreatedAt": "oprettet {at}",
-      "apiKeyLastUsed": "sidst brugt {at}",
+      "apiKeyCreatedAt": "Oprettet {at}",
+      "apiKeyLastUsed": "Sidst brugt {at}",
       "apiKeyRevoked": "Tilbagekaldt",
       "apiKeyLabelPlaceholder": "For eksempel CI eller produktion",
       "createApiKeyAction": "Opret API-nøgle",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Tilbagekalder",
       "apiKeyRevokeError": "API-nøglen kunne ikke tilbagekaldes.",
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
-      "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
+      "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
       "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
-      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient."
+      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient.",
+      "unavailableTitle": "Delte konti er ikke tilgængelige",
+      "unavailableBody": "cmux kan ikke nå tjenesten for delte konti lige nu. Konti tilføjet med cr add samt Anthropic- og Bedrock-konti virker stadig."
     },
     "notFound": {
       "title": "Siden blev ikke fundet",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Prøv igen",
       "retrying": "Prøver igen…"
+    },
+    "upgrade": {
+      "title": "Kræver Pro",
+      "cloud": "Cloud VMs og cloud-agenter er en del af Pro.",
+      "testflight": "cmux-appen til iOS er en del af Pro.",
+      "mobileDevices": "Tilslutning af telefon og tablet er en del af Pro.",
+      "action": "Opgrader til Pro",
+      "comparePlans": "Sammenlign planer"
     }
   },
   "community": {
@@ -1925,8 +2032,10 @@
         "automation": {
           "ampIntegration": "Slår cmux-hooks til Amp til eller fra. Når de er slået fra, forbliver det medfølgende plugin installeret, men inaktivt.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
-          "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler."
+          "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
@@ -1978,7 +2087,12 @@
           "compactAgentStatus": "Vis hvert workspace på én linje: ét farvet ikon før titlen viser agent-, ulæst- og pull request-status og erstatter agentstatuslinjerne (for eksempel Kører eller Kræver input), gren- og mappelinjen og pull request-linjerne, hvis detaljer flytter til ikonets værktøjstip. Andre statusposter beholder deres egne linjer.",
           "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
-          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
+          "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisning i sidebjælkens vælger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
@@ -2042,9 +2156,17 @@
       "customActionsDesc": "En <actions>actions</actions>-post er den genbrugelige ting, som cmux kører. Brug handlinger, når den samme adfærd skal være tilgængelig fra Command Palette, overfladens fanelinje, genveje eller plusknappens menu. Behold <commands>commands</commands> til genbrugelige shell-kommandoer og arbejdsområdelayouts. Sæt <palette>palette</palette> til false, når en handling ikke skal vises i Command Palette.",
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Opret et alias til en indbygget cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Indbyggede kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbejdsmappe, cmux.copyProjectRoot kopierer roden af dens git-repository (eller arbejdsmappen uden for et) og cmux.copyScreen kopierer den synlige skærm.",
+      "actionTypeBuiltinCopyRemote": "I et SSH-, cloud- eller fjern-tmux-arbejdsområde kopierer cmux.copyProjectRoot fjernarbejdsmappen, fordi cmux ikke kan slå git-repositoriet op på den anden vært.",
       "actionTypeCommand": "Kør shelltekst i en terminal. Brug target til at vælge den aktuelle terminal eller en ny fane i den aktuelle rude.",
       "actionTypeAgent": "Start en understøttet kodeagent. I dag understøttes codex og claude med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kør en navngiven arbejdsområdedefinition fra commands. Brug dette til layouts med flere ruder, brugerdefinerede arbejdsmapper og startkommandoer.",
+      "actionTypeSetting": "Ændr én indstilling i din globale cmux.json, for eksempel slå en true/false-indstilling til eller fra eller skift gennem en liste af værdier. Se Indstillingshandlinger nedenfor.",
+      "actionTypeSettingPreset": "Anvend en navngiven gruppe indstillinger fra settingPresets i ét trin.",
+      "settingActions": "Indstillingshandlinger",
+      "settingActionsDesc": "En indstillingshandling angiver en <path>path</path> til en indstilling og præcis én af <set>set</set> (skriv en værdi), <toggle>toggle: true</toggle> (slå en true/false-indstilling om), <cycle>cycle</cycle> (gå til næste værdi i en liste og start forfra efter den sidste) eller <unset>unset: true</unset> (fjern nøglen fra cmux.json, så værdien fra Indstillinger-vinduet eller standardværdien gælder). toggle og cycle tager udgangspunkt i den værdi, cmux bruger, også en du har sat i Indstillinger-vinduet. En settingPreset-handling anvender en post fra <presets>settingPresets</presets>, en delvis cmux.json, hvis indlejrede objekter flettes nøgle for nøgle. cmux kontrollerer hver ændring mod skemaet, før den gemmes, bevarer dine kommentarer og andre nøgler og anvender ændringen med det samme. Indstillingshandlinger og presets kører kun fra din globale cmux.json og de pakker, den henviser til; projektkonfigurationer kan ikke erklære dem.",
+      "settingActionsCli": "De samme ændringer kan laves fra en terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> og <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Med <confirm>confirm: true</confirm> spørger cmux, før der gemmes, og viser den tilsvarende cmux config-kommando. Stier deles ved hvert \".\", så en nøgle, der selv indeholder \".\" (f.eks. en <byCwd>workspaceGroups.byCwd</byCwd>-post for ~/src/app.web), kan ikke ændres på denne måde. Rediger den direkte i cmux.json.",
       "actionFields": "Handlingsfelter",
       "actionFieldTitle": "Titel i Command Palette, etiket på overfladeknap, menupunkttitel og titel i tillidsdialogen, medmindre en post tilsidesætter den.",
       "actionFieldSubtitle": "Sekundær tekst i Command Palette. description accepteres som alias for subtitle.",
@@ -2176,7 +2298,8 @@
         "wn-reload": "Genindlæs konfiguration",
         "wn-quit": "Afslut"
       },
-      "metaTitle": "Tastaturgenveje"
+      "metaTitle": "Tastaturgenveje",
+      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z)."
     },
     "api": {
       "title": "CLI-reference",
@@ -2614,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines begrænser TextBox-højden, før indholdet ruller.",
       "configTitle": "cmux.json",
       "configDesc": "Sæt de samme standarder i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader."
+      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader.",
+      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",

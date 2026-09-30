@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "pregled",
-      "team": "tim",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Pregled",
+      "team": "Tim",
       "mobileDevices": "Mobilni uređaji",
-      "settings": "postavke",
-      "teams": "timovi"
+      "settings": "Postavke",
+      "teams": "Timovi"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
-      "coderouterLink": "otvori coderouter",
+      "coderouterLink": "Otvori coderouter",
       "iosAppName": "iOS aplikacija",
       "iosAppDescription": "Instalirajte cmux iOS aplikaciju putem TestFlight-a (beta pristup).",
       "iosLink": "Otvori iOS aplikaciju"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
-      "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "title": "Coderouter",
+      "description": "Coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
       "machines": {
         "title": "Mašine",
         "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
@@ -407,7 +407,8 @@
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
       "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
-      "signIn": "Prijavi se"
+      "signIn": "Prijavi se",
+      "upgrade": "Nadogradi"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Kreiraj tim"
+      },
+      "title": "Plan i naplata",
+      "picker": {
+        "current": "Trenutni plan",
+        "upgradeTo": "Nadogradi na {plan}",
+        "switchTo": "Pređi na {plan}",
+        "cancelPlan": "Otkaži plan",
+        "resume": "Nastavi {plan}",
+        "renewsOn": "Obnavlja se {date}",
+        "endsOn": "Završava se {date}",
+        "perMonth": "mjesečno",
+        "perSeatMonth": "po mjestu mjesečno",
+        "paymentMethod": "Upravljaj načinom plaćanja",
+        "invoices": "Fakture",
+        "heading": "Planovi",
+        "actionError": "Plan nije moguće promijeniti. Pokušajte ponovo.",
+        "unavailable": {
+          "cancelScheduled": "Nastavite plan da biste ga promijenili.",
+          "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "adminOnly": "Samo administratori tima mogu promijeniti plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Kompletan cmux terminal za macOS",
+            "Bilo koji CLI agent s vašim ključevima",
+            "Lokalna historija sesija"
+          ],
+          "go": [
+            "1 aktivna Cloud VM",
+            "40 VM sati mjesečno",
+            "2 sačuvane VM"
+          ],
+          "pro": [
+            "Cloud agenti na Cloud VMs",
+            "24 GB RAM-a i 6 vCPU-a dijeljeno među VM-ovima",
+            "cmux aplikacija za iOS"
+          ],
+          "max": [
+            "64 GB RAM-a i 16 vCPU-a dijeljeno među VM-ovima",
+            "Veće mašine",
+            "Sve iz Pro"
+          ],
+          "team": [
+            "Sve iz Pro za svakog člana",
+            "Jedna faktura za cijeli tim",
+            "Prioritetna podrška"
+          ]
+        },
+        "billedAnnually": "naplaćuje se godišnje"
+      },
+      "change": {
+        "title": "Preći na {plan}?",
+        "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
+        "confirm": "Pređi na {plan}",
+        "keep": "Zadrži trenutni plan",
+        "switching": "Prelazak…",
+        "previewError": "Cijenu nije moguće izračunati. Pokušajte ponovo.",
+        "paymentFailed": "Kartica je odbijena. Ažurirajte način plaćanja pa pokušajte ponovo.",
+        "error": "Plan nije moguće promijeniti. Pokušajte ponovo."
+      },
+      "cancelDialog": {
+        "title": "Otkazati {plan}?",
+        "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
+        "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "reasonLabel": "Zašto otkazujete? (opcionalno)",
+        "otherPlaceholder": "Recite nam više (opcionalno)",
+        "confirm": "Otkaži plan",
+        "keep": "Zadrži {plan}",
+        "error": "Plan nije moguće otkazati. Pokušajte ponovo.",
+        "resumeError": "Plan nije moguće nastaviti. Pokušajte ponovo.",
+        "reasons": {
+          "too_expensive": "Preskupo",
+          "missing_feature": "Nedostaje funkcija koja mi treba",
+          "not_using": "Ne koristim dovoljno",
+          "other": "Drugo"
+        }
+      },
+      "welcome": {
+        "title": "Dobro došli u {plan}",
+        "body": "Vaš plan je aktivan. Isprobajte prvo:",
+        "ios": "Instalirajte iOS aplikaciju",
+        "cloud": "Otvorite Cloud",
+        "team": "Kreirajte tim",
+        "banner": "Sada koristite {plan}.",
+        "bannerLink": "Plan i naplata"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Postavke releja",
       "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
       "saveRelaySettings": "Sačuvaj postavke releja",
-      "eyebrow": "oblak / uređaji",
+      "eyebrow": "Oblak / uređaji",
       "scopeActive": "Prikazan je ovaj tim",
       "emptyTitle": "Još nema povezanih uređaja",
       "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
@@ -488,7 +582,10 @@
         "account": "Račun",
         "billing": "Naplata",
         "teamsGroup": "Timovi",
-        "createTeam": "Kreiraj tim"
+        "createTeam": "Kreiraj tim",
+        "accountGroup": "Račun",
+        "billingGroup": "Naplata",
+        "planBilling": "Plan i naplata"
       },
       "ui": {
         "save": "Sačuvaj",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Ova tajna vrijednost se više neće prikazati.",
       "apiKeyCopy": "Kopiraj API ključ",
       "apiKeyCopied": "Kopirano",
-      "apiKeyCreatedAt": "kreiran {at}",
-      "apiKeyLastUsed": "posljednji put korišten {at}",
+      "apiKeyCreatedAt": "Kreiran {at}",
+      "apiKeyLastUsed": "Posljednji put korišten {at}",
       "apiKeyRevoked": "Opozvan",
       "apiKeyLabelPlaceholder": "Na primjer, CI ili produkcija",
       "createApiKeyAction": "Kreiraj API ključ",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Opozivanje",
       "apiKeyRevokeError": "API ključ se ne može opozvati.",
       "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
-      "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
+      "apiKeyUsageDetail": "Posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
       "apiKeysEmptyTitle": "Još nema API ključeva",
-      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta."
+      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta.",
+      "unavailableTitle": "Dijeljeni računi nisu dostupni",
+      "unavailableBody": "cmux trenutno ne može doći do usluge dijeljenih računa. Računi dodani putem cr add te Anthropic i Bedrock računi i dalje rade."
     },
     "notFound": {
       "title": "Stranica nije pronađena",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Pokušaj ponovo",
       "retrying": "Ponovni pokušaj…"
+    },
+    "upgrade": {
+      "title": "Zahtijeva Pro",
+      "cloud": "Cloud VMs i cloud agenti dio su plana Pro.",
+      "testflight": "cmux aplikacija za iOS dio je plana Pro.",
+      "mobileDevices": "Povezivanje telefona i tableta dio je plana Pro.",
+      "action": "Nadogradi na Pro",
+      "comparePlans": "Uporedi planove"
     }
   },
   "community": {
@@ -1925,8 +2032,10 @@
         "automation": {
           "ampIntegration": "Uključuje ili isključuje cmux hookove za Amp. Kada su isključeni, priloženi plugin ostaje instaliran, ali neaktivan.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
+          "agentAutoResume": "Šalje `continue`, uz postepeno odgađanje, agentu pokrenutom iz cmux-a čiji je potez završio greškom servisa koja se može ponoviti (model bez kapaciteta, preopterećen ili izgubljena veza). Potezi koji čekaju čovjeka nikada se ne nastavljaju.",
           "workspaceAutoNaming": "Opcionalno AI automatsko imenovanje radnih prostora i kartica iz sadržaja razgovora agenta. Kada je omogućeno, cmux sažima podržane sesije agenata u kratke naslove koristeći vlastiti binarni fajl svakog agenta; ručna preimenovanja uvijek imaju prednost.",
-          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
+          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
@@ -1978,7 +2087,12 @@
           "compactAgentStatus": "Prikaži svaki radni prostor u jednom redu: jedna obojena ikona ispred naslova prikazuje stanje agenta, nepročitanog i pull requesta te zamjenjuje redove statusa agenata (na primjer Radi ili Potreban unos), red grane i direktorija i redove pull requestova, čiji detalji prelaze u opis ikone. Ostali unosi statusa zadržavaju svoje redove.",
           "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
-          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
+          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
+          "beta": {
+            "conversations": {
+              "enabled": "Prikaži objedinjeni prikaz razgovora u izborniku bočne trake."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Postavke istraživača datoteka (stabla datoteka) u desnoj bočnoj traci.",
@@ -2042,9 +2156,17 @@
       "customActionsDesc": "Unos <actions>actions</actions> je ponovo upotrebljiva stvar koju cmux izvršava. Koristite akcije kada isto ponašanje treba biti dostupno iz Command Palette, površinske trake tabova, prečica ili menija plus dugmeta. Zadržite <commands>commands</commands> za ponovo upotrebljive shell komande i rasporede radnih prostora. Postavite <palette>palette</palette> na false kada akcija ne treba biti u Command Palette.",
       "actionTypes": "Tipovi akcija",
       "actionTypeBuiltin": "Alias za ugrađenu cmux akciju kao što su cmux.newTerminal, cmux.newBrowser, cmux.splitRight ili cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Ugrađene akcije kopiranja: cmux.copyWorkingDirectory kopira radni direktorij terminala, cmux.copyProjectRoot kopira korijen njegovog git repozitorija (ili radni direktorij izvan repozitorija), a cmux.copyScreen kopira vidljivi ekran.",
+      "actionTypeBuiltinCopyRemote": "U SSH, cloud ili udaljenom tmux radnom prostoru cmux.copyProjectRoot kopira udaljeni radni direktorij, jer cmux ne može pronaći git repozitorij na drugom hostu.",
       "actionTypeCommand": "Pokreće shell tekst u terminalu. Koristite target da izaberete trenutni terminal ili novi tab u trenutnom panelu.",
       "actionTypeAgent": "Pokreće podržanog programerskog agenta. Trenutno podržava codex i claude, uz opcionalne argumente.",
       "actionTypeWorkspaceCommand": "Pokreće imenovanu definiciju radnog prostora iz commands. Koristite za rasporede s više panela, prilagođene radne direktorije i početne komande.",
+      "actionTypeSetting": "Mijenja jednu postavku u vašem globalnom cmux.json, na primjer uključuje ili isključuje true/false postavku ili prolazi kroz listu vrijednosti. Pogledajte Akcije postavki ispod.",
+      "actionTypeSettingPreset": "Primjenjuje imenovanu grupu postavki iz settingPresets u jednom koraku.",
+      "settingActions": "Akcije postavki",
+      "settingActionsDesc": "Akcija postavke navodi <path>path</path> postavke i tačno jedno od: <set>set</set> (upisuje vrijednost), <toggle>toggle: true</toggle> (prebacuje true/false postavku), <cycle>cycle</cycle> (prelazi na sljedeću vrijednost u listi, a nakon posljednje kreće ispočetka) ili <unset>unset: true</unset> (uklanja ključ iz cmux.json, pa važi vrijednost iz prozora Postavke ili zadana vrijednost). toggle i cycle polaze od vrijednosti koju cmux trenutno koristi, uključujući onu postavljenu u prozoru Postavke. Akcija settingPreset primjenjuje unos iz <presets>settingPresets</presets>, djelimični cmux.json čiji se ugniježđeni objekti spajaju ključ po ključ. cmux prije spremanja provjerava svaku promjenu prema shemi, zadržava vaše komentare i ostale ključeve i odmah primjenjuje promjenu. Akcije postavki i preseti rade samo iz vašeg globalnog cmux.json i paketa na koje on upućuje; projektne konfiguracije ih ne mogu deklarisati.",
+      "settingActionsCli": "Iste promjene rade i iz terminala: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> i <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Uz <confirm>confirm: true</confirm>, cmux pita prije spremanja i prikazuje odgovarajuću cmux config komandu. Putanje se dijele na svakoj \".\", pa se ključ koji i sam sadrži \".\" (npr. unos <byCwd>workspaceGroups.byCwd</byCwd> za ~/src/app.web) ne može promijeniti na ovaj način. Uredite ga direktno u cmux.json.",
       "actionFields": "Polja akcije",
       "actionFieldTitle": "Naslov reda u Command Palette, oznaka dugmeta, naslov stavke menija i naslov upita za povjerenje, osim ako ga unos ne nadjača.",
       "actionFieldSubtitle": "Sekundarni tekst u Command Palette. description se prihvata kao alias za subtitle.",
@@ -2176,7 +2298,8 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z)."
     },
     "api": {
       "title": "CLI Referenca",
@@ -2616,7 +2739,8 @@
       "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
       "configTitle": "cmux.json",
       "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
-      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",

@@ -235,6 +235,8 @@ The glyph shows the loudest state that applies:
 | --- | --- |
 | An agent reported an error | red warning triangle |
 | An agent needs input | amber dot |
+| An agent is running through subagents | pulsing gray connected-points glyph |
+| An agent is waiting on a background command, a scheduled wakeup or a CI run | gray hourglass |
 | An agent is running | pulsing gray dot, in place of the loading spinner |
 | An agent is starting (no state reported yet) | dashed ring |
 | Unread notifications | blue dot, in place of the unread count badge |
@@ -245,9 +247,11 @@ The glyph shows the loudest state that applies:
 | Branch, no pull request | gray branch glyph |
 | Plain terminal | none; the title starts at the row's edge |
 
+The hourglass only goes up when every running agent in the workspace reported that it is waiting, so a second agent still working keeps the row running.
+
 cmux does not fetch a pull request's checks or mergeability, so an open pull request is gray whatever CI says. A pull request whose state repeated refresh failures could not confirm does not set the glyph at all.
 
-Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
+Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `subagents`, `running`, `waiting`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, draws at full size, and a name that does not render falls back to the built-in symbol. The built-in pull request and merge glyphs are drawn by cmux, since the SF Symbols ones are too narrow at sidebar size; name them `cmux.pullrequest` and `cmux.merge` to use them for another state.
 
 ```json
 {
@@ -408,6 +412,20 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 ```
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
+
+## `automation.agentAutoResume`
+
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+
+```json
+{
+  "automation": {
+    "agentAutoResume": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
 
 ## `diffViewer.defaultLayout`
 

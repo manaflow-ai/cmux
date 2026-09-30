@@ -87,6 +87,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -237,6 +238,12 @@ jobs:
         run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
 
   simulator-e2e:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
+    # Production Stack credentials: only this run's own revision, never a
+    # requested ref (the ref input may name any commit).
+    if: ${{ needs.resolve-ref.outputs.sha == github.sha }}
     needs: resolve-ref
     env:
       # The app gates compile optimized Swift for both endpoints. Xcode 26's
@@ -340,6 +347,10 @@ jobs:
           chmod 600 "$production_env"
 
       - name: Run Iroh gate
+        # Every non-soak phase is capped at 25 minutes. Stress soaks retain
+        # their one-hour workload window while the gate script bounds each
+        # setup, build, and launch phase separately.
+        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 75 || 25 }}
         env:
           # The hosted runner does not have cmuxterm-hq's tagged-backend
           # helper. The explicit Worker origin remains the app's API and v2

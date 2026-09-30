@@ -573,6 +573,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // The mock answers instantly, so do not wait out the three second poll.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -588,6 +590,65 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count >= 2,
             "wait must poll status more than once before ready"
+        )
+    }
+
+    func testVMWaitBoundsOversizedPollIntervalToCommandDeadline() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-wait-infinite-delay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let pollCounter = VMTransferMockState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.status" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            let status = pollCounter.nextCount() == 1 ? "creating" : "running"
+            return self.v2Response(id: id, ok: true, result: [
+                "id": "brave-otter",
+                "provider": "freestyle",
+                "status": status,
+            ])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        XCTAssertEqual(
+            CMUXCLI.vmReadyPollInterval(environment: ["CMUX_VM_WAIT_POLL_SECONDS": "3600"]),
+            3,
+            "oversized poll overrides must fall back to the command-safe cadence"
+        )
+        // The mock answers instantly, so keep the process-level check on a
+        // valid short override rather than waiting out the production cadence.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "wait", "brave-otter", "--timeout", "8"],
+            environment: environment,
+            timeout: 8
+        )
+
+        wait(for: [serverHandled], timeout: 8)
+        XCTAssertFalse(result.timedOut, "an oversized injected delay must not outlive the command deadline")
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(
+            state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,
+            2,
+            "wait must poll again after rejecting the override"
         )
     }
 }
@@ -1115,7 +1176,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 struct CloudSCPIntegrationTests {
     @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
+        let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [script.path, cli]
