@@ -32,12 +32,7 @@
       "ref": "e1",
       "role": "canvas",
       "name": "Canvas",
-      "box": {
-        "x": 8,
-        "y": 310.875,
-        "width": 202,
-        "height": 102
-      }
+      "sameBox": true
     },
     "element-at-button": {
       "role": "button",

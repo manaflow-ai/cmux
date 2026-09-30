@@ -25,6 +25,8 @@ await page.evaluate(() => document.querySelector("h1").textContent = "Renamed ag
 // ---- cell session=p capture
 screenshot()
 // ---- cell session=p capture
+// A fixed width keeps the image size independent of the system scroller style.
+await page.evaluate(() => { document.querySelector("h1").style.width = "400px"; });
 display({ shown: true }); display(await screenshot(page.locator("h1"))); console.log("log", [1, 2], { k: "v" });
 // ---- cell session=p capture
 page.url()

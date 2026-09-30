@@ -38,7 +38,10 @@ emit("untrusted-events", await page.evaluate(() => window.__summary().filter((l)
 // page.elementAt has no Playwright counterpart.
 const canvasBox = await page.locator("#canvas").boundingBox();
 const hit = await page.elementAt(canvasBox.x + 10, canvasBox.y + 10);
-emitCmux("element-at-canvas", hit);
+// Form-control metrics differ between WebKit builds, so the box is compared
+// with the locator's box instead of absolute coordinates.
+const sameBox = ["x", "y", "width", "height"].every((k) => Math.abs(hit.box[k] - canvasBox[k]) < 0.5);
+emitCmux("element-at-canvas", { ref: hit.ref, role: hit.role, name: hit.name, sameBox });
 const btn = await page.locator("#dbl").boundingBox();
 const at = await page.elementAt(btn.x + 2, btn.y + 2);
 emitCmux("element-at-button", { role: at.role, name: at.name });

@@ -1,5 +1,10 @@
 // node:fs, node:path, node:os and Buffer: Node semantics, the same modules
 // through import(), and files limited to the session and temp directories.
+const cleanUp = () => {
+  for (const f of ["note.txt", "renamed.txt", "copy.txt", "p.txt"]) fs.rmSync(f, { force: true });
+  fs.rmSync("dir", { recursive: true, force: true });
+};
+cleanUp();
 fs.writeFileSync("note.txt", "hello");
 fs.appendFileSync("note.txt", " world");
 emit("read", fs.readFileSync("note.txt", "utf8"));
@@ -45,3 +50,4 @@ try {
 } catch (e) {
   emitCmux("outside-write", e.code);
 }
+cleanUp();
