@@ -137,6 +137,7 @@ jobs:
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -274,6 +275,11 @@ jobs:
         timeout-minutes: 140
         env:
           CMUX_E2E_WAIT_TIMEOUT_SECONDS: "8100"
+          # The done-file is the fast path. A client job that never starts (a
+          # failed build skips it) cannot send it, so the hold also ends once
+          # GitHub reports that job finished, checked once a minute.
+          CMUX_E2E_CLIENT_JOB: mac-ios-e2e
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/e2e/backend-up.sh hold
 
       - name: Upload backend logs
@@ -347,9 +353,11 @@ jobs:
           derived="$RUNNER_WORKSPACE/.glaeda-state/ios-e2e-mac-derived-data"
           mkdir -p "$derived"
           started="$(date +%s)"
+          # A normal build without --launch, as reload-build.yml runs on the
+          # same runners (--build-only deletes its app at exit). No global CLI
+          # links: the mini is shared.
           ./scripts/reload.sh \
             --tag "$CMUX_E2E_TAG" \
-            --build-only \
             --derived-data "$derived" \
             --no-global-cli-links \
             --swift-frontend-workaround

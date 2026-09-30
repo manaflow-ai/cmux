@@ -298,10 +298,23 @@ hold() {
   local budget="${CMUX_E2E_WAIT_TIMEOUT_SECONDS:-1800}" deadline
   deadline=$(( $(date +%s) + budget ))
   phase hold "serving until $done_file appears (budget ${budget}s)"
+  local next_check=0 status
   until [[ -f "$done_file" ]]; do
     if (( $(date +%s) >= deadline )); then
       phase wait-timeout "no completion signal within ${budget}s; releasing the runner"
       return 0
+    fi
+    # A client job that never runs (a failed build skips it) cannot touch the
+    # done-file; once GitHub reports it completed, nothing will use this.
+    if [[ -n "${CMUX_E2E_CLIENT_JOB:-}" ]] && (( $(date +%s) >= next_check )); then
+      next_check=$(( $(date +%s) + 60 ))
+      status="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN:-}" -H 'Accept: application/vnd.github+json' \
+        "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" 2>/dev/null \
+        | python3 -c 'import json,sys; name=sys.argv[1]; print(next((j["status"] for j in json.load(sys.stdin)["jobs"] if j["name"]==name), "missing"))' "$CMUX_E2E_CLIENT_JOB" 2>/dev/null || echo unknown)"
+      if [[ "$status" == completed ]]; then
+        phase "done" "$CMUX_E2E_CLIENT_JOB already completed; nothing will use this backend"
+        return 0
+      fi
     fi
     local pid_file
     for pid_file in "$STATE"/*.pid; do
