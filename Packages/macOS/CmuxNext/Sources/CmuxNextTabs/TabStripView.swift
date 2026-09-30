@@ -50,6 +50,8 @@ public final class TabStripView: NSView {
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
     /// group editor bubble, as in Chrome.
     public var contextMenuProvider: TabContextMenuProvider?
+    /// Inline rename state (`TabStripView+InlineRename.swift`).
+    let inlineRename = TabInlineRename()
 
     // MARK: Views
 

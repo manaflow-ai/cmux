@@ -198,7 +198,7 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
             separatorLayer.backgroundColor = Palette.separator.cgColor
-            iconLayer.contents = iconImage(tint: text)
+            iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
         applyCloseColors()
         applyBadgeColor()
@@ -215,7 +215,11 @@ final class TabCell {
 
     private func iconImage(tint: NSColor) -> CGImage? {
         switch item.icon {
-        case .none: return nil
+        case .none:
+            // A colored tab with no icon shows its color as a dot.
+            guard item.tint != nil else { return nil }
+            return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,
+                                               size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
         case .symbol(let name):
             return TabSymbolCache.shared.image(

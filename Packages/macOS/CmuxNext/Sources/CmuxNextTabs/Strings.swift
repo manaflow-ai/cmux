@@ -13,6 +13,7 @@ enum Strings {
     static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
     static var untitled: String { String(localized: "tabs.untitled", defaultValue: "Untitled", bundle: .module) }
+    static var renameField: String { String(localized: "tabs.renameField", defaultValue: "Tab name", bundle: .module) }
     static var demoWindowTitle: String { String(localized: "tabs.demo.windowTitle", defaultValue: "Tab Strip Demo", bundle: .module) }
     static var demoAddTab: String { String(localized: "tabs.demo.addTab", defaultValue: "Add Tab", bundle: .module) }
     static var demoAddMany: String { String(localized: "tabs.demo.addMany", defaultValue: "Add 10 Tabs", bundle: .module) }

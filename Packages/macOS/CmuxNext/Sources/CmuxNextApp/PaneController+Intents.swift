@@ -29,6 +29,8 @@ extension PaneController {
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):
             rename(id)
+        case .renameCommitted(let id, let name):
+            commitRename(id, name: name)
         case .duplicate(let id):
             newTerminalTab(cwd: tab(id)?.cwd)
         case .moveToNewSplit(let id, let direction):
@@ -229,12 +231,16 @@ extension PaneController {
 
     func rename(_ id: StripTabID) {
         guard let tab = tab(id), let window = view.window else { return }
-        let surface = tab.surface
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [daemon] name in
-            Task {
-                await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
-                    try await connection.renameTab(surface, to: name)
-                }
+        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [weak self] name in
+            self?.commitRename(id, name: name)
+        }
+    }
+
+    func commitRename(_ id: StripTabID, name: String) {
+        guard let surface = tab(id)?.surface else { return }
+        Task { [daemon] in
+            await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+                try await connection.renameTab(surface, to: name)
             }
         }
     }

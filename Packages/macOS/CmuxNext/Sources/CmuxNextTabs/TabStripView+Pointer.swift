@@ -137,6 +137,10 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
+            if event.clickCount == 2, renamesOnDoubleClick {
+                beginInlineRename(id)
+                return
+            }
             // Chrome selects on mouse down.
             if model.selectedID != id { model.send(.select(id)) }
             press = Press(id: id, start: point)

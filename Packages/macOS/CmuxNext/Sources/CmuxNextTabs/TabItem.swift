@@ -1,3 +1,5 @@
+public import CmuxNextDesign
+
 /// One tab as the strip displays it. The App fills these from daemon state.
 public struct TabItem: Identifiable, Hashable, Sendable {
     public var id: TabID
@@ -17,6 +19,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Group this tab belongs to. Ignored for pinned tabs (Chrome rule) and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?
+    /// User color of this tab (screens carry one). Tints the icon; a tab
+    /// with no icon shows a dot of this color instead.
+    public var tint: GroupColor?
 
     public init(
         id: TabID,
@@ -27,7 +32,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         isUnread: Bool = false,
         isBusy: Bool = false,
         status: TabStatus = .none,
-        groupID: TabGroupID? = nil
+        groupID: TabGroupID? = nil,
+        tint: GroupColor? = nil
     ) {
         self.id = id
         self.title = title
@@ -38,5 +44,6 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.isBusy = isBusy
         self.status = status
         self.groupID = groupID
+        self.tint = tint
     }
 }

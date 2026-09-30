@@ -6,13 +6,19 @@ import Testing
 /// Per-tab color (`TabItem.tint`) and inline rename, used by the screen tab
 /// bar (screens are as customizable as tabs).
 @MainActor @Suite struct TabCustomizationTests {
+    /// A strip in an offscreen borderless window (never ordered front), synced.
     private func strip(_ items: [TabItem]) -> (TabStripView, TabStripModel, IntentLog) {
         let model = TabStripModel(tabs: items, selectedID: items.first?.id)
         let log = IntentLog()
         model.intentHandler = { log.intents.append($0) }
         let view = TabStripView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
         view.frame = CGRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
+        window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
+        view.sync(fromModel: true)
+        log.window = window
         return (view, model, log)
     }
 
@@ -60,4 +66,6 @@ import Testing
 
 @MainActor private final class IntentLog {
     var intents: [TabStripIntent] = []
+    /// Keeps the strip's window alive for the test.
+    var window: NSWindow?
 }

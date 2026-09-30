@@ -33,6 +33,9 @@ public enum TabStripIntent: Equatable, Sendable {
     case pin(TabID)
     case unpin(TabID)
     case rename(TabID)
+    /// The inline rename editor (`TabStripView.beginInlineRename`) committed
+    /// `name` (trimmed; empty clears the custom name).
+    case renameCommitted(TabID, name: String)
     case duplicate(TabID)
     case moveToNewSplit(TabID, TabSplitDirection)
     case moveToNewColumn(TabID)
