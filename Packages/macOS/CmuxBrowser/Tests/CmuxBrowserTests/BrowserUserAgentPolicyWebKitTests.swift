@@ -3,12 +3,6 @@ import Testing
 import WebKit
 import CmuxBrowser
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 @MainActor
 @Suite
 struct BrowserUserAgentPolicyWebKitTests {

@@ -3172,7 +3172,8 @@
           "ampIntegration": "Amp 向けの cmux フックをオンまたはオフにします。オフにしても同梱のプラグインはインストールされたまま、何もしない状態になります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
-          "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。"
+          "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
@@ -3319,6 +3320,12 @@
       "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",
       "actionTypeWorkspace": "アクション内に埋め込んだワークスペース定義から新しいワークスペースを作成します。restart の指定も可能で、新規ワークスペースのプラスボタンメニューに自動的に表示されます。",
+      "actionTypeSetting": "グローバルの cmux.json の設定を 1 つ変更します。たとえば true/false の設定を切り替えたり、値のリストを順に切り替えたりできます。詳しくは下の「設定アクション」を参照してください。",
+      "actionTypeSettingPreset": "settingPresets に登録した名前付きの設定グループをまとめて適用します。",
+      "settingActions": "設定アクション",
+      "settingActionsDesc": "設定アクションには設定の <path>path</path> と、次のうち 1 つだけを指定します: <set>set</set>(値を書き込む)、<toggle>toggle: true</toggle>(true/false の設定を切り替える)、<cycle>cycle</cycle>(リスト内の次の値に進み、最後まで来たら先頭に戻る)、<unset>unset: true</unset>(cmux.json からキーを削除し、設定ウインドウで選んだ値か既定値に戻す)。toggle と cycle は、設定ウインドウで変更した値を含め、cmux が現在使っている値から始まります。settingPreset アクションは <presets>settingPresets</presets> のエントリを適用します。エントリは部分的な cmux.json で、入れ子のオブジェクトはキーごとにマージされます。cmux は保存前にすべての変更をスキーマで検証し、コメントや他のキーはそのまま残して、変更をすぐに反映します。設定アクションとプリセットはグローバルの cmux.json と、そこから参照するパックからのみ実行でき、プロジェクトの設定では宣言できません。",
+      "settingActionsCli": "同じ変更はターミナルからも行えます: <set>cmux config set terminal.scrollSpeed 1.4</set>、<toggle>cmux config toggle fileEditor.wordWrap</toggle>、<preset>cmux config preset sidebar.quiet</preset>。",
+      "settingActionsLimits": "<confirm>confirm: true</confirm> を指定すると、cmux は保存前に確認し、同じ変更を行う cmux config コマンドを表示します。パスはすべての \".\" で分割されるため、キー自体に \".\" を含むもの(~/src/app.web 用の <byCwd>workspaceGroups.byCwd</byCwd> エントリなど)はこの方法では変更できません。cmux.json で直接編集してください。",
       "actionFields": "アクションのフィールド",
       "actionFieldTitle": "Command Palette の行タイトル、サーフェスボタンのラベル、メニュー項目タイトル、信頼確認のタイトルです。項目側で上書きできます。",
       "actionFieldSubtitle": "Command Palette の補助テキストです。description は subtitle の別名として使えます。",

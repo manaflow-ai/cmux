@@ -1283,6 +1283,7 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
+      - full-suite-coverage
       - static-preflight
       - suite-coverage
       - ghosttykit-release-check
@@ -1382,6 +1383,21 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["TESTS_NEEDS"])
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is rolled
+          # into the required ci-status check, so reporting success on a
+          # cancelled run would put a green on a required check that no suite
+          # stood behind, and a pull request could merge with nothing having
+          # tested it. Rerunning the run clears it.
+          cancelled = sorted(name for name, data in needs.items()
+                             if data["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported a test verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
           changes = needs["changes"]
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)
