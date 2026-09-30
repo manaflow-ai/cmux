@@ -15,6 +15,11 @@ private actor CloudWorkspaceFileRPCFixture: CloudWorkspaceFileRPC {
     var files: [String: Data] = [:]
     var directories: [String: [(name: String, kind: String)]] = [:]
     var symlinkTargets: [String: String] = [:]
+    var gitChanges: [[String: Any]] = []
+    var diffPages: [String] = []
+    var capabilities: [String] = []
+    var watchEvents: [[String]] = []
+    private(set) var roots: [String] = []
     private(set) var requests: [String] = []
     private var workspaceGeneration = 0
 
@@ -22,6 +27,10 @@ private actor CloudWorkspaceFileRPCFixture: CloudWorkspaceFileRPC {
     func setFile(_ path: String, _ data: Data) { files[path] = data }
     func setDirectory(_ path: String, _ entries: [(name: String, kind: String)]) { directories[path] = entries }
     func setSymlink(_ path: String, kind: String) { symlinkTargets[path] = kind }
+    func setGitChanges(_ changes: [[String: Any]]) { gitChanges = changes }
+    func setDiffPages(_ pages: [String]) { diffPages = pages }
+    func setCapabilities(_ values: [String]) { capabilities = values }
+    func setWatchEvents(_ events: [[String]]) { watchEvents = events }
     /// Simulates a replaced channel: previously leased workspace ids become unknown.
     func forgetWorkspaces() { workspaceGeneration += 1 }
 
@@ -29,18 +38,48 @@ private actor CloudWorkspaceFileRPCFixture: CloudWorkspaceFileRPC {
         try await handle(requestJSON)
     }
 
-    private func handle(_ requestJSON: Data) throws -> Data {
+    private func handle(_ requestJSON: Data) async throws -> Data {
         guard mode == .daemon else { throw CloudWorkspaceFileRPCUnavailable() }
         let request = try JSONSerialization.jsonObject(with: requestJSON) as! [String: Any]
         let type = request["type"] as! String
         requests.append(type)
-        let current = "ws-\(workspaceGeneration)"
-        if type == "open-workspace" {
-            #expect(request["root"] as? String == "/")
-            return try JSONSerialization.data(withJSONObject: ["type": "workspace", "id": current, "root": "/"])
+        if type == "capabilities" {
+            return try JSONSerialization.data(withJSONObject: ["type": "capabilities", "capabilities": capabilities])
         }
-        guard request["workspace"] as? String == current else {
+        if type == "watch-poll" {
+            let after = (request["after"] as! NSNumber).uint64Value
+            guard Int(after) < watchEvents.count else {
+                try await Task.sleep(for: .seconds(60))
+                throw CancellationError()
+            }
+            return try JSONSerialization.data(withJSONObject: [
+                "type": "watch-changes", "sequence": after + 1, "paths": watchEvents[Int(after)], "overflow": false,
+            ])
+        }
+        if type == "unwatch" { return try JSONSerialization.data(withJSONObject: ["type": "unwatched"]) }
+        if type == "open-workspace" {
+            let root = request["root"] as! String
+            roots.append(root)
+            return try JSONSerialization.data(withJSONObject: ["type": "workspace", "id": "ws-\(workspaceGeneration)-\(root)", "root": root])
+        }
+        guard let workspace = request["workspace"] as? String, workspace.hasPrefix("ws-\(workspaceGeneration)-") else {
             throw CloudWorkspaceRPCProcess.RemoteError(code: "unknown-workspace", message: "unknown workspace")
+        }
+        if type == "git-status" {
+            return try JSONSerialization.data(withJSONObject: [
+                "type": "git-status", "status": ["branch": "main", "changes": gitChanges],
+            ])
+        }
+        if type == "diff" {
+            let index = (request["cursor"] as? String).flatMap(Int.init) ?? 0
+            var response: [String: Any] = [
+                "type": "diff", "format": "unified", "data": Data(diffPages[index].utf8).base64EncodedString(),
+            ]
+            if index + 1 < diffPages.count { response["next_cursor"] = String(index + 1) }
+            return try JSONSerialization.data(withJSONObject: response)
+        }
+        if type == "watch-directories" {
+            return try JSONSerialization.data(withJSONObject: ["type": "watch-started", "watch": "w1"])
         }
         let path = request["path"] as! String
         #expect(!path.hasPrefix("/"), "workspace paths are relative to the / root")
@@ -56,7 +95,9 @@ private actor CloudWorkspaceFileRPCFixture: CloudWorkspaceFileRPC {
                 "entries": visible.map { ["name": $0.name, "path": $0.name, "kind": $0.kind, "size": 0] },
             ])
         case "stat":
-            let kind = symlinkTargets[path] ?? "file"
+            let exists = symlinkTargets[path] != nil || files[path] != nil || directories[path] != nil
+            guard exists else { throw CloudWorkspaceRPCProcess.RemoteError(code: "not-found", message: "missing") }
+            let kind = symlinkTargets[path] ?? (directories[path] != nil ? "directory" : "file")
             return try JSONSerialization.data(withJSONObject: ["type": "stat", "stat": ["path": path, "kind": kind, "size": 0]])
         case "read-file":
             guard let data = files[path] else {
@@ -178,5 +219,63 @@ private final class ExecCallRecorder: CloudFileExplorerCommandRunning, @unchecke
         #expect(entries.map(\.path) == ["/etc"])
         #expect(await rpc.requests.filter { $0 == "open-workspace" }.count == 2)
         #expect(exec.calls == 0)
+    }
+
+    @Test("git status finds the repository above the explorer root and keys paths absolutely")
+    func gitStatusUsesRepositoryRoot() async throws {
+        let rpc = CloudWorkspaceFileRPCFixture()
+        await rpc.setDirectory("home/cmux/proj/.git", [])
+        await rpc.setGitChanges([
+            ["path": "src/a.swift", "index_status": " ", "worktree_status": "M"],
+            ["path": "new.txt", "index_status": "?", "worktree_status": "?"],
+            ["path": "b.txt", "original_path": "old.txt", "index_status": "R", "worktree_status": " "],
+        ])
+        let provider = provider(rpc: rpc, exec: ExecCallRecorder(stdout: ""))
+        let status = try #require(try await provider.gitStatus(directory: "/home/cmux/proj/src"))
+        #expect(status.repositoryRoot == "/home/cmux/proj")
+        let map = GitStatusProvider().statusFromRemotePorcelain(
+            status.porcelain, repoRoot: status.repositoryRoot, directory: "/home/cmux/proj"
+        )
+        #expect(map["/home/cmux/proj/src/a.swift"] == .modified)
+        #expect(map["/home/cmux/proj/src"] == .modified)
+        #expect(map["/home/cmux/proj/new.txt"] == .untracked)
+        #expect(map["/home/cmux/proj/b.txt"] == .renamed)
+        #expect(await rpc.roots.contains("/home/cmux/proj"))
+    }
+
+    @Test("outside a repository there is no git status")
+    func gitStatusOutsideRepository() async throws {
+        let rpc = CloudWorkspaceFileRPCFixture()
+        let status = try await provider(rpc: rpc, exec: ExecCallRecorder(stdout: "")).gitStatus(directory: "/tmp")
+        #expect(status == nil)
+    }
+
+    @Test("a diff concatenates every page the daemon returns")
+    func diffConcatenatesPages() async throws {
+        let rpc = CloudWorkspaceFileRPCFixture()
+        await rpc.setDirectory("repo/.git", [])
+        await rpc.setDiffPages(["diff --git a/x b/x\n", "diff --git a/y b/y\n"])
+        let result = try #require(try await provider(rpc: rpc, exec: ExecCallRecorder(stdout: "")).diff(directory: "/repo", staged: false))
+        #expect(String(decoding: result.patch, as: UTF8.self) == "diff --git a/x b/x\ndiff --git a/y b/y\n")
+    }
+
+    @Test("directory changes stream the daemon's changed directories as absolute paths")
+    func watchStreamsChanges() async throws {
+        let rpc = CloudWorkspaceFileRPCFixture()
+        await rpc.setCapabilities(["workspace-watch-v1"])
+        await rpc.setWatchEvents([["home/cmux"], ["home/cmux/src"]])
+        var iterator = provider(rpc: rpc, exec: ExecCallRecorder(stdout: ""))
+            .directoryChanges(["/home/cmux", "/home/cmux/src"]).makeAsyncIterator()
+        #expect(try await iterator.next() == ["/home/cmux"])
+        #expect(try await iterator.next() == ["/home/cmux/src"])
+    }
+
+    @Test("an old daemon without the watch capability ends the stream at once")
+    func watchWithoutCapabilityFinishes() async throws {
+        let rpc = CloudWorkspaceFileRPCFixture()
+        var iterator = provider(rpc: rpc, exec: ExecCallRecorder(stdout: ""))
+            .directoryChanges(["/home/cmux"]).makeAsyncIterator()
+        #expect(try await iterator.next() == nil)
+        #expect(await !rpc.requests.contains("watch-directories"))
     }
 }

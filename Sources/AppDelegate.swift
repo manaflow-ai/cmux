@@ -7240,6 +7240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
+        if workspace.cloudVMBinding != nil {
+            // The repository lives on the Cloud machine; local git would read a Mac
+            // path that is not there (or, worse, a different repository).
+            return openCloudDiffViewer(workspace: workspace, cliURL: cliURL, socketPath: socketPath)
+        }
         let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         if preferAgentContext,
@@ -7289,6 +7294,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Fetches the unstaged patch from the Cloud machine's daemon and opens it in the
+    /// diff viewer as a patch source.
+    private func openCloudDiffViewer(workspace: Workspace, cliURL: URL, socketPath: String) -> Bool {
+        guard case let .remoteCloud(_, vmID, displayTarget, rootPath, isAvailable, _, target) =
+                FileExplorerWorkspaceRootResolver().resolve(workspace),
+              isAvailable, let target else {
+            NSSound.beep()
+            return false
+        }
+        guard let directory = focusedAgentWorkingDirectoryContext(for: workspace)?.cwd
+                ?? rootPath ?? workspace.resolvedWorkingDirectory() else {
+            NSSound.beep()
+            return false
+        }
+        let provider = CloudVMFileExplorerProvider(
+            vmID: vmID, displayTarget: displayTarget, isAvailable: true, target: target
+        )
+        let workspaceId = workspace.id
+        let surfaceId = workspace.focusedPanelId
+        Task { @MainActor [weak self] in
+            do {
+                guard let result = try await provider.diff(directory: directory, staged: false) else {
+                    NSSound.beep()
+                    return
+                }
+                let patchURL = try Self.writeCloudDiffPatch(result.patch)
+                self?.launchDiffViewerProcess(
+                    cliURL: cliURL, socketPath: socketPath, cwd: directory,
+                    workspaceId: workspaceId, surfaceId: surfaceId,
+                    useLastTurnSource: false, sessionId: nil, patchFile: patchURL
+                )
+            } catch {
+                NSSound.beep()
+            }
+        }
+        return true
+    }
+
+    /// Cloud patches are written to a private per-user directory; the viewer reads
+    /// the file when it opens and again on refresh.
+    private static func writeCloudDiffPatch(_ patch: Data) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-diffs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+        )
+        let url = directory.appendingPathComponent(UUID().uuidString + ".patch", isDirectory: false)
+        try patch.write(to: url, options: .atomic)
+        return url
+    }
+
     private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
         guard let surfaceId = workspace.focusedPanelId else { return nil }
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
@@ -7312,15 +7368,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
-        focus: Bool = true
+        focus: Bool = true,
+        patchFile: URL? = nil
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
-        var arguments = [
-            "--socket", socketPath,
-            "diff",
-            useLastTurnSource ? "--last-turn" : "--unstaged",
-            "--cwd", cwd,
+        var arguments = ["--socket", socketPath, "diff"]
+        if let patchFile {
+            arguments.append(patchFile.path)
+        } else {
+            arguments += [useLastTurnSource ? "--last-turn" : "--unstaged", "--cwd", cwd]
+        }
+        arguments += [
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",
         ]

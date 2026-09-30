@@ -59,6 +59,12 @@ struct GitStatusProvider: Sendable {
         return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory, keyRoot: directory)
     }
 
+    /// Maps porcelain v1 `-z` text produced on a remote machine (Cloud daemon) onto
+    /// explorer keys. Remote paths are never resolved against the local filesystem.
+    func statusFromRemotePorcelain(_ porcelain: String, repoRoot: String, directory: String) -> [String: GitFileStatus] {
+        parseGitStatus(output: porcelain, repoRoot: repoRoot, explorerRoot: directory, keyRoot: directory)
+    }
+
     private func parseGitStatus(
         output: String?, repoRoot: String, explorerRoot: String, keyRoot: String
     ) -> [String: GitFileStatus] {

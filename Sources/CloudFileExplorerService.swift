@@ -51,6 +51,46 @@ actor CloudFileExplorerService {
         return home
     }
 
+    /// Runs a daemon-only operation (git, diff, watch). There is no exec fallback for
+    /// these; an unreachable channel reports the provider as unavailable.
+    private func daemonOnly<T: Sendable>(
+        _ operation: (CloudDaemonFileExplorer) async throws -> T
+    ) async throws -> T {
+        guard let daemon else { throw FileExplorerError.providerUnavailable }
+        do {
+            return try await operation(daemon)
+        } catch is CloudWorkspaceFileRPCUnavailable {
+            throw FileExplorerError.providerUnavailable
+        } catch is CloudWorkspaceRPCProcess.RemoteError {
+            throw FileExplorerError.remoteCommandFailed("")
+        }
+    }
+
+    func gitStatus(vmID: String, directory: String) async throws -> (repositoryRoot: String, porcelain: String)? {
+        try await daemonOnly { try await $0.gitStatus(vmID: vmID, directory: directory) }
+    }
+
+    func diff(vmID: String, directory: String, staged: Bool) async throws -> (repositoryRoot: String, patch: Data)? {
+        try await daemonOnly { try await $0.diff(vmID: vmID, directory: directory, staged: staged) }
+    }
+
+    func supportsWatch(vmID: String) async -> Bool {
+        (try? await daemonOnly { try await $0.supports(vmID: vmID, CloudDaemonFileExplorer.watchCapability) }) ?? false
+    }
+
+    func watch(vmID: String, directories: [String]) async throws -> String {
+        try await daemonOnly { try await $0.watch(vmID: vmID, directories: directories) }
+    }
+
+    func poll(vmID: String, watch: String, after sequence: UInt64, timeoutMs: Int) async throws -> (sequence: UInt64, directories: [String], overflow: Bool) {
+        try await daemonOnly { try await $0.poll(vmID: vmID, watch: watch, after: sequence, timeoutMs: timeoutMs) }
+    }
+
+    func unwatch(vmID: String, watch: String) async {
+        guard let daemon else { return }
+        await daemon.unwatch(vmID: vmID, watch: watch)
+    }
+
     /// Lists one remote directory without crossing the local filesystem boundary.
     func listDirectory(vmID: String, path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         if let entries = try await viaDaemon({

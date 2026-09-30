@@ -768,6 +768,8 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatcher: FileWatcher?
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
+    /// Directories the Cloud daemon watch covers: the root plus expanded folders.
+    private var cloudWatchDirectories: [String]?
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -909,6 +911,16 @@ final class FileExplorerStore: ObservableObject {
         gitStatusGeneration &+= 1
         let generation = gitStatusGeneration, path = rootPath
         let context = resourceContextID, source = gitStatusProvider
+        if let cloud = provider as? CloudVMFileExplorerProvider, cloud.isAvailable, !path.isEmpty {
+            Task { [weak self] in
+                let status = try? await cloud.gitStatus(directory: path)
+                guard let self, self.gitStatusGeneration == generation, self.resourceContextID == context else { return }
+                self.gitStatusByPath = status.map {
+                    source.statusFromRemotePorcelain($0.porcelain, repoRoot: $0.repositoryRoot, directory: path)
+                } ?? [:]
+            }
+            return
+        }
         guard !path.isEmpty, provider?.isAvailable == true,
               provider is LocalFileExplorerProvider || provider is SSHFileExplorerProvider else {
             gitStatusByPath = [:]
@@ -970,6 +982,24 @@ final class FileExplorerStore: ObservableObject {
                     self.refreshGitStatus()
                 }
             }
+        } else if let cloud = provider as? CloudVMFileExplorerProvider, cloud.isAvailable, !rootPath.isEmpty {
+            let root = rootPath
+            let directories = [root] + expandedPaths.filter { $0 != root && Self.path($0, isContainedIn: root) }.sorted()
+            guard cloudWatchDirectories != directories || directoryWatchTask == nil else { return }
+            stopDirectoryWatcher()
+            cloudWatchDirectories = directories
+            let changes = cloud.directoryChanges(directories)
+            directoryWatchTask = Task { @MainActor [weak self] in
+                // A failed channel ends the watch; the next root change, expand or
+                // collapse starts a new one, and the refresh button still works.
+                do {
+                    for try await _ in changes {
+                        guard let self else { break }
+                        self.reload()
+                        self.refreshGitStatus()
+                    }
+                } catch {}
+            }
         } else {
             stopDirectoryWatcher()
         }
@@ -982,6 +1012,7 @@ final class FileExplorerStore: ObservableObject {
         directoryWatchTask = nil
         directoryWatcher = nil
         directoryWatchPath = nil
+        cloudWatchDirectories = nil
     }
 
     func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -996,6 +1027,11 @@ final class FileExplorerStore: ObservableObject {
         }
         if providerChanged { resetResourceContext(preservingNavigation: true) }
         provider = newProvider
+        if providerChanged {
+            // A watch belongs to the provider's transport and machine.
+            stopDirectoryWatcher()
+            updateDirectoryWatcher()
+        }
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
             reload()
@@ -1029,6 +1065,7 @@ final class FileExplorerStore: ObservableObject {
     func expand(node: FileExplorerNode) {
         guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory else { return }
         expandedPaths.insert(node.path)
+        updateDirectoryWatcher()
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
@@ -1044,6 +1081,7 @@ final class FileExplorerStore: ObservableObject {
 
     func collapse(node: FileExplorerNode) {
         expandedPaths.remove(node.path)
+        updateDirectoryWatcher()
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
