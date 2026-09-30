@@ -18995,6 +18995,137 @@
           }
         }
       }
+    },
+    "control.unsupported.method.terminal.sizing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shared terminal sizing is not in cmux-next yet; the newest active view sets the grid"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحجيم الطرفية المشترك غير متوفر في cmux-next بعد؛ أحدث عرض نشط يحدد الشبكة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dijeljena veličina terminala još nije u cmux-next; najnoviji aktivni prikaz određuje mrežu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "delt terminalstørrelse findes ikke i cmux-next endnu; den senest aktive visning bestemmer gitteret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gemeinsame Terminalgröße gibt es in cmux-next noch nicht; die zuletzt aktive Ansicht bestimmt das Raster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el tamaño compartido de terminal aún no está en cmux-next; la vista activa más reciente fija la cuadrícula"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le dimensionnement partagé du terminal n'est pas encore dans cmux-next ; la vue active la plus récente fixe la grille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il dimensionamento condiviso del terminale non è ancora in cmux-next; la vista attiva più recente imposta la griglia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共有ターミナルサイズはまだ cmux-next にありません。最後に操作したビューがグリッドを決めます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ទំហំស្ថានីយរួមមិនទាន់មានក្នុង cmux-next នៅឡើយទេ; ទិដ្ឋភាពសកម្មចុងក្រោយកំណត់ក្រឡា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "공유 터미널 크기 조정은 아직 cmux-next에 없습니다. 가장 최근에 활성화된 뷰가 그리드를 정합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "delt terminalstørrelse finnes ikke i cmux-next ennå; den sist aktive visningen bestemmer rutenettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "współdzielony rozmiar terminala nie jest jeszcze dostępny w cmux-next; siatkę ustala ostatnio aktywny widok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o dimensionamento compartilhado do terminal ainda não está no cmux-next; a visualização ativa mais recente define a grade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "общий размер терминала в cmux-next пока не поддерживается; сетку задаёт последнее активное представление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next ยังไม่มีการปรับขนาดเทอร์มินัลร่วมกัน มุมมองที่ใช้งานล่าสุดเป็นผู้กำหนดตาราง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "paylaşılan terminal boyutlandırması henüz cmux-next'te yok; ızgarayı en son etkin görünüm belirler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "спільного розміру термінала в cmux-next ще немає; сітку задає останнє активне подання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next chưa hỗ trợ kích thước terminal dùng chung; chế độ xem hoạt động gần nhất quyết định lưới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next 尚不支持共享终端尺寸；由最近活跃的视图决定网格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next 尚不支援共享終端機尺寸；由最近活躍的檢視決定網格"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

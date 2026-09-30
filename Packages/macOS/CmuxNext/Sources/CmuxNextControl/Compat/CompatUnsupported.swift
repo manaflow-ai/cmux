@@ -33,7 +33,19 @@ enum CompatUnsupported {
         "browser.wait": ControlStrings.text("control.unsupported.method.browser.wait", "page waits are not implemented; poll with browser eval"),
         "browser.screenshot": ControlStrings.text("control.unsupported.method.browser.screenshot", "page screenshots are not exposed over the socket yet"),
         "notification.open": ControlStrings.text("control.unsupported.method.notification.open", "open the notification's surface with surface.focus"),
-    ]
+    ].merging(terminalSizing) { first, _ in first }
+
+    /// The `cmux surface size…` verbs (main's shared terminal sizing,
+    /// CLI/CMUXCLI+SurfaceSizing.swift). cmux-tui has the sizing reducer
+    /// (`get-size-state`, `set-size-policy`, ...), but the app does not map
+    /// these methods onto it yet (cmux-tui-contract.md section 9).
+    static let terminalSizing: [String: String] = {
+        let reason = ControlStrings.text("control.unsupported.method.terminal.sizing",
+                                         "shared terminal sizing is not in cmux-next yet; the newest active view sets the grid")
+        let methods = ["terminal.size_state", "terminal.size_policy.set", "terminal.size_counts.set", "terminal.size_to_me",
+                       "terminal.participants.disconnect_others", "terminal.participant.disconnect"]
+        return Dictionary(uniqueKeysWithValues: methods.map { ($0, reason) })
+    }()
 
     /// Whole namespaces, by prefix before the first dot.
     static let namespaces: [String: String] = [

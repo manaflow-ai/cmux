@@ -608,6 +608,7 @@ CLI compatibility gap from the same merge: the new `cmux surface size`,
 socket methods `terminal.size_state`, `terminal.size_policy.set`,
 `terminal.size_counts.set`, `terminal.size_to_me`,
 `terminal.participants.disconnect_others` and
-`terminal.participant.disconnect`. The cmux-next control socket does not serve
-them yet; map them onto the daemon commands above when the size UI lands (see
-cli-compat.md).
+`terminal.participant.disconnect`. The cmux-next control socket answers each
+with a typed `unsupported` error that names shared terminal sizing
+(`CompatUnsupported.terminalSizing`); map them onto the daemon commands above
+when the size UI lands (see cli-compat.md).

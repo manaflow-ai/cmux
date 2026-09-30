@@ -67,6 +67,7 @@ Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whe
 | surface.move / surface.reorder | 4/4 + 1/1 | 6 + 1 | | move-surface, reorder-surface | daemon `move-tab` / `move-tab-to-workspace` |
 | pane.swap | 2/2 | 0 | | swap-pane | daemon `swap-pane` |
 | pane.break / pane.join / pane.last | 2/2 | 0 | | break/join/last-pane | unsup |
+| terminal.size_state / size_policy.set / size_counts.set / size_to_me / participants.disconnect_others / participant.disconnect | 0 | 0 | | surface size, participants, size-policy, size-counts, size-to-me, disconnect-others, disconnect-participant | unsup: shared terminal sizing (cmux-tui-contract.md section 9) |
 | workspace.reorder | 1/1 | 1 | | reorder-workspace | daemon `move-workspace` |
 | workspace.next / previous | 1/1 | 0 | | next/previous-window | app |
 | workspace.last | 1/1 | 0 | | last-window | unsup: no focus history yet |
