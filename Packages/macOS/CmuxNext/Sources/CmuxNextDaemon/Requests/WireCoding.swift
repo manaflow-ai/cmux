@@ -54,6 +54,7 @@ struct ResponseEnvelope<R: Decodable>: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if R.self == EmptyResponse.self, !container.contains(.data) {
             // Some acks omit `data`.
+            // crash-allow: checked on the line above (R.self == EmptyResponse.self).
             data = EmptyResponse() as! R
         } else {
             data = try container.decode(R.self, forKey: .data)

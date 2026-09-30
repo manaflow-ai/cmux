@@ -193,6 +193,7 @@ final class ControlConnection: @unchecked Sendable {
     private func flush() {
         while outboxOffset < outbox.count {
             let written = outbox.withUnsafeBytes { raw in
+                // crash-allow: the loop runs only while the outbox has bytes, so baseAddress is set.
                 Darwin.send(descriptor, raw.baseAddress! + outboxOffset, raw.count - outboxOffset, MSG_NOSIGNAL)
             }
             if written > 0 {

@@ -7,8 +7,10 @@ final class TempOutput {
 
     init() throws {
         var template = Array((NSTemporaryDirectory() + "cmux-next-proc.XXXXXX").utf8CString)
+        // crash-allow: the template array is never empty, so baseAddress is set.
         let fd = template.withUnsafeMutableBufferPointer { mkstemp($0.baseAddress!) }
         guard fd >= 0 else { throw DaemonError.launchFailed("mkstemp: \(String(cString: strerror(errno)))") }
+        // crash-allow: the template array is never empty, so baseAddress is set.
         template.withUnsafeBufferPointer { _ = unlink($0.baseAddress!) }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
