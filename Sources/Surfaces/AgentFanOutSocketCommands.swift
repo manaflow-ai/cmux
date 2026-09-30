@@ -318,10 +318,16 @@ extension TerminalController {
                 // A confirmed missing terminal is permanently unobservable;
                 // transport, link, and machine availability failures remain
                 // running so a later status request can retry them.
-                let isMissing = (error as? CmuxTuiSurfaceProvider.ProviderError).map {
-                    if case .remoteTabNotFound = $0 { return true }
-                    return false
-                } ?? CloudDiagnosticFailure.classify(error) == .notFound
+                let isMissing: Bool
+                if let providerError = error as? CmuxTuiSurfaceProvider.ProviderError {
+                    if case .remoteTabNotFound = providerError {
+                        isMissing = true
+                    } else {
+                        isMissing = false
+                    }
+                } else {
+                    isMissing = CloudDiagnosticFailure.classify(error) == .notFound
+                }
                 if isMissing {
                     operation.children[index].state = .failed
                     operation.children[index].errorCode = "terminal_unavailable"
