@@ -9,15 +9,20 @@ Resources/markdown-viewer/webviews-app/** linguist-generated
 # Xcode string catalogs are one large JSON object keyed by string id. Two
 # branches that each add a different key collide positionally, producing dozens
 # of conflict hunks with no semantic disagreement. scripts/merge-xcstrings.py
-# merges per key and writes a visible conflict whenever both sides changed the
+# merges per key and writes an ordinary conflict whenever both sides changed the
 # same key. Register it with scripts/install-git-hooks.sh (run by setup.sh);
 # without that config git silently uses the default driver.
 *.xcstrings merge=xcstrings-v2
+
+# Both drivers here run from the working tree, so a checkout of an untrusted
+# branch that also rewrites them gets to run its own code on the next merge.
+# scripts/ci/catch_up_pr.py pins both to false for that reason; a maintainer
+# merging into a fork checkout has no such protection.
 
 # The Xcode project file collides the same way, and for a sharper reason: no
 # target here is filesystem-synchronized, so adding one source file writes four
 # entries, and two branches adding different files append to all four of the
 # same regions. scripts/merge-pbxproj.py takes the union of entries each side
-# added and writes a visible conflict whenever a hunk is anything else. Same
+# added and writes an ordinary conflict whenever a hunk is anything else. Same
 # registration.
 cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
