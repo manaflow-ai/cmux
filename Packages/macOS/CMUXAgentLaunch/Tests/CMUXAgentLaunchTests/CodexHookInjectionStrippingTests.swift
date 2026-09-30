@@ -68,7 +68,7 @@ struct CodexHookInjectionStrippingTests {
     @Test("Strips the current Codex hook block with second-based timeouts")
     func stripsCurrentCodexHookBlockWithSecondTimeouts() {
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
-            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+            legacyNamedScriptPath(subcommand)
         } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -82,7 +82,7 @@ struct CodexHookInjectionStrippingTests {
     @Test("Strips a saved current Codex hook block with millisecond timeouts")
     func stripsSavedCurrentCodexHookBlockWithMillisecondTimeouts() {
         let arguments = ["codex"] + oldCurrentCodexHookArguments { subcommand in
-            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+            legacyNamedScriptPath(subcommand)
         } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
