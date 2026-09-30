@@ -2,15 +2,15 @@ import AppKit
 
 extension Shortcut {
     // Key-equivalent characters for non-printing keys (NSMenuItem semantics).
-    public static let upArrowKey = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
-    public static let downArrowKey = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
-    public static let leftArrowKey = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
-    public static let rightArrowKey = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
-    public static let returnKey = "\r"
-    public static let tabKey = "\t"
-    public static let escapeKey = "\u{1B}"
-    public static let deleteKey = "\u{8}"
-    public static let spaceKey = " "
+    public nonisolated static let upArrowKey = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
+    public nonisolated static let downArrowKey = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
+    public nonisolated static let leftArrowKey = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
+    public nonisolated static let rightArrowKey = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
+    public nonisolated static let returnKey = "\r"
+    public nonisolated static let tabKey = "\t"
+    public nonisolated static let escapeKey = "\u{1B}"
+    public nonisolated static let deleteKey = "\u{8}"
+    public nonisolated static let spaceKey = " "
 
     /// Modifier glyphs in macOS menu order: control, option, shift, command.
     public var modifierGlyphs: [String] {

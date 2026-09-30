@@ -1,5 +1,5 @@
 /// A typed argument value.
-public enum ActionValue: Sendable, Hashable {
+public nonisolated enum ActionValue: Sendable, Hashable {
     case string(String)
     case int(Int)
     case bool(Bool)
@@ -28,7 +28,7 @@ public enum ActionValue: Sendable, Hashable {
 
 /// Everything a handler needs for one run: the target (right-clicked object,
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
-public struct ActionInvocation: Sendable, Hashable {
+public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
     public var arguments: [String: ActionValue]
 

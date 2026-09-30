@@ -1,7 +1,7 @@
 import AppKit
 
 /// A shortcut that stands for a numbered family, such as Cmd-1 to Cmd-9.
-public enum ShortcutFamily: Sendable, Hashable {
+public nonisolated enum ShortcutFamily: Sendable, Hashable {
     /// The digit keys 1 to 9 with the descriptor's modifiers. The pressed
     /// digit is passed to the action's argument handler.
     case digits
@@ -14,7 +14,7 @@ public enum ShortcutFamily: Sendable, Hashable {
 /// `arguments`), key binding (`defaultShortcut`, user-overridable by `id`),
 /// right-click menus (`ContextMenuCatalog`), main menu (`mainMenu`), and the
 /// CLI verb (`cliName`).
-public struct ActionDescriptor: Identifiable, Sendable {
+public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public let id: ActionID
     public var title: String
     public var keywords: [String]

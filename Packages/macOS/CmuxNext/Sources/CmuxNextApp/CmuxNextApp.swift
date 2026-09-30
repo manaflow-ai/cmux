@@ -24,6 +24,8 @@ public enum CmuxNextApp {
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
         LaunchIdentity.stripInheritedEnvironment()
+        // Pure launch work (action catalog, string tables) overlaps AppKit's start.
+        LaunchWarmup.start()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"

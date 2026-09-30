@@ -15,7 +15,7 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
 
 /// A reference to one object: what the user right-clicked, what the CLI
 /// named with `--target`, or what the palette picked.
-public struct ActionTargetRef: Sendable, Hashable, Codable, CustomStringConvertible {
+public nonisolated struct ActionTargetRef: Sendable, Hashable, Codable, CustomStringConvertible {
     public let kind: ActionTargetKind
     public let id: String
 
@@ -39,7 +39,7 @@ public struct ActionTargetRef: Sendable, Hashable, Codable, CustomStringConverti
 
 /// Surfaces with a right-click menu. Each has an ordered list of action IDs
 /// in `ContextMenuCatalog`; the registry renders them.
-public enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable {
+public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable {
     case tab
     case tabGroup
     case pane

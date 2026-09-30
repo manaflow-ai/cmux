@@ -4,7 +4,7 @@ public import AppKit
 ///
 /// IDs are the contract shared by the palette, menus, shortcuts, the settings
 /// file, and the debug socket, so never rename one without a migration.
-public struct ActionID: RawRepresentable, Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
+public nonisolated struct ActionID: RawRepresentable, Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     public let rawValue: String
 
     public init(rawValue: String) {
@@ -20,7 +20,7 @@ public struct ActionID: RawRepresentable, Hashable, Sendable, ExpressibleByStrin
 
 /// A key equivalent plus modifiers. `key` uses NSMenuItem key-equivalent
 /// semantics: a lowercase character, or a function-key character.
-public struct Shortcut: Hashable, Sendable {
+public nonisolated struct Shortcut: Hashable, Sendable {
     public let key: String
     public let modifiers: NSEvent.ModifierFlags
 

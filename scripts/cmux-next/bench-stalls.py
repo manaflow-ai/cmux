@@ -60,7 +60,9 @@ def app_binary(tag):
 
 
 def tag_pids(tag):
-    out = subprocess.run(["pgrep", "-f", f"DerivedData/cmux-{tag}/"], capture_output=True, text=True).stdout
+    """The tag's app, daemon and terminal hosts: processes started from its bundle."""
+    out = subprocess.run(["pgrep", "-f", f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV"],
+                         capture_output=True, text=True).stdout
     return [int(p) for p in out.split() if int(p) != os.getpid()]
 
 
@@ -102,7 +104,10 @@ class Run:
         while tag_pids(self.tag) and time.monotonic() < deadline:
             time.sleep(0.5)  # a previous run's daemon may still be exiting
         if tag_pids(self.tag):
-            raise SystemExit(f"tag {self.tag} already has processes running; quit them first (this bench only kills what it starts)")
+            listing = subprocess.run(["ps", "-o", "pid=,command=", "-p", ",".join(map(str, tag_pids(self.tag)))],
+                                     capture_output=True, text=True).stdout
+            raise SystemExit(f"tag {self.tag} already has processes running; quit them first "
+                             f"(this bench only kills what it starts):\n{listing}")
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",

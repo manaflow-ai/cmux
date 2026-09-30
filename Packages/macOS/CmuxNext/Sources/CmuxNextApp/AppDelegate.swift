@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextPalette
 import CmuxNextSettings
 import os
 
@@ -27,13 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowPlacement.testScreen = environment.testWindow?.screen
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
+        DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
+        DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
+        DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
+        DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
+        DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         if !environment.noActivate { NSApp.activate() }
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment)
@@ -43,14 +49,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
-        services.windows.onFirstWindow = { _ in DebugTimings.markLaunchOnCommit("first_window_frame_committed") }
-        services.palette.onPresented = { DebugTimings.palettePresented($0, createdPanel: $1) }
+        DebugTimings.markLaunch("dfl.daemon_cloud_updater")
+        services.windows.onFirstWindow = { [palette = services.palette] _ in
+            // Once the first window's frame is committed, the palette panel
+            // is made at the next idle moment, so the first open costs what
+            // later opens cost (Spotlight and Chrome's omnibox open in one frame).
+            CATransaction.setCompletionBlock {
+                MainActor.assumeIsolated {
+                    DebugTimings.markLaunch("first_window_frame_committed")
+                    Self.preparePalette(palette, step: 0)
+                }
+            }
+        }
+        services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.windows.restoreWhenLoaded()
+        DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    /// One palette warm-up step per idle moment (`PaletteController.prepare`).
+    private static func preparePalette(_ palette: PaletteController?, step: Int) {
+        IdleOnce.schedule {
+            guard let palette, palette.prepare(step: step) else { return }
+            preparePalette(palette, step: step + 1)
+        }
     }
 
     /// cmux.json settings (density, shortcut overrides) and the tagged

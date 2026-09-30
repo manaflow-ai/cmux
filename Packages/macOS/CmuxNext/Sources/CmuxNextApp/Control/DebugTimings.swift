@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
 import Darwin
@@ -14,7 +15,7 @@ enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
     private static var launchMarks: [(name: String, ms: Double)] = []
-    private static var paletteOpens: [(ms: Double, createdPanel: Bool)] = []
+    private static var paletteOpens: [PaletteOpenTiming] = []
     private static var surfaces: [Double] = []
     private static let capacity = 256
 
@@ -44,12 +45,6 @@ enum DebugTimings {
         signposter.emitEvent("launch", "\(name, privacy: .public)")
     }
 
-    /// Marks `name` when the current Core Animation transaction commits:
-    /// the frame that carries this pass's changes reached the render server.
-    static func markLaunchOnCommit(_ name: String) {
-        CATransaction.setCompletionBlock { markLaunch(name) }
-    }
-
     static func install() {
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
@@ -58,8 +53,8 @@ enum DebugTimings {
         }
     }
 
-    static func palettePresented(_ duration: Duration, createdPanel: Bool) {
-        if paletteOpens.count < capacity { paletteOpens.append((milliseconds(duration), createdPanel)) }
+    static func palettePresented(_ timing: PaletteOpenTiming) {
+        if paletteOpens.count < capacity { paletteOpens.append(timing) }
     }
 
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
@@ -77,8 +72,14 @@ enum DebugTimings {
         for mark in launchMarks { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
-            "palette_opens": .array(paletteOpens.map { ["ms": round($0.ms), "created_panel": .bool($0.createdPanel)] }),
+            "palette_opens": .array(paletteOpens.map { open in
+                ["ms": round(milliseconds(open.total)), "model_ms": round(milliseconds(open.model)),
+                 "panel_ms": round(milliseconds(open.panel)), "present_ms": round(milliseconds(open.present)),
+                 "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
+            }),
             "terminal_surfaces_ms": .array(surfaces.map(round)),
+            "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(milliseconds($0.duration))) },
+                                                     uniquingKeysWith: { first, _ in first })),
         ]
     }
 }

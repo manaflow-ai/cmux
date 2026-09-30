@@ -55,8 +55,26 @@ enum PaletteText {
         ceil(field.attributedStringValue.size().width) + Metrics.space2
     }
 
+    /// Configured SF Symbol images, made once per name and size: rows are
+    /// reconfigured on every open and scroll, and each lookup plus
+    /// configuration costs a millisecond or more in the symbol catalog.
+    /// Tinting is per image view (`contentTintColor`), so one image serves
+    /// every row. Bounded by the catalog's symbol names.
+    private static var symbols: [SymbolKey: NSImage] = [:]
+    private struct SymbolKey: Hashable {
+        let name: String
+        let size: CGFloat
+    }
+
     static func symbol(_ name: String, size: CGFloat, color: NSColor = Palette.textSecondary) -> NSImage? {
+        let key = SymbolKey(name: name, size: size)
+        if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+            return nil
+        }
+        if symbols.count >= 1_024 { symbols.removeAll() }
+        symbols[key] = image
+        return image
     }
 }

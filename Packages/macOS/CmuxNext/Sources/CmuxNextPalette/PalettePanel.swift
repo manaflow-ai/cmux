@@ -12,7 +12,9 @@ final class PalettePanel: ActiveAppKeyPanel {
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
-            defer: true
+            // Created ahead of the first open (`PaletteController.prepare`),
+            // so the window-server window is made then, not on open.
+            defer: false
         )
         ThemeStore.shared.adopt(self)
         isOpaque = false

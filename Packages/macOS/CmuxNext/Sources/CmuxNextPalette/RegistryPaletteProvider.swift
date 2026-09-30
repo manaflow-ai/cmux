@@ -37,6 +37,18 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     public func makeItems() -> [PaletteItem] {
         var items: [PaletteItem] = []
+        // Localized once per open, not once per action (hundreds of rows).
+        let unbound = PaletteStrings.unbound
+        let copyActionID = PaletteStrings.copyActionID
+        let open = PaletteStrings.open
+        let runCommand = PaletteStrings.runCommand
+        var sections: [ActionCategory: PaletteSection] = [:]
+        func section(_ category: ActionCategory) -> PaletteSection {
+            if let cached = sections[category] { return cached }
+            let made = Self.section(for: category)
+            sections[category] = made
+            return made
+        }
         for entry in registry.entries {
             let descriptor = entry.descriptor
             guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
@@ -50,22 +62,22 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 title: descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
-                accessory: entry.isBound || override != nil ? nil : PaletteStrings.unbound,
+                accessory: entry.isBound || override != nil ? nil : unbound,
                 symbol: descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
-                section: Self.section(for: descriptor.category),
+                section: section(descriptor.category),
                 keywords: descriptor.keywords + [actionID.rawValue],
                 isEnabled: isEnabled,
                 primary: PaletteCommand(
                     id: "run",
-                    title: Self.primaryTitle(for: descriptor),
+                    title: descriptor.arguments.contains(where: \.isRequired) ? open : runCommand,
                     symbol: "return",
                     effect: effect
                 ),
                 secondary: [
                     PaletteCommand(
                         id: "copyID",
-                        title: PaletteStrings.copyActionID,
+                        title: copyActionID,
                         symbol: "doc.on.doc",
                         effect: .perform { PaletteClipboard.copy(actionID.rawValue) }
                     ),

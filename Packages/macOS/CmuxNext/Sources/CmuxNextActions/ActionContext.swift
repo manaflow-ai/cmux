@@ -1,6 +1,6 @@
 /// Surfaces where the old app exposed an action (inventory legend P/K/M/C).
 /// Informational: menus and context menus in cmux-next are built by the App.
-public struct ActionSurfaces: OptionSet, Sendable, Hashable {
+public nonisolated struct ActionSurfaces: OptionSet, Sendable, Hashable {
     public let rawValue: UInt8
     public init(rawValue: UInt8) { self.rawValue = rawValue }
 

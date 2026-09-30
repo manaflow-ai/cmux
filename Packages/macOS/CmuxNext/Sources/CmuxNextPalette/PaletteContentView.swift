@@ -69,6 +69,17 @@ final class PaletteContentView: NSView {
             // Gray selection and caret; the system accent never shows.
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
             editor.insertionPointColor = Palette.textPrimary
+            // A search query is not prose: no spelling, grammar or
+            // replacement checks (their text checking ran on every open).
+            editor.isContinuousSpellCheckingEnabled = false
+            editor.isGrammarCheckingEnabled = false
+            editor.isAutomaticSpellingCorrectionEnabled = false
+            editor.isAutomaticTextReplacementEnabled = false
+            editor.isAutomaticQuoteSubstitutionEnabled = false
+            editor.isAutomaticDashSubstitutionEnabled = false
+            editor.isAutomaticTextCompletionEnabled = false
+            editor.isAutomaticDataDetectionEnabled = false
+            editor.isAutomaticLinkDetectionEnabled = false
         }
         searchBar.field.currentEditor()?.selectedRange = NSRange(location: searchBar.field.stringValue.utf16.count, length: 0)
     }

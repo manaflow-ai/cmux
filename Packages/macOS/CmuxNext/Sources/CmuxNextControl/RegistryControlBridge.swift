@@ -116,7 +116,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// A wire snapshot of every registry entry (catalog descriptors plus
     /// ad hoc bound actions).
     public static func catalog(from registry: ActionRegistry) -> ControlCatalog {
-        let actions = registry.entries.map { entry in info(for: entry, in: registry) }
+        // Localized once per snapshot, not once per action.
+        let categoryTitles = Dictionary(uniqueKeysWithValues: ActionCategory.allCases.map { ($0, $0.title) })
+        let actions = registry.entries.map { entry in info(for: entry, in: registry, categoryTitles: categoryTitles) }
         var debugAvailable = false
         #if DEBUG
         debugAvailable = true
@@ -130,14 +132,15 @@ public final class RegistryControlBridge: ControlActionExecutor {
         )
     }
 
-    static func info(for entry: ActionEntry, in registry: ActionRegistry) -> ControlActionInfo {
+    static func info(for entry: ActionEntry, in registry: ActionRegistry,
+                     categoryTitles: [ActionCategory: String] = [:]) -> ControlActionInfo {
         let descriptor = entry.descriptor
         let shortcut = registry.effectiveShortcut(for: descriptor.id)
         var info = ControlActionInfo(
             id: descriptor.id.rawValue,
             title: descriptor.title,
             category: descriptor.category.rawValue,
-            categoryTitle: descriptor.category.title,
+            categoryTitle: categoryTitles[descriptor.category] ?? descriptor.category.title,
             cliName: descriptor.cliName,
             symbol: descriptor.symbol,
             keywords: descriptor.keywords,
