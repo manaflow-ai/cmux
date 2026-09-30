@@ -133,6 +133,15 @@ public enum ContextMenuCatalog {
         + actions("browser.pageInfo.cookies", "browser.pageInfo.manageSiteData", "browser.pageInfo.deleteSiteData") + [.separator]
         + actions("browser.pageInfo.siteSettings", "browser.pageInfo.aboutThisPage")
 
+    /// The cmux items after an engine's own page menu (Chromium lists Back,
+    /// Forward and Reload itself): the page menu without that group.
+    public static let browserPageAfterEngineMenu: [ContextMenuEntry] = {
+        let navigation: Set<ActionID> = ["browserBack", "browserForward", "browserReload"]
+        var entries = browserPage.filter { if case .action(let id) = $0 { !navigation.contains(id) } else { true } }
+        while case .separator? = entries.first { entries.removeFirst() }
+        return entries
+    }()
+
     static let link: [ContextMenuEntry] =
         actions("openLinkInNewTab", "openLinkInDefaultBrowser") + [.separator] + actions("terminalCopy")
 }

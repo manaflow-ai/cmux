@@ -38,7 +38,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.paneController(for: pane)?.select(StripTabID(key), source: .intent)
         case .contextMenu(let request):
             let target = ActionTargetRef(kind: .tab, id: key)
-            let host = services.registry.makeContextMenu(for: .browserPage, target: target, implied: .browserFocused)
+            let host = services.registry.makeContextMenu(for: .browserPage, target: target,
+                                                         entries: ContextMenuCatalog.browserPageAfterEngineMenu,
+                                                         implied: .browserFocused)
             let extra = host.items
             host.removeAllItems()
             BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
