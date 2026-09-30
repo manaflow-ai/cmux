@@ -19,7 +19,9 @@ let lineCenter: CGFloat = 12.5 * 0.6 + 8
 
 let rows: [(String, Glyph.Kind?, Bool)] = [
     ("needs input", .needsInput, false),
+    ("running subagents", .subagents, false),
     ("running", .running, false),
+    ("waiting", .waiting, false),
     ("unseen", .unseen, false),
     ("error", .error, false),
     ("starting agent", .pending, false),

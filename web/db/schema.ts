@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -17,6 +17,27 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+
+/** A closed, actionable observed-destroy cleanup object. */
+export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
+  return sql`coalesce(
+    jsonb_typeof(${cleanup}) = 'object'
+    and (${cleanup} - 'modelPlane' - 'homeVolume') = '{}'::jsonb
+    and (
+      not (${cleanup} ? 'modelPlane')
+      or ${cleanup}->'modelPlane' = 'true'::jsonb
+    )
+    and (
+      not (${cleanup} ? 'homeVolume')
+      or (
+        jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+        and length(btrim(${cleanup}->>'homeVolume')) > 0
+      )
+    )
+    and (${cleanup} ? 'modelPlane' or ${cleanup} ? 'homeVolume'),
+    false
+  )`;
+}
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -103,6 +124,18 @@ export const cloudVms = pgTable(
     index("cloud_vms_owner_team_status_idx").on(table.ownerTeamId, table.status),
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
+    index("cloud_vms_observed_destroy_cleanup_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.status} = 'destroyed'
+        and ${table.providerMetadata} ? 'cmuxObservedDestroyCleanup'
+        and jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup') = 'object'
+        and (
+          ${table.providerMetadata}->'cmuxObservedDestroyCleanup' @> '{"modelPlane":true}'::jsonb
+          or (
+            jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->'homeVolume') = 'string'
+            and length(btrim(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->>'homeVolume')) > 0
+          )
+        )`),
     uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
       .on(table.billingTeamId, table.idempotencyKey)
       .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),
@@ -113,6 +146,30 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_billing_team_slug_live_unique")
       .on(table.billingTeamId, table.slug)
       .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
+  ],
+);
+
+/**
+ * External teardown that must outlive its account-owned VM row. Account
+ * deletion moves pending terminal cleanup here in the same transaction that
+ * removes the VM, so no user/team foreign key may be added to this outbox.
+ */
+export const cloudVmObservedDestroyCleanups = pgTable(
+  "cloud_vm_observed_destroy_cleanups",
+  {
+    vmId: uuid("vm_id").primaryKey(),
+    provider: vmProvider("provider").notNull(),
+    cleanup: jsonb("cleanup").$type<{ modelPlane?: true; homeVolume?: string }>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_observed_destroy_cleanups_updated_idx")
+      .on(table.updatedAt, table.vmId)
+      .where(observedDestroyCleanupValidityPredicate(table.cleanup)),
+    check(
+      "cloud_vm_observed_destroy_cleanups_pending_step",
+      observedDestroyCleanupValidityPredicate(table.cleanup),
+    ),
   ],
 );
 

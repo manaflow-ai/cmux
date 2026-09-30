@@ -902,7 +902,8 @@ class TerminalController {
         color: String?,
         url: URL?,
         priority: Int,
-        format: SidebarMetadataFormat
+        format: SidebarMetadataFormat,
+        workState: SidebarAgentWorkState?
     ) -> Bool {
         guard let current else { return true }
         return current.key != key ||
@@ -911,7 +912,8 @@ class TerminalController {
             current.color != color ||
             current.url != url ||
             current.priority != priority ||
-            current.format != format
+            current.format != format ||
+            current.workState != workState
     }
 
     nonisolated static func shouldReplaceMetadataBlock(
@@ -1728,6 +1730,20 @@ class TerminalController {
                 )
             }
             return v2Ok(id: request.id, result: ["completed": true])
+        case "window.record.start", "window.record.stop", "window.record.status",
+             "window.record.note", "window.record.list":
+            return v2Result(
+                id: request.id,
+                v2WindowRecordingCommandOnSocketWorker(
+                    method: request.method,
+                    params: request.params
+                )
+            )
+        case "window.screenshot":
+            return v2Result(
+                id: request.id,
+                v2WindowScreenshotOnSocketWorker(params: request.params)
+            )
         case "browser.download.list", "browser.download.wait":
             return v2Result(id: request.id, request.method == "browser.download.list" ? v2BrowserDownloadListOnSocketWorker(params: request.params) : v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -11939,7 +11955,7 @@ class TerminalController {
           clear_notifications [--tab=X] [--panel=ID] - Clear notifications (all, per-tab, or per-panel)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--work=running|subagents|waiting] [--tab=X] - Set a status entry
           set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
@@ -14722,6 +14738,16 @@ class TerminalController {
             return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
         }
 
+        let workState: SidebarAgentWorkState?
+        if let rawWorkState = normalizedOptionValue(parsed.options["work"]) {
+            guard let parsedWorkState = SidebarAgentWorkState.parse(rawWorkState) else {
+                return "ERROR: Invalid work state '\(rawWorkState)' — use: running, subagents, waiting"
+            }
+            workState = parsedWorkState
+        } else {
+            workState = nil
+        }
+
         let priority: Int
         if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
             guard let parsedPriority = Int(rawPriority) else {
@@ -14750,7 +14776,7 @@ class TerminalController {
         }
         let panelResolution = parseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--work=running|subagents|waiting] [--tab=X] [--panel=ID]"
         )
         if let error = panelResolution.error {
             return error
@@ -14776,7 +14802,8 @@ class TerminalController {
                 color: color,
                 url: parsedURL,
                 priority: priority,
-                format: format
+                format: format,
+                workState: workState
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
@@ -14792,7 +14819,8 @@ class TerminalController {
                 url: parsedURL,
                 priority: priority,
                 format: format,
-                timestamp: Date()
+                timestamp: Date(),
+                workState: workState
             )
             if let pidValue {
                 tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
@@ -14853,6 +14881,7 @@ class TerminalController {
         if let url = entry.url { line += " url=\(url.absoluteString)" }
         if entry.priority != 0 { line += " priority=\(entry.priority)" }
         if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        if let workState = entry.workState { line += " work=\(workState.rawValue)" }
         return line
     }
 

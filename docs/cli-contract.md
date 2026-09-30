@@ -178,6 +178,8 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
+| `record` | Record a cmux window or a region of one to an mp4 or gif (`window.record.*`). `start` returns a recording id and the output path, `stop` closes the clip, `status` reports progress, `note` adds a caption drawn into later frames, `list` shows the current and recent recordings. One recording at a time; a recording stops itself at `--max-seconds`. The clip appears at its path when the recording ends, so an existing file there is replaced only once there is a finished clip to replace it with, and a recording that never closes leaves the path alone. Local socket only: `window.record.*` is not on the `cmux ssh` relay allowlist. |
+| `shot`, `screenshot` | Screenshot a cmux window or a region of one to a png or a jpeg (`window.screenshot`). Prints the pixel size, the byte count and the output path. `--region` takes the same four window-point numbers as `cmux record --region`, `--caption` draws a caption into the image, and `--quality` applies to jpeg only. Only cmux's own windows are captured, so no Screen Recording permission is involved and this works in a Release build and inside CI. The image is encoded beside the output path and moved into place, so an existing file there is replaced only once there is a complete image to replace it with. Local socket only: `window.screenshot` is not on the `cmux ssh` relay allowlist. |
 | `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. |
 | `send-key` | Send one key to a terminal surface. |
 | `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
@@ -705,6 +707,7 @@ Docs topics:
 | `docs shortcuts` | Print shortcut docs and raw shortcut data resources. |
 | `docs api` | Print API docs and raw CLI contract resources. |
 | `docs browser` | Print browser automation docs and raw browser skill resources. |
+| `docs capture` | Print the capture skill and command reference for `cmux shot` and `cmux record`. Aliases include `screenshot`, `shot`, `record` and `gif`. |
 | `docs agents` | Print agent integration docs and raw integration resources. |
 | `docs workflows` | Print the saved-layout lifecycle plus the shipped workflow-example catalog. `--json` exposes stable example ids, task-fit cues, created/configured surfaces, config files, primitives, requirements, instantiation/adaptation guidance, source recipe links, and save-as-layout steps without a socket. Aliases include `templates`, `presets`, `examples`, and `layouts`. |
 
@@ -733,6 +736,14 @@ Config subcommands:
 | `config set surface-tab-bar-font-size <points>` | Write the workspace tab bar text size to cmux's editable Ghostty config and reload the running app when available. |
 | `config surface-tab-bar-font-size [points]` | Get the workspace tab bar text size, or set it when a point size is provided. |
 | `config get <key>`, `config set <key> <points>` | Generic get/set for `sidebar-font-size` and `surface-tab-bar-font-size`. |
+| `config get <setting.path>` | Print a setting's effective value: the cmux.json value; else the value stored by the Settings window (read from the cmux app's defaults), marked `(set in Settings, not cmux.json)`; else the schema default, marked `(default)`. Rejects paths the schema doesn't declare and non-setting sections (`actions`, `commands`, `ui`, `settingPresets`, ...). `--json` prints `path`, `file`, `value`, `configured`, `source` (`cmux.json`, `settings`, or `default`), and `default`. Works without a socket. |
+| `config set <setting.path> <value>` | Write one setting to `~/.config/cmux/cmux.json`. `<value>` is parsed as JSON; text that isn't JSON is stored as a string. The complete result is validated against the schema before anything is written, and comments and unrelated keys are kept. The running app applies the change through its file watcher. Works without a socket. |
+| `config unset <setting.path>` | Remove one setting from cmux.json, so the value stored by the Settings window, or else the default, applies. Same validation and preservation as `set`. |
+| `config toggle <setting.path>` | Flip a boolean setting, starting from the value cmux is using: the cmux.json value, else the Settings window's value, else the schema default. Refuses non-boolean settings. |
+| `config cycle <setting.path> <value> [value...]` | Move a setting to the value after its current one (found the same way as `toggle`), wrapping at the end; a value that isn't listed moves to the first. |
+| `config preset <name>` | Apply the partial settings object at `settingPresets.<name>` in one write. Nested objects merge key by key. |
+
+`config set|unset|toggle|cycle|preset` share one mutation path with `"type": "setting"` and `"type": "settingPreset"` actions. Paths split on every `.`, so a key that itself contains `.` (for example a `workspaceGroups.byCwd` entry for `~/src/app.web`) can't be addressed; such a path is refused with an error that says so, and the key has to be edited in cmux.json directly. `--json` prints `ok`, `file`, and `paths`, an array of `{path, changed, value}` objects (`value` is absent after an unset).
 
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
@@ -916,14 +927,15 @@ the expected text without connecting to a cmux socket.
 - `cmux review --help` -> `Usage: cmux review <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
+- `cmux docs capture` -> `capture: Screenshot or record a cmux window`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
-- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|unset|toggle|cycle|preset|sidebar-font-size|surface-tab-bar-font-size>`
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
@@ -1027,6 +1039,8 @@ the expected text without connecting to a cmux socket.
 - `cmux respawn-pane --help` -> `Usage: cmux respawn-pane`
 - `cmux display-message --help` -> `Usage: cmux display-message`
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
+- `cmux record --help` -> `Usage: cmux record [start] [flags]`
+- `cmux shot --help` -> `Usage: cmux shot [flags]`
 - `cmux send --help` -> `Usage: cmux send`
 - `cmux send-key --help` -> `Usage: cmux send-key`
 - `cmux paste --help` -> `Usage: cmux paste`

@@ -751,5 +751,11 @@
     "arguments": [
       1
     ]
+  },
+  "agentWake.status.multiple": {
+    "source": "%ld agents didn't resume",
+    "arguments": [
+      1
+    ]
   }
 }

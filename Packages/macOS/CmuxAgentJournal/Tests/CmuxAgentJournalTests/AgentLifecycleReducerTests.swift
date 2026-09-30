@@ -77,6 +77,15 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .backgroundWorkPending)
     }
 
+    @Test func toolActivityReopensASettledTurnAndLateStopIsIgnored() {
+        let state = fold([
+            event(1, .turnCompleted, occurredAtMs: 10),
+            event(2, .stateChanged, declaredPhase: .running, occurredAtMs: 20),
+            event(3, .turnCompleted, occurredAtMs: 10),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
     @Test func newTurnRemainsRunningWhileBackgroundWorkIsPending() {
         let state = fold([
             event(1, .turnStarted),
