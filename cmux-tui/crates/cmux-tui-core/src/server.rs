@@ -16224,6 +16224,10 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
+#[path = "server/personal_terminal_tests.rs"]
+mod personal_terminal_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
