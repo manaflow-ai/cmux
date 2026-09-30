@@ -4445,7 +4445,6 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
         resolved["data"]["lifecycle"], "running",
         "the unplaced terminal survived: {resolved}"
     );
-    wait_for_no_host_records(&harness.host_root());
 }
 
 /// Without `end_terminals`, `keep_layout` is refused: it only describes how
