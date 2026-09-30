@@ -20,6 +20,7 @@ import PackageDescription
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
+//   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
@@ -88,6 +89,7 @@ let package = Package(
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextCloud",
+                "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
                 "CmuxNextResources",
@@ -152,6 +154,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextCloudTests",
             dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Machines reached over the user's own OpenSSH: destinations, the
+        // `cmux-tui remote connect ssh://` link, probe, reconnect gate, the
+        // pinned cmux-tui install and the remote-to-local deny policy. No UI.
+        .target(
+            name: "CmuxNextRemote",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteTests",
+            dependencies: ["CmuxNextRemote"],
             swiftSettings: daemonSwiftSettings
         ),
         // App-layer mapping between daemon records and feature view models,

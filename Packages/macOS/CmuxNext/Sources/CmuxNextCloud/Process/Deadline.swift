@@ -8,7 +8,7 @@ public struct DeadlineExceeded: Error, Sendable, CustomStringConvertible {
 
 /// Runs `operation`, cancelling it and throwing `DeadlineExceeded` when it
 /// outlives `duration`.
-func withDeadline<T: Sendable>(_ duration: Duration, label: String,
+package func withDeadline<T: Sendable>(_ duration: Duration, label: String,
                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
     // concurrency-allow: callers pass cancellation-aware work (URLSession, AsyncStream iteration)
     try await withThrowingTaskGroup(of: T.self) { group in
