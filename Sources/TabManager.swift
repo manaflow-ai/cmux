@@ -257,6 +257,7 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
+    private var isDeletingWorkspaceGroup: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2010,7 +2011,19 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        let previousGroupIds = Set(tabs.compactMap { tab in
+            tab.id == tabId ? tab.groupId : nil
+        })
+        let handled = workspaceReordering.reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation
+        )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            workspaceIds: [tabId],
+            previousGroupIds: previousGroupIds
+        )
+        return handled
     }
 
     func sidebarReorderWorkspaceIds(
@@ -2059,13 +2072,21 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspace(
+        let previousGroupIds = Set(tabs.compactMap { tab in
+            tab.id == tabId ? tab.groupId : nil
+        })
+        let handled = workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            workspaceIds: [tabId],
+            previousGroupIds: previousGroupIds
+        )
+        return handled
     }
 
     @discardableResult
@@ -2077,7 +2098,10 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspaces(
+        let previousGroupIds = Set(tabIds.compactMap { tabId in
+            tabs.first { $0.id == tabId }?.groupId
+        })
+        let handled = workspaceReordering.reorderSidebarWorkspaces(
             tabIds: tabIds,
             draggedTabId: draggedTabId,
             toIndex: targetIndex,
@@ -2085,6 +2109,23 @@ class TabManager: ObservableObject {
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            workspaceIds: tabIds,
+            previousGroupIds: previousGroupIds
+        )
+        return handled
+    }
+
+    private func cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+        workspaceIds: [UUID],
+        previousGroupIds: Set<UUID>
+    ) {
+        for groupId in previousGroupIds where !tabs.contains(where: { $0.groupId == groupId && !workspaceIds.contains($0.id) }) {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: groupId,
+                additionalMovedWorkspaceIds: workspaceIds
+            )
+        }
     }
 
     func sidebarReorderUsesTopLevelRows(
@@ -2428,6 +2469,9 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspaceForGroupDeletion(_ tab: Workspace, recordHistory: Bool) {
+        let wasDeletingWorkspaceGroup = isDeletingWorkspaceGroup
+        isDeletingWorkspaceGroup = true
+        defer { isDeletingWorkspaceGroup = wasDeletingWorkspaceGroup }
         closeWorkspace(tab, recordHistory: recordHistory)
     }
 
@@ -2583,7 +2627,8 @@ class TabManager: ObservableObject {
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if let closedWorkspaceGroupId,
-               !closedWorkspaceWasGroupAnchor {
+               !closedWorkspaceWasGroupAnchor,
+               !isDeletingWorkspaceGroup {
                 _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
                     groupId: closedWorkspaceGroupId,
                     additionalMovedWorkspaceIds: [workspace.id]
@@ -2694,10 +2739,17 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
+        let removedWorkspaceGroupId = removed.groupId
         // Same anchor-close lifecycle as closeWorkspace: an unpinned group's
         // anchor dissolves it, while a pinned group promotes a remaining member
         // or retains an empty header.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
+        if let removedWorkspaceGroupId {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: removedWorkspaceGroupId,
+                additionalMovedWorkspaceIds: [removed.id]
+            )
+        }
         // Clear the detached workspace's own group membership so the
         // destination window — which has no matching WorkspaceGroup — doesn't
         // render it as an orphaned indented row with stale grouping state.

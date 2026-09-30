@@ -938,6 +938,23 @@ struct WorkspaceGroupTests {
         #expect(manager.workspaceGroups.first { $0.id == groupId } == nil)
     }
 
+    @Test func deletingGeneratedAnchorGroupCountsTheAnchorAndMember() throws {
+        let manager = makeTabManager()
+        let realMemberId = manager.tabs[0].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        let generatedAnchorId = try #require(
+            manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
+        )
+        manager.addWorkspaceToGroup(workspaceId: realMemberId, groupId: groupId)
+
+        let closed = manager.deleteWorkspaceGroup(groupId: groupId)
+
+        #expect(closed == 2)
+        #expect(!manager.tabs.contains { $0.id == generatedAnchorId })
+        #expect(!manager.tabs.contains { $0.id == realMemberId })
+        #expect(manager.workspaceGroups.first { $0.id == groupId } == nil)
+    }
+
     @Test func removeAnchorViaRemoveWorkspaceFromGroupDissolves() throws {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
