@@ -11,7 +11,11 @@ enum SidebarStyle {
     /// Leading indent of grouped rows (room for the group color rail).
     static var groupIndent: CGFloat { Metrics.space5 }
     /// Icon frame; the glyph inside uses `Metrics.smallIconSize`.
-    static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    /// Color swatch and monogram square inside the icon frame.
+    static var swatchSize: CGFloat { Metrics.smallIconSize }
+    /// Group header color dot (filled expanded, ring collapsed).
+    static var groupDotSize: CGFloat { Metrics.space4 }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
@@ -30,19 +34,13 @@ enum SidebarStyle {
     static var headerFont: NSFont { Typography.header }
     static var groupFont: NSFont { Typography.bodyEmphasized }
     static var badgeFont: NSFont { Typography.shortcut }
-    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize, weight: .medium) }
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular) }
     static var chevronConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold) }
 
     /// Fill for multi-selected rows that are not the active one.
     static let secondarySelectionFill = NSColor(name: nil) { appearance in
         let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         return NSColor(white: dark ? 1 : 0, alpha: 0.07)
-    }
-
-    /// Hairline highlight on the selection pill's top edge (glass rim).
-    static let pillRim = NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return NSColor(white: dark ? 1 : 1, alpha: dark ? 0.10 : 0.55)
     }
 
     static let badgeFill = NSColor(name: nil) { appearance in
@@ -65,6 +63,8 @@ enum Motion {
     static let layout = Animation.spring(duration: 0.32, bounce: 0.12)
     /// Selection pill glide.
     static let selection = Animation.spring(duration: 0.26, bounce: 0.08)
+    /// Titlebar buttons fading in on hover.
+    static let fade = Animation.easeOut(duration: 0.14)
     /// Width changes.
     static let width = Animation.spring(duration: 0.30, bounce: 0)
     /// Lift and drop settle.

@@ -46,14 +46,14 @@ public nonisolated enum KeyboardReorder {
 }
 
 /// Case- and diacritic-insensitive filter: every whitespace-separated token
-/// must appear in the title or subtitle.
+/// must appear in the title, subtitle or status.
 public nonisolated enum SidebarFilter {
     public static func matches(_ query: String, in sections: [SidebarSection]) -> Set<WorkspaceID>? {
         let tokens = query.split(whereSeparator: \.isWhitespace).map { normalize(String($0)) }
         guard !tokens.isEmpty else { return nil }
         var result = Set<WorkspaceID>()
         for ws in sections.flatMap(\.workspaces) {
-            let haystack = normalize(ws.title + " " + (ws.subtitle ?? ""))
+            let haystack = normalize([ws.title, ws.subtitle ?? "", ws.status ?? ""].joined(separator: " "))
             if tokens.allSatisfy({ haystack.contains($0) }) { result.insert(ws.id) }
         }
         return result

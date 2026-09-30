@@ -34,8 +34,12 @@ extension SidebarView {
         let local = convert(windowPoint, from: nil)
         guard bounds.contains(local) else {
             list.externalDragExited()
+            setChromeRevealed(false)
             return nil
         }
+        // Tracking areas do not fire during an app-driven drag; reveal the
+        // "+" drop target explicitly.
+        setChromeRevealed(true)
         if !newButton.isHidden, newButton.frame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(local) {
             list.externalDragExited()
             let machine = sourceMachine ?? .local
@@ -52,12 +56,19 @@ extension SidebarView {
     /// The drag left the sidebar or was cancelled (Escape).
     public func tabDragExited() {
         list.externalDragExited()
+        setChromeRevealed(isPointerInside)
     }
 
     /// The drag was released. Returns the drop to commit, or nil. The App
     /// sends the daemon command and updates `model` (optimistically).
     @discardableResult
     public func tabDragEnded() -> SidebarTabDrop? {
-        list.externalDragEnded()
+        defer { setChromeRevealed(isPointerInside) }
+        return list.externalDragEnded()
+    }
+
+    private var isPointerInside: Bool {
+        guard let window else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 }
