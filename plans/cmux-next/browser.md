@@ -410,6 +410,8 @@ So preload costs about +10-15 MB footprint (+20 MiB RSS, mostly file-backed), an
 
 Finding: creating a Chromium window costs 70-90 ms on the main thread every time, not only the first time (a second pane's window measured 70 and 85 ms). The 5a exception therefore covers one stall per pane that gets its first Chromium tab. Removing it would need a spare pre-created Chromium window per profile (a hidden `Browser` with a blank tab that the next pane adopts), which costs a renderer process; not done.
 
+TODO (decided 2026-09-29: not now, revisit after dogfood): spare Chromium window. Measured cost to remove: every pane that gets its first Chromium tab blocks the main thread 70-90 ms creating its Chromium window (first window per process 76-148 ms cold, 73-87 ms after a warm start; a second pane 70 and 85 ms). The fix is one hidden pre-created `Browser` per profile with a blank tab, created at idle and adopted by the next pane (navigate its tab, reparent the host view), then replaced at idle. Expected cost: one extra renderer process per profile while Chromium is running (not measured). Until then the 5a exception allows this stall once per new pane.
+
 Not verified live: the "+" menu and palette triggers (Computer Use is not set up, and the palette does not open in a `CMUX_NEXT_NO_ACTIVATE` launch). The restored-tab trigger is verified.
 
 ## Chromium diagnostics
