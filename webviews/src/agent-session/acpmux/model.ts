@@ -90,6 +90,11 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + textLines * MESSAGE_LINE_HEIGHT;
 }
 
+function measurementText(block: string): string {
+  if (block.startsWith("```")) return block.replace(/^```[^\n]*\n?/, "").replace(/\n?```\s*$/, "");
+  return block.replace(/^#{1,6}\s+/, "");
+}
+
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
   const previous = cache.get(row.id);
@@ -110,7 +115,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   for (const block of blocks) {
     let prepared = entry.blocks.get(block);
     if (!prepared) {
-      try { prepared = prepare(block, MEASURE_FONT, { whiteSpace: "pre-wrap" }); entry.blocks.set(block, prepared); } catch { return fallbackRowHeight(row, width); }
+      try { prepared = prepare(measurementText(block), MEASURE_FONT, { whiteSpace: "pre-wrap" }); entry.blocks.set(block, prepared); } catch { return fallbackRowHeight(row, width); }
     }
     contentHeight += layout(prepared, contentWidth, MESSAGE_LINE_HEIGHT).height;
   }

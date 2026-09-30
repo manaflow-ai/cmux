@@ -85,6 +85,8 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  private turnStartedAt?: number;
+  private turnSummaryIds = new Map<string, string>();
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
@@ -200,6 +202,7 @@ export class AcpmuxDirectClient {
       msg: { method: "session/update", params: { update: notification.params?.update } },
     });
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
+    else if (notification.method === "_acpmux/prompt_accepted") this.promptAccepted(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
   }
@@ -288,6 +291,22 @@ export class AcpmuxDirectClient {
     this.emit("permission");
   }
 
+  private promptAccepted(params: any): void {
+    if (params?.sessionId && params.sessionId !== this.selectedSessionId) return;
+    const promptId = typeof params?.promptId === "string" ? params.promptId : undefined;
+    if (!promptId) return;
+    const rowId = this.optimisticPromptRows.get(promptId);
+    if (rowId) {
+      const row = this.rows.get(rowId);
+      if (row?.pending) this.rows.set(rowId, { ...row, pending: false, version: row.version + 1 });
+    }
+    if (params.queued === true && !this.queue.some((entry) => entry.id === promptId)) {
+      const text = this.optimisticPromptTexts.get(promptId);
+      if (text) this.queue = [...this.queue, { id: promptId, prompt: text }];
+    }
+    this.emit("prompt accepted");
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId || event.seq <= this.lastSeq) return;
     this.events.push(event);
@@ -298,7 +317,7 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
-    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
+    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.turnStartedAt = undefined; this.turnSummaryIds.clear(); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -316,7 +335,7 @@ export class AcpmuxDirectClient {
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
         this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
       }
-      else if (event.kind === "turn_started") { this.turnOpen = true; this.turnToolCount = 0; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
+      else if (event.kind === "turn_started") { this.turnOpen = true; this.turnToolCount = 0; this.turnStartedAt = event.at; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
       else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
         if (oldMessageId) {
@@ -324,7 +343,17 @@ export class AcpmuxDirectClient {
           if (this.streamingAssistantMessageId === oldMessageId) { this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; }
         }
       }
-      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 }); } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: this.turnToolCount, status: String(msg.status ?? "completed"), error: msg.errorText }); this.turnToolCount = 0; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
+      else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        this.turnOpen = false;
+        if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 }); }
+        this.rows.delete("typing");
+        const turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        const summaryId = turnId ? (this.turnSummaryIds.get(turnId) ?? `summary-${turnId}`) : `summary-${event.seq}`;
+        const existing = this.rows.get(summaryId);
+        this.rows.set(summaryId, { id: summaryId, version: (existing?.version ?? 0) + 1, at: event.at, kind: "turnSummary", durationMs: this.turnStartedAt === undefined ? undefined : Math.max(0, event.at - this.turnStartedAt), toolCount: this.turnToolCount, status: String(msg.status ?? "completed"), error: msg.errorText });
+        if (turnId) this.turnSummaryIds.set(turnId, summaryId);
+        this.turnToolCount = 0; this.turnStartedAt = undefined; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined;
+      }
       else if (event.kind === "queued" || event.kind === "queue_updated") { const id = String(msg.promptId ?? ""); if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }]; }
       else if (event.kind === "queue_removed" || event.kind === "dequeued") this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
       else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -349,7 +378,7 @@ export class AcpmuxDirectClient {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = { kind: "tool", text: String(update.title ?? update.name ?? callId), tool: { id: callId, title: String(update.title ?? callId), kind: update.kind, status: String(update.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : undefined, output: text || undefined } };
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const previousTool = itemIndex >= 0 ? items[itemIndex].tool : undefined; const item = { kind: "tool", text: String(update.title ?? update.name ?? previousTool?.title ?? callId), tool: { id: callId, title: String(update.title ?? previousTool?.title ?? callId), kind: update.kind ?? previousTool?.kind, status: String(update.status ?? previousTool?.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : previousTool?.inputSummary, output: text || previousTool?.output } };
       if (itemIndex >= 0) items[itemIndex] = item; else { items.push(item); this.turnToolCount += 1; }
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
@@ -394,8 +423,16 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnStartedAt = undefined;
+    this.turnSummaryIds.clear();
     this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
+    this.optimisticPromptRows.clear();
+    this.optimisticPromptTexts.clear();
+    this.messageRows.clear();
+    this.supersededMessageIds.clear();
+    this.turnToolCount = 0;
     this.pendingPermission = undefined;
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
     await this.attach(sessionId, undefined, generation);

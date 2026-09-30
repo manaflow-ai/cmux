@@ -54,9 +54,12 @@ bunx esbuild "$ROOT/webviews/src/agent-session/acpmux/main.tsx" \
   --minify \
   --outfile="$OUT_ACPMUX/assets/app.js"
 
-cp "$ROOT/webviews/src/agent-session/shared/styles.css" "$OUT_REACT/assets/styles.css"
+bunx @tailwindcss/cli@4.3.0 \
+  -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
+  -o "$OUT_REACT/assets/styles.css" \
+  --minify
 cp "$OUT_REACT/assets/styles.css" "$OUT_SOLID/assets/styles.css"
-cp "$ROOT/webviews/src/agent-session/shared/styles.css" "$OUT_ACPMUX/assets/styles.css"
+cp "$OUT_REACT/assets/styles.css" "$OUT_ACPMUX/assets/styles.css"
 cat "$ROOT/webviews/src/agent-session/acpmux/styles.css" >> "$OUT_ACPMUX/assets/styles.css"
 
 strip_trailing_line_whitespace() {
