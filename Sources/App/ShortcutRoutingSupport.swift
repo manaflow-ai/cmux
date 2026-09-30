@@ -631,7 +631,8 @@ func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    literalChars: String? = nil
+    literalChars: String? = nil,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> BrowserZoomShortcutAction? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -643,7 +644,8 @@ func browserZoomShortcutAction(
     let keys = browserZoomShortcutKeyCandidates(
         chars: chars,
         literalChars: literalChars,
-        keyCode: keyCode
+        keyCode: keyCode,
+        layoutCharacterProvider: layoutCharacterProvider
     )
 
     if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
@@ -664,7 +666,8 @@ func browserZoomShortcutAction(
 func browserZoomShortcutKeyCandidates(
     chars: String,
     literalChars: String?,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16) -> String? = { KeyboardLayout.character(forKeyCode: $0) }
 ) -> Set<String> {
     var keys: Set<String> = [chars.lowercased()]
 
@@ -672,7 +675,7 @@ func browserZoomShortcutKeyCandidates(
         keys.insert(literalChars.lowercased())
     }
 
-    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+    if let layoutChar = layoutCharacterProvider(keyCode), !layoutChar.isEmpty {
         keys.insert(layoutChar)
     }
 
