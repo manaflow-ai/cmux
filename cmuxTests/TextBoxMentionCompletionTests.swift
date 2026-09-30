@@ -101,28 +101,6 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: true
-        ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 1,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-    }
-
-    @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
         #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
@@ -163,6 +141,32 @@ struct TextBoxMentionCompletionTests {
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
+    }
+
+    @Test
+    func testTextBoxInsertTextClampsStaleIMERangeAtUTF16End() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "日本語"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+
+        textView.insertText("、", replacementRange: NSRange(location: 3, length: 1))
+
+        #expect(textView.string == "日本語、")
+        #expect(textView.selectedRange() == NSRange(location: 4, length: 0))
+    }
+
+    @Test
+    func testTextBoxSetMarkedTextNormalizesMissingSelectedRangeToMarkedTextEnd() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+
+        textView.setMarkedText(
+            "日本語",
+            selectedRange: NSRange(location: NSNotFound, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        #expect(textView.string == "日本語")
+        #expect(textView.selectedRange() == NSRange(location: 3, length: 0))
     }
 
     @Test

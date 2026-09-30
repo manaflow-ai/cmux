@@ -16,7 +16,7 @@ extension TextBoxInputContainer {
         ) else {
             return
         }
-        selectedSubmitActionID = nextID
+        onSelectSubmitAction(nextID)
     }
 
     private func refreshedShouldForceTextEntrySubmitAfterAgentPrune() -> Bool {

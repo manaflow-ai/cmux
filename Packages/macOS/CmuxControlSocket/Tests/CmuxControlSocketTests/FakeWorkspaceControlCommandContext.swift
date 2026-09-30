@@ -4,9 +4,16 @@ import CmuxSettings
 
 @MainActor
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
+    nonisolated let currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner?
+    nonisolated let currentRemotePTYLifecycleOwnerProvider:
+        (@Sendable () -> ControlRemotePTYLifecycleOwner?)?
+    nonisolated let beforeMainResolution: (@Sendable () -> Void)?
+    nonisolated let feedJumpMatch: Bool
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var reorderResolution: ControlWorkspaceReorderResolution = .notFound
+    var reorderCall: (workspaceID: UUID, index: Int?, before: UUID?, after: UUID?, dryRun: Bool)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -15,10 +22,69 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         referenceWorkspaceID: UUID?
     )?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
+    var terminalSessionConnectedResolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
+    var terminalSessionLaunchingCall: (
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    )?
     var terminalSessionEndCall: (
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
-        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        terminalLifecycleID: UUID?, sessionID: String?,
+        lifecycleID: String?, lifecycleOnly: Bool
     )?
+    var terminalSessionConnectedCall: (
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID
+    )?
+    var foregroundAuthResolution:
+        ControlWorkspaceRemoteResolution = .missingWorkspaceID
+    var foregroundAuthCall: (
+        workspaceID: UUID,
+        token: String?,
+        controlPath: String?
+    )?
+
+    init(
+        currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
+        currentRemotePTYLifecycleOwnerProvider:
+            (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil,
+        beforeMainResolution: (@Sendable () -> Void)? = nil,
+        feedJumpMatch: Bool = false
+    ) {
+        self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
+        self.currentRemotePTYLifecycleOwnerProvider = currentRemotePTYLifecycleOwnerProvider
+        self.beforeMainResolution = beforeMainResolution
+        self.feedJumpMatch = feedJumpMatch
+    }
+
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool {
+        feedJumpMatch && workstreamID == "known"
+    }
+
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool {
+        feedJumpMatch && workstreamID == "known"
+    }
+
+    nonisolated func controlResolveOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        beforeMainResolution?()
+        nonisolated(unsafe) let seam: any ControlCommandContext = self
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { body(seam) }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body(seam) }
+        }
+    }
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -38,9 +104,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             closeFailed: "close failed",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
-            reorderManyWorkspaceNotFound: "workspace not found",
-            reorderManyInvalidWorkspace: "invalid workspace",
-            reorderManyTabManagerUnavailable: "tab manager unavailable"
+            workspaceNotFound: "workspace not found",
+            invalidWorkspaceRef: "invalid workspace",
+            reorderIndexNotAnInteger: "index not an integer",
+            reorderMissingWorkspaceID: "missing workspace_id",
+            reorderTargetRequired: "exactly one target",
+            reorderManyTabManagerUnavailable: "tab manager unavailable",
+            relayOwnerUnavailable: "relay owner workspace unavailable"
         )
     }
 
@@ -79,11 +149,84 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         return addWorkspaceToGroupResolution
     }
 
+    func controlReorderWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        toIndex: Int?,
+        beforeWorkspaceID: UUID?,
+        afterWorkspaceID: UUID?,
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderResolution {
+        reorderCall = (workspaceID, toIndex, beforeWorkspaceID, afterWorkspaceID, dryRun)
+        return reorderResolution
+    }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
-        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        terminalLifecycleID: UUID?, sessionID: String?,
+        lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        terminalSessionEndCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID, lifecycleOnly)
+        terminalSessionEndCall = (
+            workspaceID,
+            surfaceID,
+            relayPort,
+            terminalLifecycleID,
+            sessionID,
+            lifecycleID,
+            lifecycleOnly
+        )
         return terminalSessionEndResolution
+    }
+
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        terminalSessionLaunchingCall = (
+            workspaceID,
+            surfaceID,
+            terminalLifecycleID,
+            attemptID
+        )
+        return terminalSessionConnectedResolution
+    }
+
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution {
+        if let commitLease, !commitLease.commitIfCurrent({ true }) {
+            return .notFound
+        }
+        terminalSessionConnectedCall = (workspaceID, surfaceID, authority, attemptID)
+        return terminalSessionConnectedResolution
+    }
+
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? {
+        if let currentRemotePTYLifecycleOwnerProvider {
+            return currentRemotePTYLifecycleOwnerProvider()
+        }
+        return currentRemotePTYLifecycleOwner
+    }
+
+    func controlWorkspaceRemoteForegroundAuthReady(
+        workspaceID: UUID,
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
+    ) -> ControlWorkspaceRemoteResolution {
+        foregroundAuthCall = (
+            workspaceID,
+            foregroundAuthToken,
+            resolvedControlPath
+        )
+        return foregroundAuthResolution
     }
 }

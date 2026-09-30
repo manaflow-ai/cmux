@@ -89,16 +89,19 @@ final class FileExplorerCellView: NSTableCellView {
         iconToTextConstraint.constant = style.iconToTextSpacing
 
         if style == .finder {
+            // Native Finder icon pixels miss 3:1 in light mode; use their masks with the dynamic palette tint.
             if node.isDirectory {
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: .folder)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.folderIconTint
                 ))
             } else {
                 let pathExtension = (node.name as NSString).pathExtension
                 iconView.apply(CmuxResolvedIconRequest(
                     source: .image(NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)),
-                    size: NSSize(width: style.iconSize, height: style.iconSize)
+                    size: NSSize(width: style.iconSize, height: style.iconSize),
+                    tintColor: style.fileIconTint
                 ))
             }
         } else {

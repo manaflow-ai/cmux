@@ -9,10 +9,10 @@ export const galleryProviders: Provider[] = [
 ];
 
 const modelChoices = [
-  { value: "claude-fable-5", label: "Claude Fable 5", description: "Latest fast model" },
-  { value: "claude-opus-4-8", label: "Claude Opus 4.8", description: "Largest reasoning model" },
+  { value: "claude-fable-5", label: "Claude Fable 5", description: "Latest fast model", efforts: ["low", "medium"].map((value) => ({ value, label: value })), defaultEffort: "low" },
+  { value: "claude-opus-4-8", label: "Claude Opus 4.8", description: "Largest reasoning model", efforts: ["high", "xhigh", "max"].map((value) => ({ value, label: value })), defaultEffort: "high" },
   { value: "claude-opus-4-7", label: "Claude Opus 4.7", disabled: true, disabledReason: "Upgrade Claude Code to use Opus 4.7" },
-  { value: "claude-sonnet-5", label: "Claude Sonnet 5", description: "Default balanced model" },
+  { value: "claude-sonnet-5", label: "Claude Sonnet 5", description: "Default balanced model", efforts: ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value })), defaultEffort: "high" },
   { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", description: "Fast small model" },
 ];
 
@@ -27,9 +27,9 @@ export const galleryOptions: Record<string, SessionOption[]> = {
   ],
   codex: [
     { id: "model", label: "Model", kind: "select", value: "gpt-5.4-codex", choices: [
-      { value: "gpt-5.5", label: "GPT-5.5", description: "Frontier model" },
-      { value: "gpt-5.4-codex", label: "GPT-5.4 Codex", description: "Best coding model" },
-      { value: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: "Fast and cheap" },
+      { value: "gpt-5.5", label: "GPT-5.5", description: "Frontier model", efforts: ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value })), defaultEffort: "medium" },
+      { value: "gpt-5.4-codex", label: "GPT-5.4 Codex", description: "Best coding model", efforts: ["medium", "high", "xhigh"].map((value) => ({ value, label: value })), defaultEffort: "medium" },
+      { value: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: "Fast and cheap", efforts: ["low", "medium"].map((value) => ({ value, label: value })), defaultEffort: "low" },
       { value: "o4-preview", label: "O4 Preview", disabled: true, disabledReason: "Unavailable for this account" },
     ] },
     { id: "effort", label: "Effort", kind: "select", role: "effort", value: "medium", choices: ["low", "medium", "high", "xhigh"].map((v) => ({ value: v, label: v === "xhigh" ? "Extra high" : v[0].toUpperCase() + v.slice(1) })) },
@@ -57,7 +57,7 @@ export const galleryOptions: Record<string, SessionOption[]> = {
   ],
   pi: [
     { id: "model", label: "Model", kind: "select", value: "openai/gpt-5.4", choices: [
-      { value: "openai/gpt-5.4", label: "OpenAI / GPT-5.4" },
+      { value: "openai/gpt-5.4", label: "OpenAI / GPT-5.4", efforts: ["minimal", "low", "medium", "high"].map((value) => ({ value, label: value })), defaultEffort: "medium" },
       { value: "anthropic/claude-sonnet-5", label: "Anthropic / Claude Sonnet 5" },
       { value: "google/gemini-3-flash-preview", label: "Google / Gemini 3 Flash Preview" },
     ] },
@@ -127,7 +127,20 @@ longConversationBlocks.push(
   { kind: "error", text: "Example adapter error with enough text to show wrapping in the error block." },
 );
 
-export const activityScenarios: { id: string; label: string; status: string; blocks: Block[] }[] = [
+export const activityScenarios: { id: string; label: string; status: string; blocks: Block[]; repositorySlug?: string }[] = [
+  {
+    id: "github-references",
+    label: "GitHub references (manaflow-ai/cmux)",
+    status: "idle",
+    repositorySlug: "manaflow-ai/cmux",
+    blocks: [
+      {
+        kind: "assistant",
+        text: "I reviewed #15916 alongside manaflow-ai/cmux#15221.\n\nThe change is in commit 5cd7dfff. See https://github.com/manaflow-ai/cmux/pull/15916 for the discussion.\n\nThere are 42 review notes, and #roadmap is a label.",
+        open: false,
+      },
+    ],
+  },
   { id: "pre-first-token", label: "Pre-first-token Thinking", status: "running", blocks: [{ kind: "user", text: "Start a slow Claude turn." }] },
   { id: "thinking-elapsed", label: "Thinking with elapsed counter", status: "running", blocks: [{ kind: "user", text: "Slow turn that has waited." }] },
   { id: "reasoning", label: "Reasoning under open thinking", status: "running", blocks: [{ kind: "user", text: "Reason out loud." }, { kind: "thinking", text: "I am tracing the plan and checking the constraints.", open: true }] },
@@ -157,4 +170,4 @@ export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_,
   { kind: "footer", text: `${200 + i} in · ${20 + i} out · 0.${i % 9}s` },
 ]).flat();
 
-export const galleryActions: SessionActions = { fork: true };
+export const galleryActions: SessionActions = { fork: true, handoff: true };

@@ -28,6 +28,21 @@ export function captureAscError(
   });
 }
 
+export function captureCoderouterError(
+  error: unknown,
+  context: Record<string, string | number | boolean | null | undefined> = {},
+): void {
+  if (!env.SENTRY_DSN) return;
+  Sentry.captureException(error, {
+    tags: {
+      subsystem: "coderouter",
+    },
+    // Never pass request bodies, headers, route tokens, provider credentials,
+    // account labels, or email addresses into this context.
+    extra: cleanContext(context),
+  });
+}
+
 function cleanContext(
   context: Record<string, string | number | boolean | null | undefined>,
 ): Record<string, string | number | boolean> {

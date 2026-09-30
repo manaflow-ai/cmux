@@ -19,6 +19,7 @@ public enum AgentLaunchCaptureTrust {
     ]
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
+        "amp": ["amp"],
         "antigravity": ["agy"],
         "campfire": ["campfire"],
         "claude": ["claude"],
@@ -30,6 +31,7 @@ public enum AgentLaunchCaptureTrust {
         "gemini": ["gemini"],
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
+        "kimi": ["kimi", "kimi-cli", "kimi-code"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],

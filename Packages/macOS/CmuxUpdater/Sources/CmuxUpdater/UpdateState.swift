@@ -14,6 +14,8 @@ public enum UpdateState: Equatable {
     case idle
     /// Sparkle is asking whether to enable automatic checks (cmux suppresses this UI).
     case permissionRequest(PermissionRequest)
+    /// A requested check is waiting for updater readiness or an older Sparkle cycle to finish.
+    case preparingCheck(Checking)
     /// A check is in progress.
     case checking(Checking)
     /// An update was found and is awaiting the user's install/dismiss choice.
@@ -22,6 +24,8 @@ public enum UpdateState: Equatable {
     case notFound(NotFound)
     /// A check or install failed.
     case error(Error)
+    /// The user accepted the freshly resolved update and Sparkle is starting its download.
+    case startingDownload
     /// The update payload is downloading.
     case downloading(Downloading)
     /// The downloaded payload is being extracted/prepared.
@@ -39,8 +43,10 @@ public enum UpdateState: Equatable {
     /// by repeatedly confirming (checking through installing).
     public var isInstallable: Bool {
         switch self {
-        case .checking,
+        case .preparingCheck,
+                .checking,
                 .updateAvailable,
+                .startingDownload,
                 .downloading,
                 .extracting,
                 .installing:
@@ -53,7 +59,7 @@ public enum UpdateState: Equatable {
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
     @MainActor public func cancel() {
         switch self {
-        case .checking(let checking):
+        case .preparingCheck(let checking), .checking(let checking):
             checking.cancel()
         case .updateAvailable(let available):
             available.reply(.dismiss)
@@ -63,6 +69,20 @@ public enum UpdateState: Equatable {
             notFound.acknowledgement()
         case .error(let err):
             err.dismiss()
+        default:
+            break
+        }
+    }
+
+    /// Causally completes a Sparkle prompt/check after a newer visible state supersedes it.
+    @MainActor func finishAsSuperseded() {
+        switch self {
+        case .preparingCheck(let checking), .checking(let checking):
+            checking.cancelAsSuperseded()
+        case .updateAvailable(let available):
+            available.reply.consume(.dismiss, source: .superseded)
+        case .notFound(let notFound):
+            notFound.acknowledgement()
         default:
             break
         }
@@ -84,6 +104,8 @@ public enum UpdateState: Equatable {
             return true
         case (.permissionRequest, .permissionRequest):
             return true
+        case (.preparingCheck, .preparingCheck):
+            return true
         case (.checking, .checking):
             return true
         case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
@@ -92,12 +114,16 @@ public enum UpdateState: Equatable {
             return true
         case (.error(let lErr), .error(let rErr)):
             return lErr.error.localizedDescription == rErr.error.localizedDescription
+        case (.startingDownload, .startingDownload):
+            return true
         case (.downloading(let lDown), .downloading(let rDown)):
             return lDown.progress == rDown.progress && lDown.expectedLength == rDown.expectedLength
         case (.extracting(let lExt), .extracting(let rExt)):
             return lExt.progress == rExt.progress
         case (.installing(let lInstall), .installing(let rInstall)):
             return lInstall.isAutoUpdate == rInstall.isAutoUpdate
+                && lInstall.relaunchBlockers == rInstall.relaunchBlockers
+                && (lInstall.updateWhenClear == nil) == (rInstall.updateWhenClear == nil)
         default:
             return false
         }
@@ -109,6 +135,8 @@ public enum UpdateState: Equatable {
         public let acknowledgement: () -> Void
 
         /// Creates the payload.
+        ///
+        /// - Parameter acknowledgement: Tells Sparkle the result was acknowledged.
         public init(acknowledgement: @escaping () -> Void) {
             self.acknowledgement = acknowledgement
         }
@@ -130,12 +158,27 @@ public enum UpdateState: Equatable {
 
     /// Payload for ``UpdateState/checking(_:)``.
     public struct Checking {
-        /// Cancels the in-progress check.
-        public let cancel: () -> Void
+        private let cancellationHandler: (UpdateCheckCancellationSource) -> Void
 
         /// Creates the payload.
+        ///
+        /// - Parameter cancel: Cancels the in-progress check.
         public init(cancel: @escaping () -> Void) {
-            self.cancel = cancel
+            self.cancellationHandler = { _ in cancel() }
+        }
+
+        init(cancellationHandler: @escaping (UpdateCheckCancellationSource) -> Void) {
+            self.cancellationHandler = cancellationHandler
+        }
+
+        /// Cancels a check at the user's request.
+        public func cancel() {
+            cancellationHandler(.user)
+        }
+
+        /// Cancels a superseded check without treating the controller transition as user intent.
+        func cancelAsSuperseded() {
+            cancellationHandler(.superseded)
         }
     }
 
@@ -291,14 +334,25 @@ public enum UpdateState: Equatable {
         public let retryTerminatingApplication: () -> Void
         /// Dismisses the installing state.
         public let dismiss: () -> Void
+        /// When set, the update is ready but its relaunch is held because it would interrupt
+        /// these agents or commands. `retryTerminatingApplication` installs now anyway and
+        /// `dismiss` defers the install.
+        public var relaunchBlockers: UpdateRelaunchBlockers?
+        /// Set while the user is asked what to do about risky agents: switches the hold to
+        /// relaunching as soon as they finish.
+        public var updateWhenClear: (() -> Void)?
 
         /// Creates the payload.
         public init(isAutoUpdate: Bool = false,
                     retryTerminatingApplication: @escaping () -> Void,
-                    dismiss: @escaping () -> Void) {
+                    dismiss: @escaping () -> Void,
+                    relaunchBlockers: UpdateRelaunchBlockers? = nil,
+                    updateWhenClear: (() -> Void)? = nil) {
             self.isAutoUpdate = isAutoUpdate
             self.retryTerminatingApplication = retryTerminatingApplication
             self.dismiss = dismiss
+            self.relaunchBlockers = relaunchBlockers
+            self.updateWhenClear = updateWhenClear
         }
     }
 }

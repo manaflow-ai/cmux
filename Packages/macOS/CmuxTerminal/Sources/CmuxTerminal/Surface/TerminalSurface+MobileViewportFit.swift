@@ -50,6 +50,16 @@ struct MobileViewportFitResult {
 }
 
 extension TerminalSurface {
+    static func mobileViewportLimitMatches(
+        current: (columns: Int, rows: Int)?,
+        requestedColumns: Int,
+        requestedRows: Int
+    ) -> Bool {
+        guard let current else { return false }
+        return current.columns == max(1, requestedColumns) &&
+            current.rows == max(1, requestedRows)
+    }
+
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
     /// - Returns: The actual cell grid applied after capping to the Mac pane, or
@@ -65,12 +75,37 @@ extension TerminalSurface {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
         }
-        if manualIO {
+        if ioMode.usesManualIO {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
             // authoritative and font fitting is intentionally out of v1 scope.
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
+        let requestedLimit = (columns: max(1, columns), rows: max(1, rows))
+        if Self.mobileViewportLimitMatches(
+            current: mobileViewportCellLimit,
+            requestedColumns: requestedLimit.columns,
+            requestedRows: requestedLimit.rows
+        ) {
+            // Replaying the same logical viewport must never run the pixel/font
+            // fitter again. Under relay delay the phone can repeat a report
+            // after the first apply already landed; re-fitting the same cell
+            // grid can round to alternating pixel boxes and every set_size
+            // produces SIGWINCH + a full-screen TUI repaint.
+            let currentSize = ghostty_surface_size(surface)
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.coalesced surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(requestedLimit.columns)x\(requestedLimit.rows) " +
+                "live=\(max(Int(currentSize.columns), 1))x\(max(Int(currentSize.rows), 1)) " +
+                "reason=\(reason)"
+            )
+            #endif
+            return (
+                columns: max(Int(currentSize.columns), 1),
+                rows: max(Int(currentSize.rows), 1)
+            )
+        }
+        mobileViewportCellLimit = requestedLimit
         let baseWidth = lastUncappedPixelWidth
         let baseHeight = lastUncappedPixelHeight
         let currentSize = ghostty_surface_size(surface)
@@ -83,6 +118,46 @@ extension TerminalSurface {
             reason: reason
         )
         guard fit.width > 0, fit.height > 0 else { return nil }
+
+        // A changed report can still resolve to the grid Ghostty already has
+        // (for example when the Mac pane constrains both the old and new phone
+        // limits to 72x60). Pixel fitting may propose a different box for that
+        // same cell grid. Calling set_size for pixel-only drift updates the PTY
+        // winsize and emits SIGWINCH, which is exactly the replay trigger in
+        // #13474. Keep the live pixel box whenever the effective grid is
+        // already current.
+        let liveAfterFit = ghostty_surface_size(surface)
+        let liveGrid = (
+            columns: max(Int(liveAfterFit.columns), 1),
+            rows: max(Int(liveAfterFit.rows), 1)
+        )
+        if Self.mobileViewportLimitMatches(
+            current: liveGrid,
+            requestedColumns: fit.columns,
+            requestedRows: fit.rows
+        ) {
+            let liveWidth = liveAfterFit.width_px
+            let liveHeight = liveAfterFit.height_px
+            lastPixelWidth = liveWidth
+            lastPixelHeight = liveHeight
+            updateMobileViewportBorder(
+                appliedWidth: liveWidth,
+                appliedHeight: liveHeight,
+                baseWidth: baseWidth > 0 ? baseWidth : liveWidth,
+                baseHeight: baseHeight > 0 ? baseHeight : liveHeight
+            )
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.gridCurrent surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(fit.columns)x\(fit.rows) proposedPx=\(fit.width)x\(fit.height) " +
+                "livePx=\(liveWidth)x\(liveHeight) reason=\(reason)"
+            )
+            #endif
+            if fit.fontChanged {
+                ghostty_surface_refresh(surface)
+            }
+            return liveGrid
+        }
 
         let appliedWidth = fit.width
         let appliedHeight = fit.height
@@ -110,7 +185,12 @@ extension TerminalSurface {
             }
             return (fit.columns, fit.rows)
         }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.apply"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
@@ -159,11 +239,72 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
-        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        applySurfaceSize(
+            surface,
+            width: appliedWidth,
+            height: appliedHeight,
+            caller: "mobile.viewport.legacy"
+        )
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
         return (appliedColumns, appliedRows)
+    }
+
+    /// The grid the pane would show without a shared-sizing cap or an
+    /// assigned-grid pin.
+    ///
+    /// Otherwise this is Ghostty's live grid. Capped or pinned, the live cell
+    /// metrics (scaled back from the fitted font to the base font when capped)
+    /// are divided into the pane's own pixel size, so the Mac pane can keep
+    /// reporting its real viewport while another participant owns the grid.
+    ///
+    /// - Returns: The natural grid, or `nil` without a live runtime surface.
+    @MainActor
+    public func naturalGridSize() -> (columns: Int, rows: Int)? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "naturalGridSize") else { return nil }
+        let size = ghostty_surface_size(surface)
+        let liveColumns = max(Int(size.columns), 1)
+        let liveRows = max(Int(size.rows), 1)
+        guard mobileViewportCellLimit != nil || assignedGrid != nil,
+              lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              size.cell_width_px > 0, size.cell_height_px > 0 else {
+            return (liveColumns, liveRows)
+        }
+        var fontRatio = 1.0
+        if let fit = mobileViewportFontFitState, fit.fittedRuntimePointSize > 0 {
+            fontRatio = Double(fit.baseRuntimePointSize / fit.fittedRuntimePointSize)
+        }
+        let padWidth = max(0, Int(size.width_px) - liveColumns * Int(size.cell_width_px))
+        let padHeight = max(0, Int(size.height_px) - liveRows * Int(size.cell_height_px))
+        let cellWidth = Double(size.cell_width_px) * fontRatio
+        let cellHeight = Double(size.cell_height_px) * fontRatio
+        let columns = Int((Double(Int(lastUncappedPixelWidth) - padWidth) / cellWidth).rounded(.down))
+        let rows = Int((Double(Int(lastUncappedPixelHeight) - padHeight) / cellHeight).rounded(.down))
+        return (max(columns, 1), max(rows, 1))
+    }
+
+    /// A sizing sample for the pane's own grid (``naturalGridSize()``) rather
+    /// than the capped or pinned grid Ghostty holds. A mirror reports this as
+    /// its viewport, so it can still grow a shared grid it does not own.
+    ///
+    /// - Returns: The sample, or `nil` without a live runtime surface.
+    @MainActor
+    public func viewSizingSample() -> TerminalSurfaceRawSizingSample? {
+        guard let sample = rawSizingSample() else { return nil }
+        guard mobileViewportCellLimit != nil || assignedGrid != nil,
+              lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              let natural = naturalGridSize() else { return sample }
+        return TerminalSurfaceRawSizingSample(
+            columns: natural.columns,
+            rows: natural.rows,
+            cellWidthPx: sample.cellWidthPx,
+            cellHeightPx: sample.cellHeightPx,
+            surfaceWidthPx: Int(lastUncappedPixelWidth),
+            surfaceHeightPx: Int(lastUncappedPixelHeight),
+            viewBoundsPt: sample.viewBoundsPt,
+            backingScale: sample.backingScale
+        )
     }
 
     /// Removes the mobile viewport cap and restores the uncapped size.
@@ -176,10 +317,10 @@ extension TerminalSurface {
         paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit") else {
-            mobileFitBaseFontPointSize = nil
-            mobileFittedFontPointSize = nil
+            mobileViewportFontFitState = nil
             return false
         }
+        _ = fontSizeLineageSnapshot()
         let fontRestored = restoreMobileViewportFitFontIfNeeded()
         let uncappedWidth = lastUncappedPixelWidth
         let uncappedHeight = lastUncappedPixelHeight
@@ -204,7 +345,12 @@ extension TerminalSurface {
             ghostty_surface_refresh(surface)
             return fontRestored
         }
-        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        applySurfaceSize(
+            surface,
+            width: uncappedWidth,
+            height: uncappedHeight,
+            caller: "mobile.viewport.clear"
+        )
         lastPixelWidth = uncappedWidth
         lastPixelHeight = uncappedHeight
         ghostty_surface_refresh(surface)
@@ -220,7 +366,7 @@ extension TerminalSurface {
     ) -> MobileViewportFitResult {
         guard width > 0, height > 0 else { return .passthrough(width: width, height: height) }
         guard let mobileViewportCellLimit else { return .passthrough(width: width, height: height) }
-        if manualIO {
+        if ioMode.usesManualIO {
             guard let limit = mobileViewportPixelLimit(for: surface) else { return .passthrough(width: width, height: height) }
             return .passthrough(width: min(width, limit.width), height: min(height, limit.height), grantWidth: limit.width, grantHeight: limit.height)
         }
@@ -229,8 +375,9 @@ extension TerminalSurface {
         let grantedRows = max(1, mobileViewportCellLimit.rows)
         let paneWidth = max(1, Int(width))
         let paneHeight = max(1, Int(height))
+        _ = fontSizeLineageSnapshot()
         let baseFont = resolvedMobileViewportBaseFontPointSize(surface: surface)
-        var currentFont = mobileFittedFontPointSize
+        var currentFont = mobileViewportFontFitState?.fittedRuntimePointSize
             ?? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
             ?? baseFont
         var measurement = mobileViewportMeasurement(surface: surface)
@@ -247,11 +394,7 @@ extension TerminalSurface {
         for _ in 0..<3 {
             let fontFloor = min(baseFont, MobileViewportFitGeometry.defaultFontFloorPointSize)
             if abs(targetFont - currentFont) >= 0.25 {
-                if mobileFitBaseFontPointSize == nil {
-                    mobileFitBaseFontPointSize = baseFont
-                }
-                if applyMobileViewportFontPointSize(targetFont) {
-                    mobileFittedFontPointSize = targetFont
+                if applyMobileViewportFontPointSize(targetFont, baseFont: baseFont) {
                     currentFont = targetFont
                     fontChanged = true
                     measurement = mobileViewportMeasurement(surface: surface)
@@ -276,11 +419,7 @@ extension TerminalSurface {
             guard abs(nextTarget - currentFont) > 0.001 else {
                 break
             }
-            if mobileFitBaseFontPointSize == nil {
-                mobileFitBaseFontPointSize = baseFont
-            }
-            if applyMobileViewportFontPointSize(nextTarget) {
-                mobileFittedFontPointSize = nextTarget
+            if applyMobileViewportFontPointSize(nextTarget, baseFont: baseFont) {
                 currentFont = nextTarget
                 fontChanged = true
                 measurement = mobileViewportMeasurement(surface: surface)
@@ -301,14 +440,10 @@ extension TerminalSurface {
             // This force-to-floor step can be the first font change of the fit
             // (every earlier apply may have been skipped or broken out of), so
             // it must capture the restore point like the loop branches do.
-            if mobileFitBaseFontPointSize == nil {
-                mobileFitBaseFontPointSize = baseFont
-            }
-            guard applyMobileViewportFontPointSize(fontFloor) else {
+            guard applyMobileViewportFontPointSize(fontFloor, baseFont: baseFont) else {
                 let fallback = geometry.cappedFallbackGrant(grantedColumns: grantedColumns, grantedRows: grantedRows)
                 return .fallback(width: fallback.width, height: fallback.height, columns: fallback.columns, rows: fallback.rows, grant: appliedBox, baseFont: baseFont, currentFont: currentFont, fontChanged: fontChanged)
             }
-            mobileFittedFontPointSize = fontFloor
             currentFont = fontFloor
             fontChanged = true
             measurement = mobileViewportMeasurement(surface: surface)
@@ -397,8 +532,8 @@ extension TerminalSurface {
 
     @MainActor
     private func resolvedMobileViewportBaseFontPointSize(surface: ghostty_surface_t) -> Float {
-        if let mobileFitBaseFontPointSize {
-            return mobileFitBaseFontPointSize
+        if let mobileViewportFontFitState {
+            return mobileViewportFontFitState.baseRuntimePointSize
         }
         if let current = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface),
            current.isFinite,
@@ -415,28 +550,53 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     private func restoreMobileViewportFitFontIfNeeded() -> Bool {
-        guard mobileFittedFontPointSize != nil,
-              let baseFont = mobileFitBaseFontPointSize else {
-            mobileFitBaseFontPointSize = nil
-            mobileFittedFontPointSize = nil
+        guard mobileViewportFontFitState != nil else {
             return false
         }
-        guard applyMobileViewportFontPointSize(baseFont) else {
+        let restored: Bool
+        if let lineage = lastKnownFontSizeLineage,
+           lineage.isExplicitOverride {
+            // Lineage stores unscaled base points, so restoration intentionally
+            // reapplies the current global magnification.
+            let runtimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: lineage.basePoints,
+                percent: globalFontMagnificationPercent()
+            )
+            restored = performMobileViewportFontPointSizeAction(runtimePoints)
+        } else {
+            restored = performInternalBindingAction("reset_font_size")
+        }
+        guard restored else {
             // Keep the fit state when the binding action fails so a later
             // clear or fit pass can retry; dropping it here would leave the
             // pane at the shrunken font with no way back to the base size.
             return false
         }
-        mobileFitBaseFontPointSize = nil
-        mobileFittedFontPointSize = nil
+        mobileViewportFontFitState = nil
         return true
     }
 
     @MainActor
     @discardableResult
-    private func applyMobileViewportFontPointSize(_ points: Float) -> Bool {
-        let action = String(format: "set_font_size:%.3f", points)
-        return performBindingAction(action)
+    private func applyMobileViewportFontPointSize(_ points: Float, baseFont: Float) -> Bool {
+        guard performMobileViewportFontPointSizeAction(points) else { return false }
+        if mobileViewportFontFitState == nil {
+            mobileViewportFontFitState = MobileViewportFontFitState(
+                baseRuntimePointSize: baseFont,
+                fittedRuntimePointSize: points
+            )
+        } else {
+            mobileViewportFontFitState?
+                .updateViewportFit(to: points)
+        }
+        return true
+    }
+
+    @MainActor
+    func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
+        let action =
+            ghosttySetFontSizeBindingAction(points)
+        return performInternalBindingAction(action)
     }
 
     @MainActor

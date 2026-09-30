@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 struct SessionNotificationSnapshot: Codable, Sendable {
@@ -8,8 +9,13 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
+    var retargetsToLiveSurfaceOwner: Bool?
+    var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    /// Agent/alert identity used if a restored notification is redelivered.
+    /// Optional keeps snapshots written before per-agent sounds compatible.
+    var soundContext: NotificationSoundOverrideContext?
 
     init(
         id: UUID,
@@ -19,8 +25,11 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        retargetsToLiveSurfaceOwner: Bool? = nil,
+        correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.id = id
         self.title = title
@@ -29,11 +38,17 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
+        self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.soundContext = soundContext
     }
 
     init(notification: TerminalNotification) {
+        let persistedScrollPosition = notification.scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
         self.init(
             id: notification.id,
             title: notification.title,
@@ -42,25 +57,34 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
-            scrollPosition: notification.scrollPosition,
-            clickAction: notification.clickAction
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            correlationKey: notification.correlationKey,
+            scrollPosition: persistedScrollPosition,
+            clickAction: notification.clickAction,
+            soundContext: notification.soundContext
         )
     }
 
     func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
+        let restoredScrollPosition = scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
+        return TerminalNotification(
             id: id,
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
+            correlationKey: correlationKey,
             title: title,
             subtitle: subtitle,
             body: body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
-            scrollPosition: scrollPosition,
-            clickAction: clickAction
+            scrollPosition: restoredScrollPosition,
+            clickAction: clickAction,
+            soundContext: soundContext
         )
     }
 }

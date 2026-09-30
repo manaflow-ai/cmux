@@ -2,11 +2,13 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import CmuxFeedback
+import CmuxWorkspaces
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former
 /// `v2SystemTree` tree walk, `v2WorkspaceAction` / `v2TabAction` mutation
-/// switches, `v2ExtensionSidebarSnapshot`, `v2SessionRestorePrevious`,
+/// switches, `v2ExtensionSidebarSnapshot`, `v2SessionRestorePrevious`, the
+/// `session.import` / `session.export` session transfer,
 /// `v2SettingsOpen`, `v2FeedbackOpen`, and the DEBUG-only
 /// `v2MobileDevStackAuthConfigure`, minus the per-read `v2MainSync` hops (the
 /// coordinator already runs on the main actor inside the socket-command policy
@@ -15,6 +17,14 @@ import Foundation
 /// task-manager snapshot; `v2SurfaceSplitOff` is also driven by the v1
 /// `drag_surface_to_split`), so their witnesses bridge.
 extension TerminalController: ControlSystemContext {
+
+    func controlSystemSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
+    func controlSystemTabNotFoundMessage() -> String {
+        String(localized: "socket.tabAction.error.tabNotFound", defaultValue: "Tab not found")
+    }
 
     // MARK: - identify (bridge to the still-shared v2Identify)
 
@@ -54,7 +64,11 @@ extension TerminalController: ControlSystemContext {
                     let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: workspace.id == manager.selectedTabId,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager
+                        )
                     )
                     windows = [
                         ControlSystemTreeWindowNode(
@@ -72,10 +86,16 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    controlSystemTreeWorkspaceNode(
+                    let selected = workspace.id == manager.selectedTabId
+                    return controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: selected,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager,
+                            includeGlobalDock: selected
+                        )
                     )
                 }
 
@@ -106,16 +126,22 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// Projects the authoritative control-plane workspace topology shared by
-    /// `system.tree`, `system.top`, and the task-manager snapshot.
+    /// Projects the requested control-plane workspace containers. Tree callers
+    /// include Dock stores; legacy top/task-manager callers explicitly pass
+    /// none because Dock process attribution is outside the list/tree parity
+    /// scope.
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
-        selected: Bool
+        selected: Bool,
+        dockStores: [DockSplitStore]
     ) -> ControlSystemTreeWorkspaceNode {
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
-        for (surfaceIndex, surface) in controlSurfaceSummaries(workspace: workspace).enumerated() {
-            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+        let surfaceSummaries = controlSurfaceSummaries(workspace: workspace) +
+            dockStores.flatMap { controlDockSurfaceSummaries(dock: $0) }
+        for (surfaceIndex, surface) in surfaceSummaries.enumerated() {
+            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
+                dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
@@ -129,7 +155,9 @@ extension TerminalController: ControlSystemContext {
                 indexInPane: surface.indexInPane,
                 tty: workspace.surfaceTTYNames[surface.surfaceID],
                 isBrowser: browserPanel != nil,
-                url: browserPanel?.currentURL?.absoluteString
+                url: browserPanel?.currentURL?.absoluteString,
+                renderHealthRawValue: (panel as? TerminalPanel)?.surface.renderHealth.rawValue,
+                dockScopeRawValue: surface.dockScopeRawValue
             )
             if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
@@ -142,10 +170,11 @@ extension TerminalController: ControlSystemContext {
             }
         }
 
+        let dockPaneSummaries = dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
         let paneSummaries = controlPaneSummaries(
             workspace: workspace,
             snapshot: workspace.bonsplitController.layoutSnapshot()
-        )
+        ) + dockPaneSummaries
         let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
             ControlSystemTreePaneNode(
                 paneID: pane.paneID,
@@ -153,9 +182,21 @@ extension TerminalController: ControlSystemContext {
                 isFocused: pane.isFocused,
                 surfaceIDs: pane.surfaceIDs,
                 selectedSurfaceID: pane.selectedSurfaceID,
-                surfaces: surfacesByPane[pane.paneID] ?? []
+                surfaces: surfacesByPane[pane.paneID] ?? [],
+                dockScopeRawValue: pane.dockScopeRawValue
             )
         }
+
+        // The flat `panes` array above discards how the workspace panes are
+        // arranged. Capture the live split tree so the wire carries direction
+        // + ratio + nesting; pane leaves reference the same UUIDs as `panes`.
+        // Dock panes live in separate Bonsplit trees, so they cannot be placed
+        // faithfully in this workspace tree. Fail closed when a Dock contributes
+        // panes rather than emitting a partial layout whose leaves disagree
+        // with the authoritative flat `panes` array.
+        let layout = dockPaneSummaries.isEmpty
+            ? systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+            : nil
 
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
@@ -164,8 +205,38 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            panes: panes
+            panes: panes,
+            layout: layout
         )
+    }
+
+    /// Map Bonsplit's `ExternalTreeNode` (from `treeSnapshot()`) into the
+    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` when any pane
+    /// leaf carries an unparseable id (not expected: `ExternalPaneNode.id` is a
+    /// `UUID.uuidString`) or any split carries an orientation outside the wire
+    /// contract's `horizontal`/`vertical` (also not expected). This is
+    /// fail-closed: because a `.split` requires BOTH converted children, a
+    /// single nil leaf propagates up through every ancestor split and nils the
+    /// ENTIRE workspace layout — the consumer sees `layout: null` and falls
+    /// back to the flat `panes` array rather than acting on a partial tree.
+    private func systemTreeLayoutNode(from node: ExternalTreeNode) -> ControlSystemTreeLayoutNode? {
+        switch node {
+        case .pane(let paneNode):
+            guard let paneID = UUID(uuidString: paneNode.id) else { return nil }
+            return .pane(paneID: paneID)
+        case .split(let splitNode):
+            guard
+                let orientation = ControlSystemTreeLayoutNode.SplitOrientation(rawValue: splitNode.orientation),
+                let first = systemTreeLayoutNode(from: splitNode.first),
+                let second = systemTreeLayoutNode(from: splitNode.second)
+            else { return nil }
+            return .split(
+                orientation: orientation,
+                ratio: splitNode.dividerPosition,
+                first: first,
+                second: second
+            )
+        }
     }
 
     // MARK: - auth.login / session / settings / feedback
@@ -183,6 +254,212 @@ extension TerminalController: ControlSystemContext {
             ))
         }
         return .restored
+    }
+
+    /// Imports another install's saved session (or a snapshot file) through
+    /// the same path as `session.restore_previous`: the snapshot opens as
+    /// additional windows next to the current ones, skipping workspaces and
+    /// panels that are already live. The source file is only read. A file
+    /// import goes through `SessionSnapshotImportTrust` first.
+    func controlSessionImport(source: ControlSessionImportSource) -> ControlSessionImportResolution {
+        guard let appDelegate = AppDelegate.shared else {
+            return .failed(code: "unavailable", message: "AppDelegate not available", path: nil)
+        }
+        let store = appDelegate.sessionSnapshotStore
+        let result: Result<SessionSnapshotImport<AppSessionSnapshot>, SessionSnapshotImportError>
+        switch source {
+        case .channel(let name):
+            guard let bundleIdentifier = SessionSnapshotFileLocation.bundleIdentifier(forChannel: name) else {
+                return .failed(
+                    code: "invalid_params",
+                    message: String(
+                        format: String(
+                            localized: "session.import.error.unknownChannel",
+                            defaultValue: "Unknown cmux channel \"%@\". Use stable, nightly, rc, staging, debug:<tag>, or a path to a session file."
+                        ),
+                        name
+                    ),
+                    path: nil
+                )
+            }
+            result = store.importableSnapshot(bundleIdentifier: bundleIdentifier)
+        case .file(let path):
+            result = store.importableSnapshot(fileURL: URL(fileURLWithPath: path))
+        }
+        switch result {
+        case .failure(let error):
+            return .failed(
+                code: Self.sessionImportErrorCode(error),
+                message: Self.sessionImportErrorMessage(error),
+                path: error.fileURL.path
+            )
+        case .success(let imported):
+            // Another install's own session file keeps full trust. An
+            // arbitrary file restores its layout, but nothing it carries may
+            // run automatically (see SessionSnapshotImportTrust).
+            let (snapshot, trustReport) = SessionSnapshotImportTrust.snapshotForRestore(
+                imported.snapshot,
+                source: source
+            )
+            // Count what restore will actually open: crash-diagnostic windows
+            // are dropped and the window count is capped.
+            let windowCount = min(
+                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+                    .snapshot?.windows.count ?? 0,
+                SessionPersistencePolicy.maxWindowsPerSnapshot
+            )
+            guard appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false) else {
+                return .failed(
+                    code: "invalid_state",
+                    message: String(
+                        format: String(
+                            localized: "session.import.error.nothingRestored",
+                            defaultValue: "Nothing in %@ could be reopened."
+                        ),
+                        imported.fileURL.path
+                    ),
+                    path: imported.fileURL.path
+                )
+            }
+            return .restored(
+                sourcePath: imported.fileURL.path,
+                windowCount: windowCount,
+                heldBackResumeCount: trustReport.heldBackResumeCount,
+                droppedRemoteWorkspaceCount: trustReport.droppedRemoteWorkspaceCount
+            )
+        }
+    }
+
+    func controlSessionExport(path: String, overwrite: Bool) -> ControlSessionExportResolution {
+        guard let appDelegate = AppDelegate.shared else {
+            return .failed(code: "unavailable", message: "AppDelegate not available", path: nil)
+        }
+        let destination = URL(fileURLWithPath: path)
+        switch appDelegate.sessionSnapshotStore.exportSnapshot(to: destination, overwrite: overwrite) {
+        case .success(let sourceURL):
+            return .exported(path: destination.standardizedFileURL.path, sourcePath: sourceURL.path)
+        case .failure(.noSnapshot):
+            return .failed(
+                code: "not_found",
+                message: String(
+                    localized: "session.export.error.noSnapshot",
+                    defaultValue: "cmux has not saved a session yet. Try again in a few seconds."
+                ),
+                path: nil
+            )
+        case .failure(.destinationExists(let url)):
+            return .failed(
+                code: "already_exists",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.destinationExists",
+                        defaultValue: "%@ already exists. Pass --force to replace it."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        case .failure(.destinationIsLiveSnapshot(let url)):
+            return .failed(
+                code: "invalid_params",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.destinationIsLive",
+                        defaultValue: "%@ is this cmux's own session file. Choose another path."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        case .failure(.writeFailed(let url)):
+            return .failed(
+                code: "invalid_state",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.writeFailed",
+                        defaultValue: "Could not write %@."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        }
+    }
+
+    private static func sessionImportErrorCode(_ error: SessionSnapshotImportError) -> String {
+        switch error {
+        case .fileNotFound, .noWindows:
+            return "not_found"
+        case .unreadable:
+            return "invalid_state"
+        case .notASessionSnapshot, .liveSnapshot:
+            return "invalid_params"
+        case .newerSchemaVersion, .olderSchemaVersion:
+            return "unsupported"
+        }
+    }
+
+    private static func sessionImportErrorMessage(_ error: SessionSnapshotImportError) -> String {
+        let path = error.fileURL.path
+        switch error {
+        case .fileNotFound:
+            return String(
+                format: String(
+                    localized: "session.import.error.fileNotFound",
+                    defaultValue: "No saved cmux session at %@."
+                ),
+                path
+            )
+        case .unreadable:
+            return String(
+                format: String(localized: "session.import.error.unreadable", defaultValue: "Could not read %@."),
+                path
+            )
+        case .notASessionSnapshot:
+            return String(
+                format: String(
+                    localized: "session.import.error.notASnapshot",
+                    defaultValue: "%@ is not a cmux session snapshot."
+                ),
+                path
+            )
+        case let .newerSchemaVersion(_, found, supported):
+            return String(
+                format: String(
+                    localized: "session.import.error.newerSchema",
+                    defaultValue: "%1$@ was saved by a newer cmux (session format %2$@, this cmux reads %3$@). Update cmux to import it."
+                ),
+                path,
+                String(found),
+                String(supported)
+            )
+        case let .olderSchemaVersion(_, found, supported):
+            return String(
+                format: String(
+                    localized: "session.import.error.olderSchema",
+                    defaultValue: "%1$@ uses an older session format (%2$@) that this cmux no longer reads (%3$@)."
+                ),
+                path,
+                String(found),
+                String(supported)
+            )
+        case .noWindows:
+            return String(
+                format: String(
+                    localized: "session.import.error.noWindows",
+                    defaultValue: "%@ has no windows to restore."
+                ),
+                path
+            )
+        case .liveSnapshot:
+            return String(
+                format: String(
+                    localized: "session.import.error.liveSnapshot",
+                    defaultValue: "%@ is the session this cmux is saving right now. Run cmux restore-session without --from to reopen the previous launch."
+                ),
+                path
+            )
+        }
     }
 
     func controlSettingsOpen(targetRaw: String?, requestedActivate: Bool) -> ControlSettingsOpenResolution {

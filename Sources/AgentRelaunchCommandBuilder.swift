@@ -10,7 +10,23 @@ struct AgentRelaunchCommandBuilder {
     func shellCommand(
         kind: RestorableAgentKind,
         launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        includeWorkingDirectoryPrefix: Bool = true
+    ) -> String? {
+        shellCommand(
+            kind: kind,
+            launchCommand: launchCommand,
+            resolvedWorkingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
+    }
+
+    /// Builds a relaunch command after the caller has applied its cwd fallback policy.
+    func shellCommand(
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        resolvedWorkingDirectory: String?,
+        includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
         guard kind.restoreMode == .relaunchCommand,
               let launchCommand,
@@ -39,9 +55,10 @@ struct AgentRelaunchCommandBuilder {
         let command = commandParts
             .map { TerminalStartupShellQuoting.singleQuoted($0) }
             .joined(separator: " ")
+        guard includeWorkingDirectoryPrefix else { return command }
         return TerminalStartupWorkingDirectoryPrefix.prefix(
             command,
-            workingDirectory: workingDirectory ?? launchCommand.workingDirectory
+            workingDirectory: resolvedWorkingDirectory
         )
     }
 }

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import Testing
 
@@ -47,7 +48,9 @@ private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHidde
 }
 
 @MainActor
-private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
+    isDesignModeActive: Bool = false
+) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
         isVisibleInUI: false,
@@ -63,7 +66,9 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserH
         isDeveloperToolsVisible: false,
         isElementFullscreenActive: false,
         isReactGrabActive: false,
+        isDesignModeActive: isDesignModeActive,
         isVisualAutomationCaptureActive: false,
+        isMobileBrowserStreamActive: false,
         hasPopups: false,
         isCapturingMedia: false,
         isPlayingMedia: false
@@ -88,6 +93,15 @@ private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: (UserDe
 @MainActor
 @Suite(.serialized)
 struct BrowserHiddenWebViewDiscardMemoryPressureTests {
+    @Test func activeDesignModeBlocksHiddenWebViewDiscard() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+            let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(isDesignModeActive: true)
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+
+            #expect(manager.blockers(for: snapshot) == ["design_mode"])
+        }
+    }
+
     @Test func systemMemoryPressureRequestsImmediateHiddenWebViewDiscard() {
         withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let now = Date(timeIntervalSince1970: 1_000)

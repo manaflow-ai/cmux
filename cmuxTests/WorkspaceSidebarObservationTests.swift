@@ -136,7 +136,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() {
+    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -155,8 +155,7 @@ struct WorkspaceSidebarObservationTests {
             "A synchronous burst of immediate fields must deliver only its leading edge immediately."
         )
 
-        // Generous pump so the 50ms trailing emission fires deterministically.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        #expect(await AppKitTestEventPump().waitUntil { publishCount == 2 })
 
         #expect(
             publishCount == 2,
@@ -226,6 +225,57 @@ struct WorkspaceSidebarObservationTests {
             received == [1, 2, 4],
             "The overdue trailing callback must not emit the superseded stale value out of order."
         )
+    }
+
+    @Test func coalesceLatestDrainsReentrantValueBeforeCompletionWithUnlimitedDemand() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subscriber.onValue = { value in
+            if value == 1 {
+                subject.send(2)
+                subject.send(completion: .finished)
+            }
+        }
+        subscriber.request(.unlimited)
+        subject.send(1)
+
+        #expect(
+            subscriber.received == [1, 2],
+            "A reentrant value that arrived before completion must drain while unlimited demand remains."
+        )
+        #expect(subscriber.completionCount == 1)
+        #expect(subscriber.receivedValuesAtCompletion == [[1, 2]])
+    }
+
+    @Test func coalesceLatestDeliversBufferedValueBeforeCompletionWhenDemandResumes() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subject.send(1)
+        subject.send(completion: .finished)
+
+        #expect(subscriber.received.isEmpty)
+        #expect(
+            subscriber.completionCount == 0,
+            "Completion must wait while the final value is buffered without demand."
+        )
+
+        subscriber.request(.max(1))
+
+        #expect(subscriber.received == [1])
+        #expect(subscriber.completionCount == 1)
+        #expect(subscriber.receivedValuesAtCompletion == [[1]])
     }
 
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
@@ -367,6 +417,67 @@ struct WorkspaceSidebarObservationTests {
             ) == 2
         )
     }
+
+    /// Two Claude panes share the `claude_code` key (and its one PID, held by
+    /// the pane that started last). The row is a workspace aggregate: the pane
+    /// An active turn wins over a pane waiting on the person, even when its
+    /// status report is newer. Lifecycle urgency is shared with the compact
+    /// glyph: running, background work, then needs input.
+    @Test func sharedAgentStatusKeyShowsTheMostUrgentPane() throws {
+        let workspace = Workspace()
+        let waitingPanelId = try #require(workspace.focusedPanelId)
+        let runningPanelId = try #require(
+            workspace.newTerminalSplit(from: waitingPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        workspace.recordAgentPID(key: "claude_code", pid: 12_402, panelId: runningPanelId, refreshPorts: false)
+
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)),
+            key: "claude_code",
+            panelId: waitingPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: waitingPanelId, lifecycle: .needsInput)
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)),
+            key: "claude_code",
+            panelId: runningPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: runningPanelId, lifecycle: .running)
+
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "An active turn must outrank a pane waiting on the person."
+        )
+
+        _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: waitingPanelId)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "Once the waiting pane's lifecycle ends, its old Needs input text must not linger."
+        )
+    }
+
+    /// Across different agents, an active turn sorts first even when another
+    /// agent is waiting on the person and reported more recently.
+    @Test func needsInputStatusSortsAheadOfNewerEntries() throws {
+        let workspace = Workspace()
+        let codexPanelId = try #require(workspace.focusedPanelId)
+        let claudePanelId = try #require(
+            workspace.newTerminalSplit(from: codexPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        workspace.recordAgentPID(key: "codex.a", pid: 12_403, panelId: codexPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.a", pid: 12_404, panelId: claudePanelId, refreshPorts: false)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: claudePanelId, lifecycle: .needsInput)
+        workspace.setAgentLifecycle(key: "codex", panelId: codexPanelId, lifecycle: .running)
+
+        #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["codex", "claude_code"])
+    }
 }
 
 // Mutable flag captured by Observation's Sendable onChange closure in this test.
@@ -378,6 +489,39 @@ private final class ObservationChangeFlag: @unchecked Sendable {
     }
 }
 
+private final class DemandControlledSubscriber<Input>: Subscriber {
+    typealias Failure = Never
+
+    private var subscription: Subscription?
+    private(set) var received: [Input] = []
+    private(set) var completionCount = 0
+    private(set) var receivedValuesAtCompletion: [[Input]] = []
+    var onValue: ((Input) -> Void)?
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Input) -> Subscribers.Demand {
+        received.append(input)
+        onValue?(input)
+        return .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {
+        completionCount += 1
+        receivedValuesAtCompletion.append(received)
+    }
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    func cancel() {
+        subscription?.cancel()
+        subscription = nil
+    }
+}
 // Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
 // via advance(by:), and scheduled actions run only when runScheduledActions()
 // is called, so overdue-timer interleavings are exact instead of wall-clock.

@@ -35,7 +35,10 @@ struct WindowAccessor: NSViewRepresentable {
             on: nsView,
             coordinator: context.coordinator
         )
-        if let window = nsView.window {
+        // Not nsView.window: SwiftUI can update this view while its window is
+        // deallocating, and the coordinator's weak store of that window aborts
+        // ("Cannot form weak reference"). The tracked window reads nil then.
+        if let window = nsView.trackedWindow {
             nsView.onWindow?(window)
         }
     }
@@ -82,6 +85,8 @@ extension WindowAccessor {
 @MainActor
 final class WindowObservingView: NSView {
     var onWindow: (@MainActor (NSWindow) -> Void)?
+    /// Set only from AppKit's move callback, where the window is alive.
+    private(set) weak var trackedWindow: NSWindow?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
@@ -92,6 +97,7 @@ final class WindowObservingView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        trackedWindow = window
         if let window {
             onWindow?(window)
         }

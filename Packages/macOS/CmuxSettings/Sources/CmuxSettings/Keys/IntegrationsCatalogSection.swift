@@ -26,6 +26,12 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "codexHooksEnabled"
     )
 
+    public let piHooksEnabled = DefaultsKey<Bool>(
+        id: "integrations.pi.hooksEnabled",
+        defaultValue: true,
+        userDefaultsKey: "piHooksEnabled"
+    )
+
     public let ampHooksEnabled = DefaultsKey<Bool>(
         id: "integrations.amp.hooksEnabled",
         defaultValue: true,

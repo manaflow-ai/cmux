@@ -3,6 +3,16 @@ import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
+
 /// URL-level coverage for ``CmxAttachTicketInput`` across the two attach
 /// payload grammars: the compact short-key form newer Macs put in the
 /// pairing QR, and the legacy full-key form older Macs and stored fixtures
@@ -42,7 +52,10 @@ import Testing
     @Test func decodesCompactPayloadAttachURL() throws {
         // New-phone-scans-new-QR.
         let ticket = try makeTicket(authToken: "minted-but-not-in-qr")
-        let url = attachURL(payload: try CmxAttachTicketCompactCoder().encode(ticket))
+        let url = attachURL(payload: try CmxAttachTicketCompactCoder().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        ))
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
@@ -106,7 +119,10 @@ import Testing
         // the compact grammar existed (plain Codable + iso8601) and prove it
         // throws instead of silently misreading the ticket.
         let ticket = try makeTicket()
-        let payload = try CmxAttachTicketCompactCoder().encode(ticket)
+        let payload = try CmxAttachTicketCompactCoder().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
 
         let preCompactDecoder = JSONDecoder()
         preCompactDecoder.dateDecodingStrategy = .iso8601
@@ -196,7 +212,10 @@ import Testing
             expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
             transport: .tailscale
         )
-        let decoded = try CmxAttachTicketInput.decode(payload.encodedURL().absoluteString)
+        let decoded = try CmxAttachTicketInput.decode(
+            payload.encodedURL(pairingURLScheme: pairingScheme)
+                .absoluteString
+        )
 
         #expect(decoded.macPairingCompatibilityVersion == 0)
     }
@@ -256,8 +275,10 @@ import Testing
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&i="
+                + String(repeating: "c", count: 64)
         )
         #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .iroh)
     }
 }

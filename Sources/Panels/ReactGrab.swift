@@ -165,9 +165,14 @@ enum ReactGrabBridgeMessage {
 }
 
 class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
+    private let isCurrent: @MainActor () -> Bool
     private let onMessage: @MainActor (ReactGrabBridgeMessage) -> Void
 
-    init(onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void) {
+    init(
+        isCurrent: @escaping @MainActor () -> Bool,
+        onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void
+    ) {
+        self.isCurrent = isCurrent
         self.onMessage = onMessage
     }
 
@@ -186,6 +191,7 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         }
         #endif
         Task { @MainActor in
+            guard isCurrent() else { return }
             #if DEBUG
             switch bridgeMessage {
             case .stateChange(let isActive):
@@ -219,11 +225,19 @@ extension BrowserPanel {
     }
 
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] message in
+        let handler = ReactGrabMessageHandler(
+            isCurrent: webViewObservationValidator(for: webView)
+        ) { [weak self] message in
             self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
+    }
+
+    func tearDownReactGrabMessageHandler(for webView: WKWebView, reason: String = "unspecified") {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: reactGrabMessageHandlerName)
+        reactGrabMessageHandler = nil
+        resetReactGrabState(reason: reason)
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
@@ -317,7 +331,7 @@ extension BrowserPanel {
         }
     }
 
-    func injectReactGrab() async {
+    private func injectReactGrab() async {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start")
         #endif
@@ -411,7 +425,7 @@ extension BrowserPanel {
         #endif
     }
 
-    func toggleReactGrab() {
+    private func toggleReactGrab() {
         #if DEBUG
         cmuxDebugLog("reactGrab.toggle.start")
         #endif
@@ -426,11 +440,13 @@ extension BrowserPanel {
         if isReactGrabActive {
             toggleReactGrab()
         } else {
+            guard await prepareForReactGrabActivation(reason: "reactGrab.toggle") else { return }
             await injectReactGrab()
         }
     }
 
     func ensureReactGrabActive() async {
+        guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
         if isReactGrabActive {
             guard pendingReactGrabRoundTripToken != nil else { return }
             if await refreshReactGrabBridgeSessionToken() {

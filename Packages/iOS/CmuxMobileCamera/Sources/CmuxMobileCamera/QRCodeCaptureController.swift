@@ -17,6 +17,7 @@ public final class QRCodeCaptureController: UIViewController {
     private let stream: QRCodeScanStream
     private let receiver: QRCodeMetadataReceiver
     private let unavailableText: String
+    private let onUnavailable: @MainActor () -> Void
     private let captureSession = AVCaptureSession()
     // Apple guidance: configure/start/stop the session off the main thread to
     // avoid blocking UI; this queue serializes those session mutations.
@@ -29,14 +30,17 @@ public final class QRCodeCaptureController: UIViewController {
     ///   - stream: The scan stream that accepted codes are yielded into.
     ///   - accepts: Predicate deciding whether a decoded string is accepted.
     ///   - unavailableText: Localized copy shown when no camera is available.
+    ///   - onUnavailable: Called once when camera session setup cannot complete.
     public init(
         stream: QRCodeScanStream,
         accepts: @escaping @Sendable (String) -> Bool,
-        unavailableText: String
+        unavailableText: String,
+        onUnavailable: @escaping @MainActor () -> Void = {}
     ) {
         self.stream = stream
         self.receiver = QRCodeMetadataReceiver(stream: stream, accepts: accepts)
         self.unavailableText = unavailableText
+        self.onUnavailable = onUnavailable
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -49,11 +53,6 @@ public final class QRCodeCaptureController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         configureSession()
-    }
-
-    public override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        previewLayer?.frame = view.bounds
     }
 
     public override func viewWillAppear(_ animated: Bool) {
@@ -98,11 +97,16 @@ public final class QRCodeCaptureController: UIViewController {
         // will not be where the box is drawn and codes that look centered
         // will not decode.
 
-        let layer = AVCaptureVideoPreviewLayer(session: captureSession)
-        layer.videoGravity = .resizeAspectFill
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        previewLayer = layer
+        // The preview lives in its own maskable host view (see
+        // ``CameraPreviewHostView``); autoresizing keeps layer and view in
+        // sync without a layout override.
+        let host = CameraPreviewHostView(frame: view.bounds)
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.isUserInteractionEnabled = false
+        host.previewLayer.session = captureSession
+        host.previewLayer.videoGravity = .resizeAspectFill
+        view.insertSubview(host, at: 0)
+        previewLayer = host.previewLayer
         isConfigured = true
     }
 
@@ -123,6 +127,7 @@ public final class QRCodeCaptureController: UIViewController {
     }
 
     private func showUnavailable() {
+        onUnavailable()
         let label = UILabel()
         label.text = unavailableText
         label.textColor = .white

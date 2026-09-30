@@ -70,8 +70,13 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
 enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
+    case browserDisabled
+    case invalidProfileSelector
+    case multipleProfileSelectors
+    case profileRequiresBrowserPane
+    case profileUnavailableInRemoteWorkspace
     case profileNotFound(String)
-    case ambiguousProfile(String)
+    case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
     case profileRenameFailed(String)
     case cannotDeleteDefaultProfile
@@ -91,21 +96,50 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
                 localized: "browser.profile.automation.error.missingProfile",
                 defaultValue: "Missing browser profile"
             )
+        case .browserDisabled:
+            return String(
+                localized: "browser.profile.automation.error.browserDisabled",
+                defaultValue: "Browser profiles cannot be used while the cmux browser is disabled"
+            )
+        case .invalidProfileSelector:
+            return String(
+                localized: "browser.profile.automation.error.invalidProfileSelector",
+                defaultValue: "Browser profile must be a non-empty name or UUID"
+            )
+        case .multipleProfileSelectors:
+            return String(
+                localized: "browser.profile.automation.error.multipleProfileSelectors",
+                defaultValue: "Specify only one browser profile selector"
+            )
+        case .profileRequiresBrowserPane:
+            return String(
+                localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                defaultValue: "Browser profiles can only be used when creating a browser pane"
+            )
+        case .profileUnavailableInRemoteWorkspace:
+            return String(
+                localized: "browser.profile.automation.error.profileUnavailableInRemoteWorkspace",
+                defaultValue: "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
+            )
         case .profileNotFound(let query):
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.profileNotFound",
-                    defaultValue: "No cmux browser profile matches '%@'"
+                    defaultValue: "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
                 ),
                 query
             )
-        case .ambiguousProfile(let query):
+        case .ambiguousProfile(let query, let candidates):
+            let candidateList = candidates
+                .map { "\($0.displayName) (\($0.id.uuidString))" }
+                .joined(separator: ", ")
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.ambiguousProfile",
-                    defaultValue: "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+                    defaultValue: "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
                 ),
-                query
+                query,
+                candidateList
             )
         case .profileCreationFailed(let name):
             return String.localizedStringWithFormat(
@@ -164,23 +198,6 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     }
 }
 
-private func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
-    for key in keys {
-        if let value = params[key] as? Bool {
-            return value
-        }
-        if let value = params[key] as? String {
-            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            default:
-                continue
-            }
-        }
-    }
-    return false
-}
-
 enum BrowserProfileAutomation {
     static func list(params _: [String: Any]) async throws -> [String: Any] {
         await MainActor.run {
@@ -229,7 +246,7 @@ enum BrowserProfileAutomation {
     @MainActor
     static func clear(params: [String: Any]) async throws -> [String: Any] {
         let targets = try targetProfiles(params: params, allowAll: true)
-        let force = browserAutomationBoolParam(params, keys: ["force"])
+        let force = BrowserAutomationParameters(values: params).bool(keys: ["force"])
         if !force {
             for profile in targets {
                 let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
@@ -294,7 +311,7 @@ enum BrowserProfileAutomation {
     @MainActor
     private static func targetProfiles(params: [String: Any], allowAll: Bool) throws -> [BrowserProfileDefinition] {
         let store = BrowserProfileStore.shared
-        if allowAll, browserAutomationBoolParam(params, keys: ["all", "all_profiles"]) {
+        if allowAll, BrowserAutomationParameters(values: params).bool(keys: ["all", "all_profiles"]) {
             return store.profiles
         }
         let query = try requiredString(params, keys: ["profile", "id", "name"])
@@ -329,7 +346,7 @@ enum BrowserProfileAutomation {
                 $0.displayName.localizedCaseInsensitiveCompare(normalized) == .orderedSame
         }
         if matches.count > 1 {
-            throw BrowserProfileAutomationError.ambiguousProfile(query)
+            throw BrowserProfileAutomationError.ambiguousProfile(query, matches)
         }
         return matches.first
     }
@@ -348,9 +365,9 @@ enum BrowserProfileAutomation {
     }
 
     @MainActor
-    private static func liveBrowserPanelCount(profileID: UUID) -> Int {
+    static func liveBrowserPanelCount(profileID: UUID) -> Int {
         guard let app = AppDelegate.shared else { return 0 }
-        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+        let workspaceCount = app.mainWindowContexts.values.reduce(0) { contextCount, context in
             contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
                 workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
                     guard let browserPanel = panel as? BrowserPanel,
@@ -361,189 +378,15 @@ enum BrowserProfileAutomation {
                 }
             }
         }
-    }
-}
-
-enum BrowserImportAutomation {
-    static func importCookies(params: [String: Any]) async throws -> BrowserImportOutcome {
-        let browsers = BrowserInstalledBrowserDetector().detectInstalledBrowsers()
-        guard !browsers.isEmpty else {
-            throw BrowserImportAutomationError.noBrowsers
-        }
-
-        let browser = try selectedBrowser(from: browsers, params: params)
-        let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
-        let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
-
-        let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
-            let destinationProfiles = BrowserProfileStore.shared.profiles
-            let preferredDestinationProfileID = try resolvedDestinationProfileID(
-                params: params,
-                destinationProfiles: destinationProfiles
-            )
-
-            let plan: BrowserImportExecutionPlan
-            if let preferredDestinationProfileID {
-                let mode: BrowserImportDestinationMode = sourceProfiles.count > 1 ? .mergeIntoOne : .singleDestination
-                plan = BrowserImportExecutionPlan(
-                    mode: mode,
-                    entries: [
-                        BrowserImportExecutionEntry(
-                            sourceProfiles: sourceProfiles,
-                            destination: .existing(preferredDestinationProfileID)
-                        )
-                    ]
-                )
-            } else {
-                plan = BrowserImportPlanResolver.defaultPlan(
-                    selectedSourceProfiles: sourceProfiles,
-                    destinationProfiles: destinationProfiles,
-                    preferredSingleDestinationProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID
-                )
-            }
-
-            return try BrowserImportPlanResolver.realize(plan: plan)
-        }
-
-        return await BrowserDataImporter.importData(
-            from: browser,
-            plan: realizedPlan,
-            scope: .cookiesOnly,
-            domainFilters: domainFilters
-        )
-    }
-
-    private static func selectedBrowser(
-        from browsers: [InstalledBrowserCandidate],
-        params: [String: Any]
-    ) throws -> InstalledBrowserCandidate {
-        guard let query = stringParam(params, keys: ["browser", "from", "source"]) else {
-            let sortedBrowsers = browsers.sorted { lhs, rhs in
-                if lhs.detectionScore != rhs.detectionScore {
-                    return lhs.detectionScore > rhs.detectionScore
+        let dockCount = DockSplitStore.liveStores.reduce(0) { count, dock in
+            count + dock.panels.values.reduce(0) { panelCount, panel in
+                guard let browserPanel = panel as? BrowserPanel,
+                      browserPanel.profileID == profileID else {
+                    return panelCount
                 }
-                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-            }
-            guard let browser = sortedBrowsers.first else {
-                throw BrowserImportAutomationError.noBrowsers
-            }
-            return browser
-        }
-
-        guard let browser = browsers.first(where: { matchesBrowser($0, query: query) }) else {
-            throw BrowserImportAutomationError.browserNotFound(query)
-        }
-        return browser
-    }
-
-    private static func selectedSourceProfiles(
-        from browser: InstalledBrowserCandidate,
-        params: [String: Any]
-    ) throws -> [InstalledBrowserProfile] {
-        guard !browser.profiles.isEmpty else {
-            throw BrowserImportAutomationError.noProfiles(browser.displayName)
-        }
-
-        if browserAutomationBoolParam(params, keys: ["all_profiles", "all_source_profiles"]) {
-            return browser.profiles
-        }
-
-        let queries = stringListParam(params, keys: ["profile", "source_profile", "source_profiles"])
-        guard !queries.isEmpty else {
-            if let defaultProfile = browser.profiles.first(where: \.isDefault) {
-                return [defaultProfile]
-            }
-            return [browser.profiles[0]]
-        }
-
-        var result: [InstalledBrowserProfile] = []
-        var seen = Set<String>()
-        for query in queries {
-            guard let profile = browser.profiles.first(where: { matchesProfile($0, query: query) }) else {
-                throw BrowserImportAutomationError.sourceProfileNotFound(query)
-            }
-            guard seen.insert(profile.id).inserted else { continue }
-            result.append(profile)
-        }
-        return result
-    }
-
-    @MainActor
-    private static func resolvedDestinationProfileID(
-        params: [String: Any],
-        destinationProfiles: [BrowserProfileDefinition]
-    ) throws -> UUID? {
-        guard let query = stringParam(params, keys: ["destination_profile", "to_profile", "to"]) else {
-            return nil
-        }
-
-        if let uuid = UUID(uuidString: query),
-           destinationProfiles.contains(where: { $0.id == uuid }) {
-            return uuid
-        }
-
-        if let profile = destinationProfiles.first(where: {
-            $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
-                $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
-        }) {
-            return profile.id
-        }
-
-        guard browserAutomationBoolParam(params, keys: ["create_destination_profile", "create_profile"]) else {
-            throw BrowserImportAutomationError.destinationProfileNotFound(query)
-        }
-
-        guard let profile = BrowserProfileStore.shared.createProfile(named: query) else {
-            throw BrowserImportAutomationError.destinationProfileCreationFailed(query)
-        }
-        return profile.id
-    }
-
-    private static func matchesBrowser(_ browser: InstalledBrowserCandidate, query: String) -> Bool {
-        browser.matchesLookupQuery(query)
-    }
-
-    private static func matchesProfile(_ profile: InstalledBrowserProfile, query: String) -> Bool {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return false }
-        if profile.id.lowercased() == normalized { return true }
-        if profile.displayName.lowercased() == normalized { return true }
-        if profile.rootURL.lastPathComponent.lowercased() == normalized { return true }
-        return false
-    }
-
-    private static func domainFilterText(from params: [String: Any]) -> String {
-        stringListParam(params, keys: ["domain", "domains", "domain_filters"])
-            .joined(separator: ",")
-    }
-
-    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
+                return panelCount + 1
             }
         }
-        return nil
-    }
-
-    private static func stringListParam(_ params: [String: Any], keys: [String]) -> [String] {
-        var result: [String] = []
-        for key in keys {
-            if let value = params[key] as? String {
-                let parsed = value
-                    .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                result.append(contentsOf: parsed)
-            } else if let values = params[key] as? [String] {
-                result.append(
-                    contentsOf: values
-                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        .filter { !$0.isEmpty }
-                )
-            }
-        }
-        return result
+        return workspaceCount + dockCount
     }
 }

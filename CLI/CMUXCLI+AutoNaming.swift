@@ -141,6 +141,102 @@ struct AutoNamingEnvironmentPolicy: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return override.isEmpty ? "haiku" : override
     }
+
+    /// Inline MCP configuration passed with `--strict-mcp-config` so the
+    /// summarizer starts no MCP servers. Claude Code validates this JSON
+    /// against a schema requiring an `mcpServers` record, so a bare `{}` is
+    /// rejected during argument parsing and the subprocess exits before it
+    /// can produce a title (cmux#9457).
+    static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
+
+    /// Argument vector for the tool-disabled `claude -p` summarizer call.
+    func claudeSummarizerArguments(from env: [String: String]) -> [String] {
+        [
+            "-p",
+            "--model", claudeModel(from: env),
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", Self.emptyMCPConfigJSON
+        ]
+    }
+}
+
+/// Builds the isolated Codex invocation used for workspace naming.
+///
+/// `--ignore-user-config` keeps tools, MCP servers, and rules out of the
+/// summarizer, but it also removes the user's model provider. Re-apply only
+/// the provider selection, its provider table, and the selected model.
+struct CodexAutoNamingArguments: Sendable {
+    static func build(configToml: String?) -> [String] {
+        var arguments = [
+            "exec",
+            "-c", "default_tools_enabled=false",
+            "-c", "tools={}",
+            "-c", "mcp_servers={}",
+            "-c", "web_search=\"disabled\"",
+            "-c", "approval_policy=never",
+            "-c", "shell_environment_policy.inherit=none",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--sandbox", "read-only"
+        ]
+        guard let configToml else { return arguments }
+        let overrides = providerOverrides(from: configToml)
+        for override in overrides.reversed() {
+            arguments.insert(contentsOf: ["-c", override], at: 1)
+        }
+        return arguments
+    }
+
+    private static func providerOverrides(from toml: String) -> [String] {
+        var model: String?
+        var modelProvider: String?
+        var providerEntries: [(section: String, key: String, value: String)] = []
+        var section = ""
+        for rawLine in toml.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            if line.first == "[", line.last == "]" {
+                section = String(line.dropFirst().dropLast())
+                continue
+            }
+            guard let equals = line.firstIndex(of: "=") else { continue }
+            let key = line[..<equals].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if section.isEmpty {
+                if key == "model" { model = String(value) }
+                if key == "model_provider" { modelProvider = String(value) }
+            } else if section.hasPrefix("model_providers.") {
+                providerEntries.append((section, String(key), String(value)))
+            }
+        }
+        guard let modelProvider,
+              let providerName = providerNameFromValue(modelProvider),
+              providerName.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) else {
+            return model.map { ["model=\($0)"] } ?? []
+        }
+        var result = ["model_provider=\(modelProvider)"]
+        if let model { result.append("model=\(model)") }
+        result.append(contentsOf: providerEntries
+            .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+            .map {
+                let prefix = "model_providers.\(providerName)"
+                let nestedPath = String($0.section.dropFirst(prefix.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                let keyPath = nestedPath.isEmpty ? $0.key : "\(nestedPath).\($0.key)"
+                return "model_providers.\(providerName).\(keyPath)=\($0.value)"
+            })
+        return result
+    }
+
+    private static func providerNameFromValue(_ value: String) -> String? {
+        guard value.count >= 2, value.first == "\"", value.last == "\"" else { return nil }
+        return String(value.dropFirst().dropLast())
+    }
 }
 
 /// Pure auto-naming logic: throttle decisions, transcript extraction,

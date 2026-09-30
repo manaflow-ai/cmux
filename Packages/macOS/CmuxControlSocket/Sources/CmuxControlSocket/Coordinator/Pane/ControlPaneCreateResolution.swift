@@ -52,6 +52,14 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// URL opened externally (legacy `ok`, the external-open payload). Carries
     /// the resolved window (may be absent) and the opened URL string.
     case browserDisabledOpenedExternally(windowID: UUID?, url: String)
+    /// An explicit browser profile selector did not identify exactly one
+    /// profile. An empty candidate list means no profile matched; otherwise the
+    /// candidates share the requested display name.
+    case invalidBrowserProfile(
+        selector: String,
+        message: String,
+        candidates: [ControlPaneBrowserProfileCandidate]
+    )
     /// A TabManager resolved but no workspace did (legacy `not_found` /
     /// "Workspace not found", `data: nil`).
     case workspaceNotFound
@@ -61,6 +69,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// The split creation failed (legacy `internal_error` / "Failed to create
     /// pane", `data: nil`).
     case createFailed
+    /// The split was refused because a resulting pane would fall below the
+    /// minimum pane size (`no_space` / "No space for new pane").
+    case noSpace
     /// The request carried options the routed remote tmux `split-window`
     /// cannot honor; rejected BEFORE the remote session was mutated (an error
     /// after the mutation invites retries that duplicate remote panes).

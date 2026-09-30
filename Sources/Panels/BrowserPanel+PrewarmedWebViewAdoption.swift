@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 import WebKit
 
 /// Hover-prewarm adoption support for ``BrowserPanel``: profile resolution

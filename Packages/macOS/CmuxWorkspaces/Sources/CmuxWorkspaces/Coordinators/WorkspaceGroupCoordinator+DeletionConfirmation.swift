@@ -12,11 +12,17 @@ extension WorkspaceGroupCoordinator {
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else {
             return nil
         }
-        let includesAnchorWorkspace = model.tabs.contains { $0.id == group.anchorWorkspaceId }
-        var memberWorkspaceIds = includesAnchorWorkspace ? [group.anchorWorkspaceId] : []
+        let liveAnchorId = group.liveAnchorWorkspaceId
+        let includesAnchorWorkspace = liveAnchorId.map { anchorId in
+            model.tabs.contains { $0.id == anchorId }
+        } ?? false
+        var memberWorkspaceIds: [UUID] = {
+            guard includesAnchorWorkspace, let liveAnchorId else { return [] }
+            return [liveAnchorId]
+        }()
         memberWorkspaceIds.append(
             contentsOf: model.tabs.compactMap { tab in
-                tab.groupId == groupId && tab.id != group.anchorWorkspaceId ? tab.id : nil
+                tab.groupId == groupId && tab.id != group.liveAnchorWorkspaceId ? tab.id : nil
             }
         )
         return WorkspaceGroupDeletionConfirmation(
@@ -76,10 +82,22 @@ extension WorkspaceGroupCoordinator {
         let confirmedOrder = Dictionary(
             uniqueKeysWithValues: confirmation.memberWorkspaceIds.enumerated().map { ($1, $0) }
         )
+        // Drain the group's *live* anchor last. The snapshot's anchor can go
+        // stale: another entrypoint may close it during the nested modal loop,
+        // which promotes the next member to anchor. Closing that live anchor
+        // mid-batch would re-promote and renormalize the whole collection on
+        // every step — the O(k x totalTabs) main-actor churn TabManager's
+        // `anchorLastCloseOrder` exists to avoid. Resolve the current anchor
+        // (falling back to the snapshot when the group is already gone) and sort
+        // it last, so each non-anchor close stays cheap and at most one
+        // promotion runs before the group is torn down.
+        let liveAnchorId = model.workspaceGroups
+            .first(where: { $0.id == confirmation.groupId })?
+            .anchorWorkspaceId ?? confirmation.anchorWorkspaceId
         var members = model.tabs.filter { confirmedWorkspaceIds.contains($0.id) }
         members.sort { lhs, rhs in
-            if lhs.id == confirmation.anchorWorkspaceId { return false }
-            if rhs.id == confirmation.anchorWorkspaceId { return true }
+            if lhs.id == liveAnchorId { return false }
+            if rhs.id == liveAnchorId { return true }
             return confirmedOrder[lhs.id, default: Int.max] < confirmedOrder[rhs.id, default: Int.max]
         }
         let affectedWorkspaceIds = confirmation.memberWorkspaceIds.isEmpty
@@ -97,7 +115,8 @@ extension WorkspaceGroupCoordinator {
                     initialBrowserOmnibarVisible: false,
                     initialBrowserTransparentBackground: false,
                     inheritWorkingDirectory: true,
-                    select: true
+                    select: true,
+                    applyCreationTitleAsCustomTitle: true
                 )
             }
             let countBefore = model.tabs.count

@@ -24,6 +24,16 @@ public import Observation
 public final class WorkspaceSurfaceListModel {
     @ObservationIgnored
     private weak var tree: (any WorkspaceSurfaceTreeReading)?
+    @ObservationIgnored
+    private var lastObservedPaneIds: Set<UUID> = []
+    @ObservationIgnored
+    private var lastObservedSurfaceIds: Set<UUID> = []
+    @ObservationIgnored
+    private var lastObservedPanelIds: Set<UUID> = []
+
+    /// Whether the most recent geometry callback changed pane, surface, or panel membership.
+    @ObservationIgnored
+    public private(set) var lastGeometryChangeChangedMembership = false
 
     /// Creates a detached model; call ``attach(tree:)`` before any derivation.
     public init() {}
@@ -137,20 +147,40 @@ public final class WorkspaceSurfaceListModel {
     /// split, close) routes through the workspace's geometry-change handler. A
     /// pure reorder mutates only bonsplit's internal state, which is not
     /// observed, so observers would miss it. This bumps `paneLayoutVersion`
-    /// only when the ordered panel-id sequence actually changed, so divider
-    /// drags and selection-only events (also routed through that handler) do
-    /// not fire an app-wide change (legacy gate in
+    /// only when the ordered panel-id sequence changes, while separately
+    /// reporting pane-set changes so divider drags and selection-only events do
+    /// not reopen topology work (legacy gate in
     /// `Workspace.splitTabBar(_:didChangeGeometry:)`).
     ///
-    /// Returns whether the layout version was bumped, for callers that want to
-    /// observe the decision in tests.
+    /// Returns whether panel order or pane/surface membership changed, for
+    /// callers that need to invalidate topology-derived state.
     @discardableResult
     public func registerGeometryChange() -> Bool {
         guard let tree else { return false }
         let currentOrder = orderedPanelIds
-        guard currentOrder != tree.lastOrderedPanelIds else { return false }
-        tree.lastOrderedPanelIds = currentOrder
-        tree.bumpPaneLayoutVersion()
+        let currentPaneIds = tree.allPaneIds
+        let paneMembershipChanged = membershipChanged(currentPaneIds, from: lastObservedPaneIds)
+        if paneMembershipChanged { lastObservedPaneIds = Set(currentPaneIds) }
+        let currentSurfaceIds = tree.surfaceIdsInTabOrderAcrossAllPanes
+        let surfaceMembershipChanged = membershipChanged(currentSurfaceIds, from: lastObservedSurfaceIds)
+        if surfaceMembershipChanged { lastObservedSurfaceIds = Set(currentSurfaceIds) }
+        let panelMembershipChanged = membershipChanged(currentOrder, from: lastObservedPanelIds)
+        if panelMembershipChanged { lastObservedPanelIds = Set(currentOrder) }
+        lastGeometryChangeChangedMembership = paneMembershipChanged
+            || surfaceMembershipChanged
+            || panelMembershipChanged
+        let panelOrderChanged = currentOrder != tree.lastOrderedPanelIds
+        guard panelOrderChanged || paneMembershipChanged || surfaceMembershipChanged else {
+            return false
+        }
+        if panelOrderChanged {
+            tree.lastOrderedPanelIds = currentOrder
+            tree.bumpPaneLayoutVersion()
+        }
         return true
+    }
+
+    private func membershipChanged(_ current: [UUID], from previous: Set<UUID>) -> Bool {
+        current.count != previous.count || current.contains { !previous.contains($0) }
     }
 }

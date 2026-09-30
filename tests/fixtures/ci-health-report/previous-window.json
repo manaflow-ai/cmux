@@ -1,0 +1,85 @@
+{
+  "_comment": "The 06:00..12:00Z window before tests/fixtures/ci-health-report/window.json. Deliberately calm: a short queue wait and no cancellations, so the comparison in the report has to show the later window as a regression.",
+  "runs": [
+    {
+      "id": 901,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-z",
+      "head_sha": "zzz9zzz9zzz9",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T11:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/901",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 902,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-y",
+      "head_sha": "yyy8yyy8yyy8",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T09:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/902",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 903,
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "pull_request",
+      "head_branch": "feature-x",
+      "head_sha": "xxx7xxx7xxx7",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T07:30:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/903",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    },
+    {
+      "id": 904,
+      "name": "Docs channels shim",
+      "path": ".github/workflows/docs-channels.yml",
+      "event": "workflow_run",
+      "head_branch": "feature-x",
+      "head_sha": "xxx7xxx7xxx7",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "created_at": "2026-09-22T06:00:00Z",
+      "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/904",
+      "head_repository": {"full_name": "manaflow-ai/cmux"}
+    }
+  ],
+  "jobs": {
+    "901": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "success",
+        "created_at": "2026-09-22T11:00:00Z",
+        "started_at": "2026-09-22T11:05:00Z",
+        "completed_at": "2026-09-22T11:35:00Z"
+      }
+    ],
+    "903": [
+      {
+        "name": "macOS / app-host tests",
+        "labels": ["blacksmith-6vcpu-macos-15"],
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": "2026-09-22T07:30:00Z",
+        "started_at": "2026-09-22T07:33:00Z",
+        "completed_at": "2026-09-22T08:03:00Z"
+      }
+    ]
+  }
+}
