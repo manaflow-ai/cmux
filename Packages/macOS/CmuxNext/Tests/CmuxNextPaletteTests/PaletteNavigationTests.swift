@@ -59,7 +59,10 @@ import Testing
         await model.settle()
         #expect(model.rows.isEmpty)
         #expect(model.selectedRowID == nil)
-        #expect(!model.handle(.submit))
+        // Return with no row is consumed (never reaches the field editor or
+        // the responder chain's beep) and runs nothing.
+        #expect(model.handle(.submit))
+        #expect(model.depth == 1)
     }
 
     @Test func submitRunsPrimaryAfterDismissing() {

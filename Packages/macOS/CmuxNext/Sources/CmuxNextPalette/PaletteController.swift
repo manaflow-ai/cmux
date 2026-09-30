@@ -33,6 +33,8 @@ public final class PaletteController {
     private var openStarted: ContinuousClock.Instant?
     private var modelReady: ContinuousClock.Instant?
 
+    /// What the user acted on when the palette opened (`PaletteSources.context`).
+    public private(set) var capturedTargets: [ActionTargetRef] = []
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
@@ -140,6 +142,12 @@ public final class PaletteController {
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
         present(relativeTo: window)
+    }
+
+    /// Captures the focused objects on open. Not used by the flows yet.
+    func captureContext() {
+        guard !isVisible else { return }
+        capturedTargets = sources.context?() ?? []
     }
 
     private func present(relativeTo window: NSWindow?) {

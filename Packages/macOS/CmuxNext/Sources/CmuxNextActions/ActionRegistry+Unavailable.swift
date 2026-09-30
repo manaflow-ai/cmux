@@ -45,6 +45,16 @@ extension ActionRegistry {
         refusalObserver?(reason)
     }
 
+    /// A caller receives this refusal: the App does not beep.
+    public var refusalHasCaller: Bool { isCapturingRefusal }
+
+    /// Runs a user-driven `perform` whose caller shows refusals itself.
+    /// Not implemented yet: returns nil.
+    public func reportingRefusal(_ body: () -> Void) -> String? {
+        body()
+        return nil
+    }
+
     /// Runs `body` (a synchronous `perform`) and returns the first refusal a
     /// handler reported during it.
     public func capturingRefusal(_ body: () -> Void) -> String? {

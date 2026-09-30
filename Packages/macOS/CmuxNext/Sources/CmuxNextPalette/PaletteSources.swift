@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextActions
 import Foundation
 
 /// The dynamic sources the palette can use. Every source is optional; a nil
@@ -13,6 +14,11 @@ public struct PaletteSources {
     public var targets: (any PaletteTargetSource)?
     /// Extra root providers (custom `cmux.json` actions, extensions).
     public var extraProviders: [any PaletteProvider]
+    /// The objects the user acts on, captured when the palette opens (the
+    /// focused tab, its group, pane, screen, workspace and window). An
+    /// action that asks for input runs on these, not on whatever has focus
+    /// once the palette closes.
+    public var context: (@MainActor () -> [ActionTargetRef])?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,
@@ -21,7 +27,8 @@ public struct PaletteSources {
         settings: (any PaletteSettingsSource)? = nil,
         recentDirectories: (any PaletteRecentDirectorySource)? = nil,
         targets: (any PaletteTargetSource)? = nil,
-        extraProviders: [any PaletteProvider] = []
+        extraProviders: [any PaletteProvider] = [],
+        context: (@MainActor () -> [ActionTargetRef])? = nil
     ) {
         self.workspaces = workspaces
         self.tabs = tabs
@@ -30,6 +37,7 @@ public struct PaletteSources {
         self.recentDirectories = recentDirectories
         self.targets = targets
         self.extraProviders = extraProviders
+        self.context = context
     }
 }
 

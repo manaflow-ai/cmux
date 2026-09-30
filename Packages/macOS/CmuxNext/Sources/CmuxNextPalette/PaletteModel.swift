@@ -32,6 +32,8 @@ public final class PaletteModel {
     /// Titles of the pages above the root, for the breadcrumb.
     public private(set) var breadcrumbs: [String] = []
     public private(set) var isTextInput = false
+    /// Why the last command could not run. Not set yet.
+    public internal(set) var notice: PaletteNotice?
     public internal(set) var isLoading = false
     /// Increments when keyboard navigation moves the selection, so the view
     /// scrolls it into view (mouse hover never scrolls).
@@ -232,4 +234,10 @@ public final class PaletteModel {
         current?.selectedRowID = saved
         scrollRequest += 1
     }
+}
+
+/// A command's refusal, shown on its row.
+public struct PaletteNotice: Equatable, Sendable {
+    public let rowID: String
+    public let text: String
 }
