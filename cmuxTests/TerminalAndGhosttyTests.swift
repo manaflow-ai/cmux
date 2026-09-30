@@ -3129,6 +3129,44 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    /// Pane-flash routing reads `UserDefaults.standard`, which app-host runs
+    /// share with the runner's persisted debug domain. A leftover tmux overlay
+    /// experiment (target `bonsplitPane`) sends flashes to the workspace pane
+    /// overlay instead of the surface, so pin the surface route per test.
+    private static let pinnedFlashDefaultKeys = [
+        TmuxOverlayExperimentSettings.enabledKey,
+        TmuxOverlayExperimentSettings.targetKey,
+        NotificationPaneFlashSettings.enabledKey,
+    ]
+    private var originalFlashDefaults: [String: Any] = [:]
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        originalFlashDefaults = [:]
+        for key in Self.pinnedFlashDefaultKeys {
+            if let value = defaults.object(forKey: key) {
+                originalFlashDefaults[key] = value
+            }
+        }
+        defaults.set(false, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+    }
+
+    override func tearDown() {
+        let defaults = UserDefaults.standard
+        for key in Self.pinnedFlashDefaultKeys {
+            if let value = originalFlashDefaults[key] {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        originalFlashDefaults = [:]
+        super.tearDown()
+    }
+
     func makeWindow() -> NSWindow {
         let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
