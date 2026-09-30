@@ -111,6 +111,24 @@ import Testing
         #expect(results.filter { $0 }.count == 1)
     }
 
+    @Test func signOutCancelsAnInFlightLifecycleActionAndDropsItsLateResult() async {
+        let service = FakeCloudVMService()
+        service.holdLifecycleActions = true
+        let controller = makeController(service: service)
+        let deleteTask = Task { await controller.deleteMachine(Self.running) }
+
+        await service.waitForLifecycleActionStart()
+        #expect(controller.machineActionsInFlight == ["vm-1"])
+        controller.resetForSignOut()
+        #expect(controller.machineActionsInFlight.isEmpty)
+        #expect(controller.lastMachineActionFailure == nil)
+
+        await service.releaseHeldLifecycleAction()
+        #expect(await deleteTask.value == false)
+        #expect(service.calls.list == 0)
+        #expect(controller.machines == .idle)
+    }
+
     @Test func refreshRemovesConnectionsAndHiddenIDsForMissingMachines() async throws {
         let suite = "cmux-cloud-visibility-tests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

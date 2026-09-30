@@ -24,6 +24,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     var machines: Result<[CloudMachine], any Error> = .success([])
     var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
+    var holdCreation = false
+    private let creationStarted = TestSignal()
+    private let releaseCreation = TestSignal()
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
     var enrollmentSequence: [CloudTunnelEnrollment] = []
     var enrollmentDelay: Duration?
@@ -40,6 +43,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var approvals: [Bool] = [true]
     /// Thrown by pause, resume and delete when set.
     var lifecycleFailure: (any Error)?
+    var holdLifecycleActions = false
+    private let lifecycleActionStarted = TestSignal()
+    private let releaseLifecycleAction = TestSignal()
 
     func listMachines() async throws -> [CloudMachine] {
         lock.withLock { $0.list += 1 }
@@ -48,8 +54,15 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
         lock.withLock { $0.create.append((options, idempotencyKey)) }
+        if holdCreation {
+            await creationStarted.signal()
+            await releaseCreation.wait()
+        }
         return try creation.get()
     }
+
+    func waitForCreationStart() async { await creationStarted.wait() }
+    func releaseHeldCreation() async { await releaseCreation.signal() }
 
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
         try await performEnrollment(
@@ -186,18 +199,30 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
 
     func pauseMachine(id: String) async throws {
         lock.withLock { $0.pause.append(id) }
+        await waitForLifecycleActionIfNeeded()
         if let lifecycleFailure { throw lifecycleFailure }
     }
 
     func resumeMachine(id: String) async throws {
         lock.withLock { $0.resume.append(id) }
+        await waitForLifecycleActionIfNeeded()
         if let lifecycleFailure { throw lifecycleFailure }
     }
 
     func deleteMachine(id: String) async throws {
         lock.withLock { $0.delete.append(id) }
+        await waitForLifecycleActionIfNeeded()
         if let lifecycleFailure { throw lifecycleFailure }
     }
+
+    private func waitForLifecycleActionIfNeeded() async {
+        guard holdLifecycleActions else { return }
+        await lifecycleActionStarted.signal()
+        await releaseLifecycleAction.wait()
+    }
+
+    func waitForLifecycleActionStart() async { await lifecycleActionStarted.wait() }
+    func releaseHeldLifecycleAction() async { await releaseLifecycleAction.signal() }
 }
 
 final class FakeTunnel: CloudTunnel {

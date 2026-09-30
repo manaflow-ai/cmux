@@ -69,6 +69,9 @@ public final class CloudSessionController {
     private var provisioningPollCount = 0
     private var connections: [String: CloudMachineConnection] = [:]
     private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
+    private var accountGeneration: UInt64 = 0
+    private var createTask: Task<CloudMachine?, Never>?
+    private var machineActionTasks: [String: Task<Bool, Never>] = [:]
 
     /// Creates the controller.
     /// - Parameters:
@@ -158,11 +161,16 @@ public final class CloudSessionController {
     /// stays persisted, because it belongs to the phone rather than the
     /// account, and re-enrolling under the next account reuses it.
     public func resetForSignOut() {
+        accountGeneration &+= 1
         shellLeaseActive = false
         listTask?.cancel()
         listTask = nil
         nextListReadTask?.cancel()
         nextListReadTask = nil
+        createTask?.cancel()
+        createTask = nil
+        for task in machineActionTasks.values { task.cancel() }
+        machineActionTasks.removeAll()
         listFailureCount = 0
         provisioningPollCount = 0
         stopTunnel()
@@ -173,6 +181,7 @@ public final class CloudSessionController {
         machineLimits = nil
         lastCreateFailure = nil
         pendingCreate = nil
+        isCreatingMachine = false
         machineActionsInFlight = []
         lastMachineActionFailure = nil
     }
@@ -211,24 +220,38 @@ public final class CloudSessionController {
     private func runMachineAction(
         _ action: CloudMachineAction,
         on machine: CloudMachine,
-        perform: (any CloudVMServing) async throws -> Void
+        perform: @escaping (any CloudVMServing) async throws -> Void
     ) async -> Bool {
         guard machineActionsInFlight.insert(machine.id).inserted else { return false }
-        defer { machineActionsInFlight.remove(machine.id) }
-        do {
-            try await perform(service)
-            if lastMachineActionFailure?.machineID == machine.id { lastMachineActionFailure = nil }
-            refreshMachines()
-            return true
-        } catch {
-            lastMachineActionFailure = CloudMachineActionFailure(
-                machineID: machine.id,
-                action: action,
-                failure: CloudSessionFailure.classify(error, stage: .list)
-            )
-            refreshMachines()
-            return false
+        let generation = accountGeneration
+        let task: Task<Bool, Never> = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            guard self.accountGeneration == generation, !Task.isCancelled else { return false }
+            defer {
+                if self.accountGeneration == generation {
+                    self.machineActionsInFlight.remove(machine.id)
+                    self.machineActionTasks.removeValue(forKey: machine.id)
+                }
+            }
+            do {
+                try await perform(self.service)
+                guard self.accountGeneration == generation, !Task.isCancelled else { return false }
+                if self.lastMachineActionFailure?.machineID == machine.id { self.lastMachineActionFailure = nil }
+                self.refreshMachines()
+                return true
+            } catch {
+                guard self.accountGeneration == generation, !Task.isCancelled else { return false }
+                self.lastMachineActionFailure = CloudMachineActionFailure(
+                    machineID: machine.id,
+                    action: action,
+                    failure: CloudSessionFailure.classify(error, stage: .list)
+                )
+                self.refreshMachines()
+                return false
+            }
         }
+        machineActionTasks[machine.id] = task
+        return await task.value
     }
 
     /// Re-run enrollment after a failure.
@@ -484,24 +507,38 @@ public final class CloudSessionController {
     public func createMachine(options: CloudMachineCreateOptions = .init()) async -> CloudMachine? {
         guard !isCreatingMachine else { return nil }
         isCreatingMachine = true
-        lastCreateFailure = nil
-        defer { isCreatingMachine = false }
-        let idempotencyKey: String
-        if let pendingCreate, pendingCreate.options == options {
-            idempotencyKey = pendingCreate.idempotencyKey
-        } else {
-            idempotencyKey = UUID().uuidString
-            pendingCreate = (options, idempotencyKey)
+        let generation = accountGeneration
+        let task: Task<CloudMachine?, Never> = Task { @MainActor [weak self] in
+            guard let self else { return nil }
+            guard self.accountGeneration == generation, !Task.isCancelled else { return nil }
+            defer {
+                if self.accountGeneration == generation {
+                    self.isCreatingMachine = false
+                    self.createTask = nil
+                }
+            }
+            self.lastCreateFailure = nil
+            let idempotencyKey: String
+            if let pendingCreate = self.pendingCreate, pendingCreate.options == options {
+                idempotencyKey = pendingCreate.idempotencyKey
+            } else {
+                idempotencyKey = UUID().uuidString
+                self.pendingCreate = (options, idempotencyKey)
+            }
+            do {
+                let machine = try await self.service.createMachine(options: options, idempotencyKey: idempotencyKey)
+                guard self.accountGeneration == generation, !Task.isCancelled else { return nil }
+                self.pendingCreate = nil
+                self.refreshMachines()
+                return machine
+            } catch {
+                guard self.accountGeneration == generation, !Task.isCancelled else { return nil }
+                self.lastCreateFailure = CloudSessionFailure.classify(error, stage: .list)
+                return nil
+            }
         }
-        do {
-            let machine = try await service.createMachine(options: options, idempotencyKey: idempotencyKey)
-            pendingCreate = nil
-            refreshMachines()
-            return machine
-        } catch {
-            lastCreateFailure = CloudSessionFailure.classify(error, stage: .list)
-            return nil
-        }
+        createTask = task
+        return await task.value
     }
 
     /// The connection for `machine`, created on first use. Nil until the tunnel is ready.
