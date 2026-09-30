@@ -127,7 +127,20 @@ longConversationBlocks.push(
   { kind: "error", text: "Example adapter error with enough text to show wrapping in the error block." },
 );
 
-export const activityScenarios: { id: string; label: string; status: string; blocks: Block[] }[] = [
+export const activityScenarios: { id: string; label: string; status: string; blocks: Block[]; repositorySlug?: string }[] = [
+  {
+    id: "github-references",
+    label: "GitHub references (manaflow-ai/cmux)",
+    status: "idle",
+    repositorySlug: "manaflow-ai/cmux",
+    blocks: [
+      {
+        kind: "assistant",
+        text: "I reviewed #15916 alongside manaflow-ai/cmux#15221.\n\nThe change is in commit 5cd7dfff. See https://github.com/manaflow-ai/cmux/pull/15916 for the discussion.\n\nThere are 42 review notes, and #roadmap is a label.",
+        open: false,
+      },
+    ],
+  },
   { id: "pre-first-token", label: "Pre-first-token Thinking", status: "running", blocks: [{ kind: "user", text: "Start a slow Claude turn." }] },
   { id: "thinking-elapsed", label: "Thinking with elapsed counter", status: "running", blocks: [{ kind: "user", text: "Slow turn that has waited." }] },
   { id: "reasoning", label: "Reasoning under open thinking", status: "running", blocks: [{ kind: "user", text: "Reason out loud." }, { kind: "thinking", text: "I am tracing the plan and checking the constraints.", open: true }] },

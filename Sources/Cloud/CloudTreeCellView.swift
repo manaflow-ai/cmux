@@ -16,6 +16,7 @@ final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
     private var configuredNode: CloudTreeNode?
+    private var configuredNodeActions: CloudTreeNodeActions?
     private var configuredStyle = CloudTreeStyleStore.current
     private let presenceObserverID = UUID()
     private let collaborators: @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]
@@ -33,8 +34,15 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
+    private var showsHoverButtons = false
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet {
+            // An invisible overlay still participates in AppKit hit testing.
+            // Keep the row's full click target available until the pointer is
+            // actually over the row, then reveal the accessory controls.
+            buttonsHost?.alphaValue = hovered ? 1 : 0
+            buttonsHost?.isHidden = !hovered || !showsHoverButtons
+        }
     }
 
     override convenience init(frame frameRect: NSRect) {
@@ -140,6 +148,7 @@ final class CloudTreeCellView: NSTableCellView {
         portAction: @escaping @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     ) {
         configuredNode = node
+        configuredNodeActions = nodeActions
         configuredStyle = style
         self.portAction = portAction
         #if DEBUG
@@ -167,10 +176,11 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
+        showsHoverButtons = CloudTreeRowHoverButtons.hasButtons(for: node.kind)
+        if showsHoverButtons {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
-            buttons.isHidden = false
+            buttons.isHidden = !hovered || !showsHoverButtons
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
@@ -189,6 +199,16 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
+        if case .createAction(let action) = node.kind, let nodeActions = configuredNodeActions {
+            displayHost.passesThrough = false
+            displayHost.rootView = AnyView(
+                CloudTreeCreateActionView(action: action, nodeActions: nodeActions, style: style)
+            )
+            toolTip = action.title
+            setAccessibilityLabel(action.title)
+            return
+        }
+        displayHost.passesThrough = true
         let presenceHeads: [WorkspacePresenceParticipant] = {
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
             return collaborators(machine, workspace.id)
@@ -255,6 +275,8 @@ final class CloudTreeCellView: NSTableCellView {
         super.prepareForReuse()
         machineReorderAccessibilityActions = nil
         configuredNode = nil
+        configuredNodeActions = nil
+        displayHost.passesThrough = true
         updatePresenceSubscription()
         toolTip = nil
         hovered = false
@@ -265,7 +287,10 @@ final class CloudTreeCellView: NSTableCellView {
 /// A hosting view that is invisible to hit testing, so the outline row beneath
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
+    var passesThrough = true
+
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard passesThrough else { return super.hitTest(point) }
         // The outline owns all ordinary row interaction. Returning nil here is
         // what keeps a header click from being swallowed by the SwiftUI host.
         return nil

@@ -16,6 +16,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     /// Agent/alert identity used if a restored notification is redelivered.
     /// Optional keeps snapshots written before per-agent sounds compatible.
     var soundContext: NotificationSoundOverrideContext?
+    var agentKind: String?
+    var agentCategory: String?
+    var agentSessionId: String?
 
     init(
         id: UUID,
@@ -29,7 +32,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        agentKind: String? = nil,
+        agentCategory: String? = nil,
+        agentSessionId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -43,6 +49,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
         self.soundContext = soundContext
+        self.agentKind = agentKind
+        self.agentCategory = agentCategory
+        self.agentSessionId = agentSessionId
     }
 
     init(notification: TerminalNotification) {
@@ -61,7 +70,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             correlationKey: notification.correlationKey,
             scrollPosition: persistedScrollPosition,
             clickAction: notification.clickAction,
-            soundContext: notification.soundContext
+            soundContext: notification.soundContext,
+            agentKind: notification.agentKind,
+            agentCategory: notification.agentCategory,
+            agentSessionId: notification.agentSessionId
         )
     }
 
@@ -84,7 +96,10 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
             clickAction: clickAction,
-            soundContext: soundContext
+            soundContext: soundContext,
+            agentKind: agentKind,
+            agentCategory: agentCategory,
+            agentSessionId: agentSessionId
         )
     }
 }

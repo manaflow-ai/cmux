@@ -353,24 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "mobileDevices": "Mobile Geräte"
+      "mobileDevices": "Mobile Geräte",
+      "settings": "Einstellungen",
+      "teams": "Teams"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten verteilen.",
-      "coderouterLink": "coderouter öffnen",
+      "coderouterLink": "Coderouter öffnen",
       "iosAppName": "iOS-App",
       "iosAppDescription": "Installiere die cmux iOS-App über TestFlight (Beta-Zugang).",
       "iosLink": "iOS-App öffnen"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
-      "title": "coderouter",
-      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
+      "title": "Coderouter",
+      "description": "Coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
       "machines": {
         "title": "Maschinen",
         "description": "coderouter-Nutzung pro Maschine für {team} in den letzten {days} Tagen.",
@@ -381,6 +383,20 @@
         "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
         "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
         "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      },
+      "metrics": {
+        "title": "Nutzung der letzten 30 Tage",
+        "scope": "Team-Gesamtwerte für {team}",
+        "period": "Letzte {days} Tage",
+        "inputTokens": "Eingabe-Token",
+        "outputTokens": "Ausgabe-Token",
+        "tokens": "Token gesamt",
+        "apiEquivalent": "API-Gegenwert",
+        "unpriced": "{share} dieser Token stammen von Modellen ohne Listenpreis und sind in diesem Wert nicht enthalten.",
+        "chartLabel": "Tägliche CodeRouter-Token-Nutzung",
+        "privacy": "Es werden keine Prompts, Ausgaben, Kontobezeichnungen oder Mitgliederidentitäten erfasst oder angezeigt.",
+        "estimate": "Der API-Gegenwert entspricht den Kosten dieser Token zu öffentlichen API-Listenpreisen (Preisliste {version}). Er entspricht nicht dem, was du bezahlt hast.",
+        "unavailable": "Die Team-Nutzung ist vorübergehend nicht verfügbar."
       }
     },
     "accountMenu": {
@@ -391,14 +407,140 @@
       "signingOut": "Wird abgemeldet…",
       "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",
       "organizationSwitchError": "Organisation konnte nicht gewechselt werden. Erneut versuchen.",
-      "signIn": "Anmelden"
+      "signIn": "Anmelden",
+      "upgrade": "Upgraden"
     },
     "billing": {
       "plan": {
         "heading": "Dein persönlicher Tarif",
         "free": "Kostenlos",
-        "pro": "Pro",
-        "loading": "Wird geladen…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
+        "unavailable": "Die Team-Abrechnung konnte nicht geladen werden. Versuche es gleich noch einmal.",
+        "welcome": "Team ist aktiv. Lade deine Teammitglieder über die Mitgliederseite des Teams ein.",
+        "freeBody": "{team} nutzt den kostenlosen Tarif. Mit Team erhält jedes Mitglied Cloud-Agenten über eine gemeinsame Rechnung.",
+        "upgradeCta": "Upgrade für dieses Team",
+        "askAdmin": "Nur Team-Admins können die Abrechnung ändern. Bitte einen Admin von {team} um ein Upgrade.",
+        "memberReadOnly": "Nur Team-Admins können diesen Tarif ändern.",
+        "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
+        "seatsUsed": "{members} von {seats} belegt",
+        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Beitreten funktioniert weiterhin; füge Plätze hinzu, um alle abzudecken.",
+        "addSeats": "Plätze hinzufügen"
+      },
+      "teamList": {
+        "heading": "Abrechnungsbereiche",
+        "personal": "Persönliches Konto",
+        "planBadges": {
+          "free": "Kostenlos",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Nur Team-Admins können die Abrechnung dieses Teams verwalten.",
+        "team_not_found": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
+        "authorization_unavailable": "Die Teamberechtigungen konnten nicht geprüft werden. Versuche es gleich noch einmal.",
+        "personal_team_not_upgradable_to_team": "Dein persönliches Konto nutzt Pro oder Max. Erstelle ein Team, um Team zu kaufen."
+      },
+      "team": {
+        "createCta": "Team erstellen"
+      },
+      "title": "Plan & Abrechnung",
+      "picker": {
+        "current": "Aktueller Plan",
+        "upgradeTo": "Auf {plan} upgraden",
+        "switchTo": "Zu {plan} wechseln",
+        "cancelPlan": "Plan kündigen",
+        "resume": "{plan} fortsetzen",
+        "renewsOn": "Verlängert sich am {date}",
+        "endsOn": "Endet am {date}",
+        "perMonth": "pro Monat",
+        "perSeatMonth": "pro Platz und Monat",
+        "paymentMethod": "Zahlungsmethode verwalten",
+        "invoices": "Rechnungen",
+        "heading": "Pläne",
+        "actionError": "Der Plan konnte nicht geändert werden. Versuche es erneut.",
+        "unavailable": {
+          "cancelScheduled": "Setze deinen Plan fort, um ihn zu ändern.",
+          "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
+          "adminOnly": "Nur Team-Admins können den Plan ändern."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Das vollständige cmux-Terminal für macOS",
+            "Jeder CLI-Agent mit deinen eigenen Schlüsseln",
+            "Lokaler Sitzungsverlauf"
+          ],
+          "go": [
+            "1 aktive Cloud VM",
+            "40 VM-Stunden pro Monat",
+            "2 gespeicherte VMs"
+          ],
+          "pro": [
+            "Cloud-Agenten auf Cloud VMs",
+            "24 GB RAM und 6 vCPUs für alle VMs",
+            "Die cmux iOS-App"
+          ],
+          "max": [
+            "64 GB RAM und 16 vCPUs für alle VMs",
+            "Größere Maschinengrößen",
+            "Alles aus Pro"
+          ],
+          "team": [
+            "Alles aus Pro für jedes Mitglied",
+            "Eine Rechnung für das ganze Team",
+            "Priorisierter Support"
+          ]
+        },
+        "billedAnnually": "jährliche Abrechnung"
+      },
+      "change": {
+        "title": "Zu {plan} wechseln?",
+        "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
+        "confirm": "Zu {plan} wechseln",
+        "keep": "Aktuellen Plan behalten",
+        "switching": "Wird gewechselt…",
+        "previewError": "Der Preis konnte nicht berechnet werden. Versuche es erneut.",
+        "paymentFailed": "Deine Karte wurde abgelehnt. Aktualisiere deine Zahlungsmethode und versuche es erneut.",
+        "error": "Der Plan konnte nicht gewechselt werden. Versuche es erneut."
+      },
+      "cancelDialog": {
+        "title": "{plan} kündigen?",
+        "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
+        "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
+        "reasonLabel": "Warum kündigst du? (optional)",
+        "otherPlaceholder": "Erzähl uns mehr (optional)",
+        "confirm": "Plan kündigen",
+        "keep": "{plan} behalten",
+        "error": "Der Plan konnte nicht gekündigt werden. Versuche es erneut.",
+        "resumeError": "Der Plan konnte nicht fortgesetzt werden. Versuche es erneut.",
+        "reasons": {
+          "too_expensive": "Zu teuer",
+          "missing_feature": "Mir fehlt eine Funktion",
+          "not_using": "Ich nutze es zu selten",
+          "other": "Anderes"
+        }
+      },
+      "welcome": {
+        "title": "Willkommen bei {plan}",
+        "body": "Dein Plan ist aktiv. Das kannst du zuerst ausprobieren:",
+        "ios": "iOS-App installieren",
+        "cloud": "Cloud öffnen",
+        "team": "Team erstellen",
+        "banner": "Du nutzt jetzt {plan}.",
+        "bannerLink": "Plan & Abrechnung"
       }
     },
     "mobileDevices": {
@@ -409,7 +551,6 @@
       "loading": "Geräte werden geladen…",
       "empty": "Für dieses Team sind keine Geräte registriert.",
       "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",
-      "retry": "Erneut versuchen",
       "mutationError": "Die Geräteänderung konnte nicht abgeschlossen werden.",
       "revoke": "Zugriff entziehen",
       "deviceId": "Gerät",
@@ -429,6 +570,516 @@
       "activeDevices": "Aktive Geräte",
       "directoryRevision": "Verzeichnisrevision",
       "savingRelaySettings": "Wird gespeichert…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Einstellungen",
+        "profile": "Profil",
+        "auth": "E-Mails & Anmeldung",
+        "notifications": "Benachrichtigungen",
+        "sessions": "Sitzungen",
+        "apiKeys": "API-Schlüssel",
+        "account": "Konto",
+        "billing": "Abrechnung",
+        "teamsGroup": "Teams",
+        "createTeam": "Team erstellen",
+        "accountGroup": "Konto",
+        "billingGroup": "Abrechnung",
+        "planBilling": "Plan & Abrechnung"
+      },
+      "ui": {
+        "save": "Speichern",
+        "saving": "Wird gespeichert…",
+        "cancel": "Abbrechen",
+        "editLabel": "{label} bearbeiten",
+        "required": "Dieses Feld ist erforderlich.",
+        "saveError": "Speichern fehlgeschlagen. Versuche es erneut.",
+        "actionError": "Etwas ist schiefgelaufen. Versuche es erneut.",
+        "working": "Wird ausgeführt…",
+        "typeToConfirm": "Gib zur Bestätigung {text} ein",
+        "imageSaveError": "Das Bild konnte nicht gespeichert werden. Versuche es erneut.",
+        "invalidImage": "Wähle eine gültige Bilddatei.",
+        "uploadImage": "Bild hochladen",
+        "removeImage": "Bild entfernen",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Dein Name und Avatar.",
+        "displayNameTitle": "Anzeigename",
+        "displayNameDescription": "Für Teammitglieder sichtbar. Wird nicht zur Anmeldung verwendet.",
+        "displayNameEmpty": "Nicht festgelegt",
+        "imageTitle": "Profilbild",
+        "imageDescription": "Lade ein Bild hoch, das als Avatar verwendet wird.",
+        "imageUpload": "Profilbild ändern"
+      },
+      "auth": {
+        "title": "E-Mails & Anmeldung",
+        "description": "E-Mail-Adressen, Anmeldemethoden und Multi-Faktor-Authentifizierung.",
+        "emails": {
+          "title": "E-Mails",
+          "description": "Bestätigte E-Mail-Adressen können deine primäre Kontaktadresse sein und zur Anmeldung verwendet werden.",
+          "add": "E-Mail-Adresse hinzufügen",
+          "addSubmit": "Hinzufügen",
+          "adding": "Wird hinzugefügt…",
+          "cancel": "Abbrechen",
+          "inputLabel": "Neue E-Mail-Adresse",
+          "placeholder": "E-Mail-Adresse eingeben",
+          "addError": "Die E-Mail-Adresse konnte nicht hinzugefügt werden. Versuche es erneut.",
+          "added": "{email} wurde hinzugefügt. Prüfe dieses Postfach auf einen Bestätigungslink.",
+          "addedVerificationFailed": "{email} wurde hinzugefügt, aber die Bestätigungs-E-Mail konnte nicht gesendet werden. Nutze „Bestätigungs-E-Mail senden“, um es erneut zu versuchen.",
+          "verificationSent": "Bestätigungs-E-Mail an {email} gesendet.",
+          "actionError": "Die E-Mail-Adresse konnte nicht aktualisiert werden. Versuche es erneut.",
+          "usedBySomeoneElse": "Diese E-Mail-Adresse wird bereits von einem anderen Nutzer zur Anmeldung verwendet.",
+          "removeTitle": "E-Mail-Adresse entfernen",
+          "removeBody": "{email} aus deinem Konto entfernen? Du kannst sie später erneut hinzufügen.",
+          "remove": "Entfernen",
+          "actionsLabel": "Aktionen für {email}",
+          "validation": {
+            "required": "E-Mail-Adresse ist erforderlich.",
+            "invalid": "Gib eine gültige E-Mail-Adresse ein.",
+            "duplicate": "Diese E-Mail-Adresse ist bereits in deinem Konto."
+          },
+          "actions": {
+            "sendVerification": "Bestätigungs-E-Mail senden",
+            "setPrimary": "Als primär festlegen",
+            "useForSignIn": "Zur Anmeldung verwenden",
+            "stopUsingForSignIn": "Nicht mehr zur Anmeldung verwenden",
+            "remove": "Entfernen"
+          },
+          "disabled": {
+            "verifyFirst": "Bestätige zuerst diese E-Mail-Adresse.",
+            "lastSignInEmail": "Du kannst deine letzte Anmelde-E-Mail-Adresse nicht entfernen."
+          },
+          "badges": {
+            "primary": "Primär",
+            "unverified": "Nicht bestätigt",
+            "usedForSignIn": "Für Anmeldung verwendet"
+          }
+        },
+        "password": {
+          "title": "Passwort",
+          "updateDescription": "Aktualisiere dein Passwort.",
+          "setDescription": "Lege ein Passwort für dein Konto fest.",
+          "update": "Passwort ändern",
+          "set": "Passwort festlegen",
+          "updateSubmit": "Passwort ändern",
+          "setSubmit": "Passwort festlegen",
+          "saving": "Wird gespeichert…",
+          "cancel": "Abbrechen",
+          "saved": "Passwort gespeichert.",
+          "needsSignInEmail": "Füge zuerst eine Anmelde-E-Mail-Adresse hinzu, um ein Passwort festzulegen.",
+          "saveError": "Das Passwort konnte nicht gespeichert werden. Versuche es erneut.",
+          "oldPassword": "Altes Passwort",
+          "newPassword": "Neues Passwort",
+          "repeatPassword": "Neues Passwort wiederholen",
+          "incorrect": "Falsches Passwort.",
+          "requirements": "Dieses Passwort erfüllt die Anforderungen nicht.",
+          "errors": {
+            "oldPassword": {
+              "required": "Gib dein altes Passwort ein."
+            },
+            "newPassword": {
+              "required": "Gib ein neues Passwort ein.",
+              "tooShort": "Verwende mindestens {min} Zeichen.",
+              "tooLong": "Verwende höchstens {max} Zeichen."
+            },
+            "newPasswordRepeat": {
+              "required": "Wiederhole das neue Passwort.",
+              "mismatch": "Die Passwörter stimmen nicht überein."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Passkey",
+          "registered": "Ein Passkey ist registriert.",
+          "notRegistered": "Registriere einen Passkey, um dich ohne Passwort anzumelden.",
+          "add": "Passkey hinzufügen",
+          "registering": "Warte auf Passkey…",
+          "registerError": "Der Passkey konnte nicht registriert werden. Die Anfrage wurde abgebrochen oder ist fehlgeschlagen. Versuche es erneut.",
+          "delete": "Passkey entfernen",
+          "needsVerifiedEmail": "Füge eine bestätigte Anmelde-E-Mail-Adresse hinzu, um die Anmeldung per Passkey zu aktivieren.",
+          "onlyMethod": "Die Anmeldung per Passkey kann nicht deaktiviert werden, da sie deine einzige Anmeldemethode ist.",
+          "disableTitle": "Anmeldung per Passkey deaktivieren",
+          "disableBody": "Du kannst dich dann nicht mehr mit deinem Passkey anmelden.",
+          "disable": "Deaktivieren",
+          "disableError": "Die Anmeldung per Passkey konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "otp": {
+          "title": "Anmeldung per Einmalcode",
+          "enabledDescription": "Die Anmeldung per Magic Link oder Einmalcode ist aktiviert.",
+          "disabledDescription": "Melde dich mit einem Magic Link oder Einmalcode an, der an deine Anmelde-E-Mail-Adressen gesendet wird.",
+          "enable": "Aktivieren",
+          "enableError": "Die Anmeldung per Einmalcode konnte nicht aktiviert werden. Versuche es erneut.",
+          "disable": "Deaktivieren",
+          "needsVerifiedEmail": "Füge eine bestätigte Anmelde-E-Mail-Adresse hinzu, um die Anmeldung per Einmalcode zu aktivieren.",
+          "onlyMethod": "Die Anmeldung per Einmalcode kann nicht deaktiviert werden, da sie deine einzige Anmeldemethode ist.",
+          "disableTitle": "Anmeldung per Einmalcode deaktivieren",
+          "disableBody": "Du kannst dich dann nicht mehr nur mit einer E-Mail-Adresse anmelden.",
+          "disableConfirm": "Deaktivieren",
+          "disableError": "Die Anmeldung per Einmalcode konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "mfa": {
+          "title": "Multi-Faktor-Authentifizierung",
+          "enabledDescription": "Multi-Faktor-Authentifizierung ist aktiviert.",
+          "disabledDescription": "Multi-Faktor-Authentifizierung ist deaktiviert.",
+          "enable": "MFA aktivieren",
+          "disable": "MFA deaktivieren",
+          "startError": "Die MFA-Einrichtung konnte nicht gestartet werden. Versuche es erneut.",
+          "enableError": "MFA konnte nicht aktiviert werden. Versuche es erneut.",
+          "scan": "Scanne diesen QR-Code mit deiner Authenticator-App.",
+          "qrAlt": "QR-Code für die Multi-Faktor-Authentifizierung",
+          "enterCode": "Gib dann den sechsstelligen Code ein:",
+          "incorrect": "Falscher Code. Versuche es erneut.",
+          "cancel": "Abbrechen",
+          "disableTitle": "Multi-Faktor-Authentifizierung deaktivieren",
+          "disableBody": "Bei der Anmeldung wird dann kein Code aus deiner Authenticator-App mehr abgefragt.",
+          "disableConfirm": "MFA deaktivieren",
+          "disableError": "MFA konnte nicht deaktiviert werden. Versuche es erneut."
+        },
+        "connected": {
+          "title": "Verknüpfte Konten",
+          "description": "Konten anderer Anbieter, die mit deinem cmux-Konto verknüpft sind.",
+          "usedForSignIn": "Für Anmeldung verwendet",
+          "useForSignIn": "Zur Anmeldung verwenden",
+          "stopUsingForSignIn": "Nicht mehr zur Anmeldung verwenden",
+          "remove": "Verknüpfung aufheben",
+          "lastMethod": "Dies ist deine einzige Anmeldemethode.",
+          "actionsLabel": "Aktionen für {provider}",
+          "actionError": "Das verknüpfte Konto konnte nicht aktualisiert werden. Versuche es erneut.",
+          "usedBySomeoneElse": "Dieses Konto wird bereits von einem anderen Nutzer zur Anmeldung verwendet.",
+          "removeTitle": "Verknüpfung mit {provider} aufheben",
+          "removeBody": "Du kannst dich dann nicht mehr mit diesem Konto anmelden. Du kannst es erneut verknüpfen, indem du dich damit anmeldest."
+        }
+      },
+      "notifications": {
+        "title": "Benachrichtigungen",
+        "description": "E-Mail-Benachrichtigungen von cmux.",
+        "heading": "Wähle aus, welche E-Mails du erhalten möchtest",
+        "empty": "Es gibt keine E-Mail-Kategorien zum Konfigurieren.",
+        "cannotDisable": "(kann nicht deaktiviert werden)",
+        "saveError": "Diese Einstellung konnte nicht gespeichert werden. Versuche es erneut."
+      },
+      "sessions": {
+        "title": "Sitzungen",
+        "description": "Geräte, auf denen du angemeldet bist.",
+        "heading": "Aktive Sitzungen",
+        "explanation": "Auf diesen Geräten bist du angemeldet. Widerrufe eine Sitzung, um sie abzumelden.",
+        "revokeAll": "Alle anderen Sitzungen widerrufen",
+        "revokeAllTitle": "Andere Sitzungen widerrufen",
+        "revokeAllBody": "Dadurch {count, plural, one {wird # andere Sitzung} other {werden # andere Sitzungen}} abgemeldet. Diese Sitzung bleibt angemeldet.",
+        "revokeAllConfirm": "Sitzungen widerrufen",
+        "revokeAllError": "Nicht alle Sitzungen konnten widerrufen werden. Die Liste zeigt die verbleibenden.",
+        "revokeError": "Die Sitzung konnte nicht widerrufen werden. Versuche es erneut.",
+        "empty": "Keine aktiven Sitzungen gefunden.",
+        "columns": {
+          "session": "Sitzung",
+          "ip": "IP-Adresse",
+          "location": "Standort",
+          "lastUsed": "Zuletzt verwendet"
+        },
+        "current": "Aktuelle Sitzung",
+        "other": "Andere Sitzung",
+        "impersonation": "Identitätsübernahme",
+        "signedIn": "Angemeldet {date}",
+        "actionsLabel": "Sitzungsaktionen",
+        "revoke": "Widerrufen",
+        "cannotRevokeCurrent": "Du kannst deine aktuelle Sitzung nicht widerrufen.",
+        "unknownIp": "-",
+        "unknownLocation": "Unbekannt",
+        "never": "Nie"
+      },
+      "apiKeys": {
+        "title": "API-Schlüssel",
+        "description": "Schlüssel, die Programmen Zugriff auf dein Konto geben.",
+        "disabled": "Persönliche API-Schlüssel sind für dieses Projekt nicht aktiviert.",
+        "create": "API-Schlüssel erstellen",
+        "createTitle": "API-Schlüssel erstellen",
+        "createDescription": "API-Schlüssel gewähren programmatischen Zugriff auf dein Konto.",
+        "descriptionLabel": "Beschreibung",
+        "descriptionPlaceholder": "Zum Beispiel: Entwicklung, Produktion, CI",
+        "descriptionRequired": "Beschreibung ist erforderlich.",
+        "expiresIn": "Gültig für",
+        "expiry": {
+          "1d": "1 Tag",
+          "7d": "7 Tage",
+          "30d": "30 Tage",
+          "90d": "90 Tage",
+          "1y": "1 Jahr",
+          "never": "Unbegrenzt"
+        },
+        "cancel": "Abbrechen",
+        "createSubmit": "Erstellen",
+        "creating": "Wird erstellt…",
+        "createError": "Der API-Schlüssel konnte nicht erstellt werden. Versuche es erneut.",
+        "showTitle": "API-Schlüssel",
+        "showBody": "Hier ist dein API-Schlüssel.",
+        "showWarning": "Kopiere ihn an einen sicheren Ort. Du kannst ihn später nicht mehr anzeigen.",
+        "secretLabel": "Geheimer API-Schlüssel",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "copyError": "Kopieren fehlgeschlagen. Markiere den Schlüssel und kopiere ihn manuell.",
+        "acknowledge": "Mir ist klar, dass ich diesen Schlüssel später nicht mehr anzeigen kann.",
+        "close": "Schließen",
+        "search": "Schlüssel suchen",
+        "statusFilter": "Nach Status filtern",
+        "status": {
+          "valid": "Gültig",
+          "expired": "Abgelaufen",
+          "revoked": "Widerrufen"
+        },
+        "empty": "Noch keine API-Schlüssel.",
+        "noMatches": "Keine API-Schlüssel entsprechen diesen Filtern.",
+        "columns": {
+          "description": "Beschreibung",
+          "status": "Status",
+          "key": "Schlüssel",
+          "expiresAt": "Läuft ab",
+          "createdAt": "Erstellt"
+        },
+        "never": "Nie",
+        "actionsLabel": "Aktionen für {description}",
+        "revoke": "Widerrufen",
+        "revokeTitle": "API-Schlüssel widerrufen",
+        "revokeBody": "API-Schlüssel *****{lastFour} widerrufen? Apps, die ihn verwenden, verlieren sofort den Zugriff.",
+        "revokeAcknowledge": "Mir ist klar, dass dadurch alle Apps, die diesen API-Schlüssel verwenden, getrennt werden.",
+        "revokeConfirm": "Schlüssel widerrufen",
+        "revokeError": "Der API-Schlüssel konnte nicht widerrufen werden. Versuche es erneut."
+      },
+      "account": {
+        "title": "Konto",
+        "description": "Abrechnung, Abmelden und Kontolöschung.",
+        "billingTitle": "Abrechnung",
+        "billingDescription": "Tarife, Rechnungen und Zahlungsmethoden.",
+        "billingLink": "Abrechnung öffnen",
+        "signOutTitle": "Abmelden",
+        "signOutDescription": "Beende deine aktuelle Sitzung.",
+        "signOut": "Abmelden",
+        "signingOut": "Wird abgemeldet…",
+        "signOutError": "Abmeldung fehlgeschlagen. Versuche es erneut.",
+        "deleteTitle": "Konto löschen",
+        "deleteDescription": "Entferne dein Konto und alle zugehörigen Daten dauerhaft.",
+        "delete": "Konto löschen",
+        "deleteConfirmTitle": "Dein Konto löschen?",
+        "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden und löscht alle Daten, die mit deinem Konto verknüpft sind.",
+        "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
+        "deleteConfirm": "Konto löschen",
+        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "copyFailed": "Kopieren fehlgeschlagen"
+      },
+      "plan": {
+        "free": "Kostenlos",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Admin",
+        "member": "Mitglied"
+      },
+      "errors": {
+        "generic": "Etwas ist schiefgelaufen. Versuche es erneut.",
+        "network_error": "cmux ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+        "unauthorized": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+        "forbidden": "Dazu bist du nicht berechtigt.",
+        "team_not_found": "Dieses Team existiert nicht mehr.",
+        "invalid_request": "Die Anfrage war ungültig. Prüfe die Felder und versuche es erneut.",
+        "rate_limited": "Zu viele Anfragen. Warte einen Moment und versuche es erneut.",
+        "last_admin": "Ein Team braucht mindestens einen Admin. Befördere zuerst ein anderes Mitglied.",
+        "member_not_found": "Diese Person ist kein Mitglied mehr.",
+        "invitation_not_found": "Diese Einladung existiert nicht mehr.",
+        "invitation_invalid": "Diese Einladung ist ungültig, abgelaufen oder wurde bereits verwendet.",
+        "email_mismatch": "Diese Einladung wurde an eine andere E-Mail-Adresse gesendet.",
+        "link_not_found": "Dieser Einladungslink existiert nicht mehr.",
+        "link_invalid": "Dieser Einladungslink ist ungültig, abgelaufen, widerrufen oder voll.",
+        "team_has_active_subscription": "Kündige das Team-Abonnement, bevor du das Team löschst.",
+        "service_unavailable": "Der Dienst ist vorübergehend nicht verfügbar. Versuche es gleich noch einmal."
+      },
+      "list": {
+        "title": "Teams",
+        "description": "Teams teilen Mitglieder, Abrechnung und coderouter-Konten. Öffne ein Team, um es zu verwalten.",
+        "create": "Team erstellen",
+        "count": "{count, plural, one {# Team} other {# Teams}}",
+        "selected": "Aktuell",
+        "emptyTitle": "Noch keine Teams",
+        "emptyBody": "Erstelle ein Team, um Personen einzuladen und einen Tarif zu teilen."
+      },
+      "new": {
+        "title": "Team erstellen",
+        "description": "Benenne das Team, wähle einen Tarif und lade dann Personen ein.",
+        "stepsLabel": "Schritte",
+        "steps": {
+          "name": "Name",
+          "plan": "Tarif",
+          "invite": "Einladen"
+        },
+        "nameTitle": "Benenne dein Team",
+        "nameLabel": "Teamname",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Gib einen Teamnamen ein.",
+          "tooLong": "Verwende höchstens {max} Zeichen."
+        },
+        "cancel": "Abbrechen",
+        "createAction": "Team erstellen",
+        "creating": "Wird erstellt…",
+        "planTitle": "Wähle einen Tarif für {team}",
+        "planDescription": "Du kannst den Tarif später auf der Abrechnungsseite des Teams ändern.",
+        "freeName": "Kostenlos",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} pro Platz und Monat",
+        "featureMembers": "Mitglieder, Rollen und Einladungen",
+        "featureProForEveryone": "Alles aus Pro für jedes Mitglied",
+        "featureCentralBilling": "Zentrale Abrechnung für das ganze Team",
+        "featurePrioritySupport": "Priorisierter Support",
+        "chooseFree": "Kostenlos fortfahren",
+        "chooseTeam": "Upgrade auf Team (${price}/Platz/Monat)",
+        "upgradeLater": "Plätze sind flexibel: Du kannst mehr Personen einladen, als du bezahlst, und später Plätze hinzufügen.",
+        "inviteTitle": "Personen zu {team} einladen",
+        "inviteDescription": "Optional. Du kannst Personen auch später über die Mitgliederseite des Teams einladen.",
+        "inviteByEmail": "Per E-Mail einladen",
+        "inviteByLink": "Einladungslink",
+        "backToPlan": "Zurück zu den Tarifen",
+        "finish": "Zum Team"
+      },
+      "invite": {
+        "emailsLabel": "E-Mail-Adressen",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Keine gültige E-Mail-Adresse",
+        "removeEmail": "{email} entfernen",
+        "roleLabel": "Rolle",
+        "roleMember": "Mitglied",
+        "roleAdmin": "Admin",
+        "count": "{count}/{max}",
+        "send": "Einladungen senden",
+        "sending": "Wird gesendet…",
+        "invalidCount": "{count, plural, one {Korrigiere oder entferne # ungültige Adresse vor dem Senden.} other {Korrigiere oder entferne # ungültige Adressen vor dem Senden.}}",
+        "overflow": "{count, plural, one {# Adresse wurde nicht hinzugefügt: Das Limit liegt bei {max} pro Anfrage.} other {# Adressen wurden nicht hinzugefügt: Das Limit liegt bei {max} pro Anfrage.}}",
+        "sent": "{count, plural, one {# Einladung gesendet.} other {# Einladungen gesendet.}}"
+      },
+      "inviteFailure": {
+        "generic": "konnte nicht eingeladen werden",
+        "already_member": "ist bereits Mitglied",
+        "invite_failed": "die Einladung konnte nicht gesendet werden"
+      },
+      "links": {
+        "expiryLabel": "Läuft ab",
+        "expiry": {
+          "1": "In 1 Tag",
+          "7": "In 7 Tagen",
+          "30": "In 30 Tagen",
+          "never": "Nie"
+        },
+        "maxUsesLabel": "Max. Nutzungen",
+        "maxUsesPlaceholder": "Unbegrenzt",
+        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis {max} sein oder leer für unbegrenzt.",
+        "create": "Link erstellen",
+        "creating": "Wird erstellt…",
+        "memberOnly": "Wer über einen Link beitritt, wird Mitglied. Befördere Personen bei Bedarf danach zum Admin.",
+        "showOnce": "Kopiere diesen Link jetzt. Er wird nur einmal angezeigt.",
+        "empty": "Keine aktiven Einladungslinks.",
+        "createdAt": "Erstellt {at}",
+        "expiresAt": "Läuft ab {at}",
+        "neverExpires": "Läuft nie ab",
+        "uses": "{count}/{max} Nutzungen",
+        "usesUnlimited": "{count, plural, one {# Nutzung} other {# Nutzungen}}",
+        "revoke": "Widerrufen",
+        "revokeTitle": "Diesen Einladungslink widerrufen?",
+        "revokeBody": "Niemand mit diesem Link kann mehr beitreten. Bereits beigetretene Personen bleiben Mitglieder.",
+        "actionsFor": "Aktionen für den Link ({created})"
+      },
+      "shell": {
+        "allTeams": "Alle Teams",
+        "tabsLabel": "Team-Einstellungen",
+        "tabs": {
+          "general": "Allgemein",
+          "members": "Mitglieder",
+          "apiKeys": "API-Schlüssel",
+          "billing": "Abrechnung"
+        },
+        "notFoundTitle": "Team nicht gefunden",
+        "notFoundBody": "Dieses Team existiert nicht, oder du bist kein Mitglied.",
+        "backToTeams": "Zurück zu den Teams"
+      },
+      "general": {
+        "imageTitle": "Teambild",
+        "imageDescription": "Wird in cmux neben dem Teamnamen angezeigt.",
+        "imageUpload": "Teambild hochladen",
+        "nameTitle": "Teamname",
+        "nameDescription": "Für alle Mitglieder sichtbar.",
+        "nameReadOnly": "Nur Admins können das Team umbenennen.",
+        "nameError": {
+          "empty": "Gib einen Teamnamen ein.",
+          "tooLong": "Verwende höchstens {max} Zeichen."
+        },
+        "profileTitle": "Dein Name in diesem Team",
+        "profileDescription": "So sehen dich andere Mitglieder dieses Teams. Leer lassen, um deinen Kontonamen zu verwenden.",
+        "profileLabel": "Dein Anzeigename im Team",
+        "leaveTitle": "Team verlassen",
+        "leaveDescription": "Du verlierst den Zugriff auf die gemeinsamen Konten und die Abrechnung dieses Teams.",
+        "leaveAction": "Team verlassen",
+        "leaveBlocked": "Du bist der einzige Admin. Befördere ein anderes Mitglied zum Admin oder lösche das Team, bevor du es verlässt.",
+        "leaveConfirmTitle": "{team} verlassen?",
+        "leaveConfirmBody": "Du brauchst eine neue Einladung, um wieder beizutreten.",
+        "deleteTitle": "Team löschen",
+        "deleteDescription": "Entfernt das Team, den Zugriff seiner Mitglieder und seine Einladungslinks dauerhaft.",
+        "deleteAction": "Team löschen",
+        "deleteConfirmTitle": "{team} löschen?",
+        "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden.",
+        "openBilling": "Team-Abrechnung öffnen"
+      },
+      "members": {
+        "title": "Mitglieder",
+        "count": "{count, plural, one {# Mitglied} other {# Mitglieder}}",
+        "memberColumn": "Mitglied",
+        "roleColumn": "Rolle",
+        "actionsColumn": "Aktionen",
+        "you": "Du",
+        "unnamed": "Unbenanntes Mitglied",
+        "remove": "Entfernen",
+        "removeTitle": "{name} entfernen?",
+        "removeBody": "Diese Person verliert sofort den Zugriff auf dieses Team. Du kannst sie später erneut einladen.",
+        "inviteTitle": "Personen einladen",
+        "inviteDescription": "Sende Einladungen per E-Mail. Füge eine Liste ein, getrennt durch Kommas, Leerzeichen oder Zeilenumbrüche (bis zu 20).",
+        "pendingTitle": "Ausstehende Einladungen",
+        "pendingDescription": "Einladungen, die noch nicht angenommen wurden.",
+        "pendingEmpty": "Keine ausstehenden Einladungen.",
+        "unknownEmail": "Unbekannte Adresse",
+        "expires": "Läuft ab {at}",
+        "resend": "Erneut senden",
+        "resent": "Gesendet",
+        "revoke": "Widerrufen",
+        "linksTitle": "Einladungslinks",
+        "linksDescription": "Ein wiederverwendbarer Link, über den jeder als Mitglied beitreten kann.",
+        "seatNudge": "{used} Personen sind Mitglieder oder eingeladen, aber der Tarif hat {seats} Plätze. Einladungen funktionieren weiterhin; füge {over, plural, one {# Platz} other {# Plätze}} hinzu, um alle abzudecken.",
+        "seatNudgeAction": "Plätze verwalten",
+        "actions": {
+          "makeAdmin": "Zum Admin machen",
+          "makeMember": "Zum Mitglied machen",
+          "remove": "Aus dem Team entfernen",
+          "leave": "Team verlassen"
+        },
+        "actionsFor": "Aktionen für {name}",
+        "lastAdminReason": "Ein Team braucht mindestens einen Admin. Befördere zuerst ein anderes Mitglied.",
+        "demoteSelfTitle": "Nicht mehr Admin sein?",
+        "demoteSelfBody": "Du verlierst die Admin-Rechte für dieses Team. Ein anderer Admin kann sie dir zurückgeben.",
+        "demoteSelfConfirm": "Mich zum Mitglied machen"
+      },
+      "apiKeys": {
+        "title": "Team-API-Schlüssel",
+        "description": "Schlüssel, die im Namen dieses Teams handeln. Wer einen Schlüssel hat, kann den Zugriff des Teams nutzen. Bewahre Schlüssel daher sicher auf.",
+        "create": "Team-API-Schlüssel erstellen",
+        "disabled": "Team-API-Schlüssel sind für dieses Projekt nicht aktiviert.",
+        "forbidden": "Sie benötigen in diesem Team die Berechtigung „API-Schlüssel verwalten“, um die Schlüssel zu sehen."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Übertragen",
@@ -455,18 +1106,14 @@
       "apiKeysTitle": "API-Schlüssel",
       "apiKeysDescription": "Erstellen Sie langlebige Schlüssel für Skripte und Agenten. Das Geheimnis wird einmal angezeigt.",
       "apiKeysCount": "{count, plural, one {# Schlüssel} other {# Schlüssel}}",
-      "apiKeysLoading": "API-Schlüssel werden geladen…",
-      "apiKeysLoadError": "API-Schlüssel konnten nicht geladen werden. Versuchen Sie es bald erneut.",
-      "apiKeysRetry": "Erneut versuchen",
-      "apiKeysEmptyBody": "Noch keine API-Schlüssel. Erstellen Sie einen zur Authentifizierung eines CodeRouter-Clients.",
       "apiKeyPrefixColumn": "Schlüssel",
       "apiKeyStatusColumn": "Zustand",
       "apiKeySecretTitle": "Diesen Schlüssel jetzt kopieren",
       "apiKeySecretBody": "Dieses Geheimnis wird nicht erneut angezeigt.",
       "apiKeyCopy": "API-Schlüssel kopieren",
       "apiKeyCopied": "Kopiert",
-      "apiKeyCreatedAt": "erstellt {at}",
-      "apiKeyLastUsed": "zuletzt verwendet {at}",
+      "apiKeyCreatedAt": "Erstellt {at}",
+      "apiKeyLastUsed": "Zuletzt verwendet {at}",
       "apiKeyRevoked": "Widerrufen",
       "apiKeyLabelPlaceholder": "Zum Beispiel CI oder Produktion",
       "createApiKeyAction": "API-Schlüssel erstellen",
@@ -476,9 +1123,40 @@
       "revokingApiKeyAction": "Wird widerrufen",
       "apiKeyRevokeError": "API-Schlüssel konnte nicht widerrufen werden.",
       "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
-      "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
+      "apiKeyUsageDetail": "Letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
-      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
+      "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
+      "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren.",
+      "unavailableTitle": "Geteilte Konten sind nicht verfügbar",
+      "unavailableBody": "cmux erreicht den Dienst für geteilte Konten gerade nicht. Mit cr add hinzugefügte Konten sowie Anthropic- und Bedrock-Konten funktionieren weiterhin."
+    },
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "body": "Diese Dashboard-Seite existiert nicht oder wurde verschoben.",
+      "home": "Zum Dashboard"
+    },
+    "states": {
+      "errorTitle": "{section} konnte nicht geladen werden",
+      "errorTitleGeneric": "Dieser Bereich konnte nicht geladen werden",
+      "reason": {
+        "network": "Prüfe deine Verbindung und versuche es dann erneut.",
+        "unavailable": "cmux ist vorübergehend nicht verfügbar. Versuche es gleich noch einmal.",
+        "forbidden": "Du hast keinen Zugriff darauf.",
+        "notFound": "Das existiert nicht mehr, oder du hast keinen Zugriff darauf.",
+        "rateLimited": "Zu viele Anfragen. Warte einen Moment und versuche es dann erneut.",
+        "generic": "Etwas ist schiefgelaufen. Versuche es erneut."
+      },
+      "retry": "Erneut versuchen",
+      "retrying": "Wird erneut versucht…"
+    },
+    "upgrade": {
+      "title": "Erfordert Pro",
+      "cloud": "Cloud VMs und Cloud-Agenten sind Teil von Pro.",
+      "testflight": "Die cmux iOS-App ist Teil von Pro.",
+      "mobileDevices": "Das Verbinden von Smartphone und Tablet ist Teil von Pro.",
+      "action": "Auf Pro upgraden",
+      "comparePlans": "Pläne vergleichen"
     }
   },
   "community": {
@@ -1417,7 +2095,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         },
         "fileEditor": {
@@ -1471,9 +2149,17 @@
       "customActionsDesc": "Ein <actions>actions</actions>-Eintrag ist die wiederverwendbare Aktion, die cmux ausführt. Verwende Aktionen, wenn dasselbe Verhalten in Command Palette, Oberflächen-Tableiste, Kurzbefehlen oder dem Plus-Menü verfügbar sein soll. Nutze <commands>commands</commands> weiter für wiederverwendbare Shell-Befehle und Workspace-Layouts. Setze <palette>palette</palette> auf false, wenn eine Aktion nicht in Command Palette erscheinen soll.",
       "actionTypes": "Aktionstypen",
       "actionTypeBuiltin": "Alias für eine eingebaute cmux-Aktion wie cmux.newTerminal, cmux.newBrowser, cmux.splitRight oder cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Eingebaute Kopieraktionen: cmux.copyWorkingDirectory kopiert das Arbeitsverzeichnis des Terminals, cmux.copyProjectRoot das Stammverzeichnis seines Git-Repositorys (außerhalb eines Repositorys das Arbeitsverzeichnis) und cmux.copyScreen den sichtbaren Bildschirm.",
+      "actionTypeBuiltinCopyRemote": "In einem SSH-, Cloud- oder Remote-tmux-Workspace kopiert cmux.copyProjectRoot das entfernte Arbeitsverzeichnis, weil cmux das Git-Repository auf dem anderen Host nicht ermitteln kann.",
       "actionTypeCommand": "Führt Shell-Text in einem Terminal aus. Verwende target, um das aktuelle Terminal oder einen neuen Tab im aktuellen Bereich auszuwählen.",
       "actionTypeAgent": "Startet einen unterstützten Coding-Agenten. Aktuell werden codex und claude mit optionalen Argumenten unterstützt.",
       "actionTypeWorkspaceCommand": "Führt eine benannte Workspace-Definition aus commands aus. Nutze dies für Multi-Pane-Layouts, eigene Arbeitsverzeichnisse und Startbefehle.",
+      "actionTypeSetting": "Ändert eine Einstellung in deiner globalen cmux.json, zum Beispiel um eine true/false-Einstellung umzuschalten oder eine Liste von Werten zu durchlaufen. Siehe Einstellungsaktionen weiter unten.",
+      "actionTypeSettingPreset": "Wendet eine benannte Gruppe von Einstellungen aus settingPresets in einem Schritt an.",
+      "settingActions": "Einstellungsaktionen",
+      "settingActionsDesc": "Eine Einstellungsaktion gibt den <path>path</path> einer Einstellung an und genau eines von <set>set</set> (einen Wert schreiben), <toggle>toggle: true</toggle> (eine true/false-Einstellung umschalten), <cycle>cycle</cycle> (zum nächsten Wert einer Liste wechseln, nach dem letzten wieder zum ersten) oder <unset>unset: true</unset> (den Schlüssel aus cmux.json entfernen, sodass der Wert aus dem Einstellungsfenster oder der Standardwert gilt). toggle und cycle gehen von dem Wert aus, den cmux gerade verwendet, auch wenn du ihn im Einstellungsfenster gesetzt hast. Eine settingPreset-Aktion wendet einen Eintrag aus <presets>settingPresets</presets> an, eine unvollständige cmux.json, deren verschachtelte Objekte Schlüssel für Schlüssel zusammengeführt werden. cmux prüft jede Änderung vor dem Speichern gegen das Schema, behält deine Kommentare und übrigen Schlüssel bei und wendet die Änderung sofort an. Einstellungsaktionen und Presets laufen nur aus deiner globalen cmux.json und den Paketen, auf die sie verweist; Projektkonfigurationen können sie nicht deklarieren.",
+      "settingActionsCli": "Dieselben Änderungen funktionieren auch im Terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> und <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Mit <confirm>confirm: true</confirm> fragt cmux vor dem Speichern nach und zeigt den entsprechenden cmux config-Befehl. Pfade werden an jedem \".\" getrennt, daher lässt sich ein Schlüssel, der selbst \".\" enthält (etwa ein <byCwd>workspaceGroups.byCwd</byCwd>-Eintrag für ~/src/app.web), so nicht ändern. Bearbeite ihn direkt in cmux.json.",
       "actionFields": "Aktionsfelder",
       "actionFieldTitle": "Titel der Command-Palette-Zeile, Beschriftung der Oberflächenschaltfläche, Menütitel und Titel des Trust-Dialogs, sofern kein Eintrag ihn überschreibt.",
       "actionFieldSubtitle": "Sekundärtext in Command Palette. description wird als Alias für subtitle akzeptiert.",
@@ -4584,5 +5270,27 @@
     "updateDetail": "Erfordert cmux {stableVersion} oder neuer bzw. NIGHTLY {nightlyVersion} oder neuer. Aktiviere die iOS-Kopplung auf jedem Mac unter Einstellungen > Mobilgeräte.",
     "rollbackTitle": "Du möchtest einen älteren Mac-Build behalten?",
     "rollbackDetail": "Verwende cmux BETA 1.0.5 ({rollbackBuild}) unter TestFlight > Frühere Builds, solange verfügbar. Wähle genau diesen Build, da spätere Builds einen neueren Verbindungsdienst verwenden."
+  },
+  "teamInvite": {
+    "loading": "Einladung wird geladen…",
+    "title": "{team} beitreten",
+    "titleUnknown": "Diesem Team beitreten",
+    "body": "Du wurdest eingeladen, diesem Team auf cmux beizutreten.",
+    "join": "Team beitreten",
+    "joining": "Wird beigetreten…",
+    "signedInAs": "Angemeldet als {email}",
+    "alreadyMemberTitle": "Du bist bereits Mitglied von {team}",
+    "alreadyMemberTitleUnknown": "Du bist bereits Mitglied dieses Teams",
+    "alreadyMemberBody": "Öffne das Team, um es zu verwalten.",
+    "openTeam": "Team öffnen",
+    "mismatchTitle": "Diese Einladung gilt für ein anderes Konto",
+    "mismatchBody": "Du bist als {email} angemeldet, aber die Einladung wurde an eine andere Adresse gesendet. Melde dich mit der eingeladenen Adresse an, oder füge sie diesem Konto hinzu und bestätige sie.",
+    "mismatchBodyUnknown": "Die Einladung wurde an eine andere Adresse gesendet. Melde dich mit der eingeladenen Adresse an, oder füge sie diesem Konto hinzu und bestätige sie.",
+    "switchAccount": "Abmelden und Konto wechseln",
+    "switching": "Wird abgemeldet…",
+    "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
+    "invalidTitle": "Diese Einladung ist nicht mehr gültig",
+    "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
+    "goToTeams": "Zu deinen Teams"
   }
 }
