@@ -151,6 +151,17 @@ final class CmuxMainWindow: NSWindow {
         workspaceSwitchSignposts.end(switchInterval)
     }
 
+    /// Returns the focused terminal surface directly so AX clients can read
+    /// terminal selection attributes without stopping at the window element.
+    override var accessibilityFocusedUIElement: Any? {
+        if let terminalView = firstResponder?.cmuxTerminalFocusOwningGhosttyView(),
+           terminalView.window === self,
+           terminalView.isAccessibilityElement() {
+            return terminalView
+        }
+        return super.accessibilityFocusedUIElement
+    }
+
     /// No content may resize this window past the attached display union. The content view
     /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask
     /// constraints, and if any of them is ever laid out oversized, AppKit
