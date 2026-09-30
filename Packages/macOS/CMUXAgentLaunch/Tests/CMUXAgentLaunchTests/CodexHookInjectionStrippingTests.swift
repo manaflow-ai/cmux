@@ -62,7 +62,35 @@ struct CodexHookInjectionStrippingTests {
         }
         #expect(companions == ["UserPromptSubmit:inbox-drain", "Stop:inbox-stop"])
         let value = CodexHookInjectionSchema.current.events[1].configValue { "/h/\($0).sh" }
-        #expect(value == "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/h/prompt-submit.sh''',timeout=5000},{type=\"command\",command='''/h/inbox-drain.sh''',timeout=5000}]}]")
+        #expect(value == "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/h/prompt-submit.sh''',timeout=5},{type=\"command\",command='''/h/inbox-drain.sh''',timeout=5}]}]")
+    }
+
+    @Test("Strips the current Codex hook block with second-based timeouts")
+    func stripsCurrentCodexHookBlockWithSecondTimeouts() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Strips a saved current Codex hook block with millisecond timeouts")
+    func stripsSavedCurrentCodexHookBlockWithMillisecondTimeouts() {
+        let arguments = ["codex"] + oldCurrentCodexHookArguments { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
     }
 
     @Test("Strips the block from before the agent message handlers")
@@ -665,6 +693,16 @@ struct CodexHookInjectionStrippingTests {
             }
         }
         return arguments
+    }
+
+    private func oldCurrentCodexHookArguments(
+        command: (String) -> String
+    ) -> [String] {
+        hookArguments(events: codexWrapperHookEvents, command: command).map { argument in
+            argument
+                .replacingOccurrences(of: ",timeout=5}", with: ",timeout=5000}")
+                .replacingOccurrences(of: ",timeout=120}", with: ",timeout=120000}")
+        }
     }
 
     private var codexWrapperHookEvents: [CodexHookInjectionEvent] {
