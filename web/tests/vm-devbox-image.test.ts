@@ -34,7 +34,6 @@ import {
   rewriteDevboxAgentPins,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
-import { GUEST_AGENTS } from "../services/vms/images/agents";
 import {
   DEVBOX_WORK_HOME,
   DEVBOX_WORK_UID,
@@ -227,32 +226,22 @@ describe("devbox image template", () => {
 
   test("the Freestyle bake uses the base's toolchain and pins the agents on top of it", () => {
     // freestyle/ubuntu ships Node LTS under nvm (symlinked into /usr/local/bin),
-    // Bun, Python 3.12, uv and Docker, plus its own npm copies of Claude Code,
-    // Codex and OpenCode. The bake keeps that toolchain (no mise) and installs
-    // each agent's exact Dockerfile pin from its own GitHub release asset
-    // through the updater's install mode (the same code a running machine
-    // updates with), which links /usr/local/bin and retires the npm copies so
-    // no shell resolves them.
+    // Bun, Python 3.12, uv and Docker, plus its own copies of Claude Code,
+    // Codex and OpenCode. The bake keeps that toolchain (no mise) and replaces
+    // the agent copies with the exact Dockerfile pins via the base's npm, then
+    // symlinks every agent bin into /usr/local/bin so non-login shells (daemon
+    // panes) resolve them without a profile.
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).not.toContain("mise.run");
     expect(freestyleScript).not.toContain("/opt/mise");
     expect(freestyleScript).toContain("readlink /usr/local/bin/node | grep -q /usr/local/nvm/");
-    expect(freestyleScript).not.toContain("npm install");
-    expect(freestyleScript).toContain("guestAgentInstallCommand(devboxAgentInstallPins())");
-    expect(freestyleScript).toContain('test ! -e "$nvm_bin/${pin.binary}"');
+    expect(freestyleScript).toContain("npm install -g --foreground-scripts");
+    expect(freestyleScript).toContain('nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")"');
+    expect(freestyleScript).toContain('ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}');
     // The pins are proven from a clean login shell AS the work user during the
     // bake itself (probing as root with the work user's HOME leaves root-owned
     // state dirs that break ble.sh for every later login).
     expect(freestyleScript).toContain("sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'");
-    // The container recipe installs the same assets and checks the same digests.
-    for (const pin of devboxAgentPins(dockerfile)) {
-      const agent = GUEST_AGENTS.find((candidate) => candidate.npm === pin.pkg)!;
-      expect(dockerfile).toContain(`https://github.com/${agent.repo}/releases/download/${agent.tagPrefix}\${${agent.versionArg}}/${agent.asset}`);
-      expect(dockerfile).toContain(`"$${agent.sha256Arg}  `);
-      expect(pin.url).toBe(`https://github.com/${agent.repo}/releases/download/${agent.tagPrefix}${pin.version}/${agent.asset}`);
-      expect(pin.sha256).toMatch(/^[0-9a-f]{64}$/);
-    }
-    expect(dockerfile).not.toMatch(/npm install -g/);
     // Home hygiene: single devshell source, ble.sh state dir, legal notice
     // silenced, home owned by the work user, two silent real logins.
     // Per-user rc files only: after Ubuntu's own PS1, and loaded once.
@@ -592,30 +581,28 @@ describe("devbox image template", () => {
 
   test("agent pins are bumped through the rewrite helper, exactly and only for baked packages", () => {
     // `bun run devbox:pins:check --write` is the one sanctioned way to bump a
-    // pin: it rewrites the version and digest ARG lines and nothing else,
-    // refuses ranges, tags, malformed digests and packages the image does not
-    // bake, and fails on a Dockerfile whose ARG table no longer matches.
+    // pin: it rewrites the ARG line and nothing else, refuses ranges, tags and
+    // packages the image does not bake, and fails on a Dockerfile whose ARG
+    // table no longer matches.
     const pins = devboxAgentPins(dockerfile);
-    const sha = (n: number) => n.toString(16).padStart(64, "0");
-    const bumped = Object.fromEntries(pins.map((pin, index) => [pin.pkg, { version: `${pin.version}9`, sha256: sha(index + 1) }]));
+    const bumped = Object.fromEntries(pins.map((pin) => [pin.pkg, `${pin.version}9`]));
     const rewritten = rewriteDevboxAgentPins(dockerfile, bumped);
-    expect(devboxAgentPins(rewritten).map((pin) => [pin.pkg, { version: pin.version, sha256: pin.sha256 }])).toEqual(Object.entries(bumped));
+    expect(devboxAgentPins(rewritten).map((pin) => [pin.pkg, pin.version])).toEqual(Object.entries(bumped));
     // Every other byte survives: revert the pins and the file is byte-identical.
-    expect(rewriteDevboxAgentPins(rewritten, Object.fromEntries(pins.map((pin) => [pin.pkg, { version: pin.version, sha256: pin.sha256 }])))).toBe(dockerfile);
+    expect(rewriteDevboxAgentPins(rewritten, Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version])))).toBe(dockerfile);
     expect(rewriteDevboxAgentPins(dockerfile, {})).toBe(dockerfile);
     for (const bad of ["^2.1.0", "latest", "2.1", "2.1.0-beta.1"]) {
-      expect(() => rewriteDevboxAgentPins(dockerfile, { "@openai/codex": { version: bad, sha256: sha(1) } })).toThrow(/not an exact x\.y\.z release/);
+      expect(() => rewriteDevboxAgentPins(dockerfile, { "@openai/codex": bad })).toThrow(/not an exact x\.y\.z release/);
     }
-    expect(() => rewriteDevboxAgentPins(dockerfile, { "@openai/codex": { version: "1.0.0", sha256: "abc" } })).toThrow(/not a sha256/);
-    expect(() => rewriteDevboxAgentPins(dockerfile, { "left-pad": { version: "1.0.0", sha256: sha(1) } })).toThrow(/not a devbox agent pin/);
-    expect(() => rewriteDevboxAgentPins("FROM ubuntu:24.04\n", { "@openai/codex": { version: "1.0.0", sha256: sha(1) } })).toThrow(/missing ARG CMUX_IMAGE_CODEX_VERSION/);
-    // The drift report keys by package and flags any pin that is not the channel's latest.
-    const latest = Object.fromEntries(pins.map((pin) => [pin.pkg, { version: pin.version, sha256: pin.sha256 }]));
+    expect(() => rewriteDevboxAgentPins(dockerfile, { "left-pad": "1.0.0" })).toThrow(/not a devbox agent pin/);
+    expect(() => rewriteDevboxAgentPins("FROM ubuntu:24.04\n", { "@openai/codex": "1.0.0" })).toThrow(/missing ARG CMUX_IMAGE_CODEX_VERSION/);
+    // The drift report keys by package and flags any pin that is not the registry's latest.
+    const latest = Object.fromEntries(pins.map((pin) => [pin.pkg, pin.version]));
     expect(agentPinDrift(pins, latest).every((row) => !row.behind)).toBe(true);
     const codex = pins.find((pin) => pin.pkg === "@openai/codex")!;
-    const drift = agentPinDrift(pins, { ...latest, "@openai/codex": { version: `${codex.version}9`, sha256: sha(9) } });
-    expect(drift.filter((row) => row.behind).map((row) => [row.pkg, row.latestSha256])).toEqual([["@openai/codex", sha(9)]]);
-    expect(() => agentPinDrift(pins, {})).toThrow(/no channel release/);
+    const drift = agentPinDrift(pins, { ...latest, "@openai/codex": `${codex.version}9` });
+    expect(drift.filter((row) => row.behind).map((row) => row.pkg)).toEqual(["@openai/codex"]);
+    expect(() => agentPinDrift(pins, {})).toThrow(/no registry version/);
     expect(AGENT_PIN_ARGS.map((row) => row.binary)).toEqual(["claude", "codex", "opencode", "pi", "agent-browser"]);
   });
 
@@ -635,9 +622,7 @@ describe("devbox image template", () => {
     expect(devboxSourceDigest("base", dockerfile)).not.toBe(devboxSourceDigest("desktop", dockerfile));
     expect(devboxSourceDigest("base", dockerfile)).toBe(devboxSourceDigest("base", `${dockerfile}\n# a comment changes no machine\n`));
     const codex = devboxAgentPins(dockerfile).find((pin) => pin.pkg === "@openai/codex")!;
-    expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": { version: `${codex.version}9`, sha256: codex.sha256 } }))).not.toBe(devboxSourceDigest("base", dockerfile));
-    // A digest change alone (a re-uploaded asset) is an image change too.
-    expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": { version: codex.version, sha256: "0".repeat(64) } }))).not.toBe(devboxSourceDigest("base", dockerfile));
+    expect(devboxSourceDigest("base", rewriteDevboxAgentPins(dockerfile, { "@openai/codex": `${codex.version}9` }))).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=1999-01-01-r1"))).not.toBe(devboxSourceDigest("base", dockerfile));
     // Schema 2 also sees a Dockerfile instruction change (a package added to a
     // RUN, no ARG moved) and any non-blank line change in the bake script; a

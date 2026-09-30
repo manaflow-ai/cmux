@@ -224,59 +224,23 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
   && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' >> /root/.bashrc
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
-# lockstep with the chatmux devbox). Each is its tool's own Linux x64 GitHub
-# release asset, never npm (web/services/vms/images/agents.ts): an exact
-# release plus the sha256 GitHub records for the asset, checked before
-# anything unpacks. A version unpacks to /opt/cmux-agents/<tool>/<version>/
-# with a .cmux-agent.json marker written last, and /usr/local/bin/<tool>
-# links to its executable: the layout the Freestyle bake and the opt-in
-# updater (web/services/vms/guestAgentUpdates.ts) share. `bun run
-# devbox:pins:check` (web/) compares these with each channel's latest release
-# and `--write` rewrites both lines; a pin is always an exact release.
+# lockstep with the chatmux devbox). Installed on the mise node so they
+# ride the same toolchain users get. `bun run devbox:pins:check` (web/)
+# compares these with the npm registry and `--write` rewrites them; a pin is
+# always an exact release, never a range or a tag.
 ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
-ARG CMUX_IMAGE_CLAUDE_CODE_SHA256=449bc65dc82d68694103a801c8ac54b6549f9e12f469217c9e0d5560c1085023
 ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
-ARG CMUX_IMAGE_CODEX_SHA256=fc6e3e3b85f2cf7d664520ee5c66a7fe4aa12bae7d46834f47e2f165fd0d6f78
 ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
-ARG CMUX_IMAGE_OPENCODE_SHA256=55007246858165496ff85ba1c2b648f7421e8e2013bf4189a680c9ff8e699d17
 ARG CMUX_IMAGE_PI_VERSION=0.85.1
-ARG CMUX_IMAGE_PI_SHA256=494e498f47d74d21f40b3386f6a5e921a3d49531a169cab55bbdaca0ea1fe25a
 ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
-ARG CMUX_IMAGE_AGENT_BROWSER_SHA256=f8e5f9294bd0da70dda61854f12004fd61c668cd682bfb600cdf6d0df73dea69
-RUN d=/opt/cmux-agents/claude/$CMUX_IMAGE_CLAUDE_CODE_VERSION && mkdir -p "$d" \
-  && curl -fsSL -o /tmp/agent.tgz "https://github.com/anthropics/claude-code/releases/download/v${CMUX_IMAGE_CLAUDE_CODE_VERSION}/claude-linux-x64.tar.gz" \
-  && echo "$CMUX_IMAGE_CLAUDE_CODE_SHA256  /tmp/agent.tgz" | sha256sum -c - \
-  && tar xzf /tmp/agent.tgz -C "$d" && rm -f /tmp/agent.tgz \
-  && echo '{"version":"'"$CMUX_IMAGE_CLAUDE_CODE_VERSION"'","sha256":"'"$CMUX_IMAGE_CLAUDE_CODE_SHA256"'"}' > "$d/.cmux-agent.json" \
-  && ln -sfn "$d/claude" /usr/local/bin/claude
-RUN d=/opt/cmux-agents/codex/$CMUX_IMAGE_CODEX_VERSION && mkdir -p "$d" \
-  && curl -fsSL -o /tmp/agent.tgz "https://github.com/openai/codex/releases/download/rust-v${CMUX_IMAGE_CODEX_VERSION}/codex-package-x86_64-unknown-linux-musl.tar.gz" \
-  && echo "$CMUX_IMAGE_CODEX_SHA256  /tmp/agent.tgz" | sha256sum -c - \
-  && tar xzf /tmp/agent.tgz -C "$d" && rm -f /tmp/agent.tgz \
-  && echo '{"version":"'"$CMUX_IMAGE_CODEX_VERSION"'","sha256":"'"$CMUX_IMAGE_CODEX_SHA256"'"}' > "$d/.cmux-agent.json" \
-  && ln -sfn "$d/bin/codex" /usr/local/bin/codex
-RUN d=/opt/cmux-agents/opencode/$CMUX_IMAGE_OPENCODE_VERSION && mkdir -p "$d" \
-  && curl -fsSL -o /tmp/agent.tgz "https://github.com/anomalyco/opencode/releases/download/v${CMUX_IMAGE_OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
-  && echo "$CMUX_IMAGE_OPENCODE_SHA256  /tmp/agent.tgz" | sha256sum -c - \
-  && tar xzf /tmp/agent.tgz -C "$d" && rm -f /tmp/agent.tgz \
-  && echo '{"version":"'"$CMUX_IMAGE_OPENCODE_VERSION"'","sha256":"'"$CMUX_IMAGE_OPENCODE_SHA256"'"}' > "$d/.cmux-agent.json" \
-  && ln -sfn "$d/opencode" /usr/local/bin/opencode
-RUN d=/opt/cmux-agents/pi/$CMUX_IMAGE_PI_VERSION && mkdir -p "$d" \
-  && curl -fsSL -o /tmp/agent.tgz "https://github.com/earendil-works/pi/releases/download/v${CMUX_IMAGE_PI_VERSION}/pi-linux-x64.tar.gz" \
-  && echo "$CMUX_IMAGE_PI_SHA256  /tmp/agent.tgz" | sha256sum -c - \
-  && tar xzf /tmp/agent.tgz -C "$d" && rm -f /tmp/agent.tgz \
-  && echo '{"version":"'"$CMUX_IMAGE_PI_VERSION"'","sha256":"'"$CMUX_IMAGE_PI_SHA256"'"}' > "$d/.cmux-agent.json" \
-  && ln -sfn "$d/pi/pi" /usr/local/bin/pi
-RUN d=/opt/cmux-agents/agent-browser/$CMUX_IMAGE_AGENT_BROWSER_VERSION && mkdir -p "$d" \
-  && curl -fsSL -o "$d/agent-browser" "https://github.com/vercel-labs/agent-browser/releases/download/v${CMUX_IMAGE_AGENT_BROWSER_VERSION}/agent-browser-linux-x64" \
-  && echo "$CMUX_IMAGE_AGENT_BROWSER_SHA256  $d/agent-browser" | sha256sum -c - \
-  && chmod 0755 "$d/agent-browser" \
-  && echo '{"version":"'"$CMUX_IMAGE_AGENT_BROWSER_VERSION"'","sha256":"'"$CMUX_IMAGE_AGENT_BROWSER_SHA256"'"}' > "$d/.cmux-agent.json" \
-  && ln -sfn "$d/agent-browser" /usr/local/bin/agent-browser
-RUN chmod -R a+rX /opt/cmux-agents \
-  && claude --version | grep -F "$CMUX_IMAGE_CLAUDE_CODE_VERSION" && codex --version | grep -F "$CMUX_IMAGE_CODEX_VERSION" \
-  && opencode --version | grep -F "$CMUX_IMAGE_OPENCODE_VERSION" && pi --version | grep -F "$CMUX_IMAGE_PI_VERSION" \
-  && agent-browser --version | grep -F "$CMUX_IMAGE_AGENT_BROWSER_VERSION"
+RUN npm install -g --foreground-scripts \
+    "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
+    "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
+    "opencode-ai@${CMUX_IMAGE_OPENCODE_VERSION}" \
+    "@earendil-works/pi-coding-agent@${CMUX_IMAGE_PI_VERSION}" \
+    "agent-browser@${CMUX_IMAGE_AGENT_BROWSER_VERSION}" \
+  && mise reshim \
+  && claude --version && codex --version && opencode --version && pi --version && agent-browser --version
 
 # Keep Claude Code session transcripts effectively forever (chatmux parity)
 # and pre-accept the --dangerously-skip-permissions confirmation: the VM is

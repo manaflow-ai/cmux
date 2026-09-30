@@ -277,12 +277,12 @@ export CLAUDE_CODE_SANDBOXED=1
 # launch dies at start. The VM, not the uid, is the isolation boundary here.
 export IS_SANDBOX=1
 
-# claude self-update: claude auto-updates itself in the background on the
-# first interactive launch (2.1.252 -> latest within 20 s, verified live on
-# the trust3 bake), which defeats the image pin and the 3-day release age the
-# cmux updater keeps. The binary is image-baked under /opt/cmux-agents; new
-# versions ship by rebake (`bun run devbox:pins:check --write` in web/, then
-# promote) or, on an opted-in machine, by the cmux agent updater.
+# claude self-update: the npm install auto-updates itself in the background
+# on the first interactive launch (2.1.252 -> latest within 20 s, verified
+# live on the trust3 bake), reinstalling the package under nvm. That defeats
+# the image pin and leaves `claude` briefly unresolvable while npm relinks
+# the bin. The binary is image-baked; new versions ship by rebake
+# (`bun run devbox:pins:check --write` in web/, then promote).
 export DISABLE_AUTOUPDATER=1
 
 # codex folder-trust gate: codex has no sandbox env short-circuit and its

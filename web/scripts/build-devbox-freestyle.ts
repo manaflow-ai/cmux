@@ -21,8 +21,8 @@
  * the API's default exec user and the SSH default), which the bake renames to
  * `cmux` and keeps as the machine's ONE work user. The bake adds the
  * chatmux-devbox devtools, gh, Chrome + cua-driver, the pinned coding agents
- * (each tool's own GitHub release asset, sha256-pinned, replacing the base's
- * npm copies), the ble.sh devshell, the agent-config generator, the
+ * (`npm install -g` on the base's Node, so the exact Dockerfile pins replace
+ * the base's copies), the ble.sh devshell, the agent-config generator, the
  * login banner, and the desktop. No mise, no extra users: `cmux` (uid 1000)
  * is the work user for terminals, agents, SSH, and the desktop session, and
  * the machine is renamed `cmux` so prompts read `cmux@cmux`.
@@ -84,9 +84,7 @@ import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
-import { guestAgentInstallCommand } from "../services/vms/guestAgentUpdates";
 import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
-import { GUEST_AGENTS_ROOT } from "../services/vms/images/agents";
 import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
@@ -105,7 +103,6 @@ import {
   DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
   bakePreflight,
-  devboxAgentInstallPins,
   devboxAgentPins,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
@@ -319,19 +316,16 @@ try {
     `curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh && CUA_DRIVER_RS_HOME=/opt/cua-driver CUA_DRIVER_RS_VERSION=${cuaVersion} CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh && rm -f /tmp/cua-install.sh && chmod -R a+rX /opt/cua-driver && cua-driver --version`,
   );
 
-  // Pinned coding agents from their own GitHub release assets, never npm:
-  // the updater's install mode (services/vms/guestAgentUpdates.ts) unpacks
-  // each exact Dockerfile pin under /opt/cmux-agents after checking the
-  // asset's pinned sha256, links /usr/local/bin/<tool> to it (non-login
-  // shells and daemon panes resolve it with no profile), and retires the
-  // base's own npm copies of claude/codex/opencode: nvm's bin entries go
-  // (login shells put nvm's bin dir first on PATH) and so do the packages.
+  // Pinned coding agents on the base's Node: the exact Dockerfile pins
+  // replace the base's own copies of claude/codex/opencode in nvm's global
+  // node_modules, and every agent bin is symlinked into /usr/local/bin the
+  // way the base does it, so non-login shells (daemon panes) find them too.
   await step(
     "agents",
     // The pin probes run AS the work user: an agent run as root with
     // its HOME leaves root-owned state dirs behind that break
     // ble.sh for every later login.
-    `${guestAgentInstallCommand(devboxAgentInstallPins())} && chmod -R a+rX ${GUEST_AGENTS_ROOT} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `test ! -e "$nvm_bin/${pin.binary}" && readlink -f /usr/local/bin/${pin.binary} | grep -q '^${GUEST_AGENTS_ROOT}/${pin.binary}/${pin.version}/'`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
+    `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
   // Claude Code machine policy. The first-run answers themselves are seeded

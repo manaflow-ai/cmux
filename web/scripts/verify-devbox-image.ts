@@ -63,7 +63,6 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { GUEST_AGENT_MARKER, GUEST_AGENTS_ROOT } from "../services/vms/images/agents";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -80,12 +79,9 @@ const FILE_PIN_CHECKS = [
 ].map(([source, target]) => `echo '${shaOf(source)}  ${target}' | sha256sum -c -`);
 
 const CHECKS: readonly string[] = [
-  // Pinned coding agents: the exact standalone release (never npm), each a
-  // finished install (marker present) behind its /usr/local/bin link, with no
-  // npm entry point left in nvm's bin dir to shadow it in login shells.
-  // opencode's /usr/local/bin entry is the wrapper; its real link moves.
-  `nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins
-    .map((pin) => `readlink -f ${pin.binary === "opencode" ? "/usr/local/libexec/cmux-opencode-real" : `/usr/local/bin/${pin.binary}`} | grep -q '^${GUEST_AGENTS_ROOT}/${pin.binary}/${pin.version}/' && test -f ${GUEST_AGENTS_ROOT}/${pin.binary}/${pin.version}/${GUEST_AGENT_MARKER} && test ! -e "$nvm_bin/${pin.binary}"`)
+  // Pinned coding agents: exact installed versions, not just runnable.
+  `ls=$(npm ls -g --depth=0) && ${pins
+    .map((pin) => `echo "$ls" | grep -F ' ${pin.spec}'`)
     .join(" && ")} && echo agent-pins-ok`,
   ...pins.map((pin) => `${pin.binary} --version`),
   // Toolchain present (where it comes from is provider-specific, below).

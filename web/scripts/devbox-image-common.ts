@@ -21,7 +21,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
-import { GUEST_AGENTS, guestAgentDownloadUrl } from "../services/vms/images/agents";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
 
@@ -280,68 +279,48 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   return sha;
 }
 
-/**
- * The coding-agent pins: per agent (services/vms/images/agents.ts), an exact
- * release in `ARG CMUX_IMAGE_<TOOL>_VERSION` and the sha256 of its Linux x64
- * GitHub release asset in `ARG CMUX_IMAGE_<TOOL>_SHA256`. `pkg` is the npm
- * name older images installed, kept as the pin's stable key.
- */
-export const AGENT_PIN_ARGS: readonly { arg: string; shaArg: string; pkg: string; binary: string }[] = GUEST_AGENTS.map((agent) => ({
-  arg: agent.versionArg,
-  shaArg: agent.sha256Arg,
-  pkg: agent.npm,
-  binary: agent.binary,
-}));
+export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
+  { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
+  { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },
+  { arg: "CMUX_IMAGE_OPENCODE_VERSION", pkg: "opencode-ai", binary: "opencode" },
+  { arg: "CMUX_IMAGE_PI_VERSION", pkg: "@earendil-works/pi-coding-agent", binary: "pi" },
+  { arg: "CMUX_IMAGE_AGENT_BROWSER_VERSION", pkg: "agent-browser", binary: "agent-browser" },
+];
 
-export type AgentPin = { pkg: string; version: string; binary: string; sha256: string; url: string };
+export type AgentPin = { pkg: string; version: string; binary: string; spec: string };
 
-/** The pins come from the Dockerfile ARG defaults, never a second copy. */
+/** The npm pins come from the Dockerfile ARG defaults, never a second copy. */
 export function devboxAgentPins(dockerfile = readDevboxDockerfile()): AgentPin[] {
-  return GUEST_AGENTS.map((agent) => {
-    const version = new RegExp(`^ARG ${agent.versionArg}=(\\S+)$`, "m").exec(dockerfile)?.[1];
-    if (!version) throw new Error(`devbox Dockerfile is missing ARG ${agent.versionArg}`);
-    const sha256 = new RegExp(`^ARG ${agent.sha256Arg}=(\\S+)$`, "m").exec(dockerfile)?.[1];
-    if (!sha256) throw new Error(`devbox Dockerfile is missing ARG ${agent.sha256Arg}`);
-    return { pkg: agent.npm, version, binary: agent.binary, sha256, url: guestAgentDownloadUrl(agent, version) };
+  return AGENT_PIN_ARGS.map(({ arg, pkg, binary }) => {
+    const match = new RegExp(`^ARG ${arg}=(\\S+)$`, "m").exec(dockerfile);
+    if (!match) throw new Error(`devbox Dockerfile is missing ARG ${arg}`);
+    return { pkg, version: match[1], binary, spec: `${pkg}@${match[1]}` };
   });
-}
-
-/** The bake's install pins, keyed by binary (guestAgentInstallCommand). */
-export function devboxAgentInstallPins(dockerfile = readDevboxDockerfile()): Record<string, { version: string; sha256: string }> {
-  return Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.binary, { version: pin.version, sha256: pin.sha256 }]));
 }
 
 export function readDevboxDockerfile(): string {
   return readFileSync(devboxDockerfilePath, "utf8");
 }
 
-/** An exact release: `x.y.z`, never a range, a tag, or a prerelease. */
+/** An exact npm release: `x.y.z`, never a range, a tag, or a prerelease. */
 export const EXACT_AGENT_PIN = /^\d+\.\d+\.\d+$/;
-/** A release asset's sha256, lowercase hex. */
-export const AGENT_PIN_SHA256 = /^[0-9a-f]{64}$/;
-
-export type AgentPinRelease = { readonly version: string; readonly sha256: string };
 
 /**
- * Rewrites the Dockerfile's `ARG CMUX_IMAGE_<TOOL>_VERSION=` and
- * `_SHA256=` lines to `releases` (keyed by the pin's `pkg`), leaving every
- * other byte alone. The one sanctioned way to bump a pin (`bun run
- * devbox:pins:check --write`): a pin is an exact release with its asset's
- * digest, a package the Dockerfile does not bake is a mistake, and a missing
- * ARG line means the recipe no longer matches this table.
+ * Rewrites the Dockerfile's `ARG CMUX_IMAGE_<TOOL>_VERSION=` lines to
+ * `versions` (keyed by npm package), leaving every other byte alone. The one
+ * sanctioned way to bump a pin (`bun run devbox:pins:check --write`): a pin is
+ * an exact release, a package the Dockerfile does not bake is a mistake, and
+ * a missing ARG line means the recipe no longer matches this table.
  */
-export function rewriteDevboxAgentPins(dockerfile: string, releases: Record<string, AgentPinRelease>): string {
+export function rewriteDevboxAgentPins(dockerfile: string, versions: Record<string, string>): string {
   let next = dockerfile;
-  for (const [pkg, { version, sha256 }] of Object.entries(releases)) {
+  for (const [pkg, version] of Object.entries(versions)) {
     const pin = AGENT_PIN_ARGS.find((candidate) => candidate.pkg === pkg);
     if (!pin) throw new Error(`${pkg} is not a devbox agent pin (${AGENT_PIN_ARGS.map((row) => row.pkg).join(", ")})`);
     if (!EXACT_AGENT_PIN.test(version)) throw new Error(`${pkg}: ${version} is not an exact x.y.z release`);
-    if (!AGENT_PIN_SHA256.test(sha256)) throw new Error(`${pkg}: ${sha256} is not a sha256`);
-    for (const [arg, value] of [[pin.arg, version], [pin.shaArg, sha256]] as const) {
-      const line = new RegExp(`^ARG ${arg}=\\S+$`, "m");
-      if (!line.test(next)) throw new Error(`devbox Dockerfile is missing ARG ${arg}`);
-      next = next.replace(line, `ARG ${arg}=${value}`);
-    }
+    const line = new RegExp(`^ARG ${pin.arg}=\\S+$`, "m");
+    if (!line.test(next)) throw new Error(`devbox Dockerfile is missing ARG ${pin.arg}`);
+    next = next.replace(line, `ARG ${pin.arg}=${version}`);
   }
   return next;
 }
@@ -351,17 +330,16 @@ export type AgentPinDrift = {
   readonly binary: string;
   readonly pinned: string;
   readonly latest: string;
-  readonly latestSha256: string;
-  /** The channel's latest is not the pin (a newer release, or a pin ahead of a pulled latest). */
+  /** The registry's latest is not the pin (a newer release, or a pin ahead of a yanked latest). */
   readonly behind: boolean;
 };
 
-/** Pins next to the channel's current release; `latest` is keyed by the pin's `pkg`. */
-export function agentPinDrift(pins: readonly AgentPin[], latest: Readonly<Record<string, AgentPinRelease>>): AgentPinDrift[] {
+/** Pins next to the registry's current release; `latest` is keyed by npm package. */
+export function agentPinDrift(pins: readonly AgentPin[], latest: Readonly<Record<string, string>>): AgentPinDrift[] {
   return pins.map((pin) => {
     const current = latest[pin.pkg];
-    if (!current) throw new Error(`no channel release for ${pin.pkg}`);
-    return { pkg: pin.pkg, binary: pin.binary, pinned: pin.version, latest: current.version, latestSha256: current.sha256, behind: current.version !== pin.version };
+    if (!current) throw new Error(`no registry version for ${pin.pkg}`);
+    return { pkg: pin.pkg, binary: pin.binary, pinned: pin.version, latest: current, behind: current !== pin.version };
   });
 }
 

@@ -18,10 +18,10 @@ agent-config generator.
 On Freestyle the toolchain is the base's, not mise: `freestyle/ubuntu`
 already ships Node LTS under nvm (symlinked into `/usr/local/bin`), Bun,
 Python 3.12, uv, Docker (running from boot), and its own copies of Claude
-Code, Codex and OpenCode. The bake keeps the toolchain, installs the exact
-Dockerfile agent pins from each tool's GitHub release asset (see "Agent
-pins"; every agent linked into `/usr/local/bin` so daemon panes resolve them
-without a login profile), removes the base's npm copies, and installs `bubblewrap`, codex's Linux sandbox
+Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
+copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
+every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
+without a login profile), and installs `bubblewrap`, codex's Linux sandbox
 prerequisite, so codex runs on the distro's `bwrap` instead of warning on
 every launch that it is falling back to its bundled copy. A cmux login banner
 (`cmux-motd`, rendered by pam_motd on SSH) replaces the stock Ubuntu and
@@ -29,65 +29,37 @@ Freestyle motd text.
 
 ## Agent pins: bump, epoch, promote
 
-No coding agent comes from npm. Each is its tool's own Linux x64 GitHub
-release asset (`web/services/vms/images/agents.ts`):
-
-| Tool | Repository, tag | Asset | Checksum published by the vendor |
-| --- | --- | --- | --- |
-| Claude Code | `anthropics/claude-code`, `v<x.y.z>` | `claude-linux-x64.tar.gz` | `SHASUMS256.txt` plus a PGP signature |
-| Codex | `openai/codex`, `rust-v<x.y.z>` | `codex-package-x86_64-unknown-linux-musl.tar.gz` | `codex-package_SHA256SUMS`, sigstore bundles |
-| OpenCode | `anomalyco/opencode`, `v<x.y.z>` | `opencode-linux-x64.tar.gz` | none (GitHub digest only) |
-| pi | `earendil-works/pi`, `v<x.y.z>` | `pi-linux-x64.tar.gz` | `SHA256SUMS` |
-| agent-browser | `vercel-labs/agent-browser`, `v<x.y.z>` | `agent-browser-linux-x64` | none (GitHub digest only) |
-
-Every pin is two Dockerfile ARGs: the exact release in
-`CMUX_IMAGE_<TOOL>_VERSION` and the sha256 GitHub records for the asset in
-`CMUX_IMAGE_<TOOL>_SHA256` (for the tools that publish a checksum file it is
-the same value). The bake runs the updater's `install` mode
-(`guestAgentInstallCommand`), which downloads each asset from `github.com`,
-rejects it unless it matches the pinned sha256 and reports its own version,
-unpacks it to `/opt/cmux-agents/<tool>/<version>/` (whole archive: pi reads
-its assets beside the binary), writes a `.cmux-agent.json` marker last,
-links `/usr/local/bin/<tool>` to it (opencode: the
-`/usr/local/libexec/cmux-opencode-real` link behind the `/etc/cmux/opencode`
-wrapper), and deletes the base's npm copies and their nvm entry points, which
-login shells would otherwise find first on PATH. The container recipe does the
-same with `curl` and `sha256sum -c`. Machines never self-update
+The coding agents are exact npm releases in the Dockerfile's `ARG
+CMUX_IMAGE_<TOOL>_VERSION` lines, and machines never self-update
 (`DISABLE_AUTOUPDATER=1` for Claude Code, `check_for_update_on_startup =
-false` for codex), so an image-pinned machine gets a new agent only through a
-rebake:
+false` for codex), so a new Claude Code or Codex reaches cmux Cloud only
+through a rebake:
 
 ```bash
-# from web/ (GITHUB_TOKEN lifts the API rate limit)
-bun run devbox:pins:check            # pins next to each repository's latest release; exit 1 when behind
-bun run devbox:pins:check --write    # rewrite the version and sha256 ARG lines to those releases
+# from web/
+bun run devbox:pins:check            # pins next to the npm registry's current releases; exit 1 when behind
+bun run devbox:pins:check --write    # rewrite the ARG lines to those releases
 ```
 
 then bump `CMUX_IMAGE_EPOCH` in the same file and promote both ladders (see
 "Promote" below). `--write` touches only the ARG lines and refuses ranges,
-tags, malformed digests and packages the image does not bake; the chatmux
-devbox template (`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand
-in its own repo to keep the parity the header describes.
+tags and packages the image does not bake; the chatmux devbox template
+(`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
+repo to keep the parity the header describes.
 
-A machine can opt out of its image's pins: with `agentUpdates: "latest"` (New
-Machine's "Keep coding agents up to date", checked by default in the sheet,
-`cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
-each attach starts a detached updater (`web/services/vms/guestAgentUpdates.ts`,
-the same script in `update` mode). For every agent it reads the repository's
-releases from `api.github.com` and installs the newest x.y.z release that has
-been public for 3 days (`published_at`), is not above the repository's latest
-release, and has an asset with a sha256 digest, checking the download against
-that digest before anything switches. It never downgrades, runs at most once a
-day after a success, holds a lock, keeps the previous version for anything
-still running it, and records the outcome per agent in
-`/etc/cmux/agent-updates.state` (log in `/var/log/cmux-agent-updates.log`); a
-failure is retried on the next attach, which also repairs the links. A machine
-baked with the old npm installs migrates on its first update, once the
-eligible release is at least its npm version: the standalone release replaces
-the `/usr/local/bin` link, the nvm entry point goes, and the npm package is
-deleted only after no process runs from it. The hosts involved
-(`api.github.com`, `github.com`, `release-assets.githubusercontent.com`) are in
-`CMUX_REQUIRED_DOMAINS`, so updates work under every network policy.
+A machine can instead keep its agents current: with `agentUpdates: "latest"`
+(New Machine's "Keep coding agents up to date", checked by default in the
+sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
+create and each attach start a detached updater
+(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
+installs the newest x.y.z release that has been public for 3 days and is not
+above the latest release, after checking the download's sha256, at most once a
+day and never as a downgrade. On a machine baked with the npm pins above, the
+first update moves each agent to its standalone release and removes the npm
+copy once no process uses it. Outcome in `/etc/cmux/agent-updates.state`, log
+in `/var/log/cmux-agent-updates.log`. Moving the image recipe itself off npm
+needs a rebake and lands separately.
 
 Two invariants keep the checked-in manifest describing the machine users get
 (`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
@@ -493,15 +465,14 @@ docker build --platform linux/amd64 -t cmux-devbox:dev services/vms/images/devbo
 Freestyle bakes on `freestyle/ubuntu` (4 vCPU / 8 GiB / 32 GB): VMs always
 boot at their snapshot's size and resizing is grow-only, so the builder's
 shape is what every cmux Cloud machine gets. Freestyle snapshot slugs are
-reassignable; the printed `sh-…` id is the pointer to pin. Agent pins (version
-and asset sha256) live only in the Dockerfile ARG defaults; bump them together with
+reassignable; the printed `sh-…` id is the pointer to pin. Agent pins live
+only in the Dockerfile ARG defaults; bump them together with
 `CMUX_IMAGE_EPOCH` and the chatmux template. The cmux-tui pin comes from
 the artifacts manifest at deploy time (`CMUX_VM_CMUX_TUI_MANIFEST_URL`),
 never from the image.
 
 Each bake prints a `next` command. The verifier boots one VM from the
-snapshot, asserts the toolchain, the exact agent pins (standalone installs,
-no npm entry point left), `bwrap`, ghost text
+snapshot, asserts the toolchain, the exact agent pins, `bwrap`, ghost text
 under a tmux PTY, byte-identical baked files, the work user and machine name
 (one uid-1000 account named `cmux`, no `ubuntu` left behind, a login prompt
 reading `cmux@cmux`, `claude --dangerously-skip-permissions` accepted), the
