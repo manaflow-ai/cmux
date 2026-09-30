@@ -33,15 +33,23 @@ jobs:
       - name: Checkout with submodules
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          # The synthetic PR commit and its first parent are sufficient for
+          # the merge-base comparison, and keep this guard shallow like the
+          # neighboring history guard.
+          fetch-depth: 2
           submodules: recursive
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Bind submodule guard to synthetic merge parent
+        run: |
+          set -euo pipefail
+          base="$(git rev-parse HEAD^1)"
+          git cat-file -e "$base^{commit}"
+          echo "GITHUB_BASE_SHA=$base" >> "$GITHUB_ENV"
+          echo "GITHUB_HEAD_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Validate submodule gitlinks move forward only
         env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || 'HEAD^' }}
-          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/submodule_forward_only.py
 
