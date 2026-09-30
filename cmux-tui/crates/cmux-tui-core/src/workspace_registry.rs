@@ -6164,3 +6164,6 @@ impl Drop for SessionLease {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod personal_tests;
