@@ -39,11 +39,15 @@ public final class BrowserOffscreenRenderHost {
     ///     `BrowserOffscreenRenderPanel.reportsKeyWindowForAutomation`) so a
     ///     driven page behaves as active, including hover.
     ///   - placement: See ``Placement``.
+    ///   - mirrorsPane: Leave a read-only mirror in the pane, fed by
+    ///     ``updateMirror(_:)``, so the pane is not blank while the page
+    ///     renders elsewhere. Defaults to on for ``Placement/screenEdge``.
     public init(
         webView: WKWebView,
         viewportSize: NSSize,
         reportsKeyWindow: Bool = false,
-        placement: Placement = .screenEdge
+        placement: Placement = .screenEdge,
+        mirrorsPane: Bool? = nil
     ) {
         let capturedPresentationView = webView.cmuxBrowserViewportPresentationView
         let capturedPreviousSuperview = capturedPresentationView.superview
@@ -64,7 +68,7 @@ public final class BrowserOffscreenRenderHost {
 
         // While the live web view renders offscreen, the pane would otherwise be
         // blank; a read-only mirror keeps the Mac pane showing what the phone sees.
-        let capturedMirrorView = capturedPreviousSuperview != nil && placement == .screenEdge
+        let capturedMirrorView = capturedPreviousSuperview != nil && (mirrorsPane ?? (placement == .screenEdge))
             ? BrowserStreamMacMirrorView(frame: .zero)
             : nil
 
@@ -166,6 +170,12 @@ public final class BrowserOffscreenRenderHost {
         forceLayout()
         return true
     }
+
+    /// Whether a mirror stands in the pane for the page.
+    public var hasMirror: Bool { mirrorView != nil && !isFinished }
+
+    /// The window of the pane that held the page, if it had one.
+    public var paneWindow: NSWindow? { previousSuperview?.window }
 
     /// Feeds the latest streamed frame to the Mac-side mirror shown in the pane.
     public func updateMirror(_ image: NSImage) {

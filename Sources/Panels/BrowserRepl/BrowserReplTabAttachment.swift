@@ -86,6 +86,10 @@ final class BrowserReplTabAttachment {
     private weak var renderHostWebView: WKWebView?
     /// The web view whose window occlusion detection is off while attached.
     private weak var occlusionDisabledWebView: WKWebView?
+    /// Watches the pane's window becoming key while a mirror stands in for the page.
+    private var keyObserver: NSObjectProtocol?
+    private var mirrorCaptureInFlight = false
+    private var mirrorNeedsCapture = false
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
@@ -128,16 +132,22 @@ final class BrowserReplTabAttachment {
     /// Keeps the tab rendering like a foreground page while a session drives
     /// it. `requestAnimationFrame`, timers and `visibilityState` pause in a
     /// hidden WebKit page, and Playwright-style actionability waits for
-    /// animation frames.
+    /// animation frames. WebKit also treats a page as focused (focus and blur
+    /// events, `document.hasFocus()`, `:hover` from mouse moves) only while
+    /// its window is key, and it has no switch to override that.
     ///
-    /// - A tab shown in a pane stays in that pane and keeps rendering live
-    ///   there; occlusion detection is off while attached, so a covered
-    ///   window keeps running the page.
+    /// - A tab shown in a pane of the key window stays in the pane, live.
     /// - A tab no pane shows moves into a render window that lies outside
-    ///   every screen and reports itself as key (pages in a non-key window
-    ///   get no mouse moves, so no `:hover`). It returns to its pane as soon
-    ///   as the pane shows it (``paneVisibilityDidChange(visible:)``), and on
-    ///   detach.
+    ///   every screen and reports itself as key.
+    /// - A tab shown in a pane of a window that is not key (the user works in
+    ///   another app) moves to that render window too, so input behaves as in
+    ///   a focused browser, and a mirror of the page stays in the pane,
+    ///   refreshed after every driver call (``pageDidChange()``). The live
+    ///   view returns as soon as that window becomes key.
+    ///
+    /// Occlusion detection is off while attached, so a covered window keeps
+    /// rendering. Every move is undone on detach, and when a pane starts
+    /// showing the tab (``paneVisibilityDidChange(visible:)``).
     func keepRendering() {
         guard isAttached, let panel else { return }
         _ = panel.restoreDiscardedWebViewIfNeeded(reason: "browser.repl", allowBlankShellHeal: false)
@@ -147,28 +157,45 @@ final class BrowserReplTabAttachment {
             Self.setOcclusionDetection(false, on: webView)
             occlusionDisabledWebView = webView
         }
-        if panel.isWebViewVisibleInPane {
+        let shown = panel.isWebViewVisibleInPane
+        let paneWindow = renderHostWebView === webView ? renderHost?.paneWindow : webView.window
+        if shown, paneWindow?.isKeyWindow == true {
             releaseRenderHost()
             return
         }
-        if let renderHost, renderHostWebView === webView {
+        if let renderHost, renderHostWebView === webView, renderHost.hasMirror == shown {
             renderHost.reassertAutomationFocus()
             return
         }
-        renderHost?.abandon()
-        renderHost = nil
-        renderHostWebView = nil
+        releaseRenderHost()
         guard panel.mobileBrowserStreamRenderHost == nil,
               !webView.cmuxIsElementFullscreenActiveOrTransitioning else {
             return
         }
-        renderHost = BrowserOffscreenRenderHost(
+        // A shown tab keeps its pane's size, so the page does not reflow.
+        let paneSize = webView.bounds.size
+        let viewport = shown && panel.viewportModel.viewport == nil && paneSize.width > 1 && paneSize.height > 1
+            ? paneSize
+            : Self.renderViewportSize(panel: panel)
+        let host = BrowserOffscreenRenderHost(
             webView: webView,
-            viewportSize: Self.renderViewportSize(panel: panel),
+            viewportSize: viewport,
             reportsKeyWindow: true,
-            placement: .offAllScreens
+            placement: .offAllScreens,
+            mirrorsPane: shown
         )
+        renderHost = host
         renderHostWebView = webView
+        if shown, let window = host.paneWindow {
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.releaseRenderHost() }
+            }
+            pageDidChange()
+        }
     }
 
     /// Called by the panel when a pane starts or stops showing this tab. A
@@ -177,6 +204,29 @@ final class BrowserReplTabAttachment {
         guard visible else { return }
         releaseRenderHost()
     }
+
+    /// Refreshes the pane's mirror after a driver call may have changed the
+    /// page. One capture runs at a time; a call during it asks for one more.
+    func pageDidChange() {
+        guard let host = renderHost, host.hasMirror, let webView = renderHostWebView else { return }
+        guard !mirrorCaptureInFlight else {
+            mirrorNeedsCapture = true
+            return
+        }
+        mirrorCaptureInFlight = true
+        mirrorNeedsCapture = false
+        webView.takeSnapshot(with: nil) { [weak self, weak host] image, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.mirrorCaptureInFlight = false
+                if let image, let host, host === self.renderHost { host.updateMirror(image) }
+                if self.mirrorNeedsCapture { self.pageDidChange() }
+            }
+        }
+    }
+
+    /// Whether the pane shows a mirror of the page instead of the page.
+    var isMirroringPane: Bool { renderHost?.hasMirror == true }
 
     /// Viewport of a hidden driven tab: Playwright's default page size, so
     /// results do not depend on whatever window last hosted the tab.
@@ -193,6 +243,10 @@ final class BrowserReplTabAttachment {
     var isInRenderWindow: Bool { renderHost != nil }
 
     private func releaseRenderHost() {
+        if let keyObserver {
+            NotificationCenter.default.removeObserver(keyObserver)
+            self.keyObserver = nil
+        }
         guard let host = renderHost else { return }
         renderHost = nil
         if let webView = renderHostWebView, webView === panel?.webView {

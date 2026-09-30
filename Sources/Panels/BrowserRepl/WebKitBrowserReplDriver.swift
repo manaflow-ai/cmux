@@ -80,6 +80,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func dispatch(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         let params = BrowserReplJSON.object(paramsJSON)
+        defer {
+            // A pane that shows a mirror of this tab gets the page's new look.
+            if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw) {
+                BrowserReplTabAttachments.shared.attachment(for: id)?.pageDidChange()
+            }
+        }
         do {
             let value = try await handle(method: method, params: params)
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }

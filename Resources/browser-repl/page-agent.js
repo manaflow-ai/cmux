@@ -23,6 +23,31 @@
   if (global[KEY]) return;
 
   const document = global.document;
+
+  // The app's agent world sees closed shadow roots (WebKit's
+  // allowAccessToClosedShadowRoots). WebKit's switch also opens user-agent
+  // roots (the internals of <details>, <summary>, <input>, <video>), which
+  // are not page content. Only custom elements and these HTML elements can
+  // host an author shadow root (DOM Standard, attachShadow), so this world's
+  // `shadowRoot` returns a root only for them. Page worlds are unaffected.
+  const AUTHOR_SHADOW_HOSTS = new Set(["article", "aside", "blockquote", "body", "div", "footer", "h1", "h2", "h3", "h4",
+    "h5", "h6", "header", "main", "nav", "p", "section", "span"]);
+  const HTML_NS = "http://www.w3.org/1999/xhtml";
+  const shadowRootDescriptor = global.Element && Object.getOwnPropertyDescriptor(global.Element.prototype, "shadowRoot");
+  if (shadowRootDescriptor && shadowRootDescriptor.get && shadowRootDescriptor.configurable) {
+    const read = shadowRootDescriptor.get;
+    Object.defineProperty(global.Element.prototype, "shadowRoot", {
+      configurable: true,
+      enumerable: shadowRootDescriptor.enumerable,
+      get() {
+        const root = read.call(this);
+        if (!root) return null;
+        const name = this.localName || "";
+        return this.namespaceURI === HTML_NS && (name.includes("-") || AUTHOR_SHADOW_HOSTS.has(name)) ? root : null;
+      },
+    });
+  }
+
   let injected = null;
   if (injectedFactory) {
     const InjectedScript = injectedFactory();
