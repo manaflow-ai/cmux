@@ -18,6 +18,7 @@ enum DebugKey {
         "l": ("l", 37), "w": ("w", 13), "t": ("t", 17), "h": ("h", 4), "j": ("j", 38), "k": ("k", 40),
         "left": (String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123), "right": (String(UnicodeScalar(NSRightArrowFunctionKey)!), 124),
         "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
+        "pageup": (String(UnicodeScalar(NSPageUpFunctionKey)!), 116), "pagedown": (String(UnicodeScalar(NSPageDownFunctionKey)!), 121),
     ]
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -45,9 +46,12 @@ enum DebugKey {
             }
         }
         if key.keyCode >= 123 && key.keyCode <= 126 { flags.formUnion([.numericPad, .function]) }
+        if key.keyCode == 116 || key.keyCode == 121 { flags.insert(.function) }
+        // AppKit delivers Shift-Tab as back-tab (U+0019), as a real key does.
+        let characters = key.keyCode == 48 && flags.contains(.shift) ? "\u{19}" : key.characters
         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
-                                           windowNumber: window.windowNumber, context: nil, characters: key.characters,
-                                           charactersIgnoringModifiers: key.characters, isARepeat: false, keyCode: key.keyCode)
+                                           windowNumber: window.windowNumber, context: nil, characters: characters,
+                                           charactersIgnoringModifiers: characters, isARepeat: false, keyCode: key.keyCode)
         else { return .object(["error": .string("bad key")]) }
         let registry = services.registry
         let previous = registry.isDispatchingKeyDown

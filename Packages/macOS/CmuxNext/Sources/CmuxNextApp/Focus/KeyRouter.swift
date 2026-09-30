@@ -111,10 +111,17 @@ final class KeyRouter: BrowserKeyRouting {
         if let resolved = registry.resolveShortcut(for: event) {
             return Candidate(id: resolved.id, tier: resolved.tier, source: .registry(argument: resolved.argument))
         }
+        let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
+        // Chrome's tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
+        // cmux's next/previous tab in a browser context. Unbinding the
+        // action in cmux.json removes these aliases too.
+        if isBrowser, let id = BrowserChordTable.tabNavigationAction(for: event), registry.effectiveShortcut(for: id) != nil {
+            return Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil))
+        }
         // Ghostty fallback: never for a chord Chrome defines while a page,
         // the address bar or the find bar has the keyboard (Cmd-[ is Back
         // there, not Ghostty's `goto_split:previous`); see BrowserChordTable.
-        if BrowserChordTable.isBrowserContext(focus.resolved), BrowserChordTable.isChromeChord(event) { return nil }
+        if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
         guard let action = ghosttyHostAction(event), let route = TerminalHostActionRoute.route(action) else { return nil }
         return Candidate(id: route.id, tier: registry.keyTier(for: route.id), source: .ghostty(arguments: route.arguments))
     }

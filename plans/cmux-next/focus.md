@@ -284,7 +284,11 @@ Cmd-Opt-Left / Right, Cmd-Shift-[ / ], Ctrl-Tab, Ctrl-Shift-Tab, and the edit ch
 Cmd-A/C/V/X/Z, Cmd-Shift-Z, Cmd-Shift-V, Cmd-Opt-Shift-V. Where cmux binds one of
 these itself (Cmd-D split, Cmd-T new tab, Cmd-W close, Cmd-1..9 tab, Cmd-Opt-arrows
 pane focus, Cmd-L address bar), cmux's action wins, as before. A chord in the list
-without a cmux action goes to the page (or the field). The Ghostty fallback applies
+without a cmux action goes to the page (or the field), except Chrome's tab-switching
+chords (Ctrl-Tab, Ctrl-Shift-Tab, Ctrl-PageDown, Ctrl-PageUp, and Cmd-Opt-Right/Left
+and Cmd-Shift-]/[ when cmux does not bind them): cmux tabs are the browser's tabs, so
+`BrowserChordTable.tabNavigation` runs cmux's next/previous tab (tier 1) for them;
+unbinding `nextSurface`/`prevSurface` in `cmux.json` removes these aliases. The Ghostty fallback applies
 only to chords neither cmux nor Chrome defines (for example `cmd+ctrl+h`). In a
 terminal the terminal runs its own Ghostty keybinds, still after cmux's registry.
 
