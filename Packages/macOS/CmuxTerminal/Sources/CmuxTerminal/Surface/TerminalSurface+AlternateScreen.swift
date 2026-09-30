@@ -6,9 +6,15 @@ extension TerminalSurface {
     /// in the alternate screen right now.
     ///
     /// libghostty exposes the active screen only through the render-grid
-    /// export, so this serializes the viewport. It is meant for occasional
-    /// reads, such as when predictive echo starts for a surface, not for a
-    /// per-keystroke or per-frame path.
+    /// export, so every call serializes the viewport to a JSON string. Reading
+    /// the marker skips the Swift-side decode but not that serialization.
+    ///
+    /// Keystroke callers are expected, since `terminalAlternateScreen` gates
+    /// shortcuts and can only be answered when the key is pressed. They must
+    /// memoize: the shortcut dispatcher caches per event, and the text-editing
+    /// gestures cache per held key, so the cost is one read per distinct press
+    /// rather than per repeat or per frame. A caller that reads this on every
+    /// frame, or on every repeat of a held key, is a bug.
     ///
     /// - Returns: `false` when the surface has no live runtime or the export
     ///   fails, which is also the state a new terminal starts in.
@@ -32,8 +38,28 @@ extension TerminalSurface {
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return false }
         let data = Data(bytes: ptr, count: Int(exported.len))
+        return Self.renderGridExportIsAlternateScreen(data)
+    }
+
+    /// Reads `active_screen` from a render-grid export without decoding the
+    /// whole grid.
+    ///
+    /// The field is written after the row spans, so the scan runs from the
+    /// end. Row text is JSON-escaped, so every quote inside it follows a
+    /// backslash and cannot form the unescaped `"active_screen":"` key. An
+    /// export in another layout falls back to a full decode.
+    static func renderGridExportIsAlternateScreen(_ data: Data) -> Bool {
+        if data.range(of: alternateScreenMarker, options: .backwards) != nil {
+            return true
+        }
+        if data.range(of: primaryScreenMarker, options: .backwards) != nil {
+            return false
+        }
         return (try? JSONDecoder().decode(ActiveScreen.self, from: data))?.activeScreen == "alternate"
     }
+
+    private static let alternateScreenMarker = Data(#""active_screen":"alternate""#.utf8)
+    private static let primaryScreenMarker = Data(#""active_screen":"primary""#.utf8)
 }
 
 /// The one field of the render-grid export this reads.
