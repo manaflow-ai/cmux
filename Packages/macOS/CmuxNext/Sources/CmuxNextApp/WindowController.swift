@@ -115,8 +115,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation = Task { [weak self] in
             for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
-        // The new workspace's panes: the coordinator restores its pane.
+        // The new workspace's panes: the coordinator restores its pane and,
+        // now that the content is installed, re-applies it.
         controller.sendTopology()
+        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.stateDidChange(state)
         services.cloudContextDidChange()
     }

@@ -94,16 +94,26 @@ struct FocusReducerTests {
 
     // MARK: R2: removed pane successor
 
-    @Test func removedFocusedPaneFallsToTheNextSurvivingPane() {
-        var state = Self.run([.focusPane("b", source: .mouse)], from: Self.loaded()).0
+    @Test func removedFocusedPaneReturnsToThePreviouslyFocusedPane() {
+        var state = Self.run([.focusPane("c", source: .mouse), .focusPane("b", source: .mouse)], from: Self.loaded()).0
         var topology = Self.topology()
         topology.panes.remove(at: 1)
         state = Self.run([.topology(topology)], from: state).0
         #expect(state.pane == "c")
     }
 
-    @Test func removedLastPaneFallsToThePreviousPane() {
+    @Test func removedFocusedPaneWithoutHistoryFallsToTheNextSurvivingPane() {
+        var state = Self.loaded()
+        state.history = []
+        var topology = Self.topology()
+        topology.panes.removeFirst()
+        state = Self.run([.topology(topology)], from: state).0
+        #expect(state.pane == "b")
+    }
+
+    @Test func removedLastPaneWithoutHistoryFallsToThePreviousPane() {
         var state = Self.run([.focusPane("c", source: .mouse)], from: Self.loaded()).0
+        state.history = ["c"]
         var topology = Self.topology()
         topology.panes.removeLast()
         state = Self.run([.topology(topology)], from: state).0
@@ -117,7 +127,7 @@ struct FocusReducerTests {
         var topology = Self.topology()
         topology.panes.remove(at: 1)
         state = Self.run([.topology(topology)], from: state).0
-        #expect(state.resolved == .terminal(pane: "c", tab: "t3"))
+        #expect(state.resolved == .terminal(pane: "a", tab: "t1"))
     }
 
     // MARK: R3: responders outside panes

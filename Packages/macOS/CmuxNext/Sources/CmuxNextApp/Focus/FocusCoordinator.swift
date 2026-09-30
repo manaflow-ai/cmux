@@ -53,6 +53,12 @@ final class FocusCoordinator {
         send(.expect(key, target: target, generation: generation ?? state.generation))
     }
 
+    /// A user moved `tab` out of `pane` (shortcut, menu, CLI): focus
+    /// follows it into its new pane once the daemon reports the move.
+    func followMovedTab(_ tab: String, from pane: String) {
+        send(.dragEnded(.dropped(tabs: [tab], awayFrom: pane)))
+    }
+
     /// An AppKit responder change. Ignored while this coordinator applies
     /// its own effects (echo suppression).
     func responderDidChange(_ responder: FocusEvent.Responder, source: FocusEvent.Source) {

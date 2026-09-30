@@ -34,17 +34,25 @@ final class FocusEffectApplier: FocusEffectApplying {
         observers.removeAll()
     }
 
+    /// The content the state describes. While a workspace switch is in
+    /// flight the new content reports its topology before the window
+    /// installs it; effects then wait for `contentPresented`.
+    private var content: WorkspaceContentController? {
+        guard let content = controller.content, content.workspace.id == controller.focus.state.topology.workspace else { return nil }
+        return content
+    }
+
     func apply(_ effects: [FocusEffect], state: FocusState) {
         for effect in effects {
             switch effect {
             case .select(let pane, let tab):
-                if let controller = controller.content?.paneController(key: pane) {
+                if let controller = content?.paneController(key: pane) {
                     controller.applySelection(StripTabID(tab))
                 } else {
                     controller.state.selection.select(tab, in: pane)
                 }
             case .revealPane(let pane):
-                controller.content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
+                content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
             case .moveResponder(let resolved):
                 moveResponder(resolved, state: state)
             case .publishContext(let context):
@@ -95,7 +103,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The pane's content when it shows `tab` now, else nil (not presented
     /// yet; `contentPresented` re-applies).
     private func presented(pane: String, tab: String) -> TabContent? {
-        guard let controller = controller.content?.paneController(key: pane), controller.currentTabKey == tab,
+        guard let controller = content?.paneController(key: pane), controller.currentTabKey == tab,
               controller.view.window != nil else { return nil }
         return controller.currentContent
     }

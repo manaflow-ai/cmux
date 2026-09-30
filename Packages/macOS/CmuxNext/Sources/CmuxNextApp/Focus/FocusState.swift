@@ -136,6 +136,9 @@ nonisolated struct FocusState: Hashable, Sendable {
     var overlays: [Overlay] = []
     /// Last focused pane per workspace (restored on switching back).
     var remembered: [String: String] = [:]
+    /// Recently focused panes, newest first (successor of a closed pane).
+    var history: [String] = []
+    static let historyLimit = 16
     var expectation: Expectation?
     var drag: DragRestore?
     /// Browser tabs in browser focus mode (all keys but tier 0 go to the page).

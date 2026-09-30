@@ -106,7 +106,8 @@ nonisolated enum FocusReducer {
             if state.target != .sidebar(keyboard: true) { state.target = .content }
             state.drag = nil
         } else if let pane = state.pane, !topology.contains(pane: pane) {
-            state.pane = successor(of: pane, in: old.panes.map(\.id), surviving: topology) ?? topology.panes.first?.id
+            state.pane = successor(of: pane, history: state.history, in: old.panes.map(\.id), surviving: topology)
+                ?? topology.panes.first?.id
             if state.target.isPaneScoped { state.target = .content }
         } else if state.pane == nil {
             state.pane = topology.panes.first?.id
@@ -123,9 +124,12 @@ nonisolated enum FocusReducer {
         land(&state, effects: &effects)
     }
 
-    /// The next surviving pane after `pane` in the old layout order, else
-    /// the previous one. Deterministic (never dictionary order).
-    static func successor(of pane: String, in oldOrder: [String], surviving topology: FocusTopology) -> String? {
+    /// The most recently focused surviving pane (closing a split you just
+    /// made returns to where you were), else the next surviving pane after
+    /// `pane` in the old layout order, else the previous one.
+    /// Deterministic (never dictionary order).
+    static func successor(of pane: String, history: [String], in oldOrder: [String], surviving topology: FocusTopology) -> String? {
+        if let recent = history.first(where: { $0 != pane && topology.contains(pane: $0) }) { return recent }
         guard let index = oldOrder.firstIndex(of: pane) else { return nil }
         if let after = oldOrder[(index + 1)...].first(where: topology.contains(pane:)) { return after }
         return oldOrder[..<index].last(where: topology.contains(pane:))
@@ -206,6 +210,11 @@ nonisolated enum FocusReducer {
                                forceResponder: Bool, forceContext: Bool) {
         if let workspace = new.topology.workspace, let pane = new.pane, new.topology.contains(pane: pane) {
             new.remembered[workspace] = pane
+            if new.history.first != pane {
+                new.history.removeAll { $0 == pane }
+                new.history.insert(pane, at: 0)
+                if new.history.count > FocusState.historyLimit { new.history.removeLast() }
+            }
         }
         if let pane = new.pane, pane != old.pane || forceResponder, new.topology.contains(pane: pane) {
             effects.append(.revealPane(pane))
