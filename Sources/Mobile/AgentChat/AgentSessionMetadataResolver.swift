@@ -20,6 +20,12 @@ actor AgentSessionMetadataResolver {
         self.commandRunner = commandRunner
     }
 
+    func currentBranch(directory: String) async -> String? {
+        guard let branch = await command(directory: directory, arguments: ["branch", "--show-current"]),
+              !branch.isEmpty else { return nil }
+        return branch
+    }
+
     func refresh(records: [AgentChatSessionRecord], now: Date = Date()) async -> [String: AgentSessionResolvedMetadata] {
         var unresolved: [(id: String, directory: String, branch: String, repo: (owner: String, name: String))] = []
         var result: [String: AgentSessionResolvedMetadata] = [:]
