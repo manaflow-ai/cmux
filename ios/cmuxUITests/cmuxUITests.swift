@@ -12408,7 +12408,6 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             capture("onboarding-\(index + 1)-\(scene.lowercased())", in: app)
             if scene != "Push" { primary.tap() }
         }
-        record("onboarding-button-frames", frames.joined(separator: "\n"))
         XCTAssertEqual(primary.label, "Enable Notifications")
         XCTAssertTrue(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
         primary.tap()
@@ -12441,6 +12440,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         XCTAssertEqual(primary.label, "Check Again")
         frames.append("Connect: \(primary.frame)")
         capture("onboarding-5-connect", in: app)
+        record("onboarding-button-frames", frames.joined(separator: "\n"))
         record("onboarding-final-page-result", "The final connection page keeps the primary action aligned with the preceding onboarding pages.")
     }
 
