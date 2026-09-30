@@ -54,6 +54,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The renderer ended while the tab was hidden: reload when shown
     /// (Chrome reloads a crashed background tab when it is selected).
     @ObservationIgnored var reloadWhenShown = false
+    /// URL of the last main-frame load that committed (Chromium's current
+    /// entry). Renderer debug URLs (chrome://crash) never commit.
+    @ObservationIgnored var committedURL: URL?
     @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
     @ObservationIgnored var nextFindID: Int32 = 1
     @ObservationIgnored var faviconTask: Task<Void, Never>?
@@ -196,7 +199,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     var reloadPlan: ReloadPlan {
-        guard state.processExit != nil, let url = state.url else { return .reloadEntry }
+        // With a committed entry Chromium reloads it (history kept); only a
+        // page that died before its first commit is loaded by URL.
+        guard state.processExit != nil, committedURL == nil, let url = state.url else { return .reloadEntry }
         return .load(url)
     }
 
