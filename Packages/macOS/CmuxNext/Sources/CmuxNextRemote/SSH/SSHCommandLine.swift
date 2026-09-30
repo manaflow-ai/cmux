@@ -53,6 +53,15 @@ public struct SSHCommandLine: Sendable {
         return argv
     }
 
+    /// `ssh … host <command>` for a remote command line that every login
+    /// shell reads the same (plain words, redirection, `&&`).
+    public func command(_ host: SSHHost, _ command: String) -> [String] {
+        var argv = [sshBinary, "-T"] + Self.enforcedOptions
+        if let port = host.destination.port { argv += ["-p", String(port)] }
+        argv += ["--", host.destination.sshArgument, command]
+        return argv
+    }
+
     /// Arguments for the bundled `cmux-tui` (the executable is the caller's).
     /// `--no-install`: cmux-tui's own npm bootstrap never runs; the app
     /// installs the pinned build after the user confirms (RemoteInstallPlan).

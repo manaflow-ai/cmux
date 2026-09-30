@@ -13,10 +13,31 @@ public struct RemotePlatform: Hashable, Sendable {
         self.arch = arch
     }
 
-    public init?(uname: String) { return nil }
+    /// `uname -s -m` output, for example `Linux x86_64` or `Darwin arm64`.
+    public init?(uname: String) {
+        let words = uname.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard words.count >= 2 else { return nil }
+        switch words[0] {
+        case "Linux": os = .linux
+        case "Darwin": os = .macOS
+        default: return nil
+        }
+        switch words[1] {
+        case "x86_64", "amd64": arch = .x86_64
+        case "aarch64", "arm64": arch = .arm64
+        default: return nil
+        }
+    }
 
-    public var artifact: String { "" }
-    public var label: String { "" }
+    /// The published binary name (`cmux-tui-<triple>`). Linux uses the
+    /// static musl build, which runs on any glibc or musl distribution.
+    public var artifact: String {
+        let cpu = arch == .x86_64 ? "x86_64" : "aarch64"
+        return os == .linux ? "cmux-tui-\(cpu)-unknown-linux-musl" : "cmux-tui-\(cpu)-apple-darwin"
+    }
+
+    /// `Linux x86_64`, `macOS arm64`.
+    public var label: String { "\(os == .linux ? "Linux" : "macOS") \(arch.rawValue)" }
 }
 
 /// `cmux-tui remote-probe --json`.
@@ -57,22 +78,46 @@ public struct SSHProbeReport: Hashable, Sendable {
         self.binary = binary
     }
 
-    public static func script(remoteBinary: String) -> String { "" }
+    static let unameMarker = "cmux-probe-uname:"
+    static let missingMarker = "cmux-probe-missing"
+    static let failedMarker = "cmux-probe-failed"
+    static let endMarker = "cmux-probe-end"
 
-    public static func parse(stdout: String) -> SSHProbeReport? { nil }
-}
+    /// A POSIX script for `sh -s` (one ssh round trip): the platform, then
+    /// the binary's own probe, each on marked lines so a login banner or
+    /// motd on stdout never confuses the parse.
+    public static func script(remoteBinary: String) -> String {
+        """
+        printf '%s ' '\(unameMarker)'; uname -s -m
+        B=\(RemotePath.shellWord(remoteBinary))
+        if [ -x "$B" ]; then
+          "$B" remote-probe --json 2>/dev/null || echo "\(failedMarker) $?"
+        else
+          echo '\(missingMarker)'
+        fi
+        echo '\(endMarker)'
 
-/// Whether a machine's cmux-tui must be installed or replaced before the
-/// app can attach.
-public enum InstallNeed: Hashable, Sendable {
-    case none
-    case missing
-    case unrunnable(String)
-    case protocolMismatch(remote: Int, local: Int)
-    case wrongApp(String)
-    case unsupportedPlatform
+        """
+    }
 
-    public static func assess(_ report: SSHProbeReport, localProtocol: Int) -> InstallNeed { .none }
-
-    public var canInstall: Bool { false }
+    /// Reads ``script(remoteBinary:)`` output; nil when it did not run to
+    /// its end marker.
+    public static func parse(stdout: String) -> SSHProbeReport? {
+        let lines = stdout.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let start = lines.lastIndex(where: { $0.hasPrefix(unameMarker) }),
+              let end = lines[start...].firstIndex(of: endMarker) else { return nil }
+        let platform = RemotePlatform(uname: String(lines[start].dropFirst(unameMarker.count)))
+        let body = lines[(start + 1)..<end].filter { !$0.isEmpty }
+        let binary: Binary
+        if body.contains(missingMarker) {
+            binary = .missing
+        } else if let failed = body.first(where: { $0.hasPrefix(failedMarker) }) {
+            binary = .unrunnable("exit " + failed.dropFirst(failedMarker.count).trimmingCharacters(in: .whitespaces))
+        } else if let json = body.first(where: { $0.hasPrefix("{") }), let probe = try? RemoteProbe.decode(json) {
+            binary = .installed(probe)
+        } else {
+            binary = .unrunnable(body.first ?? "no output")
+        }
+        return SSHProbeReport(platform: platform, binary: binary)
+    }
 }

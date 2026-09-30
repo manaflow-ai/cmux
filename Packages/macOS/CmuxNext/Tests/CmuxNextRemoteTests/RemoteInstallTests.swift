@@ -70,7 +70,8 @@ import Testing
         let plan = try RemoteInstallPlan(commit: Self.commit, platform: #require(RemotePlatform(uname: "Linux x86_64")),
                                          manifest: manifest(), remoteBinary: "/opt/me/cmux-tui")
         let script = plan.uploadScript
-        #expect(script.contains("cat >"))
+        #expect(plan.uploadCommand == "mkdir -p /opt/me && cat > /opt/me/.cmux-tui-c27a76e10acc.partial")
+        #expect(script.contains("/opt/me/.cmux-tui-c27a76e10acc.partial") || script.contains("$dir/.cmux-tui-c27a76e10acc.partial"))
         #expect(script.contains(Self.linuxSHA))
         #expect(script.contains("'/opt/me/cmux-tui'"))
         #expect(!script.contains("curl") && !script.contains("wget"))
