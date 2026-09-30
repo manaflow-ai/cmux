@@ -746,6 +746,7 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
                 resumeWithContinuation: localTmuxStartCommand == nil
                     ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
                     : nil
@@ -2204,6 +2205,7 @@ extension Workspace {
                 }
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
+            terminalPanel.restoreExplicitInputState(snapshot.terminal?.hasReceivedExplicitInput ?? true)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             armRestoredPanelTitleBoundary(
                 panelId: terminalPanel.id,

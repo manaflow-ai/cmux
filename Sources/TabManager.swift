@@ -2568,6 +2568,10 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            let closedWorkspaceGroupId = workspace.groupId
+            let closedWorkspaceWasGroupAnchor = closedWorkspaceGroupId.flatMap { groupId in
+                workspaces.workspaceGroups.first(where: { $0.id == groupId })?.liveAnchorWorkspaceId
+            } == workspace.id
             // Real-close path: if the closed workspace anchored a group, keep
             // the group by promoting its first remaining member (in tabs order)
             // to anchor so closing one workspace only closes that workspace and
@@ -2578,14 +2582,12 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            let orphanedGeneratedGroupIds = workspaces.workspaceGroups
-                .filter { group in
-                    group.anchorWorkspaceProvenance == .generated &&
-                    !workspaces.tabs.contains { $0.groupId == group.id && $0.id != group.anchorWorkspaceId }
-                }
-                .map(\.id)
-            for groupId in orphanedGeneratedGroupIds {
-                _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(groupId: groupId)
+            if let closedWorkspaceGroupId,
+               !closedWorkspaceWasGroupAnchor {
+                _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                    groupId: closedWorkspaceGroupId,
+                    additionalMovedWorkspaceIds: [workspace.id]
+                )
             }
 
             if selectedTabId == workspace.id,

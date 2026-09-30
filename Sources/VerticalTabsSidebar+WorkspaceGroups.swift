@@ -587,19 +587,28 @@ extension VerticalTabsSidebar {
         selectedTabIds: Binding<Set<UUID>>,
         lastSidebarSelectionIndex: Binding<Int?>
     ) {
+        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }),
+              let anchor = tabManager.workspaceGroupAnchor(for: groupId),
+              let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
+        let hasRealMember = tabManager.tabs.contains { $0.groupId == groupId && $0.id != anchor.id }
+        if group.anchorWorkspaceProvenance == .generated,
+           !hasRealMember,
+           tabManager.workspaceGroupGeneratedAnchorIsUntouched(anchor) {
+            tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+            return
+        }
+
         let anchorId: UUID
         if modifiers.contains(.command) || modifiers.contains(.shift) {
-            guard let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
             let selection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
                 current: selectedTabIds.wrappedValue,
-                clickedAnchorId: target.id,
+                clickedAnchorId: anchor.id,
                 anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             )
             selectedTabIds.wrappedValue = selection
             tabManager.selectWorkspace(target)
-            anchorId = target.id
+            anchorId = anchor.id
         } else {
-            guard let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
             tabManager.selectWorkspace(target)
             anchorId = target.id
             if selectedTabIds.wrappedValue != [anchorId] {

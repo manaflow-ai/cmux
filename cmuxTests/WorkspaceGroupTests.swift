@@ -1057,6 +1057,46 @@ struct WorkspaceGroupTests {
         #expect(manager.selectedTabId == generatedAnchor.id)
     }
 
+    @Test func generatedEmptyAnchorCommandClickKeepsHeaderSelection() throws {
+        let manager = makeTabManager()
+        let realMemberId = manager.tabs[0].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let generatedAnchorId = group.anchorWorkspaceId
+        manager.addWorkspaceToGroup(workspaceId: realMemberId, groupId: groupId)
+
+        var selectedIds = Set<UUID>()
+        var lastSelectionIndex: Int?
+        VerticalTabsSidebar.focusWorkspaceGroupAnchor(
+            groupId: groupId,
+            modifiers: [.command],
+            tabManager: manager,
+            selectedTabIds: Binding(get: { selectedIds }, set: { selectedIds = $0 }),
+            lastSidebarSelectionIndex: Binding(get: { lastSelectionIndex }, set: { lastSelectionIndex = $0 })
+        )
+
+        #expect(selectedIds == [generatedAnchorId])
+        #expect(manager.selectedTabId == realMemberId)
+        #expect(lastSelectionIndex == manager.tabs.firstIndex { $0.id == generatedAnchorId })
+    }
+
+    @Test func untouchedEmptyGeneratedAnchorHeaderTogglesCollapse() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        let selectedBefore = manager.selectedTabId
+
+        VerticalTabsSidebar.focusWorkspaceGroupAnchor(
+            groupId: groupId,
+            modifiers: [],
+            tabManager: manager,
+            selectedTabIds: Binding(get: { Set<UUID>() }, set: { _ in }),
+            lastSidebarSelectionIndex: Binding(get: { nil }, set: { _ in })
+        )
+
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.isCollapsed == true)
+        #expect(manager.selectedTabId == selectedBefore)
+    }
+
     @Test func closingSoleAnchorWorkspaceRemovesGroup() throws {
         let manager = makeTabManager()
         // Keep an ungrouped outsider so closeWorkspace's `tabs.count <= 1`

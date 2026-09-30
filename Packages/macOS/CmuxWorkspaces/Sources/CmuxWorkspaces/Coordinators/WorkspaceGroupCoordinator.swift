@@ -326,18 +326,28 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         model.assignGroup(workspaceId: workspaceId, groupId: nil)
         model.normalizeWorkspaceGroupContiguity()
-        if removeGeneratedAnchorIfOrphaned(groupId: groupId) {
+        if removeGeneratedAnchorIfOrphaned(
+            groupId: groupId,
+            additionalMovedWorkspaceIds: [workspaceId]
+        ) {
             return
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
     /// Removes an untouched generated anchor after its last real member leaves.
+    /// - Parameters:
+    ///   - groupId: The group whose generated anchor may be removed.
+    ///   - additionalMovedWorkspaceIds: Workspaces whose order changed with the cleanup.
     @discardableResult
-    public func removeGeneratedAnchorIfOrphaned(groupId: UUID) -> Bool {
+    public func removeGeneratedAnchorIfOrphaned(
+        groupId: UUID,
+        additionalMovedWorkspaceIds: [UUID] = []
+    ) -> Bool {
         guard let host,
               let group = model.workspaceGroups.first(where: { $0.id == groupId }),
               group.anchorWorkspaceProvenance == .generated,
+              !group.isPinned,
               let anchorId = group.liveAnchorWorkspaceId,
               let anchor = model.tabs.first(where: { $0.id == anchorId }),
               host.workspaceGroupGeneratedAnchorIsUntouched(anchor),
@@ -347,7 +357,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard case .removedGeneratedAnchor = removeGeneratedAnchorWorkspace(
             group: group,
             groupId: groupId,
-            memberIds: [anchorId]
+            memberIds: [anchorId],
+            additionalMovedWorkspaceIds: additionalMovedWorkspaceIds
         ) else {
             return false
         }

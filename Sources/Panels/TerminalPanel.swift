@@ -29,6 +29,10 @@ final class TerminalPanel: Panel, ObservableObject {
     func recordExplicitInput() {
         hasReceivedExplicitInput = true
     }
+
+    func restoreExplicitInputState(_ state: Bool) {
+        hasReceivedExplicitInput = state
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 

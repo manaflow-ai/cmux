@@ -22,7 +22,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         let anchorId = group.anchorWorkspaceId
         let staleMemberCount = model.tabs.filter { $0.groupId == groupId }.count
@@ -55,7 +57,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         #expect(groups.deletionConfirmation(groupId: groupId)?.memberCount ?? 0 > 1)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -70,7 +74,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let group = try #require(model.workspaceGroups.first { $0.id == groupId })
         let anchorId = group.anchorWorkspaceId
 
@@ -146,7 +152,9 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let second = CoordinatorStubTab()
         let lateJoiner = CoordinatorStubTab()
         model.tabs = [first, second, lateJoiner]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: first.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: second.id, groupId: groupId)
         let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
         #expect(confirmation.containedWorkspaceCount == 2)
 
