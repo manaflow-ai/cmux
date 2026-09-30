@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
@@ -222,17 +223,17 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closeStreaming(blocks), { kind: "status", text: evt.text }];
     case "plan": {
       const closed = closeStreaming(blocks);
-      const existingIndex = closed.findIndex((block) => block.kind === "plan");
+      let currentTurnStart = 0;
+      for (let index = closed.length - 1; index >= 0; index -= 1) {
+        if (closed[index]?.kind === "user") {
+          currentTurnStart = index + 1;
+          break;
+        }
+      }
+      const existingIndex = closed.findIndex((block, index) => index >= currentTurnStart && block.kind === "plan");
       const plan = { kind: "plan" as const, entries: evt.entries };
       if (existingIndex < 0) return [...closed, plan];
-      return closed.reduce<Block[]>((next, block, index) => {
-        if (block.kind === "plan") {
-          if (index === existingIndex) next.push(plan);
-        } else {
-          next.push(block);
-        }
-        return next;
-      }, []);
+      return closed.map((block, index) => (index === existingIndex ? plan : block));
     }
     default:
       return blocks;
@@ -444,19 +445,18 @@ export function useSession(): SessionState {
   }, []);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
-      wsRef.current = ws;
-      ws.onopen = () => {
+    const disconnect = openSessionConnection({
+      createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
+      onSocket: (ws) => { wsRef.current = ws; },
+      onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
-      };
-      ws.onmessage = (e) => {
+      },
+      onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
           case "hello": {
@@ -673,15 +673,12 @@ export function useSession(): SessionState {
             }
             break;
         }
-      };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
-    };
-    connect();
+      },
+    });
     return () => {
-      closed = true;
+      disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
-      wsRef.current?.close();
     };
   }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
