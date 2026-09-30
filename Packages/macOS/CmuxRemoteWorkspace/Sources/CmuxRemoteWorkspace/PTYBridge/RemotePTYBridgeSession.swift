@@ -174,7 +174,7 @@ extension RemotePTYBridgeServer {
             }
             guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any],
                   let receivedToken = payload["token"] as? String,
-                  RemoteRelayAuthentication.constantTimeEqual(receivedToken, token) else {
+                  receivedToken.constantTimeEquals(token) else {
                 close(detach: false)
                 return
             }

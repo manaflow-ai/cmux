@@ -48,8 +48,8 @@ struct RemoteRelayConstantTimeEqualTests {
         ("", "x", false),
     ])
     func comparesStrings(lhs: String, rhs: String, expected: Bool) {
-        #expect(RemoteRelayAuthentication.constantTimeEqual(lhs, rhs) == expected)
-        #expect(RemoteRelayAuthentication.constantTimeEqual(Data(lhs.utf8), Data(rhs.utf8)) == expected)
+        #expect(lhs.constantTimeEquals(rhs) == expected)
+        #expect(Data(lhs.utf8).constantTimeEquals(Data(rhs.utf8)) == expected)
     }
 }
 

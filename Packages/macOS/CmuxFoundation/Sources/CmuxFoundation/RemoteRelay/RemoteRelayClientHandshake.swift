@@ -66,15 +66,15 @@ public struct RemoteRelayClientHandshake: Sendable {
             throw Failure.nonceUnavailable
         }
 
-        let mac = RemoteRelayAuthentication.clientMAC(
-            token: relayToken,
+        let authentication = RemoteRelayAuthentication(token: relayToken)
+        let mac = authentication.clientMAC(
             relayID: relayID,
             nonce: nonce,
             version: version
         )
         let payload = try JSONSerialization.data(withJSONObject: [
             "relay_id": relayID,
-            "mac": RemoteRelayAuthentication.hexString(from: mac),
+            "mac": mac.relayHexString,
             "client_nonce": clientNonce,
         ])
         try writeLine(payload + Data([0x0A]))
@@ -85,16 +85,15 @@ public struct RemoteRelayClientHandshake: Sendable {
         }
         // Anyone who connected once has seen the relay ID, so only a proof
         // over this client's nonce shows the listener holds the relay token.
-        let expectedProof = RemoteRelayAuthentication.relayProofMAC(
-            token: relayToken,
+        let expectedProof = authentication.relayProofMAC(
             relayID: relayID,
             clientNonce: clientNonce,
             serverNonce: nonce,
             version: version
         )
         guard let proofHex = result["relay_mac"] as? String,
-              let receivedProof = RemoteRelayAuthentication.hexData(from: proofHex),
-              RemoteRelayAuthentication.constantTimeEqual(receivedProof, expectedProof) else {
+              let receivedProof = Data(relayHex: proofHex),
+              receivedProof.constantTimeEquals(expectedProof) else {
             throw Failure.relayNotProven
         }
     }
@@ -104,7 +103,7 @@ public struct RemoteRelayClientHandshake: Sendable {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
             return nil
         }
-        return RemoteRelayAuthentication.hexString(from: Data(bytes))
+        return Data(bytes).relayHexString
     }
 
     private static func jsonObject(_ line: String) -> [String: Any]? {

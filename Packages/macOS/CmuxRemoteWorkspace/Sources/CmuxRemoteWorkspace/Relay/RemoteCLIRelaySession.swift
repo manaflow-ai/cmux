@@ -227,13 +227,13 @@ extension RemoteCLIRelayServer {
                 return
             }
 
-            let expectedMAC = RemoteRelayAuthentication.clientMAC(
-                token: relayToken,
+            let authentication = RemoteRelayAuthentication(token: relayToken)
+            let expectedMAC = authentication.clientMAC(
                 relayID: relayID,
                 nonce: challengeNonce,
                 version: challengeVersion
             )
-            guard RemoteRelayAuthentication.constantTimeEqual(receivedMAC, expectedMAC) else {
+            guard receivedMAC.constantTimeEquals(expectedMAC) else {
                 sendFailureAndClose()
                 return
             }
@@ -249,14 +249,13 @@ extension RemoteCLIRelayServer {
                     sendFailureAndClose()
                     return
                 }
-                let proof = RemoteRelayAuthentication.relayProofMAC(
-                    token: relayToken,
+                let proof = authentication.relayProofMAC(
                     relayID: relayID,
                     clientNonce: clientNonce,
                     serverNonce: challengeNonce,
                     version: challengeVersion
                 )
-                success["relay_mac"] = RemoteRelayAuthentication.hexString(from: proof)
+                success["relay_mac"] = proof.relayHexString
             }
 
             guard admitAuthenticated() else {
@@ -455,7 +454,7 @@ extension RemoteCLIRelayServer {
         }
 
         static func hexData(from string: String) -> Data? {
-            RemoteRelayAuthentication.hexData(from: string)
+            Data(relayHex: string)
         }
 
         private static func randomHex(byteCount: Int) -> String? {
