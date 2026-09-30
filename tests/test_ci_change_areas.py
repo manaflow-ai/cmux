@@ -6766,7 +6766,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || (matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true') || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
