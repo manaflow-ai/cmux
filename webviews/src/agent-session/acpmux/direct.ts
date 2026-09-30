@@ -47,6 +47,13 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
 }
 
+export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string>, superseded: Set<string>, oldMessageId: string): void {
+  superseded.add(oldMessageId);
+  const rowId = messageRows.get(oldMessageId);
+  if (rowId) rows.delete(rowId);
+  messageRows.delete(oldMessageId);
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
@@ -77,9 +84,16 @@ export class AcpmuxDirectClient {
   private lastSeq = 0;
   private turnOpen = false;
   private streamingAssistant?: string;
+  private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
+  private supersededMessageIds = new Set<string>();
+  private messageRows = new Map<string, string>();
   private readonly listener: Listener;
   private readonly host: AcpmuxHostConfig;
+  private reconnectTimer?: number;
+  private opening = false;
+  private hasConnected = false;
+  private closed = false;
 
   private constructor(host: AcpmuxHostConfig, listener: Listener) {
     this.host = host;
@@ -94,28 +108,50 @@ export class AcpmuxDirectClient {
   }
 
   private async open(): Promise<void> {
+    if (this.opening || this.closed) return;
+    this.opening = true;
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
     await new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;
-      socket.onopen = () => resolve();
-      socket.onerror = () => reject(new Error("Unable to connect to acpmux WebSocket"));
+      let opened = false;
+      socket.onopen = () => { opened = true; resolve(); };
+      socket.onerror = () => { this.opening = false; reject(new Error("Unable to connect to acpmux WebSocket")); };
       socket.onclose = () => {
+        if (this.socket !== socket) return;
+        if (!opened) { this.opening = false; reject(new Error("acpmux WebSocket closed before connect")); return; }
         for (const request of this.pending.values()) request.reject(new Error("acpmux WebSocket closed"));
         this.pending.clear();
         this.emit("disconnected");
+        if (this.hasConnected && !this.closed) this.scheduleReconnect();
       };
       socket.onmessage = (message) => this.receive(String(message.data));
     });
-    await this.request("initialize", { protocolVersion: 1, clientInfo: { name: "cmux-react-agent-pane", version: "1" }, clientCapabilities: {} });
-    const watched = await this.request("_acpmux/watch", { enabled: true });
-    this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
-    const harnesses = await this.request("_acpmux/harnesses", {});
-    this.catalog = normalizeCatalog(harnesses);
-    if (!this.selectedSessionId) this.selectedSessionId = this.sessions[0]?.sessionId;
-    if (this.selectedSessionId) await this.attach(this.selectedSessionId);
-    this.emit("connected");
+    try {
+      await this.request("initialize", { protocolVersion: 1, clientInfo: { name: "cmux-react-agent-pane", version: "1" }, clientCapabilities: {} });
+      const watched = await this.request("_acpmux/watch", { enabled: true });
+      this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
+      const harnesses = await this.request("_acpmux/harnesses", {});
+      this.catalog = normalizeCatalog(harnesses);
+      if (!this.selectedSessionId) this.selectedSessionId = this.sessions[0]?.sessionId;
+      if (this.selectedSessionId) await this.attach(this.selectedSessionId);
+      this.hasConnected = true;
+      this.emit("connected");
+    } catch (error) {
+      this.socket?.close();
+      throw error;
+    } finally {
+      this.opening = false;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== undefined || this.closed) return;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.open().catch(() => this.scheduleReconnect());
+    }, 250);
   }
 
   private receive(raw: string): void {
@@ -166,6 +202,20 @@ export class AcpmuxDirectClient {
 
   private sessionChanged(params: any): void {
     const session = params?.session;
+    if (params?.kind === "purged" && session?.sessionId) {
+      this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
+      if (session.sessionId === this.selectedSessionId) {
+        this.selectedSessionId = this.sessions[0]?.sessionId;
+        this.events = [];
+        this.rows.clear();
+        this.firstSeq = undefined;
+        this.lastSeq = 0;
+        this.summary = undefined;
+        this.pendingPermission = undefined;
+        this.emit("session purged");
+      }
+      return;
+    }
     if (!session?.sessionId) return;
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
@@ -192,7 +242,7 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
-    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingActivity = undefined; this.pendingPermission = undefined;
+    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -210,7 +260,14 @@ export class AcpmuxDirectClient {
         this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
       }
       else if (event.kind === "turn_started") { this.turnOpen = true; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
-      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: [...this.rows.values()].filter((row) => row.kind === "activity").length, status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingActivity = undefined; }
+      else if (event.kind === "message_superseded") {
+        const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
+        if (oldMessageId) {
+          applySupersededMessage(this.rows, this.messageRows, this.supersededMessageIds, oldMessageId);
+          if (this.streamingAssistantMessageId === oldMessageId) { this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; }
+        }
+      }
+      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: [...this.rows.values()].filter((row) => row.kind === "activity").length, status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
       else if (event.kind === "queued" || event.kind === "queue_updated") { const id = String(msg.promptId ?? ""); if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }]; }
       else if (event.kind === "queue_removed" || event.kind === "dequeued") this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
       else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -221,9 +278,12 @@ export class AcpmuxDirectClient {
     if (!update) return;
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
-      const id = this.streamingAssistant ?? `assistant-${event.seq}`;
+      const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
+      if (messageId && this.supersededMessageIds.has(messageId)) return;
+      const sameMessage = Boolean(this.streamingAssistant && (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId));
+      const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.rows.delete("typing");
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
@@ -241,8 +301,9 @@ export class AcpmuxDirectClient {
   }
 
   snapshot(): void { this.emit(); }
-  async send(text: string): Promise<void> {
-    if (!this.selectedSessionId) return;
+  async send(text: string): Promise<string | undefined> {
+    if (!this.selectedSessionId) await this.create();
+    if (!this.selectedSessionId) return undefined;
     const promptId = crypto.randomUUID(); const rowId = `local-${promptId}`; const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId); this.optimisticPromptTexts.set(promptId, text);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true }); this.emit();
@@ -254,16 +315,31 @@ export class AcpmuxDirectClient {
       this.optimisticPromptRows.delete(promptId); this.optimisticPromptTexts.delete(promptId); this.emit("failed");
       throw error;
     }
+    return this.selectedSessionId;
   }
   async cancel(): Promise<void> { if (this.selectedSessionId) this.socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } })); }
   async permission(permissionId: string, optionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId }); }
-  async select(sessionId: string): Promise<void> { if (this.selectedSessionId) await this.request("_acpmux/detach", { sessionId: this.selectedSessionId }); this.events = []; this.rows.clear(); await this.attach(sessionId); }
-  async create(harness?: string): Promise<void> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) await this.select(String(result.sessionId)); }
+  async select(sessionId: string): Promise<string> {
+    const previousSessionId = this.selectedSessionId;
+    this.selectedSessionId = sessionId;
+    this.events = [];
+    this.rows.clear();
+    this.firstSeq = undefined;
+    this.lastSeq = 0;
+    this.turnOpen = false;
+    this.streamingAssistant = undefined;
+    this.streamingActivity = undefined;
+    this.pendingPermission = undefined;
+    if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
+    await this.attach(sessionId);
+    return sessionId;
+  }
+  async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
   async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
   async loadOlder(): Promise<void> { if (this.selectedSessionId && this.firstSeq && this.firstSeq > 1) await this.attach(this.selectedSessionId, this.firstSeq); }
-  close(): void { this.socket?.close(); this.socket = undefined; }
+  close(): void { this.closed = true; if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.socket?.close(); this.socket = undefined; }
 }
 
 function normalizeCatalog(value: any): any[] {
