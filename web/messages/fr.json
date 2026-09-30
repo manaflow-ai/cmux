@@ -2085,7 +2085,12 @@
           "compactAgentStatus": "Afficher chaque espace de travail sur une seule ligne : une icône colorée avant le titre indique l’état de l’agent, des éléments non lus et de la pull request, et remplace les lignes de statut des agents (par exemple En cours ou Saisie requise), la ligne de branche et de dossier et les lignes de pull request, dont les détails passent dans l’infobulle de l’icône. Les autres entrées de statut gardent leurs lignes.",
           "compactStatusIcons": "Noms de SF Symbols qui remplacent le glyphe compactAgentStatus pour chaque état, par exemple {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Les états non définis gardent le symbole intégré, et un nom qui ne s’affiche pas revient à celui-ci.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
-          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique.",
+          "beta": {
+            "conversations": {
+              "enabled": "Afficher la vue unifiée des conversations dans le sélecteur de la barre latérale."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
@@ -2293,7 +2298,8 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "fileEditorWordWrap": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers (Option+Z)."
     },
     "api": {
       "title": "Référence CLI",
@@ -2733,7 +2739,8 @@
       "maxLinesSetting": "TextBox Max Lines limite la hauteur de TextBox avant que son contenu ne défile.",
       "configTitle": "cmux.json",
       "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
-      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
+      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal.",
+      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",

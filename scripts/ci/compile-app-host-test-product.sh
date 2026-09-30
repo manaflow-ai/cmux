@@ -5,11 +5,11 @@
 #
 # Compiles the app-host test product with Xcode's compilation cache on for
 # every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). cmuxTests also emits no Swift module. ci.yml
-# `macos-compile-admission` restores that cache read-only and nightly.yml
-# `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
-# whole compiler invocation and on absolute paths, so both jobs must build
-# through this script or they stop sharing hits without anything failing.
+# build()). cmuxTests also emits no Swift module. Owned minis add the deployed
+# fleet-cas node's remote settings; other runners use the local CAS path and
+# the scheduled seed writer. A cache entry is keyed on the whole compiler
+# invocation and on absolute paths, so both jobs must build through this
+# script or they stop sharing hits without anything failing.
 #
 # `fingerprint` keys the cache. A cache entry bakes in the absolute source and
 # derived-data paths, so which paths the build used decides whether a seed can
@@ -228,6 +228,15 @@ build() {
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
     CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+    # Keep cache keys stable when a PR runner's checkout and DerivedData live
+    # under a different absolute root than the fleet CAS writer.
+    SWIFT_ENABLE_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PREFIX_MAPPING=YES
+    SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    # Xcode 26.6 emits one bounded remark per cache query. The build metrics
+    # receipt turns those remarks into cacheable-task and hit counters.
+    COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
     'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
@@ -245,6 +254,37 @@ build() {
   # with the cache on (1 task, run 36081880621), so it keeps the cache there.
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  fi
+  # Owned minis carry the fleet-cas node installed by glaeda. Its settings
+  # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
+  # runners simply keep the local CAS path above. The helper is probed once
+  # per build and is advisory, so a down node never refuses a CI job.
+  local -a fleet_cache_setting=()
+  local fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
+  local fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
+  local fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"
+  if [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
+    local fleet_settings=''
+    fleet_settings="$("$fleet_cas_settings" "$fleet_cas_socket" 2>/dev/null | head -n 8)" || fleet_settings=''
+    local fleet_plugin_ok=0
+    local fleet_remote_ok=0
+    while IFS= read -r setting; do
+      case "$setting" in
+        COMPILATION_CACHE_ENABLE_PLUGIN=YES) fleet_plugin_ok=1 ;;
+        COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*) fleet_remote_ok=1 ;;
+        COMPILATION_CACHE_CAS_PATH=/*) ;;
+      esac
+    done <<< "$fleet_settings"
+    if [ "$fleet_plugin_ok" -eq 1 ] && [ "$fleet_remote_ok" -eq 1 ]; then
+      fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
+      while IFS= read -r setting; do
+        case "$setting" in
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
+            fleet_cache_setting+=("$setting")
+            ;;
+        esac
+      done <<< "$fleet_settings"
+    fi
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
@@ -280,6 +320,7 @@ build() {
       "${cache_setting[@]}" \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${fleet_cache_setting[@]+"${fleet_cache_setting[@]}"} \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"

@@ -1352,6 +1352,18 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "description": "Experimental sidebar features.",
           "properties": {
+            "conversations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.conversations.enabled",
+                  "description": "Show the unified Conversations view in the sidebar picker."
+                }
+              }
+            },
             "workspaceTodos": {
               "type": "object",
               "additionalProperties": false,
