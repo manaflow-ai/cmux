@@ -17,8 +17,8 @@ run the six-step streamed-terminal driver in
      iroh-v2 + presence (workerd),        builds Mac + iOS apps,
      Postgres, iroh-relay                 fresh simulator, 6 steps
                   ^                                 |
-                  +-- HTTPS :443 iroh-v2 -----------+
-                  +-- HTTPS :8443 presence ---------+
+                  +-- HTTPS :8443 iroh-v2 ----------+
+                  +-- HTTPS :8444 presence ---------+
                   +-- HTTPS :10000 relay (terminal) +
                   +-- SSH :22 as runner (release) --+
 ```
@@ -49,17 +49,49 @@ services on the path under test:
 
 | Service | Why the path needs it | Origin |
 | --- | --- | --- |
-| `workers/iroh-v2` (`TeamControl`, `UserUsage` Durable Objects) | API tickets, challenges, device registration, directory/advertise, relay credentials | `https://<backend>` |
-| `workers/presence` (`TeamPresence`, `AccountControlPlane`, `WorkspacePresence`) | Heartbeat, subscribe, reply relay | `https://<backend>:8443` |
-| `iroh-relay` 1.0.2 (n0 release, SHA-256 pinned) | The relay-only terminal path | `https://<backend>:10000` |
+| `workers/iroh-v2` (`TeamControl`, `UserUsage` Durable Objects) | API tickets, challenges, device registration, directory/advertise, relay credentials | `https://<name>:8443` |
+| `workers/presence` (`TeamPresence`, `AccountControlPlane`, `WorkspacePresence`) | Heartbeat, subscribe, reply relay | `https://<name>:8444` |
+| `iroh-relay` 1.0.2 (n0 release, SHA-256 pinned) | The relay-only terminal path | `https://<name>:10000` |
 | Postgres 16 | iroh-v2's endpoint ownership tables | runner-local |
 
 Nothing is built. Both Workers run in local workerd (`wrangler dev`), so their
 Durable Object state starts empty every run and nothing is deployed to
-Cloudflare. Tailscale Serve publishes the three origins with the runner's
-public `ts.net` certificate. iroh-v2 connects to Postgres with verified TLS, so
-Postgres serves the same `tailscale cert` certificate on the runner's tailnet
-address.
+Cloudflare. Nothing is reachable from the internet: the services listen on
+loopback, and a TLS front listens only on the runner's tailnet address.
+
+### TLS
+
+Every origin's host is one fixed name, `cmux-e2e-backend.tail137216.ts.net`
+(`<name>` above). The apps accept only `https` origins, and the iOS Iroh
+client checks relay TLS against built-in public roots (`iroh-ffi`
+`src/relay_tls.rs`), so a private CA cannot serve the relay. A Tailscale
+certificate for each run's own hostname took 37 s per run and would exhaust
+Let's Encrypt's 50 new certificates per week for the tailnet domain (`ts.net`
+is on the Public Suffix List).
+
+So the name's publicly trusted certificate is issued once, about every 60
+days, and stored in the `ios-e2e` environment as `CMUX_E2E_TLS_CERT` and
+`CMUX_E2E_TLS_KEY`. No tailnet node keeps the name. The macOS runner maps it in
+`/etc/hosts` to this run's backend runner (`backend-env.sh hosts`); the
+simulator shares that resolver. The backend maps it to loopback for Postgres.
+[scripts/e2e/tls-forward.mjs](../../scripts/e2e/tls-forward.mjs) terminates TLS
+and forwards bytes, so WebSockets and the relay protocol pass through
+unchanged. Postgres serves the same certificate, so iroh-v2's verified-TLS
+connection needs no test-only switch in product code.
+
+### Renewing the backend certificate
+
+`backend-up.sh` warns when the certificate has fewer than 21 days left and
+fails the run at 7. Renew from a cmuxterm-hq checkout with tsadmin access:
+
+```bash
+./scripts/ios-e2e-backend-cert.sh
+```
+
+It creates the `cmux-e2e-backend` node for a moment with a one-use,
+ephemeral, 10-minute `tag:e2e-backend` key, runs `tailscale cert`, stores the
+result in the environment, and always revokes the key, logs the node out,
+stops its daemon and deletes its temp directory.
 
 The relay is the upstream server that `manaflow-ai/cmux-relay` wraps, without
 cmux-relay's credential check (that repository tests it). iroh-v2 signs relay
@@ -78,7 +110,8 @@ shared staging through `CMUX_DEV_BACKEND_MODE=local` and
 and `CMUX_PRESENCE_BASE_URL`; the reload scripts bake them into both apps, and
 the Mac's presence origin is also written to its `presenceServiceURL` default.
 
-Speed: sparse checkout of the three paths the backend runs; Bun's package
+Speed: sparse checkout of the three paths the backend runs; no certificate
+issuance and no Tailscale Serve; Bun's package
 cache restored with `actions/cache` (Blacksmith-backed); both installs and the
 Postgres image pull run in parallel; the relay tarball is cached; Postgres runs
 without fsync; both Workers, the relay and Postgres start concurrently and each
@@ -114,6 +147,7 @@ repository variables `TS_E2E_OIDC_CLIENT_ID` and `TS_E2E_OIDC_AUDIENCE`.
 | Secret | Scope | Job | Purpose |
 | --- | --- | --- | --- |
 | `CMUX_E2E_STACK_PROJECT_ID` / `CMUX_E2E_STACK_PUBLISHABLE_KEY` / `CMUX_E2E_STACK_SERVER_KEY` | environment `ios-e2e` | `backend` | The dev Stack project of the CI account; the Workers verify the apps' tokens against it. |
+| `CMUX_E2E_TLS_CERT` / `CMUX_E2E_TLS_KEY` | environment `ios-e2e` | `backend` | Certificate chain and key for the backend's fixed name ([TLS](#tls)). Its key can only impersonate that name, which no real service uses. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | repository | `mac-ios-e2e` | The CI Stack account both apps sign into. |
 
 ## Tailscale ACL requirements
@@ -121,7 +155,7 @@ repository variables `TS_E2E_OIDC_CLIENT_ID` and `TS_E2E_OIDC_AUDIENCE`.
 The policy is cmuxterm-hq `skills/infra/tsadmin/acl.manaflow.hujson`, with a
 policy test for each rule:
 
-- `tag:ci` to `tag:e2e-backend` on TCP 443, 8443 and 10000. The relay has no
+- `tag:ci` to `tag:e2e-backend` on TCP 8443, 8444 and 10000. The relay has no
   authentication of its own, so this rule is its access control. Postgres and
   the local Worker and relay ports stay closed.
 - `tag:ci` to `tag:e2e-backend` on TCP 22, with Tailscale SSH for `runner`
@@ -158,8 +192,9 @@ retention on every run.
    lane has a stable pass rate and infrastructure failures are understood.
 
 Dictionary: **Tailscale SSH** means SSH authorization supplied by the
-Tailscale ACL and node identity instead of a private key; **Serve** means a
-tailnet-only HTTPS listener forwarding to a runner-local service; **OIDC
+Tailscale ACL and node identity instead of a private key; **TLS front** means
+the process that holds the certificate and forwards decrypted bytes to a
+loopback service; **OIDC
 identity** means a Tailscale credential GitHub proves with a short-lived
 signed token, so no long-lived secret is stored; **relay-only**
 means Iroh is prevented from selecting a direct peer path; **aggregate** means

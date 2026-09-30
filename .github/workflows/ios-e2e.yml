@@ -45,7 +45,11 @@ env:
   # both run, and job outputs only publish when a job completes. run_attempt
   # keeps a rerun from colliding with a not-yet-expired ephemeral node.
   CMUX_E2E_BACKEND_TAILNET_HOSTNAME: cmux-e2e-backend-${{ github.run_id }}-${{ github.run_attempt }}
-  CMUX_E2E_BACKEND_FQDN: cmux-e2e-backend-${{ github.run_id }}-${{ github.run_attempt }}.tail137216.ts.net
+  # Host of every backend origin. Its publicly trusted certificate was issued
+  # once (ios-e2e secrets CMUX_E2E_TLS_CERT/KEY); no node carries the name,
+  # and each runner maps it in /etc/hosts to this run's backend
+  # (docs/ci/ios-e2e.md#tls).
+  CMUX_E2E_BACKEND_NAME: cmux-e2e-backend.tail137216.ts.net
   # Released by the macOS job over Tailscale SSH (no GitHub API polling).
   CMUX_E2E_BACKEND_DONE_FILE: /tmp/e2e-backend-done-${{ github.run_id }}-${{ github.run_attempt }}
   # iroh-relay release the backend serves: the version manaflow-ai/cmux-relay
@@ -231,9 +235,6 @@ jobs:
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:e2e-backend
           hostname: ${{ env.CMUX_E2E_BACKEND_TAILNET_HOSTNAME }}
-          # `tailscale cert` (Postgres TLS) and Serve need a state directory;
-          # without one tailscaled has no var root.
-          statedir: ${{ runner.temp }}/tailscale-state
           # Tailscale SSH server: the macOS job releases this holder as
           # `runner`, the only SSH the ACL grants into tag:e2e-backend.
           args: --ssh
@@ -254,6 +255,8 @@ jobs:
           CMUX_E2E_STACK_PROJECT_ID: ${{ secrets.CMUX_E2E_STACK_PROJECT_ID }}
           CMUX_E2E_STACK_PUBLISHABLE_KEY: ${{ secrets.CMUX_E2E_STACK_PUBLISHABLE_KEY }}
           CMUX_E2E_STACK_SERVER_KEY: ${{ secrets.CMUX_E2E_STACK_SERVER_KEY }}
+          CMUX_E2E_TLS_CERT: ${{ secrets.CMUX_E2E_TLS_CERT }}
+          CMUX_E2E_TLS_KEY: ${{ secrets.CMUX_E2E_TLS_KEY }}
         run: ./scripts/e2e/backend-up.sh up
 
       - name: Serve until the macOS job finishes
@@ -431,8 +434,11 @@ jobs:
 
       - name: Wait for the per-run backend
         # Normally already up: it started while the apps were compiling.
-        timeout-minutes: 6
-        run: ./scripts/e2e/backend-env.sh wait 300
+        timeout-minutes: 11
+        run: |
+          set -euo pipefail
+          ./scripts/e2e/backend-env.sh hosts 300
+          ./scripts/e2e/backend-env.sh wait 300
 
       - name: Sign in and pair simulator
         run: |
@@ -491,12 +497,13 @@ jobs:
         # Always, pass or fail: this touch ends the backend job's hold. It rides
         # Tailscale SSH as `runner`, the only SSH the ACL grants into
         # tag:e2e-backend. Best-effort: a missed signal only costs the backend
-        # its own bounded wait.
+        # its own bounded wait. The /etc/hosts line goes too.
         if: always()
         run: |
           ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             "runner@${CMUX_E2E_BACKEND_TAILNET_HOSTNAME}" "touch '${CMUX_E2E_BACKEND_DONE_FILE}'" \
             || echo "::warning::[infra-preflight] could not release ${CMUX_E2E_BACKEND_TAILNET_HOSTNAME}; its hold expires at its own bound"
+          ./scripts/e2e/backend-env.sh unhosts
 
       - name: Remove CI auth profile
         if: always()

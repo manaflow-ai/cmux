@@ -9,11 +9,13 @@ signed in, paired, and connected.
 ## backend-up.sh and backend-env.sh
 
 `backend-up.sh up` starts this run's backend on the Linux runner: the iroh-v2
-and presence Workers in local workerd, Postgres, and iroh-relay, published by
-Tailscale Serve on the runner's tailnet name, with per-phase timings in the
-step summary. `backend-up.sh hold` serves until `CMUX_E2E_BACKEND_DONE_FILE`
-appears. `backend-env.sh env` prints the app-side origins for that name, and
-`backend-env.sh wait` blocks until both Workers answer. Contract:
+and presence Workers in local workerd, Postgres, and iroh-relay behind
+`tls-forward.mjs` on the runner's tailnet address, with per-phase timings in
+the step summary. `backend-up.sh hold` serves until `CMUX_E2E_BACKEND_DONE_FILE`
+appears, and `backend-up.sh down` removes everything `up` created.
+`backend-env.sh env` prints the app-side origins, `hosts` and `unhosts` map
+and unmap the fixed name in `/etc/hosts`, and `wait` blocks until both Workers
+answer. Contract:
 [docs/ci/ios-e2e.md](../../docs/ci/ios-e2e.md#per-run-backend).
 
 ## ios-e2e-run.sh

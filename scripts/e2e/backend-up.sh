@@ -6,11 +6,11 @@
 # production relay fleet:
 #   - workers/iroh-v2   (TeamControl/UserUsage Durable Objects: API tickets,
 #                        device registration, directory/advertise, relay
-#                        credentials)                         -> https://$FQDN
+#                        credentials)                         -> https://$NAME:8443
 #   - workers/presence  (TeamPresence/AccountControlPlane/WorkspacePresence
-#                        Durable Objects)                     -> https://$FQDN:8443
+#                        Durable Objects)                     -> https://$NAME:8444
 #   - iroh-relay        (upstream n0 relay server, the version cmux-relay
-#                        wraps)                               -> https://$FQDN:10000
+#                        wraps)                               -> https://$NAME:10000
 #   - Postgres 16       (iroh-v2's endpoint ownership tables)
 # web/ (Next.js) is deliberately absent: sign-in goes to Stack directly and
 # pairing, advertise and relay credentials go through iroh-v2. The apps' web
@@ -25,14 +25,21 @@
 #
 # Both Workers run in local workerd (`wrangler dev`), so Durable Object state
 # starts empty every run, nothing is built, and nothing is deployed to
-# Cloudflare. Tailscale Serve publishes the HTTPS origins on the runner's
-# tailnet name with a public certificate, which the apps require.
+# Cloudflare.
 #
-# iroh-v2 connects to Postgres with rejectUnauthorized TLS. Postgres therefore
-# serves the same `tailscale cert` certificate on the runner's own tailnet
-# address, so the Worker's connection verifies against a public CA without
-# any test-only TLS switch in product code. The tailnet ACL exposes only the
-# Serve ports of tag:e2e-backend, so 5432 is unreachable from peers.
+# TLS: every origin uses one fixed name, $NAME (cmux-e2e-backend on the
+# tailnet domain), whose publicly trusted certificate was issued once and is
+# stored in the ios-e2e environment. The apps require https, and the iOS Iroh
+# client checks relay TLS against built-in public roots, so a private CA would
+# not do; a certificate per run would exhaust Let's Encrypt's weekly limit for
+# the tailnet domain. No node carries that name: each runner maps it in
+# /etc/hosts (the macOS runner to this runner's tailnet address, this runner
+# to loopback for Postgres). scripts/e2e/tls-forward.mjs terminates TLS on the
+# tailnet address and forwards bytes to the loopback services; Postgres serves
+# the same certificate itself, so iroh-v2's rejectUnauthorized connection
+# verifies with no test-only switch in product code. The ACL opens only 8443,
+# 8444 and 10000 of tag:e2e-backend, so nothing here is reachable from the
+# internet or from any other tailnet node.
 #
 # Usage: backend-up.sh up     start and health-check everything, then return
 #        backend-up.sh hold   block until CMUX_E2E_BACKEND_DONE_FILE appears
@@ -41,7 +48,8 @@
 #                             run after any partial `up`, and more than once
 #
 # Env contract (docs/ci/ios-e2e.md#per-run-backend):
-#   CMUX_E2E_BACKEND_FQDN            tailnet name this runner joined with
+#   CMUX_E2E_BACKEND_NAME            fixed certificate name (the origins' host)
+#   CMUX_E2E_TLS_CERT / _KEY         its certificate chain and key (PEM)
 #   CMUX_E2E_BACKEND_STATE_DIR       scratch dir (default $RUNNER_TEMP/e2e-backend)
 #   CMUX_E2E_STACK_PROJECT_ID        dev Stack project (same as the CI account)
 #   CMUX_E2E_STACK_PUBLISHABLE_KEY
@@ -56,13 +64,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-FQDN="${CMUX_E2E_BACKEND_FQDN:?CMUX_E2E_BACKEND_FQDN is required}"
+NAME="${CMUX_E2E_BACKEND_NAME:?CMUX_E2E_BACKEND_NAME is required}"
 STATE="${CMUX_E2E_BACKEND_STATE_DIR:-${RUNNER_TEMP:-/tmp}/e2e-backend}"
 LOGS="$STATE/logs"
 
 IROH_V2_PORT=8787
 PRESENCE_PORT=8788
 RELAY_PORT=3341
+HOSTS_MARKER="# cmux-e2e-backend (scripts/e2e/backend-up.sh)"
 PG_CONTAINER=cmux-e2e-postgres
 PG_IMAGE=postgres:16-alpine
 
@@ -101,30 +110,43 @@ wait_http() {
 require_secrets() {
   local key missing=()
   for key in CMUX_E2E_STACK_PROJECT_ID CMUX_E2E_STACK_PUBLISHABLE_KEY \
-      CMUX_E2E_STACK_SERVER_KEY CMUX_E2E_IROH_RELAY_BIN; do
+      CMUX_E2E_STACK_SERVER_KEY CMUX_E2E_IROH_RELAY_BIN CMUX_E2E_TLS_CERT CMUX_E2E_TLS_KEY; do
     [[ -n "${!key:-}" ]] || missing+=("$key")
   done
   (( ${#missing[@]} == 0 )) || die config "missing ${missing[*]} (docs/ci/ios-e2e.md#secrets-and-tailnet-identity)"
   [[ -x "$CMUX_E2E_IROH_RELAY_BIN" ]] || die config "iroh-relay not executable at $CMUX_E2E_IROH_RELAY_BIN"
 }
 
-start_postgres() {
-  local ts_ip="$1" pg_password="$2"
+# Writes the fixed-name certificate to disk and checks it still has time left.
+# Renewal is a manual step (docs/ci/ios-e2e.md#renewing-the-backend-certificate);
+# the warning gives three weeks' notice, the error stops runs it cannot serve.
+install_certificate() {
   mkdir -p "$STATE/tls"
-  # shellcheck disable=SC2024 # the log is runner-owned on purpose
-  sudo tailscale cert --cert-file "$STATE/tls/tls.crt" --key-file "$STATE/tls/tls.key" "$FQDN" \
-    >"$LOGS/tls.log" 2>&1 || die tls "tailscale cert failed for $FQDN (HTTPS certificates enabled on the tailnet?)"
-  # postgres:16-alpine runs as uid 70 and refuses a group/world-readable key.
-  sudo chown 70:70 "$STATE/tls/tls.crt" "$STATE/tls/tls.key"
-  sudo chmod 600 "$STATE/tls/tls.key"
-  timing "tls cert"
+  (umask 077; printf '%s\n' "$CMUX_E2E_TLS_CERT" >"$STATE/tls/tls.crt"; printf '%s\n' "$CMUX_E2E_TLS_KEY" >"$STATE/tls/tls.key")
+  openssl x509 -in "$STATE/tls/tls.crt" -noout -checkhost "$NAME" 2>/dev/null | grep -q 'does match' \
+    || die tls "certificate does not cover $NAME"
+  openssl x509 -in "$STATE/tls/tls.crt" -noout -checkend $(( 7 * 86400 )) >/dev/null \
+    || die tls "certificate for $NAME expires within 7 days; renew it (docs/ci/ios-e2e.md#renewing-the-backend-certificate)"
+  openssl x509 -in "$STATE/tls/tls.crt" -noout -checkend $(( 21 * 86400 )) >/dev/null \
+    || echo "::warning::backend certificate for $NAME expires within 21 days; renew it (docs/ci/ios-e2e.md#renewing-the-backend-certificate)"
+  # Postgres resolves the name to loopback, where it listens.
+  printf '127.0.0.1 %s %s\n' "$NAME" "$HOSTS_MARKER" | sudo tee -a /etc/hosts >/dev/null
+}
 
-  # Only the tailnet address, for iroh-v2's verified-TLS connection by name.
-  # Never 0.0.0.0. fsync off: the database lives for one run.
+start_postgres() {
+  local pg_password="$1"
+  # postgres:16-alpine runs as uid 70 and refuses a group/world-readable key.
+  mkdir -p "$STATE/pg-tls"
+  cp "$STATE/tls/tls.crt" "$STATE/tls/tls.key" "$STATE/pg-tls/"
+  sudo chown 70:70 "$STATE/pg-tls/tls.crt" "$STATE/pg-tls/tls.key"
+  sudo chmod 600 "$STATE/pg-tls/tls.key"
+
+  # Loopback only; iroh-v2 reaches it by the certificate's name, which
+  # /etc/hosts maps to 127.0.0.1. fsync off: the database lives for one run.
   docker run -d --name "$PG_CONTAINER" \
-    -p "$ts_ip:5432:5432" \
+    -p "127.0.0.1:5432:5432" \
     -e POSTGRES_USER=cmux -e POSTGRES_PASSWORD="$pg_password" -e POSTGRES_DB=cmux_v2 \
-    -v "$STATE/tls:/tls:ro" \
+    -v "$STATE/pg-tls:/tls:ro" \
     "$PG_IMAGE" \
     -c ssl=on -c ssl_cert_file=/tls/tls.crt -c ssl_key_file=/tls/tls.key \
     -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
@@ -189,8 +211,8 @@ start_workers() {
   E2E_VAR_API_TICKET_CURRENT_KEY_ID=ci
   E2E_VAR_RELAY_SIGNING_KEY="$(openssl genpkey -algorithm ed25519 2>/dev/null)"
   E2E_VAR_RELAY_KEY_ID=ci
-  E2E_VAR_RELAY_URLS="$(printf '["https://%s:10000/"]' "$FQDN")"
-  E2E_VAR_DATABASE_URL="postgres://cmux:${pg_password}@${FQDN}:5432/cmux_v2"
+  E2E_VAR_RELAY_URLS="$(printf '["https://%s:10000/"]' "$NAME")"
+  E2E_VAR_DATABASE_URL="postgres://cmux:${pg_password}@${NAME}:5432/cmux_v2"
   E2E_VAR_STACK_API_URL="https://api.stack-auth.com"
   E2E_VAR_STACK_PROJECT_ID="$CMUX_E2E_STACK_PROJECT_ID"
   E2E_VAR_STACK_PUBLISHABLE_KEY="$CMUX_E2E_STACK_PUBLISHABLE_KEY"
@@ -226,10 +248,11 @@ start_workers() {
   echo $! >"$STATE/presence.pid"
 }
 
-serve_tailnet() {
-  sudo tailscale serve --bg --https=443 "http://127.0.0.1:$IROH_V2_PORT" >/dev/null
-  sudo tailscale serve --bg --https=8443 "http://127.0.0.1:$PRESENCE_PORT" >/dev/null
-  sudo tailscale serve --bg --https=10000 "http://127.0.0.1:$RELAY_PORT" >/dev/null
+start_tls_forward() {
+  local ts_ip="$1"
+  node "$SCRIPT_DIR/tls-forward.mjs" "$ts_ip" "$STATE/tls/tls.crt" "$STATE/tls/tls.key" \
+    "8443:$IROH_V2_PORT" "8444:$PRESENCE_PORT" "10000:$RELAY_PORT" >"$LOGS/tls-forward.log" 2>&1 &
+  echo $! >"$STATE/tls-forward.pid"
 }
 
 up() {
@@ -241,24 +264,25 @@ up() {
   [[ -n "$ts_ip" ]] || die tailnet "runner has no tailnet IPv4 address"
   pg_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
 
+  install_certificate
   # Nothing below depends on Postgres until iroh-v2's first device
-  # registration, so the relay and both Workers start while it initializes.
+  # registration, so the relay, the Workers and the TLS front start while it
+  # initializes.
   start_relay
   start_workers "$pg_password"
-  start_postgres "$ts_ip" "$pg_password"
+  start_tls_forward "$ts_ip"
+  start_postgres "$pg_password"
 
   wait_http relay "http://127.0.0.1:$RELAY_PORT/healthz" 30
   wait_http iroh-v2 "http://127.0.0.1:$IROH_V2_PORT/v2/health" 120
   wait_http presence "http://127.0.0.1:$PRESENCE_PORT/healthz" 120
-
-  serve_tailnet
-  timing "serve configured"
-  # Prove the published origins, not just the loopback ports. --resolve pins
-  # the name to this runner's tailnet address, where Serve listens.
-  wait_http iroh-v2-tls "https://$FQDN/v2/health" 60 --resolve "$FQDN:443:$ts_ip"
-  wait_http presence-tls "https://$FQDN:8443/healthz" 60 --resolve "$FQDN:8443:$ts_ip"
-  wait_http relay-tls "https://$FQDN:10000/healthz" 60 --resolve "$FQDN:10000:$ts_ip"
-  phase ready "https://$FQDN (iroh-v2), :8443 (presence), :10000 (relay)"
+  # Prove the published origins over verified TLS, not just the loopback
+  # ports. --resolve pins the name to this runner's tailnet address, exactly
+  # as the macOS runner's /etc/hosts entry does.
+  wait_http iroh-v2-tls "https://$NAME:8443/v2/health" 30 --resolve "$NAME:8443:$ts_ip"
+  wait_http presence-tls "https://$NAME:8444/healthz" 30 --resolve "$NAME:8444:$ts_ip"
+  wait_http relay-tls "https://$NAME:10000/healthz" 30 --resolve "$NAME:10000:$ts_ip"
+  phase ready "https://$NAME:8443 (iroh-v2), :8444 (presence), :10000 (relay) on $ts_ip"
 }
 
 hold() {
@@ -281,9 +305,9 @@ hold() {
   phase "done" "completion signal received"
 }
 
-# Everything `up` leaves behind: three process trees, the Postgres container,
-# Serve listeners, and secret-bearing files (.dev.vars with the Stack server
-# key and the per-run relay key, the TLS key). Each step tolerates a missing
+# Everything `up` leaves behind: four process trees, the Postgres container,
+# the /etc/hosts line, and secret-bearing files (.dev.vars with the Stack
+# server key and the per-run relay key, two copies of the TLS key). Each step tolerates a missing
 # piece, so `down` also cleans a failed or partial `up`.
 down() {
   local pid_file pid
@@ -305,13 +329,13 @@ down() {
     rm -f "$pid_file"
   done
   docker rm -f -v "$PG_CONTAINER" >/dev/null 2>&1 || true
-  sudo tailscale serve reset >/dev/null 2>&1 || true
+  sudo sed -i "\\|${HOSTS_MARKER}|d" /etc/hosts 2>/dev/null || true
   rm -f "$REPO_ROOT/workers/iroh-v2/.dev.vars" "$REPO_ROOT/workers/presence/.dev.vars"
   # Root owns the TLS files (chowned for Postgres), so remove them with sudo;
   # logs survive for the upload step, which runs before `down`.
-  sudo rm -rf "${STATE:?}/tls" "${STATE:?}/wrangler-iroh-v2" "${STATE:?}/wrangler-presence" \
-    "${STATE:?}/relay.toml"
-  phase down "stopped processes, removed Postgres, Serve, secrets and state"
+  sudo rm -rf "${STATE:?}/tls" "${STATE:?}/pg-tls" "${STATE:?}/wrangler-iroh-v2" \
+    "${STATE:?}/wrangler-presence" "${STATE:?}/relay.toml"
+  phase down "stopped processes, removed Postgres, the hosts entry, secrets and state"
 }
 
 case "${1:-}" in
