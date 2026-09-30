@@ -1785,7 +1785,9 @@
       return this._p.suggestedFilename;
     }
     async path() {
-      const { path } = await this._page._session.call("download.path", { downloadId: this._p.downloadId });
+      // A finished download's path is state: use it when the event came.
+      const done = this._outcome;
+      const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
       if (this._page._session.onDownloadPath) this._page._session.onDownloadPath(path);
       return path;
     }
@@ -2191,7 +2193,10 @@
     }
     _onDownloadFinished(p) {
       const d = this._downloads && this._downloads.get(p.downloadId);
-      if (d) d._resolveFinished(p);
+      if (d) {
+        d._outcome = p;
+        d._resolveFinished(p);
+      }
     }
     _onConsole(p) {
       const message = new ConsoleMessage(this, p.type === "warn" ? Object.assign({}, p, { type: "warning" }) : p);

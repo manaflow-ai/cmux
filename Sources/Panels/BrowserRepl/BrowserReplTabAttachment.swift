@@ -198,6 +198,17 @@ final class BrowserReplTabAttachment {
         }
     }
 
+    /// Keeps the tab rendering (``keepRendering()``) and waits until WebKit
+    /// has applied the resulting window, visibility and focus state, so the
+    /// page is visible and focused before the caller sends input. A tab that
+    /// just moved into the render window gets that state asynchronously;
+    /// keys sent before it arrive reach an unfocused page.
+    func renderingSettled() async {
+        keepRendering()
+        guard let webView = panel?.webView else { return }
+        await BrowserReplNativeInput.afterActivityStateUpdate(webView)
+    }
+
     /// Called by the panel when a pane starts or stops showing this tab. A
     /// shown tab leaves the render window at once, so the pane is never blank.
     func paneVisibilityDidChange(visible: Bool) {

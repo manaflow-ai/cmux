@@ -24,8 +24,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     // Main-actor state.
     private var activeTargetID: String?
-    private var downloadPaths: [String: String] = [:]
-    private var downloadWaiters: [String: [CheckedContinuation<String?, Never>]] = [:]
+    /// Download outcomes; `download.path` reads them as state.
+    @MainActor private lazy var downloads = BrowserReplDownloadLedger()
     private var dragSequence = 0
     /// Tabs this session opened (`tabs.open` and page popups). They close
     /// when the session ends unless `tab.keep` released them.
@@ -80,6 +80,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func dispatch(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         let params = BrowserReplJSON.object(paramsJSON)
+        // Every call on a tab first waits until the tab renders like a focused
+        // foreground page; input must not race WebKit's focus update.
+        if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+           let panel = try? browserPanels().first(where: { $0.id == id }) {
+            let attachment = attach(panel)
+            // WebKit signals the update; the bound only guards a web process
+            // that goes away before answering.
+            _ = await withTimeout(milliseconds: 2_000) { await attachment.renderingSettled() }
+        }
         defer {
             // A pane that shows a mirror of this tab gets the page's new look.
             if let raw = params["targetId"] as? String, let id = UUID(uuidString: raw) {
@@ -188,10 +197,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func forward(_ name: String, _ payload: [String: Any]) {
         if name == "download.finished", let id = payload["downloadId"] as? String {
-            let path = payload["path"] as? String
-            if let path { downloadPaths[id] = path }
-            let waiters = downloadWaiters.removeValue(forKey: id) ?? []
-            for waiter in waiters { waiter.resume(returning: path) }
+            downloads.finish(id: id, path: payload["path"] as? String, error: payload["error"] as? String)
         }
         if name == "tab.created", let id = payload["targetId"] as? String, payload["openerTargetId"] != nil {
             activeTargetID = id
@@ -1237,14 +1243,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let id = params["downloadId"] as? String else {
             throw Self.error("invalid", "downloadId is required")
         }
-        if let path = downloadPaths[id] { return ["path": path] }
-        let path = await withTimeout(milliseconds: 120_000) {
-            await withCheckedContinuation { continuation in
-                self.downloadWaiters[id, default: []].append(continuation)
-            }
-        } ?? nil
-        guard let path else {
-            throw Self.error("not_found", "Download \(id) did not complete")
+        // Completion is state in the ledger: a download that finished before
+        // or while this call gets ready to wait is returned, never missed.
+        let ledger = downloads
+        let outcome = await withTimeout(milliseconds: 120_000) { await ledger.wait(for: id) } ?? nil
+        guard let path = outcome?.path else {
+            throw Self.error("not_found", "Download \(id) did not complete\(outcome?.error.map { ": \($0)" } ?? "")")
         }
         return ["path": path]
     }
@@ -1262,11 +1266,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func releaseDownloadWaiters() {
-        let waiters = downloadWaiters
-        downloadWaiters.removeAll()
-        for list in waiters.values {
-            for waiter in list { waiter.resume(returning: nil) }
-        }
+        downloads.releaseWaiters()
     }
 
     // MARK: - Capture

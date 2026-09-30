@@ -145,6 +145,25 @@ enum BrowserReplNativeInput {
         }
     }
 
+    /// Waits until the web process has applied WebKit's pending activity
+    /// state (window key, visibility, first-responder focus). WebKit runs the
+    /// block at once when no update is scheduled. Without the SPI, one
+    /// JavaScript round trip, which orders after an update already sent.
+    static func afterActivityStateUpdate(_ webView: WKWebView) async {
+        let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
+        guard webView.responds(to: selector) else {
+            await roundTrip(webView)
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            typealias Action = @convention(block) () -> Void
+            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+            let action: Action = { continuation.resume() }
+            function(webView, selector, action)
+        }
+    }
+
     /// One JavaScript round trip: WebKit answers after the web process has
     /// handled every message sent before it on the same connection.
     static func roundTrip(_ webView: WKWebView) async {

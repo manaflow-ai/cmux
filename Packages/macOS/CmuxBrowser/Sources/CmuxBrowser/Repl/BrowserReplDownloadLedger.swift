@@ -39,8 +39,14 @@ public final class BrowserReplDownloadLedger {
     public func wait(for id: String) async -> Outcome? {
         if let outcome = outcomes[id] { return outcome }
         willWait?(id)
+        // The body runs synchronously on the main actor: look again, so a
+        // completion recorded since the first lookup is returned, not missed.
         return await withCheckedContinuation { continuation in
-            waiters[id, default: []].append(continuation)
+            if let outcome = outcomes[id] {
+                continuation.resume(returning: outcome)
+            } else {
+                waiters[id, default: []].append(continuation)
+            }
         }
     }
 
