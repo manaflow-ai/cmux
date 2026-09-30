@@ -133,6 +133,7 @@ extension ShortcutAction {
         case .focusNextPane: return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
+        case .newPaneAutoLayout: return ShortcutStroke(key: "n", command: true, control: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)
         case .increaseWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "=", command: true, control: true)

@@ -4,7 +4,7 @@ enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
         case .computers:
-            return localized("settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+            return localized("settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
         case .app:
@@ -26,7 +26,7 @@ enum SettingsSearchAliasIndex {
         case .customSidebars:
             return localized("settings.search.alias.section.customSidebars", defaultValue: "custom sidebars vibe code swift json interpreted renderer in-process remote worker isolated")
         case .betaFeatures:
-            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
+            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
         case .computerUse:
@@ -85,7 +85,7 @@ enum SettingsSearchAliasIndex {
         "app:file-editor-current-line-highlight": localized("settings.search.alias.setting.app.file-editor-current-line-highlight", defaultValue: "fileEditor.currentLineHighlight current line caret"),
         "app:file-editor-tab-width": localized("settings.search.alias.setting.app.file-editor-tab-width", defaultValue: "fileEditor.tabWidth tab width indent columns"),
         "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
-        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
+        "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"),
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
         "app:menu-bar-only": localized("settings.search.alias.setting.app.menu-bar-only", defaultValue: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
@@ -160,13 +160,14 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:loading-spinner-position": localized("settings.search.alias.setting.app.loading-spinner-position", defaultValue: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"),
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+        "sidebarAppearance:compact-agent-status": localized("settings.search.alias.setting.app.compact-agent-status", defaultValue: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
-        "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),
         "mobile:artifactFolderAccess": localized("settings.search.alias.setting.mobile.artifactFolderAccess", defaultValue: "mobile ios iphone files folders directory subtree one level authorization security"),
+        "mobile:browserTunnelAllowOtherHosts": localized("settings.search.alias.setting.mobile.browserTunnelAllowOtherHosts", defaultValue: "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security"),
         "networking:relayPreference": localized("settings.search.alias.setting.networking.relayPreference", defaultValue: "iroh relay preference automatic managed selected cmux fleet provider region account"),
         "networking:customRelays": localized("settings.search.alias.setting.networking.customRelays", defaultValue: "iroh custom relay self hosted server url secret credential device authentication"),
         "networking:privateNetworks": localized("settings.search.alias.setting.networking.privateNetworks", defaultValue: "private network lan vpn direct peer path local address generic provider automatic"),
@@ -176,6 +177,7 @@ enum SettingsSearchAliasIndex {
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
+        "automation:pi": localized("settings.search.alias.setting.automation.pi", defaultValue: "automation.piIntegration pi hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
         "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),

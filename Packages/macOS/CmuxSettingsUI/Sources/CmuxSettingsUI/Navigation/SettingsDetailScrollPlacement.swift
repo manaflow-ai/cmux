@@ -17,14 +17,15 @@ struct SettingsDetailScrollPlacement: Equatable {
     let anchor: UnitPoint
 
     /// - Parameters:
-    ///   - target: The canonical section the request navigates to.
-    ///   - anchorID: The canonical anchor the request asked for.
+    ///   - target: The section the request navigates to, after
+    ///     `navigationDestination` has mapped legacy Devices anchors.
+    ///   - anchorID: The anchor that mapping produced.
     static func resolve(target: SettingsSectionID, anchorID: String) -> Self {
         let pane = SettingsSectionMountModel.hostSection(for: target)
         if anchorID == "section:\(pane.rawValue)" {
             return Self(anchorID: topAnchorID, anchor: .top)
         }
-        if anchorID == "section:\(target.canonicalSection.rawValue)" {
+        if anchorID == "section:\(target.rawValue)" {
             return Self(anchorID: anchorID, anchor: .top)
         }
         return Self(anchorID: anchorID, anchor: .center)
@@ -39,6 +40,6 @@ struct SettingsDetailScrollPlacement: Equatable {
         lastViewedSection: SettingsSectionID
     ) -> (section: SettingsSectionID, anchorID: String) {
         let section = initialSection ?? lastViewedSection
-        return (section, "section:\(section.canonicalSection.rawValue)")
+        return (section, "section:\(section.rawValue)")
     }
 }

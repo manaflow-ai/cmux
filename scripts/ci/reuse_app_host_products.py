@@ -187,6 +187,28 @@ def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
+def contract_sdkroot(sdkroot):
+    """SDKROOT as the contract hashes it: empty when it names the default SDK.
+
+    Some owned Macs' runner services export SDKROOT as the selected Xcode's
+    MacOSX.sdk and others export nothing. Both build against the same SDK,
+    whose build is already `sdk` in the contract, but hashing the raw value
+    split one product into two names: on 2026-09-28 a UI test run on one such
+    Mac compiled the app again (376 s, run 36403079789) beside the product
+    compile admission had just published from the other kind (run 36401440165),
+    their receipts differing in SDKROOT alone. Any other SDK still hashes.
+    """
+    if not sdkroot:
+        return ""
+    try:
+        default = read("xcrun", "--sdk", "macosx", "--show-sdk-path")
+    except (OSError, subprocess.SubprocessError):
+        return sdkroot
+    if default and os.path.realpath(sdkroot) == os.path.realpath(default):
+        return ""
+    return sdkroot
+
+
 def contract(derived=None):
     """Fingerprint everything that decides a compiled product's bytes.
 
@@ -225,6 +247,7 @@ def contract(derived=None):
         "tools": versions,
         "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
+    value["environment"]["SDKROOT"] = contract_sdkroot(value["environment"]["SDKROOT"])
     if derived is None:
         value["os"] = read("sw_vers", "-buildVersion")
         value["environment"].update(
@@ -240,7 +263,17 @@ def contract(derived=None):
 # holds one canonical root; `take ROOT --switch` moves it to another, waiting
 # for ROOT while it still holds its own, so a timeout leaves it where it was.
 ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
-ROOT_SWITCH_WAIT_S = 120
+# How long a switch waits for the product's root. Giving up means compiling
+# the whole product at the root this job holds, about 405 s at the median on
+# an owned Mac, and that holds the root and the Mac just as long. A shorter
+# wait only trades a wait for a longer compile. With 120 s, 10 of 53 owned E2E
+# builds that found a product for their revision (2026-09-27 23:30Z to 09-28
+# 13:00Z) gave up and compiled. The product's root had been held by a compile
+# admission, an E2E build or an app-host shard, and it came free 214 to 623 s
+# into the wait: within 360 s in 7 of the 10, which then adopt. A waiter polls
+# every second, so it takes the root as it frees. Two switchers after each
+# other's root both give up after this wait, as before, and then compile.
+ROOT_SWITCH_WAIT_S = 360
 # Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
 FIRST_ROOT = Path("/private/tmp/cmux-ci")
 DERIVED_NAME = "derived-data-compile-admission"
@@ -304,6 +337,31 @@ def portable_contract(value):
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def contract_differences(sealed, wanted, prefix=""):
+    """The dotted contract fields where a sealed receipt and this job differ.
+
+    Only names: a receipt found under this job's key but sealed with another
+    contract means the producer's contract changed between naming its artifact
+    and sealing it, and the field says which input moved.
+    """
+    if not isinstance(sealed, dict) or not isinstance(wanted, dict):
+        return [prefix or "contract"]
+    fields = []
+    for name in sorted(set(sealed) | set(wanted)):
+        path = f"{prefix}{name}"
+        sealed_has = name in sealed
+        wanted_has = name in wanted
+        if sealed_has and wanted_has and sealed[name] == wanted[name]:
+            continue
+        if (sealed_has and wanted_has
+                and isinstance(sealed[name], dict)
+                and isinstance(wanted[name], dict)):
+            fields.extend(contract_differences(sealed[name], wanted[name], f"{path}."))
+        else:
+            fields.append(path)
+    return fields or [prefix or "contract"]
 
 
 def github_product_identity(api, revision):
@@ -1003,10 +1061,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             root = staging / "Build/Products"
             try:
                 receipt = json.loads((root / RECEIPT).read_text())
-                if (receipt["contract"] != value
-                        or receipt["run_id"] != str(run["id"])
+                if receipt["contract"] != value:
+                    raise ValueError("artifact producer contract mismatch in "
+                                     + ", ".join(contract_differences(receipt["contract"], value)))
+                if (receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
-                    raise ValueError("artifact producer contract mismatch")
+                    raise ValueError("artifact producer run mismatch")
                 # Bind the candidate-authored receipt back to a GitHub-attested
                 # producer revision, re-fingerprinting whatever it names.
                 revision = receipt["revision"]
@@ -1026,7 +1086,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
             except (TypeError, AttributeError, ValueError, KeyError, OSError,
-                    subprocess.SubprocessError):
+                    subprocess.SubprocessError) as error:
+                # The reason alone cannot tell a stale receipt from a relocation
+                # or disk fault, and every candidate records it once; name the
+                # artifact and the check that refused it.
+                print(f"Compiled-product reuse refused artifact {artifact.get('id')} of run "
+                      f"{run.get('id')}: {type(error).__name__}: {str(error)[:300]}")
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 

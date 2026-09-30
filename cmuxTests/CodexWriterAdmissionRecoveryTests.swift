@@ -14,7 +14,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CodexWriterAdmissionRecoveryTests {
-    @Test func heldForeignWriterIsPresentedAndReleaseAdmitsTheSameConversation() async throws {
+    @Test(arguments: [false, true])
+    func heldForeignWriterIsPresentedAndReleaseAdmitsTheSameConversation(launchLeasePending: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-admission-\(UUID().uuidString)")
@@ -59,12 +60,21 @@ struct CodexWriterAdmissionRecoveryTests {
             ]]
             let requestLine = String(decoding: try JSONSerialization.data(withJSONObject: set), as: UTF8.self)
             _ = try result(TerminalController.shared.handleSocketLine(requestLine))
+            panel.restoreRecovery.state = .checking
             let admission = ControlRequest(id: .string("admit"), method: "agent.restore.admit", params: [
                 "workspace_id": .string(workspace.id.uuidString), "surface_id": .string(panel.id.uuidString),
-                "kind": .string("codex"), "session_id": .string(session), "codex_home": .string(root.path)
+                "kind": .string("codex"), "session_id": .string(session), "codex_home": .string(root.path),
+                "launch_lease_pending": .bool(launchLeasePending)
             ])
             let held = try result(await TerminalController.shared.agentRestoreAdmissionResponse(admission))
             #expect(held["admitted"] as? Bool == false)
+            if launchLeasePending {
+                #expect(held["recovering"] as? Bool != true)
+                #expect(held["launch_pending"] as? Bool == true)
+                #expect(panel.restoreRecovery.state == nil, "A rejected lease contender must leave checking")
+                #expect(workspace.surfaceResumeBinding(panelId: panel.id)?.checkpointId == session)
+                return
+            }
             #expect(held["recovering"] as? Bool == true)
             guard case .writerLock? = panel.restoreRecovery.state else {
                 Issue.record("Held writer must have a visible recovery message")

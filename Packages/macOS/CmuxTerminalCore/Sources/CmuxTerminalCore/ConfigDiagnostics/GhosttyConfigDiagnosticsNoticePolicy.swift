@@ -5,7 +5,8 @@
 /// a set of errors once, stays quiet while the same set persists, presents
 /// again when the set changes, and resets after a clean load so a
 /// reintroduced error is reported again. Diagnostics from cmux's own inline
-/// fragments are not user-actionable and are dropped.
+/// fragments and about cmux-owned keys (``GhosttyConfig/cmuxOwnedKeys``) are
+/// not user-actionable and are dropped.
 ///
 /// ```swift
 /// var policy = GhosttyConfigDiagnosticsNoticePolicy()
@@ -31,28 +32,41 @@ public struct GhosttyConfigDiagnosticsNoticePolicy: Sendable {
     ///   `ghostty_config_get_diagnostic`.
     /// - Returns: The notice decision for this load.
     public mutating func decision(forMessages messages: [String]) -> GhosttyConfigDiagnosticsNoticeDecision {
-        var seen = Set<GhosttyConfigDiagnostic>()
-        var diagnostics: [GhosttyConfigDiagnostic] = []
-        for message in messages {
-            let diagnostic = GhosttyConfigDiagnostic(message: message)
-            guard !diagnostic.message.isEmpty,
-                  !diagnostic.isFromCmuxInlineConfig,
-                  seen.insert(diagnostic).inserted else { continue }
-            diagnostics.append(diagnostic)
-        }
+        let diagnostics = Self.userFacingDiagnostics(fromMessages: messages)
+        let current = Set(diagnostics)
 
         guard !diagnostics.isEmpty else {
             guard lastPresented != nil else { return .unchanged }
             lastPresented = nil
             return .dismiss
         }
-        guard seen != lastPresented else { return .unchanged }
-        lastPresented = seen
+        guard current != lastPresented else { return .unchanged }
+        lastPresented = current
         return .present(
             GhosttyConfigDiagnosticsNotice(
                 listedDiagnostics: Array(diagnostics.prefix(Self.maximumListedDiagnostics)),
                 totalCount: diagnostics.count
             )
         )
+    }
+
+    /// The diagnostics a notice should report: parsed, deduplicated, in
+    /// Ghostty's order, without empty messages, cmux's own inline fragments,
+    /// or cmux-owned keys Ghostty does not know.
+    ///
+    /// - Parameter messages: Raw messages from `ghostty_config_get_diagnostic`.
+    /// - Returns: The user-actionable diagnostics.
+    public static func userFacingDiagnostics(fromMessages messages: [String]) -> [GhosttyConfigDiagnostic] {
+        var seen = Set<GhosttyConfigDiagnostic>()
+        var diagnostics: [GhosttyConfigDiagnostic] = []
+        for message in messages {
+            let diagnostic = GhosttyConfigDiagnostic(message: message)
+            guard !diagnostic.message.isEmpty,
+                  !diagnostic.isFromCmuxInlineConfig,
+                  !diagnostic.isForCmuxOwnedKey,
+                  seen.insert(diagnostic).inserted else { continue }
+            diagnostics.append(diagnostic)
+        }
+        return diagnostics
     }
 }

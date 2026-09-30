@@ -310,6 +310,9 @@ final class CmuxSSHURLProcessLauncher {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        // Opening an ssh:// link is the person's own action: the workspace takes focus
+        // like an interactive `cmux ssh` unless the request carries `--no-focus`.
+        environment["CMUX_FOCUS_NEW"] = "1"
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
 

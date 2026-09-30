@@ -15,6 +15,9 @@ extension CMUXCLI {
         )] = [
             ("SessionStart", "", "session-start"),
             ("Stop", "", "stop"),
+            // Claude Code fires StopFailure instead of Stop when a turn dies
+            // on an API error (usage limit, dropped connection, overload).
+            ("StopFailure", "", "stop"),
             ("SessionEnd", "", "session-end"),
             ("Notification", "", "notification"),
             ("UserPromptSubmit", "", "prompt-submit"),

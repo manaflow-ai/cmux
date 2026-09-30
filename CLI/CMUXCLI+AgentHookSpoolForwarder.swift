@@ -32,7 +32,10 @@ extension CMUXCLI {
                 continue
             }
             withExtendedLifetime(drainLock) {
-                _ = admitPublishedAgentHookRecords(in: spool) { record in
+                _ = admitPublishedAgentHookRecords(
+                    in: spool,
+                    claimGuard: AgentHookEnqueueWallClock.shared
+                ) { record in
                     // Everything in a retired spool was published before the
                     // agent exited, and is drained after it.
                     try admitAgentHookSpoolRecord(
@@ -177,6 +180,7 @@ extension CMUXCLI {
     private func admitPublishedAgentHookRecords(
         in spool: AgentHookSpoolDirectory,
         beforeClaim: () throws -> Void = {},
+        claimGuard: AgentHookEnqueueWallClock? = nil,
         admit: (AgentHookSpoolRecord) throws -> Void
     ) -> Bool {
         for name in spool.publishedRecordNames() {
@@ -187,6 +191,9 @@ extension CMUXCLI {
             } catch {
                 return false
             }
+            // An expired `hooks enqueue` budget leaves the rest unclaimed.
+            guard claimGuard?.beginClaim() ?? true else { return false }
+            defer { claimGuard?.endClaim() }
             guard let record = spool.claim(name: name) else { continue }
             do {
                 try admit(record)

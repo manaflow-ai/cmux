@@ -5,7 +5,7 @@
 :root {
   --background: #fafafa;
   --foreground: #171717;
-  --muted: #737373;
+  --muted: #707070;
   --border: #e5e5e5;
   --link-underline: #c9c9c9;
   --code-bg: #f5f5f5;
@@ -295,6 +295,28 @@ body {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--border);
     color: var(--muted);
+  }
+
+  /* `anywhere` lowers a cell's min-content width to one glyph, so the
+     auto table layout squeezes identifier columns into one-letter lines.
+     `break-word` keeps the identifier width and still breaks on overflow. */
+  .docs-content td code {
+    overflow-wrap: break-word;
+  }
+
+  /* A table wider than a phone would be clipped by the page. Let it scroll
+     sideways instead; wide screens keep the full-width table. */
+  @media (max-width: 767px) {
+    .docs-content table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    /* The last column usually holds prose; keep it readable. */
+    .docs-content td:last-child {
+      min-width: 14rem;
+    }
   }
 
   .docs-content strong {

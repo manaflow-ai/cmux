@@ -96,7 +96,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["vm", "ssh", vmID],
+            // The mock runs without a terminal (script), so ask for focus explicitly.
+            arguments: ["vm", "ssh", vmID, "--focus"],
             environment: environment,
             timeout: 5
         )

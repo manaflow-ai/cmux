@@ -14,7 +14,12 @@ import {
   type VmAuthorizationClaims,
   verifyVmAuthorization,
 } from "./vmAuthorization";
-import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
+import {
+  recordCoderouterAuthStarted,
+  recordCoderouterIdentity,
+  recordCoderouterSignedVmClaims,
+  recordCoderouterSpan,
+} from "./requestTelemetry";
 import { CHATMUX_VM_AUTHORIZATION_HEADER, verifyChatmuxVmToken } from "./chatmuxVmToken";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
@@ -86,6 +91,7 @@ export async function authenticateRequestRouteToken(
   authenticate: Authenticate = authenticateCoderouterCredential,
 ): Promise<RouteTokenAuthResult> {
   const startedAt = performance.now();
+  recordCoderouterAuthStarted();
   const result = await authenticateUnobserved(request, authenticate);
   recordCoderouterSpan({
     name: "auth",
@@ -132,6 +138,11 @@ async function authenticateUnobserved(
   if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };
   const claims = signedHeader ? await verifyVmAuthorization(token) : null;
   if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token" };
+  // The signature verified; attribute a crash in the ownership lookup below
+  // to this machine and team instead of to nobody.
+  if (claims) {
+    recordCoderouterSignedVmClaims({ teamId: claims.team_id, vmId: claims.vm_id, stackUserId: claims.owner_id });
+  }
   const identity = await authenticate(token);
   if (!identity) return { ok: false, reason: "invalid_route_token" };
   if (!validVmBinding(request, identity, claims)) return { ok: false, reason: "vm_mismatch" };

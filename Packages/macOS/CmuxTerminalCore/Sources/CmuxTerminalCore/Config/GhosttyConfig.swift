@@ -585,11 +585,11 @@ public struct GhosttyConfig {
                     if let size = Double(value) {
                         fontSize = CGFloat(size)
                     }
-                case "surface-tab-bar-font-size":
+                case Self.surfaceTabBarFontSizeKey:
                     if let size = Double(value), size.isFinite {
                         surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
                     }
-                case "sidebar-font-size":
+                case Self.sidebarFontSizeKey:
                     if let size = Double(value), size.isFinite {
                         sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
@@ -731,9 +731,9 @@ public struct GhosttyConfig {
                     if let color = parseGhosttyColor(value) {
                         splitDividerColor = color
                     }
-                case "sidebar-background":
+                case Self.sidebarBackgroundKey:
                     rawSidebarBackground = value
-                case "sidebar-tint-opacity":
+                case Self.sidebarTintOpacityKey:
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }

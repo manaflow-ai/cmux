@@ -17,9 +17,11 @@ extension CloudMachineLinkManager {
         through hub: CloudWireGuardHub.Ready,
         fallbackRoute: String? = nil,
         addresses freshAddresses: [String] = [],
+        refreshIfNeeded: Bool = true,
         timeout: Duration? = nil
     ) async throws -> String {
         try Task.checkCancellation()
+        let deadline = timeout.map { ContinuousClock.now + $0 }
         let freshAddresses = freshAddresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         let freshFamilies = Set(freshAddresses.map { $0.contains(":") })
@@ -32,6 +34,18 @@ extension CloudMachineLinkManager {
         let candidates = (freshAddresses + storedAddresses).filter { seen.insert($0).inserted }
         let addresses = candidates.filter {
             CloudWireGuardHub.routesHost($0, enrolledRoutes: hub.routes)
+        }
+        if refreshIfNeeded, addresses.isEmpty, !candidates.isEmpty, let liveHub = self.hub {
+            let refreshed = try await liveHub.readyRouting(anyOf: candidates)
+            // The hub refresh spends part of the caller's budget; pass on what is left.
+            return try await resolvedPrivateRoute(
+                machineID: machineID,
+                through: refreshed,
+                fallbackRoute: fallbackRoute,
+                addresses: freshAddresses,
+                refreshIfNeeded: false,
+                timeout: deadline.map { Self.remaining(until: $0) }
+            )
         }
         guard let primary = addresses.first else {
             guard candidates.isEmpty,
@@ -49,7 +63,7 @@ extension CloudMachineLinkManager {
             return "ws://\(host):1337/v1/link"
         }
         var connector = CloudHubConnector()
-        if let timeout { connector.timeout = timeout }
+        if let deadline { connector.timeout = Self.remaining(until: deadline) }
         let connected = try await connector.connect(
             endpoint: .unix(path: hub.socketPath),
             target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
