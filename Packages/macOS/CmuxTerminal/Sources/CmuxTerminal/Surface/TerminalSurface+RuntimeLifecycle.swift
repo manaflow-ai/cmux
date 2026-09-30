@@ -390,6 +390,10 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+        guard surface != nil else {
+            runtimeSurfaceSuspendedForAgentHibernation = true
+            return true
+        }
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {

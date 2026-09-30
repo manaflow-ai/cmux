@@ -299,6 +299,25 @@ import Testing
         surface.teardownSurface()
     }
 
+    @Test func hibernationWithoutRuntimeDoesNotNeedTeardownAdmission() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let firstReservation = try #require(
+            coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let secondReservation = try #require(
+            coordinator.reserveIsolatedHibernationTeardown()
+        )
+        defer {
+            coordinator.cancelIsolatedHibernationTeardown(firstReservation)
+            coordinator.cancelIsolatedHibernationTeardown(secondReservation)
+        }
+
+        let surface = makeSurface(runtimeTeardown: coordinator)
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.noRuntime"))
+        #expect(!surface.canCreateRuntimeSurface)
+    }
+
     @Test func deinitKeepsTeeLeaseUntilCoordinatorFree() async {
         let recorder = TeardownOrderRecorder()
         var surface: TerminalSurface? = makeSurface()
