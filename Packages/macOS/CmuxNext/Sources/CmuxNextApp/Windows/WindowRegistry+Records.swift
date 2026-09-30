@@ -50,7 +50,12 @@ extension WindowRegistry {
             sidebarHidden: state?.sidebarHidden ?? false,
             showsScreenSwitcher: state?.showsScreenSwitcher ?? false,
             selectedTabs: selectedTabs,
-            order: order
+            order: order,
+            profile: state.flatMap { $0.profileID == .defaultProfile ? nil : $0.profileID },
+            profileWorkspaces: Dictionary(
+                (state?.profileWorkspaces ?? [:]).compactMap { profile, workspace in
+                    window.workspaceIDs.contains(workspace) ? (profile.rawValue, WorkspaceKey(rawValue: workspace)) : nil
+                }, uniquingKeysWith: { first, _ in first })
         )
     }
 }

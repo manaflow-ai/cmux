@@ -16,7 +16,7 @@ extension WindowManager {
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap(Self.orderedIDs(of:))
+        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines) }
         let changes = registry.apply { registry in
             let changes = body(&registry)
             registry.order(like: live)
@@ -41,12 +41,7 @@ extension WindowManager {
         for window in value.openWindows where controller(for: window.id) == nil {
             makeController(for: window)
         }
-        for window in value.windows {
-            let state = state(for: window.id)
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: previous[window.id] ?? [],
-                                                        members: window.workspaceIDs, preferred: preferred[window.id] ?? [])
-            if state.workspaceID != pick { select(pick, in: state) }
-        }
+        repairSelections(previous: previous, preferred: preferred)
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
         let closedKey = closing.contains { $0.window?.isKeyWindow == true }
         for controller in closing { closeProgrammatically(controller) }
@@ -54,6 +49,39 @@ extension WindowManager {
         if closedKey { handOffKey(to: receivers) }
         checkInvariants()
         scheduleSave()
+    }
+
+    /// Makes each window's selection a workspace it lists in its current
+    /// profile. When that profile has none left there (closed, moved to
+    /// another profile or window), the window shows the most recent other
+    /// profile it holds workspaces in.
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:]) {
+        let machines = services.machines
+        let home = machines.local.store
+        for window in registry.value.windows {
+            let state = state(for: window.id)
+            let room = state.profileID
+            // Its room was deleted (here or by another client).
+            if home.personal.isLoaded, home.profile(state.profileID) == nil {
+                state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
+            }
+            var visible = WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines)
+            // A window waiting for the workspace it just created in a new
+            // or empty room keeps that room.
+            let waiting = pendingClaims.values.contains(window.id)
+            if visible.isEmpty, !waiting,
+               let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
+                state.enterProfile(fallback)
+                visible = WindowProfiles.visible(window.workspaceIDs, profile: fallback, machines: machines)
+            }
+            // A room change shows the workspace last shown in that room.
+            var wanted = preferred[window.id] ?? []
+            if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
+            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
+            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
+                                                        members: visible, preferred: wanted)
+            if state.workspaceID != pick { select(pick, in: state) }
+        }
     }
 
     /// Makes the first open receiver key, else our frontmost window.
@@ -73,6 +101,7 @@ extension WindowManager {
 
     /// Sets the window's shown workspace (its own state).
     func select(_ workspaceID: String?, in state: WindowState) {
+        if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.workspaceID = workspaceID
         stateDidChange(state)
@@ -186,7 +215,8 @@ extension WindowManager {
         membershipObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0))" }
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0, machines: machines))" }
+                    + [Self.profileTags(of: machines.local)]
             }) {
                 self?.reconcileMembership()
             }
@@ -204,7 +234,7 @@ extension WindowManager {
         var live: [String] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            for id in Self.orderedIDs(of: daemon) {
+            for id in Self.orderedIDs(of: daemon, machines: services.machines) {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
             }
@@ -223,6 +253,8 @@ extension WindowManager {
         transition(select: preferred) { registry in
             registry.reconcile(live: live, dead: dead, placements: placements, fallbackWindow: fallback)
         }
+        // A workspace that changed profile leaves no trace in membership.
+        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
     }
 
@@ -257,13 +289,20 @@ extension WindowManager {
 
     /// The daemon's workspace ids in sidebar order, then any it lists
     /// outside the sidebar.
-    static func orderedIDs(of daemon: DaemonService) -> [String] {
+    static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String] {
+        if let personal = PersonalSidebar.orderedIDs(of: daemon, machines: machines) { return personal }
         let sidebar = daemon.store.sidebarSections.flatMap(\.workspaces).map(\.id)
         let listed = Set(sidebar)
         return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
     }
 
-    private static func order(of daemon: DaemonService) -> String {
-        orderedIDs(of: daemon).joined(separator: ",")
+    /// Each workspace's profile and the profile list, so a profile move or
+    /// a new profile re-runs reconcile.
+    private static func profileTags(of daemon: DaemonService) -> String {
+        "\(daemon.store.personal.revision)|" + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
+    }
+
+    private static func order(of daemon: DaemonService, machines: MachineRegistry) -> String {
+        orderedIDs(of: daemon, machines: machines).joined(separator: ",")
     }
 }

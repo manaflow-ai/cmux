@@ -51,6 +51,8 @@ enum ActionRouting {
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
         case .column:
             return nil
+        case .profile:
+            return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }
         }
     }
 

@@ -1,0 +1,98 @@
+import CmuxNextDaemon
+import Foundation
+import Observation
+
+/// Keeps the home session's session registry and the one-time migration in
+/// step with the connected sessions (plans/cmux-next/data-model.md 1.1 and
+/// 2.2): each loaded session is recorded with its name, transport and
+/// capabilities (`put-session`), and a remote session's shared groups and
+/// order are copied into personal rows once (`import-session-organization`,
+/// a no-op when it already ran). The home daemon migrates its own groups at
+/// open. Nothing runs against a home daemon without `profiles-v1`.
+@MainActor
+final class SessionRegistrar {
+    private unowned let machines: MachineRegistry
+    private var observation: Task<Void, Never>?
+    /// Sessions recorded in this app run, with what was sent.
+    private var recorded: [String: SessionSnapshot] = [:]
+    private var importing: Set<String> = []
+    /// This Mac's name, resolved off the main actor (`MacName`).
+    private var computerName: String?
+
+    struct SessionSnapshot: Hashable {
+        var sessionName: String?
+        var capabilities: [String]
+    }
+
+    init(machines: MachineRegistry) {
+        self.machines = machines
+    }
+
+    func start() {
+        observation?.cancel()
+        Task { [weak self] in
+            let name = await MacName.computerName()
+            self?.computerName = name
+            self?.recorded.removeAll()
+            self?.sync()
+        }
+        let machines = machines
+        observation = Task { [weak self] in
+            for await _ in Observations({ () -> [String] in
+                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded)]
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
+            }) {
+                self?.sync()
+            }
+        }
+    }
+
+    func stop() { observation?.cancel() }
+
+    private func sync() {
+        let home = machines.local
+        guard home.store.personal.isLoaded, let connection = home.connection else { return }
+        for daemon in machines.daemons where daemon.store.isLoaded {
+            guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
+            let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted())
+            if recorded[session] != snapshot {
+                recorded[session] = snapshot
+                let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
+                                                transport: transport(daemon), capabilities: snapshot.capabilities)
+                home.send("put-session") { _ = try await $0.putSession(request) }
+            }
+            let record = home.store.personal.session(session)
+            if daemon !== home, record?.migrated == false, !importing.contains(session) {
+                importing.insert(session)
+                let request = Self.organization(of: daemon.store, session: session)
+                Task { [weak self] in
+                    _ = try? await connection.importOrganization(request)
+                    self?.importing.remove(session)
+                }
+            }
+        }
+    }
+
+    /// A remote daemon's shared groups and sidebar order, as the one-time
+    /// import payload.
+    static func organization(of store: DaemonStore, session: String) -> ImportSessionOrganizationRequest {
+        let groups = store.groups.sorted { $0.index < $1.index }.map {
+            ImportSessionOrganizationRequest.Group(id: $0.id, name: $0.name, color: $0.color, collapsed: $0.collapsed)
+        }
+        let ordered = store.sidebarSections.flatMap(\.workspaces)
+        let workspaces = ordered.compactMap { workspace in
+            workspace.key.map { ImportSessionOrganizationRequest.Workspace(workspaceKey: $0, group: workspace.group) }
+        }
+        return ImportSessionOrganizationRequest(sessionID: session, groups: groups, workspaces: workspaces)
+    }
+
+    private func machineName(_ daemon: DaemonService) -> String? {
+        if daemon.isLocal { return computerName }
+        return machines.session(daemon.machineID)?.machine.title
+    }
+
+    private func transport(_ daemon: DaemonService) -> JSONValue {
+        daemon.isLocal ? .object(["kind": .string("local")])
+            : .object(["kind": .string("cloud"), "machine": .string(daemon.machineID)])
+    }
+}

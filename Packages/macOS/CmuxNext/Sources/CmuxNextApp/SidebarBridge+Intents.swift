@@ -12,6 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             model.apply(intent)
@@ -84,6 +85,14 @@ extension SidebarBridge {
             for (daemon, key, terminals) in members {
                 command("close-workspace", on: daemon) { c, _ in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
             }
+        case .switchProfile(let profile):
+            services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
+        case .newProfile:
+            services.registry.perform("room.new", invocation: ActionInvocation())
+        case .reorderProfile(let profile, let index):
+            model.apply(intent)
+            let id = ProfileID(rawValue: profile.rawValue)
+            command("move-profile", on: services.machines.local) { c, _ in try await c.moveProfile(id, to: index) }
         case .setIcon, .setPinned, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
@@ -162,7 +171,9 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines, statuses: services.statusBoard, members: services.windows.registry.members(of: state.id))
+        model.sections = Self.sections(services.machines, statuses: services.statusBoard,
+                                       members: services.windows.registry.members(of: state.id), profile: state.profileID)
+        model.profiles = Self.profiles(services.machines.local.store)
     }
 
     private func command(_ label: String, on daemon: DaemonService, patch: OptimisticPatch = .custom { _ in },

@@ -33,6 +33,7 @@ extension AppActionContext {
     /// The targeted workspace group (target, `group` argument), else the
     /// group of the targeted or shown workspace.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
+        if usesPersonalGroups { return try personalGroup(invocation) }
         try require(DaemonCapabilities.workspaceGroups)
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {

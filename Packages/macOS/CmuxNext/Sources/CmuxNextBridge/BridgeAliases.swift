@@ -25,4 +25,5 @@ public typealias StripTabItem = CmuxNextTabs.TabItem
 
 public typealias SidebarRowSection = CmuxNextSidebar.SidebarSection
 public typealias SidebarWorkspaceID = CmuxNextSidebar.WorkspaceID
+public typealias SidebarProfileKey = CmuxNextSidebar.ProfileKey
 public typealias SidebarDropTarget = CmuxNextSidebar.DropTarget

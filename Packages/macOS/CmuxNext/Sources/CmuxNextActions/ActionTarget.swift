@@ -11,6 +11,9 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case window
     /// A Cloud machine (`machine:vm-…`); the local daemon is `machine:local`.
     case machine
+    /// A room (`room:default`, `room:prof_…`; plans/cmux-next/data-model.md;
+    /// the daemon calls rooms profiles).
+    case profile = "room"
 }
 
 /// A reference to one object: what the user right-clicked, what the CLI
@@ -54,6 +57,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case cloudMachine
     /// A tab strip's new tab (+) button: which kind of tab to open.
     case newTab
+    /// A room dot in the sidebar.
+    case profile
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -66,6 +71,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground: nil
         case .cloudMachine: .machine
+        case .profile: .profile
         }
     }
 }

@@ -41,6 +41,8 @@ enum DestructiveConfirmation {
                 ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
                 : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
                          button: ConfirmationStrings.close)
+        case "room.delete":
+            return RoomConfirmation.prompt(invocation, context)
         case "tabGroup.close":
             guard let (group, count) = tabGroup(invocation, context) else { return nil }
             let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name

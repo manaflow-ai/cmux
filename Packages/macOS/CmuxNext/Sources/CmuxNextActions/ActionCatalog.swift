@@ -27,6 +27,7 @@ public nonisolated enum ActionCatalog {
         all += windowActions()
         all += workspaceActions()
         all += workspaceGroupsActions()
+        all += profileActions()
         all += paneActions()
         all += tabActions()
         all += tabGroupsActions()

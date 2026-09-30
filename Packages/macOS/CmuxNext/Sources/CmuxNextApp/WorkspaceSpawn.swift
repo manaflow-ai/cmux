@@ -12,13 +12,17 @@ struct WorkspaceSpawn: Sendable {
     var env: [String: String] = [:]
     /// The first terminal outlives its tab (`--keep`; `terminal-reap-v1`).
     var keep = false
+    /// Room the workspace is born in; nil = the target window's room.
+    var profile: ProfileID?
 
-    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false) {
+    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
+         profile: ProfileID? = nil) {
         self.cwd = cwd
         self.name = name
         self.command = command
         self.env = env
         self.keep = keep
+        self.profile = profile
     }
 
     /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
@@ -28,6 +32,8 @@ struct WorkspaceSpawn: Sendable {
         name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         keep = invocation["keep"]?.boolValue == true
+        profile = invocation["profile"]?.targetValue.map { ProfileID(rawValue: $0.id) }
+            ?? invocation["profile"]?.stringValue.flatMap { $0.isEmpty ? nil : ProfileID(rawValue: $0) }
         if let text = invocation["env"]?.stringValue, let data = text.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             env = object.compactMapValues { $0 as? String }
@@ -54,15 +60,26 @@ extension WindowManager {
         let key = WorkspaceKey.generate()
         if let windowID { claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
+        // The workspace is born in its window's room (or the one asked for):
+        // pinned there in the home session before the create command, so no
+        // snapshot shows it in another room; its first terminal gets the
+        // room's terminal defaults (data-model.md 3.2, 3.3).
+        let home = services.machines.local
+        let room = home.store.profile(spawn.profile ?? profileForNewWorkspace(window: windowID))
+        if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
+            try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
+        }
+        let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
         var vars = daemon.isLocal ? await TerminalEnvironment.shared(overrides: services.environment.terminalEnvironment)() : [:]
+        vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
         let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.session(daemon.machineID)?.emptyWorkspaces ?? services.emptyWorkspaces
-        let cwd = spawn.cwd ?? daemon.defaultCwd
+        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         return try await repair.populating(key) {
             let result = try await connection.request(CreateWorkspaceRequest(name: spawn.name, key: key, mutation: connection.mutation()))
             _ = try await connection.request(CreateTerminalRequest(
