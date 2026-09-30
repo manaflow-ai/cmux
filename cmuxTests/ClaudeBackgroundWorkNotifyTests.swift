@@ -18,8 +18,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
         """)
         #expect(result.cachedPending == false)
-        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil)
-        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: true) != nil)
+        // `stop_hook_active` describes hook recursion, not live background work. It
+        // must not mark the completion as pending or poison the later idle signal.
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {
@@ -310,6 +312,47 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Idle reminders must not invent a blocking Needs input state; saw \(snapshot)")
         #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
                 "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
+    }
+
+    @Test func idlePromptAfterStopHookContinuationTagsNotPending() throws {
+        let session = "idle-after-continuation"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-continuation")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-continuation",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-continuation",
+            storeURL: storeURL
+        )
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+
+        let notificationResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notificationResult)
+        #expect(notifyLine(context.state.snapshot(), containing: "c=idle-reminder;p=0") != nil,
+                "stop_hook_active must not cache pending work for idle_prompt; saw \(context.state.snapshot())")
     }
 
     @Test func agentCompletedNotificationLeavesPaneRunning() throws {

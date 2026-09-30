@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// `cmux vm layout export|apply` and `cmux vm env set|ls|rm`: layouts as data, and a
@@ -542,7 +543,7 @@ extension CMUXCLI {
     }
 
     static func isValidVMEnvKey(_ key: String) -> Bool {
-        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil
+        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
     /// One argv `KEY=VALUE`. The value is taken literally (it already went through the
@@ -799,10 +800,6 @@ extension CMUXCLI {
     /// The instance `shellQuote` rules, as a static so the pure command builders (and
     /// their tests) need no CLI instance: bare when safe, else single-quoted.
     static func vmShimShellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

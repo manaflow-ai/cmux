@@ -40,6 +40,29 @@ struct SidebarAppearanceColorResolver {
         return resolved.withAlphaComponent(max(0, min(opacity, 1)))
     }
 
+    /// Minimum WCAG contrast for secondary sidebar text and icons over a
+    /// terminal-matched backdrop. The macOS secondary label on white is about
+    /// 3.9:1, so neutral themes keep the system look and only saturated
+    /// mid-tone themes are raised.
+    static let secondaryMinimumContrast: CGFloat = 3.5
+
+    /// Resolves a secondary semantic color and, when the sidebar draws over
+    /// a known opaque `backdrop`, raises its opacity to the contrast floor.
+    func readableSecondaryColor(
+        _ color: NSColor,
+        for colorScheme: ColorScheme,
+        opacity: CGFloat? = nil,
+        over backdrop: NSColor?
+    ) -> NSColor {
+        let resolved = resolvedColor(color, for: colorScheme, opacity: opacity)
+        guard let backdrop else { return resolved }
+        return WindowChromeColorResolver().contrastFloored(
+            resolved,
+            over: backdrop,
+            minimumContrast: Self.secondaryMinimumContrast
+        )
+    }
+
     /// Returns the active-control foreground for a concrete cmux scheme.
     func activeForegroundColor(
         opacity: CGFloat,
@@ -87,10 +110,11 @@ func sidebarActiveForegroundNSColor(
     )
 }
 
+/// The appearance titlebar controls draw over: the terminal backdrop.
 @MainActor
-func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+func titlebarControlAppearance() -> WindowAppearanceSnapshot {
     let app = GhosttyApp.shared
-    let appearance = WindowAppearanceResolver(
+    return WindowAppearanceResolver(
         terminalAppearance: WindowTerminalAppearanceSnapshot(
             backgroundColor: app.defaultBackgroundColor,
             backgroundOpacity: app.defaultBackgroundOpacity,
@@ -102,10 +126,19 @@ func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
         defaults: .standard,
         colorScheme: AppearanceSettings.currentAmbientColorScheme()
     )
-    return titlebarControlForegroundNSColor(
-        opacity: opacity,
-        appearance: appearance
-    )
+}
+
+/// Light or dark for chrome drawn over the titlebar, the same choice that
+/// colors the titlebar icons. Shortcut-hint pills there use it so their
+/// palette matches the icons instead of the window appearance.
+@MainActor
+func titlebarControlColorScheme() -> ColorScheme {
+    cmuxReadableColorScheme(for: titlebarControlAppearance().compositedTerminalBackgroundColor)
+}
+
+@MainActor
+func titlebarControlForegroundNSColor(opacity: CGFloat) -> NSColor {
+    titlebarControlForegroundNSColor(opacity: opacity, appearance: titlebarControlAppearance())
 }
 
 func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppearanceSnapshot) -> NSColor {
@@ -353,6 +386,42 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
+/// Whether selected rows paint the subtle tint and hairline. Only the
+/// left-rail indicator style uses it, and a configured selection color is an
+/// explicit request for a solid fill.
+func sidebarUsesSubtleSelection(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    subtleSelection: Bool,
+    sidebarSelectionColorHex: String?
+) -> Bool {
+    subtleSelection
+        && activeTabIndicatorStyle == .leftRail
+        && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil
+}
+
+/// Hairline for a group header whose anchor workspace is selected, so group
+/// headers carry the same edge as selected workspace rows in subtle-selection
+/// mode. The header keeps its neutral wash, so the edge is the neutral
+/// selection edge. Nil when subtle selection is off.
+func sidebarGroupHeaderAnchorActiveEdgeNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    subtleSelection: Bool,
+    sidebarSelectionColorHex: String?,
+    colorScheme: ColorScheme,
+    increaseContrast: Bool
+) -> NSColor? {
+    guard sidebarUsesSubtleSelection(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        subtleSelection: subtleSelection,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    ) else { return nil }
+    return CmuxSelectionFill.resolve(
+        colorScheme: colorScheme,
+        isEmphasized: false,
+        increaseContrast: increaseContrast
+    ).edgeColor
+}
+
 struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
@@ -402,9 +471,11 @@ func sidebarWorkspaceRowBackgroundStyle(
         accent: accent
     )
     let accentBackground = accent.nsColor(for: colorScheme)
-    // A configured selection color is an explicit request for a solid fill.
-    let usesSubtleSelection = subtleSelection
-        && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil
+    let usesSubtleSelection = sidebarUsesSubtleSelection(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        subtleSelection: subtleSelection,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
     func calmFill(isSecondary: Bool) -> SidebarWorkspaceRowBackgroundStyle {
         let fill = CmuxSelectionFill.resolve(
             colorScheme: colorScheme,
@@ -463,5 +534,46 @@ extension WorkspaceIndicatorStyle {
     /// keeps an edge even when its fill is close to the sidebar background.
     func drawsActiveBorder(isActive: Bool, increaseContrast: Bool) -> Bool {
         isActive && (self == .solidFill || increaseContrast)
+    }
+}
+
+private struct SidebarReadabilityBackdropKey: EnvironmentKey {
+    static var defaultValue: NSColor? { nil }
+}
+
+extension EnvironmentValues {
+    /// The opaque color sidebar content is drawn over when the sidebar
+    /// matches the terminal background, or `nil` over its own material.
+    var sidebarReadabilityBackdrop: NSColor? {
+        get { self[SidebarReadabilityBackdropKey.self] }
+        set { self[SidebarReadabilityBackdropKey.self] = newValue }
+    }
+}
+
+extension SidebarAppearanceColorResolver {
+    /// SwiftUI secondary color for sidebar chrome: `.secondary` over the
+    /// sidebar material, floored for contrast over a terminal-matched
+    /// backdrop.
+    func readableSecondary(for colorScheme: ColorScheme, over backdrop: NSColor?) -> Color {
+        guard let backdrop else { return .secondary }
+        return Color(nsColor: readableSecondaryColor(.secondaryLabelColor, for: colorScheme, over: backdrop))
+    }
+}
+
+/// Reads window activation for the subtle selection wash, which dims to
+/// neutral when the window is inactive the way Finder's selection does.
+/// Rows wrap only their selection background in this reader, and only while
+/// the subtle selection paints them, so activation changes invalidate that
+/// background instead of every sidebar row.
+struct SidebarSelectionWindowActivationReader<Content: View>: View {
+    @Environment(\.controlActiveState) private var controlActiveState
+    let content: (_ isEmphasized: Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (_ isEmphasized: Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(controlActiveState != .inactive)
     }
 }
