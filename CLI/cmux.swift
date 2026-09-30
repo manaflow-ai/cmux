@@ -31483,6 +31483,13 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            // Arm filesystem watchers before parsing or publishing. A transcript
+            // append during a notification reply must wake the next parse.
+            let changeWatcher = CodexTranscriptChangeWatcher(
+                transcriptPath: transcriptPath,
+                leasePath: leasePath
+            )
+
             // Taken before the reads, so a write after them wakes the wait below.
             let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
@@ -31585,10 +31592,9 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(
-                path: transcriptPath,
-                leasePath: leasePath,
+            changeWatcher.wait(
                 timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
+                transcriptPath: transcriptPath,
                 observedState: observedTranscriptState
             )
         }
@@ -31659,6 +31665,45 @@ struct CMUXCLI {
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
+    }
+
+    /// Keeps monitor input watchers armed across transcript parsing and socket
+    /// notification delivery, closing the write-between-parse-and-wait gap.
+    private final class CodexTranscriptChangeWatcher {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var sources: [DispatchSourceFileSystemObject] = []
+
+        init(transcriptPath: String?, leasePath: String?) {
+            addFileSource(path: transcriptPath, eventMask: [.write, .extend, .delete, .rename])
+            addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
+        }
+
+        func wait(timeout: TimeInterval, transcriptPath: String?, observedState: CodexTranscriptFileState?) {
+            guard timeout > 0 else { return }
+            if let observedState,
+               let currentState = codexTranscriptFileState(path: transcriptPath),
+               currentState != observedState {
+                return
+            }
+            _ = semaphore.wait(timeout: .now() + timeout)
+        }
+
+        deinit { sources.forEach { $0.cancel() } }
+
+        private func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
+            guard let path, !path.isEmpty else { return }
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            let fd = open(expandedPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd, eventMask: eventMask, queue: DispatchQueue.global(qos: .utility)
+            )
+            let signal = semaphore
+            source.setEventHandler { signal.signal() }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            sources.append(source)
+        }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
