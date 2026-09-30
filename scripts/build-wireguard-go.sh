@@ -37,6 +37,8 @@ MIN_MACOS="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 OUTPUT="${CMUX_WIREGUARD_GO_OUTPUT:-${BUILT_PRODUCTS_DIR:-${GO_SRC_DIR}/out}/libwg-go.a}"
 WORK_DIR="${TARGET_TEMP_DIR:-${GO_SRC_DIR}/.tmp}/wireguard-go"
 
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "${ROOT}/scripts/build-phase-caller-path.sh"
 # Xcode build phases do not inherit a login-shell PATH.
 export PATH="/usr/local/go/bin:/opt/homebrew/bin:/usr/local/bin:${HOME}/go/bin:${PATH}"
 

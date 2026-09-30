@@ -5,14 +5,14 @@ import Testing
 @Suite struct WorkspaceAbsenceAuthorityTests {
     @Test func foregroundRowAbsenceIsAuthoritativeOnlyWhileHealthy() {
         // Deleted while the foreground connection is live: retarget/pop.
-        #expect(WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: true,
             foregroundIsHealthy: true,
             ownerStatus: .connected
         ))
         // Vanished mid-recovery: a transient hole, hold the selection.
-        #expect(!WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(!WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: true,
             foregroundIsHealthy: false,
@@ -22,20 +22,20 @@ import Testing
 
     @Test func secondaryRowAbsenceFollowsItsOwnEntryStatus() {
         // A secondary Mac's live list omitted the workspace: deletion.
-        #expect(WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: false,
             foregroundIsHealthy: false,
             ownerStatus: .connected
         ))
         // The secondary went offline or is redialing: hold the selection.
-        #expect(!WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(!WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: false,
             foregroundIsHealthy: true,
             ownerStatus: .unavailable
         ))
-        #expect(!WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(!WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: false,
             foregroundIsHealthy: true,
@@ -45,14 +45,14 @@ import Testing
 
     @Test func missingOwnerEntryIsAuthoritativeOnlyWhileForegroundIsHealthy() {
         // Unpair/hide removes the entry while the shell is healthy: pop.
-        #expect(WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: false,
             foregroundIsHealthy: true,
             ownerStatus: nil
         ))
         // Foreground death purges secondary snapshots: hold the selection.
-        #expect(!WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(!WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: true,
             rowIsForegroundServed: false,
             foregroundIsHealthy: false,
@@ -61,13 +61,13 @@ import Testing
     }
 
     @Test func unknownRowFallsBackToForegroundHealth() {
-        #expect(WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: false,
             rowIsForegroundServed: false,
             foregroundIsHealthy: true,
             ownerStatus: nil
         ))
-        #expect(!WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        #expect(!WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: false,
             rowIsForegroundServed: false,
             foregroundIsHealthy: false,

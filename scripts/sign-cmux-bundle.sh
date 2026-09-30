@@ -25,6 +25,8 @@
 # Signs in the Apple-documented inside-out order:
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
 #      hardened-runtime entitlements (no application-identifier).
+#      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
+#      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. Each nested framework under Contents/Frameworks/* with --deep
@@ -141,6 +143,9 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
     done
   done
+  # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
+  # Developer ID signed; the script re-pins them in the bundled manifest.
+  "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
   # 2. Computer Use helper app. An early notarization submission owns this
   # signature in all-except-computer-use mode; changing it would invalidate the

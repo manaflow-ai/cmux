@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 import Testing
+import CMUXAgentLaunch
+import CmuxRemoteWorkspace
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +12,27 @@ import Testing
 
 @Suite(.serialized)
 struct AgentHookDeliveryQueueTests {
+    /// Relay-admitted queue parameters build a relay-backed event.
+    @Test("Relay-admitted queue parameters build a relay-backed event")
+    func relayAdmittedParametersBuildRelayEvent() throws {
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
+            "agent": "claude",
+            "subcommand": "stop",
+            "payload": #"{"session_id":"sess-1","transcript_path":"/Users/leo/.ssh/id_ed25519"}"#,
+            "relay_backed": true,
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ]))
+
+        let event = try #require(AgentHookDeliveryEvent(params: admitted, deliverySocketPath: "/tmp/cmux-test.sock"))
+        #expect(event.relayBacked)
+        #expect(event.sessionID == "sess-1")
+        #expect(event.environment == ["CMUX_WORKSPACE_ID": workspaceID, "CMUX_SURFACE_ID": surfaceID])
+        #expect(!event.payload.contains("transcript_path"))
+    }
+
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
@@ -321,16 +344,29 @@ struct AgentHookDeliveryQueueTests {
             await probe.deliver(event)
         }
 
-        for index in 1...3 {
+        // Tool telemetry has a single ingress slot, so a second tool event is
+        // admitted only after the drain task has moved the first one into a
+        // lane. Waiting for each delivery to start makes that hand-off
+        // observable instead of racing the drain task. Only two tool
+        // deliveries may run, so the third stays resident behind them.
+        for index in 1...2 {
             #expect(queue.enqueue(try makeEvent(
                 agent: "cursor",
                 subcommand: "shell-exec",
                 payload: "tool-\(index)",
                 surfaceID: "surface-\(index)"
             )))
+            try await probe.waitUntilStarted(count: index)
         }
-        try await probe.waitUntilStarted(count: 2)
+        #expect(queue.enqueue(try makeEvent(
+            agent: "cursor",
+            subcommand: "shell-exec",
+            payload: "tool-3",
+            surfaceID: "surface-3"
+        )))
 
+        // Three outstanding tool events exhaust the best-effort reservation
+        // whether or not tool-3 has left ingress yet.
         #expect(!queue.enqueue(try makeEvent(
             agent: "cursor",
             subcommand: "shell-exec",
@@ -601,6 +637,26 @@ struct AgentHookDeliveryQueueTests {
         #expect(unsupportedEnvironment == nil)
     }
 
+    /// The routed launch's account pin rides the queued session-start hook to
+    /// the capture that records it; the ingress used to reject the event.
+    @Test("Queued Claude hooks carry the routed launch metadata")
+    func queuedClaudeHookCarriesRoutedLaunchMetadata() throws {
+        let environment = [
+            "CMUX_SURFACE_ID": "surface-a",
+            SubrouterClaudeResumeRouting.accountEnvironmentKey: "me@example.com",
+            SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+        ]
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "agent": "claude",
+            "subcommand": "session-start",
+            "payload": "{}",
+            "socket_path": "/tmp/cmux-test.sock",
+            "environment": environment,
+        ]))
+        #expect(event.environment == environment)
+    }
+
     @Test("Every agent shares generic lifecycle queue admission")
     func allAgentsShareLifecycleAdmission() throws {
         let agents = [
@@ -712,6 +768,50 @@ struct AgentHookDeliveryQueueTests {
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
     }
 
+    @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")
+    func mirroredAgentHookEvent() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let process = AgentHookDeliveryProcess(executableURLProvider: { nil })
+        let start = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-start",
+            payload: #"{"hook_event_name":"SessionStart","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        #expect(start.relayBacked)
+        #expect(start.sessionID == "s1")
+        #expect(start.deliveryArguments == ["hooks", "claude", "session-start"])
+        #expect(start.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
+        let startEnvironment = process.deliveryEnvironment(
+            event: start,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(startEnvironment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(startEnvironment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(startEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(startEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
+
+        // Session end keeps the record/journal cleanup but not the visible
+        // status and notification cleanup owned by the roster projection.
+        let end = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-end",
+            payload: #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        let endEnvironment = process.deliveryEnvironment(
+            event: end,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(endEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == "1")
+        #expect(end.orderingKey == start.orderingKey)
+    }
+
     @Test("Oversized optional launch metadata does not discard lifecycle routing")
     func oversizedOptionalLaunchMetadataIsOmitted() throws {
         let event = try #require(AgentHookDeliveryEvent(params: [
@@ -795,6 +895,156 @@ struct AgentHookDeliveryQueueTests {
             await fixture.waitForProcessGroupToExit(timeout: .milliseconds(500)),
             "The delivery timeout must finish SIGKILL escalation even when SIGTERM already exited the leader"
         )
+    }
+
+    @Test("Installed Codex lifecycle hooks persist after app-owned queue replay")
+    func installedCodexHooksPersistThroughDeliveryQueue() async throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-installed-queue-persistence-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-q")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let sessionID = "issue-13489-session"
+        let processID = Int(getpid())
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionID).jsonl", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionID)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceID,
+            connectionLimit: 32,
+            processBinding: CodexHookMockProcessBinding(
+                processID: processID,
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+        )
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let installedHooks = try codexHookEntries(in: codexHome)
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceID,
+            "CMUX_SURFACE_ID": surfaceID,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_BUNDLED_CLI_PATH": cliPath,
+            "CMUX_CODEX_HOOK_CMUX_BIN": cliPath,
+            "CMUX_CODEX_PID": String(processID),
+        ]
+        let deliveryProcess = AgentHookDeliveryProcess(
+            executableURLProvider: { URL(fileURLWithPath: cliPath) },
+            processTimeout: .seconds(5),
+            deliveryTimeout: .seconds(6),
+            terminationGrace: .milliseconds(100)
+        )
+        let queue = AgentHookDeliveryQueue(process: deliveryProcess)
+
+        func replayInstalledHook(eventName: String, payload: String) async throws {
+            let command = try #require(
+                installedHooks.first { $0.eventName == eventName }?.command
+            )
+            let admissionCount = commands.snapshot()
+                .compactMap(codexHookJSONObject)
+                .filter { $0["method"] as? String == "agent.hook.enqueue" }
+                .count
+
+            let hook = runCodexHookProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", command],
+                environment: environment,
+                standardInput: payload,
+                timeout: 3
+            )
+            #expect(!hook.timedOut, Comment(rawValue: hook.stderr))
+            #expect(hook.status == 0, Comment(rawValue: hook.stderr))
+            #expect(hook.stdout == "{}\n")
+
+            let admissions = commands.snapshot()
+                .compactMap(codexHookJSONObject)
+                .filter { $0["method"] as? String == "agent.hook.enqueue" }
+            #expect(admissions.count == admissionCount + 1)
+            let request = try #require(admissions.last)
+            let params = try #require(request["params"] as? [String: Any])
+            let admittedEnvironment = try #require(params["environment"] as? [String: String])
+            #expect(admittedEnvironment["CMUX_CODEX_PID"] == String(processID))
+            #expect(admittedEnvironment["CMUX_WORKSPACE_ID"] == workspaceID)
+            #expect(admittedEnvironment["CMUX_SURFACE_ID"] == surfaceID)
+            #expect(admittedEnvironment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] == "1")
+
+            let event = try #require(AgentHookDeliveryEvent(params: params))
+            #expect(queue.enqueue(event))
+            let drained = await Task.detached {
+                queue.waitForPriorDeliveries(
+                    orderingKey: event.orderingKey,
+                    timeout: 5
+                )
+            }.value
+            #expect(drained, "Queued Codex hook must finish delivery before the regression assertion")
+        }
+
+        func persistedSession() throws -> [String: Any] {
+            let rootObject = try #require(
+                JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+            )
+            let sessions = try #require(rootObject["sessions"] as? [String: Any])
+            if let record = sessions[sessionID] as? [String: Any] {
+                return record
+            }
+            return try #require(
+                sessions.values
+                    .compactMap { $0 as? [String: Any] }
+                    .first { $0["sessionId"] as? String == sessionID }
+            )
+        }
+
+        try await replayInstalledHook(
+            eventName: "SessionStart",
+            payload: #"{"session_id":"\#(sessionID)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
+        )
+        let started = try persistedSession()
+        #expect(started["workspaceId"] as? String == workspaceID)
+        #expect(started["surfaceId"] as? String == surfaceID)
+        #expect((started["pid"] as? NSNumber)?.intValue == processID)
+        #expect(started["runtimeStatus"] as? String == "running")
+
+        try await replayInstalledHook(
+            eventName: "UserPromptSubmit",
+            payload: #"{"session_id":"\#(sessionID)","turn_id":"turn-13489","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"verify persistence"}"#
+        )
+        let prompted = try persistedSession()
+        #expect(prompted["workspaceId"] as? String == workspaceID)
+        #expect(prompted["surfaceId"] as? String == surfaceID)
+        #expect((prompted["pid"] as? NSNumber)?.intValue == processID)
+        #expect(prompted["runtimeStatus"] as? String == "running")
+        #expect(prompted["activePromptTurnIds"] as? [String] == ["turn-13489"])
     }
 
     @MainActor

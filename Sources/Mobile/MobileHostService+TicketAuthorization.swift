@@ -113,7 +113,10 @@ extension MobileHostService {
              "mobile.terminal.artifact.stat",
              "mobile.terminal.artifact.fetch",
              "mobile.terminal.artifact.thumbnail",
-             "mobile.terminal.artifact.list":
+             "mobile.terminal.artifact.list",
+             "mobile.terminal.close", "mobile.terminal.rename",
+             "mobile.terminal.reattach", "mobile.terminal.size_policy.set",
+             "mobile.terminal.participant.disconnect":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
@@ -136,7 +139,7 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status", "phone_push.status.get",
+        case "mobile.host.status", "phone_push.status.get", "phone_push.keys.exchange",
              "caffeine.status", "caffeine.set":
             // Caffeine is Mac-scoped, and the same-account data-plane gate is
             // authoritative. A workspace-scoped attach ticket must not make

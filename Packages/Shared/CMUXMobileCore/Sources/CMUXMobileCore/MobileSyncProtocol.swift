@@ -111,12 +111,19 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         }
     }
 
-    public func encodedURL() throws -> URL {
+    /// The pairing URL for this payload, in the scheme of the iOS build the
+    /// QR is meant for. Callers that are not an app -- tests, most of all --
+    /// should name the scheme: the default reads `Bundle.main`, which in an
+    /// xctest process is the test runner rather than a cmux build.
+    public func encodedURL(
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
+    ) throws -> URL {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let scheme = CmxPairingURLSchemeResolver().resolved?.rawValue,
+        guard let scheme = pairingURLScheme?.rawValue,
               let url = URL(string: "\(scheme)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }

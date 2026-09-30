@@ -1,6 +1,6 @@
 import { trace } from "@opentelemetry/api";
 import { cache } from "react";
-import { StackServerApp } from "@stackframe/stack";
+import { StackServerApp } from "@hexclave/next";
 import { env } from "../env";
 import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";
@@ -65,7 +65,7 @@ export function getStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return stackServerAppCache;
@@ -88,7 +88,7 @@ export function getNonRedirectingStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return nonRedirectingStackServerAppCache;

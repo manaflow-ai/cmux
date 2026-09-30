@@ -160,6 +160,32 @@ public struct TerminalPathResolver: Sendable {
         resolveOpenURLFileReference(rawText, cwd: cwd)?.path
     }
 
+    /// Resolves the first candidate text that names an existing local file.
+    ///
+    /// Backs the terminal context menu's "Reveal in Finder" item. Callers pass
+    /// candidates in priority order (for example the hovered link, then the
+    /// selection); `nil` and blank
+    /// entries are skipped. Each candidate goes through
+    /// ``resolveOpenURLFileReference(_:cwd:)``, so absolute, `~`, relative,
+    /// `file://`, and `path:line[:column]` spellings all resolve the same way
+    /// cmd-click does. Multi-line text is never a path and is ignored.
+    ///
+    /// - Parameters:
+    ///   - candidates: Raw texts to try, highest priority first.
+    ///   - cwd: The surface's working directory used for relative candidates.
+    /// - Returns: The first existing standardized path, or `nil`.
+    public func resolveRevealPath(candidates: [String?], cwd: String?) -> String? {
+        for candidate in candidates {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty,
+                  !trimmed.contains(where: \.isNewline) else { continue }
+            if let path = resolveOpenURLFilePath(trimmed, cwd: cwd) {
+                return path
+            }
+        }
+        return nil
+    }
+
     /// Converts a token into a local path while rejecting non-file URL schemes.
     private func localFilePath(for token: String) -> String? {
         guard let url = URL(string: token), let scheme = url.scheme else {

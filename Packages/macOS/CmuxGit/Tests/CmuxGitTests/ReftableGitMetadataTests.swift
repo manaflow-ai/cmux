@@ -20,6 +20,10 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
 }
 
 @Suite struct ReftableGitMetadataTests {
+    /// Budget for tests that spawn a real Git. The production default is a
+    /// responsiveness bound, which a contended test host cannot guarantee.
+    private static let realGitWallTime: TimeInterval = 120
+
     @Test func referenceResolverRetainsAbsoluteUserPathGitCandidates() {
         let userGitDirectory = "/Users/cmux-tests/.local/bin"
         let resolver = SystemGitExecutableResolver(
@@ -163,7 +167,12 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         )
         #expect(head.trimmingCharacters(in: .whitespacesAndNewlines) == "ref: refs/heads/.invalid")
 
-        let service = GitMetadataService()
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            safetyConfiguration: GitMetadataSafetyConfiguration(
+                gitStatusWallTime: Self.realGitWallTime
+            )
+        )
         let initialMetadata = await service.workspaceMetadata(for: worktree.path)
         #expect(initialMetadata.branch == initialBranch)
         #expect(await service.checkedOutBranch(forDirectory: worktree.path) == .branch(initialBranch))
@@ -201,7 +210,10 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: repositoryRoot.path)
         )
-        let snapshot = SystemGitReferenceReader().snapshot(repository: repository)
+        let snapshot = SystemGitReferenceReader().snapshot(
+            repository: repository,
+            deadline: .now() + Self.realGitWallTime
+        )
 
         #expect(snapshot.checkedOutBranch == .branch(branch))
         #expect(snapshot.currentCommit == nil)
@@ -354,11 +366,20 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         environment["GIT_CONFIG_COUNT"] = "1"
         environment["GIT_CONFIG_KEY_0"] = "core.worktree"
         environment["GIT_CONFIG_VALUE_0"] = unrelated.path
+        // Pin the Git that created the fixtures: the default candidate order
+        // may start with installations that cannot read reftable, and each
+        // plumbing command would then walk the whole fallback chain.
         let reader = SystemGitReferenceReader(
-            runner: SystemWorkspaceChangesGitRunner(environment: environment)
+            runner: SystemWorkspaceChangesGitRunner(
+                executableURL: fixture.gitExecutableURL,
+                environment: environment
+            )
         )
 
-        let snapshot = reader.snapshot(repository: intendedRepository)
+        let snapshot = reader.snapshot(
+            repository: intendedRepository,
+            deadline: .now() + Self.realGitWallTime
+        )
 
         #expect(snapshot.checkedOutBranch == .branch(intendedBranch))
     }
@@ -389,7 +410,7 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         let snapshot = SystemGitReferenceReader(runners: [
             SystemWorkspaceChangesGitRunner(executableURL: URL(fileURLWithPath: "/usr/bin/false")),
             SystemWorkspaceChangesGitRunner(executableURL: fixture.gitExecutableURL),
-        ]).snapshot(repository: repository)
+        ]).snapshot(repository: repository, deadline: .now() + Self.realGitWallTime)
 
         #expect(snapshot.checkedOutBranch == .branch(branch))
     }

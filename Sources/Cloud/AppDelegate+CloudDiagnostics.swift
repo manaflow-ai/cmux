@@ -14,7 +14,7 @@ extension AppDelegate {
         window.title = String(localized: "cloud.diagnostics.title", defaultValue: "Cloud Diagnostics")
         window.identifier = NSUserInterfaceItemIdentifier("CloudDiagnosticsWindow")
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: CloudDiagnosticsView(recorder: cloudOperations))
+        window.contentView = NSHostingView(rootView: CloudDiagnosticsView(recorder: cloudOperations, devices: devicesRegistry?.diagnostics))
         window.center()
         let controller = NSWindowController(window: window)
         cloudDiagnosticsWindowController = controller

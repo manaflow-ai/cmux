@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -144,8 +145,9 @@ extension AgentHibernationController {
             snapshot = value
         case .nothingToProtect:
             snapshot = nil
-        case .unableToProtect:
-            // Forfeit hibernation rather than risk issue #6565 transcript loss.
+        case .unableToProtect, .backgroundWorkPending:
+            // Forfeit hibernation rather than risk issue #6565 transcript loss,
+            // or killing background work the agent is still waiting on.
             unableToProtectByPanel[record.key] = UnableToProtectMarker(
                 fingerprint: request.confirmationFingerprint,
                 lastActivityAt: request.effectiveLastActivityAt,

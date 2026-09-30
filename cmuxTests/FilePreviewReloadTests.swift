@@ -464,7 +464,7 @@ private actor ControlledFilePreviewTextSaver {
         content: String,
         to url: URL,
         encoding: String.Encoding
-    ) async -> FilePreviewTextSaver.Result {
+    ) async -> FilePreviewTextSaveResult {
         guard let data = content.data(using: encoding) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }

@@ -5,13 +5,15 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-const cases = Object.entries({ en: english.guestCLI, ja: japanese.guestCLI })
-  .flatMap(([locale, messages]) => Object.entries(messages).map(([key, message]) =>
-    `    ${locale}/${key}) printf ${shellQuote(message + "\n")} "$@" ;;`,
-  ))
-  .join("\n");
+export function guestMessageShell(keys?: readonly string[]): string {
+  const cases = Object.entries({ en: english.guestCLI, ja: japanese.guestCLI })
+    .map(([locale, messages]) => [locale, Object.fromEntries(Object.entries(messages).filter(([key]) => !keys || keys.includes(key)))] as const)
+    .flatMap(([locale, messages]) => Object.entries(messages).map(([key, message]) =>
+      `    ${locale}/${key}) printf ${shellQuote(message + "\n")} "$@" ;;`,
+    ))
+    .join("\n");
 
-export const GUEST_CMUX_MESSAGE_SHELL = `cmux_message() {
+  return `cmux_message() {
   case "\${LC_ALL:-\${LC_MESSAGES:-\${LANG:-en}}}" in
     ja*) cmux_message_locale=ja ;;
     *) cmux_message_locale=en ;;
@@ -22,3 +24,6 @@ ${cases}
     *) return 1 ;;
   esac
 }`;
+}
+
+export const GUEST_CMUX_MESSAGE_SHELL = guestMessageShell();

@@ -3,7 +3,6 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
-import UIKit
 
 /// Density for the What's New page. `regular` is the HIG template look;
 /// `compact` tightens fonts and spacing so the whole page still fits without
@@ -206,13 +205,17 @@ struct MobileWhatsNewPairingSetupContent: View {
     let page: MobileWhatsNewPage
     let layout: MobileWhatsNewPageLayout
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter: MobileMacCompatCenter?
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+
+    private var buildType: MobileBuildType {
+        whatsNewCenter?.buildType ?? .current()
+    }
 
     private var compatibility: MobileWhatsNewMacCompatibility {
-        MobileWhatsNewCatalog.macCompatibility(
+        MobileWhatsNewCatalog().macCompatibility(
             policy: macCompatCenter?.policy ?? .baked,
-            iosVersion: AppVersionInfo.current().marketingVersion,
-            buildType: MobileBuildType.current()
+            iosVersion: whatsNewCenter?.appVersion ?? AppVersionInfo.current().marketingVersion,
+            buildType: buildType
         )
     }
 
@@ -229,7 +232,7 @@ struct MobileWhatsNewPairingSetupContent: View {
 
                 Text(L10n.string(
                     "mobile.pairingOptInUpdate.requirement",
-                    defaultValue: "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."
+                    defaultValue: "On your Mac, open Settings > Mobile and turn on Enable iOS pairing."
                 ))
                 .font(layout.detailFont)
                 .foregroundStyle(.secondary)
@@ -253,31 +256,15 @@ struct MobileWhatsNewPairingSetupContent: View {
     }
 
     private var screenshotImage: some View {
-        Group {
-            if let image = Self.settingsImage(darkMode: colorScheme == .dark) {
-                Image(uiImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Color.clear
-                    .aspectRatio(1030.0 / 285.0, contentMode: .fit)
-            }
-        }
-        .accessibilityLabel(L10n.string(
-            "mobile.whatsNew.pairing.screenshotLabel",
-            defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
-        ))
-        .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
-    }
-
-    private static func settingsImage(darkMode: Bool) -> UIImage? {
-        let resourceName = darkMode ? "MacSettingsMobilePairing-dark" : "MacSettingsMobilePairing-light"
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "png"),
-              let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return UIImage(data: data, scale: 1)
+        Image("OnboardingPairingSettings", bundle: .module)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .accessibilityLabel(L10n.string(
+                "mobile.whatsNew.pairing.screenshotLabel",
+                defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            ))
+            .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
     }
 
     private var accountRequirement: some View {
@@ -329,9 +316,9 @@ struct MobileWhatsNewPairingSetupContent: View {
                 )
             }
 
-            if MobileBuildType.current().usesInternalBuildVocabulary {
-                Text(MobileWhatsNewCatalog.macUpdateDetail(
-                    buildType: MobileBuildType.current(),
+            if buildType.usesInternalBuildVocabulary {
+                Text(MobileWhatsNewCatalog().macUpdateDetail(
+                    buildType: buildType,
                     requiredVersion: compatibility.stableVersion
                 ))
                 .font(.footnote)

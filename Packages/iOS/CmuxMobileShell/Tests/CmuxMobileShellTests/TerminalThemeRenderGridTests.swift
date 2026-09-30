@@ -85,6 +85,9 @@ import Testing
     let store = MobileShellComposite.preview()
     store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
     store.terminalOutputTransport = .renderGrid
+    // Theme deliveries only carry the verified-replay policy when the host
+    // advertises verified replay (537cdbc0984), so model that host here.
+    store.supportedHostCapabilities = [MobileShellComposite.terminalVerifiedReplayCapability]
     var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     store.terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = barrierToken

@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFoundation
@@ -16,6 +17,7 @@ import CmuxUpdater
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
 import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.BetaFeaturesCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
@@ -413,6 +415,25 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
+@MainActor final class CommandPaletteRowHighlightTests: XCTestCase {
+    func testSelectionWinsOverHover() {
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: true), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: false), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: true), .hovered)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: false), .plain)
+    }
+
+    func testHoverIsClearlyQuieterThanSelection() {
+        let hovered = CommandPaletteRowHighlight.hovered.backgroundOpacity
+        let selected = CommandPaletteRowHighlight.selected.backgroundOpacity
+        XCTAssertGreaterThan(hovered, 0)
+        // Hover is a neutral primary tint and selection an accent tint; at half
+        // the selection opacity or more they read as the same strength in dark mode.
+        XCTAssertLessThan(hovered, selected / 2)
+        XCTAssertEqual(CommandPaletteRowHighlight.plain.backgroundOpacity, 0)
+    }
+}
+
 @MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
@@ -806,6 +827,13 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
         )
     }
 
+    func testToggleTerminalCopyModeCommandRestoresSurfaceAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.toggleTerminalCopyMode"),
+            .terminal(.surface)
+        )
+    }
+
     func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
         XCTAssertNil(
             ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
@@ -841,47 +869,22 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
-final class CommandPaletteAuthCommandTests: XCTestCase {
-    func testSignedOutContextShowsSignInCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignInCommandId])
-    }
-
-    func testSignedInContextShowsSignOutCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignOutCommandId])
-    }
-
-    func testWorkingAuthContextHidesSignInAndSignOutCommands() {
-        for signedIn in [false, true] {
-            var context = CommandPaletteContextSnapshot()
-            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(CommandPaletteContextKeys.authWorking, true)
-
-            XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
-        }
-    }
-
-    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
-        ContentView.commandPaletteAuthCommandContributions()
-            .filter { $0.when(context) }
-            .map(\.commandId)
-    }
-}
-
 final class CommandPaletteCloudCommandTests: XCTestCase {
+    @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
-        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
+        }
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
 
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
@@ -891,6 +894,13 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
+
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defaults.set(false, forKey: key)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
     func testCloudVMIdentityIsExplicitMetadata() {
@@ -1183,6 +1193,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
+@MainActor
 final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
@@ -1194,12 +1205,11 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToMachines,
     ]
     /// The digit defaults are positional over the visible tabs, so the
-    /// expectations below pin every mode gate on and clear any tab
+    /// expectations below pin every remaining mode gate on and clear any tab
     /// customization; otherwise the test host's own settings would shift the
     /// digits.
     private let touchedTabEnvironmentKeys: [String] = [
         RightSidebarBetaFeatureSettings.feedEnabledKey,
-        RightSidebarBetaFeatureSettings.dockEnabledKey,
         RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
         RightSidebarTabPreferences.orderKey,
         RightSidebarTabPreferences.hiddenKey,
@@ -1223,7 +1233,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             }
         )
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
@@ -1276,6 +1285,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18)),
             .files
@@ -1302,12 +1312,12 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
-    /// The reported bug: Feed and Dock hidden leaves Cloud as the 4th visible
-    /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
-    /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
+    /// Hiding Feed and the standard Dock tab leaves Cloud as the 4th visible
+    /// tab, so ctrl+4 must select it.
     func testModeShortcutDigitsFollowVisibleTabPositions() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock))
 
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
@@ -1933,108 +1943,6 @@ final class BuildFlavorTests: XCTestCase {
     }
 }
 
-final class QuitConfirmationPolicyTests: XCTestCase {
-    func testDevAlwaysSkipsQuitConfirmation() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.dev == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.dev == .dev
-                )
-            )
-        }
-    }
-
-    func testStableHonorsConfirmQuitModes() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.never.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-        }
-    }
-
-    func testNightlyHonorsConfirmQuitModes() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.nightly == .dev
-                )
-            )
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.nightly == .dev
-                )
-            )
-        }
-    }
-
-    func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
-        withIsolatedDefaults { defaults in
-            defaults.set(false, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
-            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
-
-            defaults.set(true, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
-            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
-        }
-    }
-
-    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
-        let suiteName = "QuitConfirmationPolicyTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        body(defaults)
-    }
-}
-
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
@@ -2062,10 +1970,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 
     func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
-        let resolved = UpdateFeedResolver().resolve(
+        let resolved = UpdateFeedResolver(hostArchitecture: .arm64).resolve(
             infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
-        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
+        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast-arm64.xml")
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }

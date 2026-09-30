@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -14,14 +15,51 @@ enum MobileHostIrxTerminalLaneServer {
         static let invalidInput: UInt64 = 5
     }
 
-    private static let maximumInputFrameByteCount = 16 * 1_024
     private static let maximumInputBufferByteCount = 64 * 1_024
+
+    /// What the lane does after one input frame.
+    private enum InputOutcome {
+        /// Keep reading. The acknowledgement, if any, goes back to the phone.
+        case `continue`(MobileTerminalInputAcknowledgement?)
+        /// Send the acknowledgement, then close the lane as a protocol error.
+        case close(MobileTerminalInputAcknowledgement?)
+    }
+
+    /// Serializes envelope writes so input acknowledgements and output chunks
+    /// never interleave inside one envelope on the shared send half.
+    private actor EnvelopeWriter {
+        private let sendStream: any CmxIrohSendStream
+        private var sending = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(_ sendStream: any CmxIrohSendStream) {
+            self.sendStream = sendStream
+        }
+
+        func send(_ envelope: CmxIrohTerminalOutputEnvelope) async throws {
+            let data = CmxIrohTerminalOutputEnvelopeCodec().encode(envelope)
+            while sending {
+                await withCheckedContinuation { waiters.append($0) }
+            }
+            sending = true
+            defer {
+                sending = false
+                if !waiters.isEmpty { waiters.removeFirst().resume() }
+            }
+            try await sendStream.send(data)
+        }
+    }
+
+    /// Called with the surface that received input, so the host can schedule
+    /// that surface's output stream first (keystroke echo).
+    typealias InteractiveSurfaceObserver = @Sendable (UUID) async -> Void
 
     static func serve(
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -39,13 +77,26 @@ enum MobileHostIrxTerminalLaneServer {
             "host-terminal", "lane-serving",
             ["surface": surfaceID.uuidString, "cursor": cursor.map(String.init) ?? "-"]
         )
+        let writer = EnvelopeWriter(stream.sendStream)
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                await sendOutput(surfaceID: surfaceID, cursor: cursor, stream: stream, journal: journal)
+                await sendOutput(
+                    surfaceID: surfaceID,
+                    cursor: cursor,
+                    stream: stream,
+                    writer: writer,
+                    journal: journal
+                )
                 return true
             }
             group.addTask {
-                await receiveInput(surfaceID: surfaceID, stream: stream)
+                await receiveInput(
+                    surfaceID: surfaceID,
+                    stream: stream,
+                    writer: writer,
+                    journal: journal,
+                    onInteractiveSurface: onInteractiveSurface
+                )
             }
             if await group.next() == true {
                 group.cancelAll()
@@ -64,7 +115,8 @@ enum MobileHostIrxTerminalLaneServer {
     static func serveInputOnly(
         resourceID: String,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -74,6 +126,7 @@ enum MobileHostIrxTerminalLaneServer {
             await reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
         }
+        let writer = EnvelopeWriter(stream.sendStream)
         do {
             let currentSequence = await MainActor.run {
                 MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)?.seq ?? 0
@@ -85,12 +138,15 @@ enum MobileHostIrxTerminalLaneServer {
                 currentSequence: currentSequence,
                 payload: Data()
             )
-            try await stream.sendStream.send(
-                CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
-            )
+            try await writer.send(baseline)
+            // The phone keeps an input lane for the terminal it shows.
+            await onInteractiveSurface(surfaceID)
             _ = await receiveInput(
                 surfaceID: surfaceID,
-                stream: stream
+                stream: stream,
+                writer: writer,
+                journal: journal,
+                onInteractiveSurface: onInteractiveSurface
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -105,6 +161,7 @@ enum MobileHostIrxTerminalLaneServer {
         surfaceID: UUID,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
+        writer: EnvelopeWriter,
         journal: IrxJournal
     ) async {
         let updates = await MainActor.run {
@@ -148,9 +205,7 @@ enum MobileHostIrxTerminalLaneServer {
                 currentSequence: currentSequence,
                 payload: replayPayload
             )
-            try await stream.sendStream.send(
-                CmxIrohTerminalOutputEnvelopeCodec().encode(replayEnvelope)
-            )
+            try await writer.send(replayEnvelope)
             nextSequence = currentSequence
             for await chunk in updates {
                 try Task.checkCancellation()
@@ -164,7 +219,7 @@ enum MobileHostIrxTerminalLaneServer {
                 try await sendChunks(
                     Data(chunk.data.dropFirst(offset)),
                     startingAt: nextSequence,
-                    stream: stream
+                    writer: writer
                 )
                 nextSequence = chunkEnd
             }
@@ -179,9 +234,8 @@ enum MobileHostIrxTerminalLaneServer {
     private static func sendChunks(
         _ data: Data,
         startingAt startingSequence: UInt64,
-        stream: CmxIrohBidirectionalStream
+        writer: EnvelopeWriter
     ) async throws {
-        let codec = CmxIrohTerminalOutputEnvelopeCodec()
         var offset = 0
         while offset < data.count {
             let payloadByteCount = min(
@@ -197,7 +251,7 @@ enum MobileHostIrxTerminalLaneServer {
                 currentSequence: sequence + UInt64(payloadByteCount),
                 payload: payload
             )
-            try await stream.sendStream.send(codec.encode(envelope))
+            try await writer.send(envelope)
             offset += payloadByteCount
         }
     }
@@ -206,7 +260,10 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        writer: EnvelopeWriter,
+        journal: IrxJournal,
+        onInteractiveSurface: InteractiveSurfaceObserver
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -221,13 +278,34 @@ enum MobileHostIrxTerminalLaneServer {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try MobileHostIrohApplicationLaneRouter
-                    .decodeTerminalInputFrames(from: &buffer)
+                for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
-                    guard await deliverInput(
-                        input,
-                        surfaceID: surfaceID
-                    ) else {
+                    await onInteractiveSurface(surfaceID)
+                    switch await deliverInput(input, surfaceID: surfaceID) {
+                    case .continue(let acknowledgement):
+                        if let acknowledgement {
+                            try await writer.send(
+                                .inputAcknowledgement(acknowledgement)
+                            )
+                        }
+                    case .close(let acknowledgement):
+                        if let acknowledgement {
+                            journal.record(
+                                "host-terminal", "input-refused",
+                                [
+                                    "surface": surfaceID.uuidString,
+                                    "status": String(describing: acknowledgement.status),
+                                ]
+                            )
+                            try? await writer.send(
+                                .inputAcknowledgement(acknowledgement)
+                            )
+                            // A reset can drop queued bytes; finishing drains
+                            // the acknowledgement to the phone first.
+                            try? await stream.sendStream.finish()
+                            await stream.receiveStream.stop(errorCode: ErrorCode.invalidInput)
+                            return true
+                        }
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -247,25 +325,49 @@ enum MobileHostIrxTerminalLaneServer {
     }
 
     private static func deliverInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
-    ) async -> Bool {
-        await MainActor.run {
+    ) async -> InputOutcome {
+        // Stamped before the main-actor hop so the Mac's receive-to-accept
+        // stage includes any queueing behind other main-actor work.
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
+            let applier = MobileHostTerminalInputApplier.shared
+            // A lane is bound to one terminal when it opens. A frame naming
+            // any other terminal is refused before it can touch a PTY.
+            if case .answer(let acknowledgement) = applier.admit(
+                input.delivery,
+                surfaceID: surfaceID
+            ) {
+                return acknowledgement.status == .surfaceMismatch
+                    ? .close(acknowledgement)
+                    : .continue(acknowledgement)
+            }
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
-            else { return false }
-            switch surface.sendInputResult(input) {
-            case .sent:
-                // PTY output is observed by MobileTerminalByteTee, which
-                // schedules the normal render tick. A refresh here would
-                // emit a duplicate full frame before the echo and make every
-                // key compete with the output lane's replay fence.
-                return true
-            case .queued:
-                return true
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
-                return false
+            else {
+                return .close(MobileHostTerminalInputApplier.unavailable(input.delivery))
+            }
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
+            ) { surface.sendInputResult(input.text) }
+            // PTY output is observed by MobileTerminalByteTee, which schedules
+            // the normal render tick. A refresh here would emit a duplicate
+            // full frame before the echo and make every key compete with the
+            // output lane's replay fence.
+            let acknowledgement = applier.complete(input.delivery, result: result)
+            switch result {
+            case .sent, .queued:
+                return .continue(acknowledgement)
+            case .inputQueueFull:
+                // Identified input is resent by the phone after a busy
+                // acknowledgement, so the lane survives a full queue.
+                return input.delivery == nil ? .close(nil) : .continue(acknowledgement)
+            case .surfaceUnavailable, .processExited:
+                return .close(acknowledgement)
             }
         }
     }

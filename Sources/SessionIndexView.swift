@@ -320,9 +320,8 @@ struct SessionIndexView: View {
                 }
             }
 
-            // Keep the category selector intentionally quiet. Folder scope
-            // and reload remain model capabilities, but the secondary icon
-            // controls competed with the three primary grouping choices.
+            Spacer(minLength: 4)
+            VaultAllSessionsBar.reloadButton(isLoading: store.isLoading) { store.reload() }
         }
         // Match the right-sidebar mode bar above: the same outer insets and
         // the same 28-point chrome rhythm.
@@ -548,7 +547,8 @@ struct SessionIndexView: View {
         // Rapid keystrokes bump the task id, cancelling this genuine debounce
         // deadline before any transcript work starts.
         try? await ContinuousClock().sleep(for: .milliseconds(200))
-        guard !Task.isCancelled else { return }
+        // Reload completion changes searchTaskKey and searches the fresh index once.
+        guard !Task.isCancelled, !store.isLoading else { return }
         let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
         guard !Task.isCancelled else { return }
         searchResults = outcome.entries
@@ -867,6 +867,7 @@ struct IndexSectionView: View, Equatable {
 }
 
 struct SectionReorderGap: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
@@ -889,7 +890,7 @@ struct SectionReorderGap: View, Equatable {
             .overlay(alignment: .center) {
                 if isDropTarget && isValidDrop {
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(cmuxAccent.color)
                         .frame(height: 3)
                         .padding(.horizontal, 10)
                 }
@@ -936,6 +937,32 @@ private struct SectionGapDropDelegate: DropDelegate {
             }
         }
         return true
+    }
+}
+
+/// Session row fill. The previewed row keeps its selection fill under the
+/// pointer; hover only tints rows that are not selected.
+enum SessionIndexRowHighlight: Equatable {
+    case previewed
+    case hovered
+    case plain
+
+    init(isPreviewPresented: Bool, isHovered: Bool) {
+        if isPreviewPresented {
+            self = .previewed
+        } else if isHovered {
+            self = .hovered
+        } else {
+            self = .plain
+        }
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .previewed: return Color.accentColor.opacity(0.10)
+        case .hovered: return Color.primary.opacity(0.05)
+        case .plain: return Color.clear
+        }
     }
 }
 
@@ -1026,13 +1053,8 @@ private struct SessionRow: View, Equatable {
     }
 
     private var rowBackgroundColor: Color {
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        if isPreviewPresented {
-            return Color.accentColor.opacity(0.10)
-        }
-        return Color.clear
+        SessionIndexRowHighlight(isPreviewPresented: isPreviewPresented, isHovered: isHovered)
+            .backgroundColor
     }
 
     private var helpText: String {
@@ -1230,10 +1252,10 @@ struct SessionTranscriptPreviewView: View {
             CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold, tint: closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                         .fill(closeIsHovered ? Color.primary.opacity(0.08) : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
                 .onHover { closeIsHovered = $0 }
                 .onTapGesture {
                     onDismiss()

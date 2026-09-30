@@ -75,6 +75,24 @@ function routeRequest(incomingRequest: NextRequest) {
   if (response) return response;
 
   response = intlMiddleware(request);
+  if (
+    request.headers.has("next-router-prefetch") ||
+    request.headers.get("purpose") === "prefetch"
+  ) {
+    // A delayed prefetch for the previous locale must not overwrite a newer
+    // explicit choice. The header also covers runtime/shell prefetch variants.
+    // Keep next-intl's routing, but do not publish its cookie.
+    // Rebuild the response so later cookie writes cannot resurrect that cookie
+    // from NextResponse's internal cookie map.
+    const headers = new Headers(response.headers);
+    headers.delete("set-cookie");
+    headers.delete("x-middleware-set-cookie");
+    response = new NextResponse(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,
