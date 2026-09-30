@@ -570,6 +570,18 @@ class SeedDerivedData(unittest.TestCase):
             published.clear()
             self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
+    def test_probe_can_require_a_seed_of_its_own_width(self):
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        os.environ["CMUX_SEED_REQUIRE_OWN_WIDTH"] = "1"
+        published = {"p-j12-c4"}
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
+        published.add("p-j6-c4")
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", 0))
+
     def test_adopt_falls_back_to_a_j14_seed_and_a_j14_runner_prefers_it(self):
         self.assertIn(14, seed.SEEDED_JOB_WIDTHS)
         published = set()
@@ -885,9 +897,14 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml",
+                                                                        "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
-        # E2E builds adopt the same seed but only read it.
+        # E2E builds and main compile probes adopt the same seed but only read it.
+        probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
+        self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
+        self.assertNotIn("cache-save", probe)
+        self.assertNotIn("secrets.", probe)
         e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
         for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
             self.assertIn(command, {"start", "adopt"})
@@ -1353,8 +1370,9 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):
         # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
-        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs. Here the
-        # bot's re-run, after a host fault (a person's: test below).
+        # re-run of failed jobs reuses attempt 1's inputs. The bot's attempt 2
+        # is placed like attempt 1; its attempt 3 (the rescue's move of a stuck
+        # attempt 2) takes the retry runner (a person's: test below).
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
@@ -1362,8 +1380,9 @@ class Wiring(unittest.TestCase):
             ("1", "blacksmith-12vcpu-macos-26", " admission cli-product ", "glaeda-std-xcode-26.6"),
             ("1", "blacksmith-12vcpu-macos-26", " cli-product ", "blacksmith-12vcpu-macos-26"),
             ("1", "blacksmith-12vcpu-macos-26", "", "blacksmith-12vcpu-macos-26"),
-            ("2", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
-            ("2", "", "", "glaeda-std-xcode-26.6"),
+            ("2", "blacksmith-12vcpu-macos-26", " admission ", "glaeda-std-xcode-26.6"),
+            ("3", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
+            ("3", "", "", "glaeda-std-xcode-26.6"),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
@@ -1376,14 +1395,13 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
     def test_a_retry_goes_to_blacksmith_after_a_host_fault_and_to_the_fleet_after_a_code_failure(self):
-        # github-actions[bot] re-runs only after a host fault: owned_pool_rescue.py
-        # after a refusal, ci-failure-attribution when every failure is the
-        # machine's. That retry takes the Blacksmith retry runner, never the mini
-        # that refused or failed it. A person's "Re-run failed jobs" follows a
-        # code or test failure and goes back to the owned label; a mini failing
-        # it there is re-run by the attribution bot onto Blacksmith, so it never loops.
+        # Attempt 2 is placed like attempt 1, whoever re-ran it: the owned label
+        # first, and admission-placement skips the minis that failed attempt 1.
+        # The bot's attempt 3 (the rescue's move of a stuck attempt 2) takes the
+        # Blacksmith retry runner, so its re-runs never loop. A person's re-run
+        # always goes back to the owned label.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for actor, attempt, runner in (("github-actions[bot]", "2", "blacksmith-12vcpu-macos-26"),
+        for actor, attempt, runner in (("github-actions[bot]", "2", "glaeda-std-xcode-26.6"),
                                        ("someone", "2", "glaeda-std-xcode-26.6"),
                                        ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
                                        ("someone", "3", "glaeda-std-xcode-26.6")):
@@ -1399,11 +1417,10 @@ class Wiring(unittest.TestCase):
     def test_no_retry_attempt_of_any_workflow_takes_an_owned_label(self):
         # Every macOS job an owned mini may take, in every workflow: with the
         # picker's owned outputs, the side-lane variables and late placement's
-        # labels all set, attempt 1 may take a glaeda-* label, but attempts 2
-        # and 3 of a host-fault re-run (github-actions[bot]'s: the rescue's or
-        # the failure attribution's) never do, so such a retry cannot land on
-        # the mini that refused or failed it. A person's re-run follows a code
-        # failure and may (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
+        # labels all set, attempts 1 and 2 may take a glaeda-* label, but
+        # attempt 3 of the bot's re-runs (the rescue's move of a stuck attempt
+        # 2) never does, so the rescue cannot loop. A person's re-run may
+        # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package claude-wrapper remote-daemon ")
@@ -1431,22 +1448,26 @@ class Wiring(unittest.TestCase):
                     outputs = {"macos_pr_runner": mini, "macos_pr_retry_runner": "blacksmith-12vcpu-macos-26",
                                "macos_pr_side_runner": side, "macos_pr_owned_jobs": owned_jobs}
                     context["needs"] = {"changes": {"outputs": outputs},
-                                        "late-placement": {"outputs": {"runners": late}},
+                                        # late-placement skips the bot's attempt 3 (asserted below).
+                                        "late-placement": {"outputs": {"runners": late, "attempt": attempt}
+                                                           if attempt != "3" else {}},
                                         "macos-compile-admission": {"outputs": {"runner": root}}}
                     label = evaluate(runs_on, context)
                     labels = label if isinstance(label, list) else [label]
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
-                        if attempt == "1":
+                        if attempt != "3":
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
                         else:
                             self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
         # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
-        # are not evaluated above: no workflow may name a later attempt at all.
+        # are not evaluated above: no workflow may name an attempt after 2.
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
-                self.assertIsNone(re.search(r"run_attempt (?:<= ?[2-9]|== ?[2-9])", text))
-        # The guard reaches owned jobs at all: attempt 1 of the main lanes takes the fleet.
+                self.assertIsNone(re.search(r"run_attempt (?:<= ?[3-9]|== ?[2-9])", text))
+        self.assertIn("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]')",
+                      load("ci-macos.yml")["jobs"]["late-placement"]["if"])
+        # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
                          ("ci-macos.yml", "app-host-unit-tests"), ("ci.yml", "claude-wrapper"),
@@ -1471,17 +1492,18 @@ class Wiring(unittest.TestCase):
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
-        # a placed root job takes the root label on attempt 1; any retry takes
-        # the Blacksmith retry runner. Without pr_root_runner nothing changes.
+        # a placed root job takes the root label on attempts 1 and 2; the bot's
+        # attempt 3 takes the Blacksmith retry runner. Without pr_root_runner
+        # nothing changes.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
         for attempt, actor, owned_jobs, root_runner, runner in (
             ("1", "someone", " admission shard-1 lag cli-product ", root, root),
             ("1", "someone", " admission shard-1 lag cli-product ", "", mini),
             ("1", "someone", " cli-pipe ", root, retry),
-            # A retry never comes back to the fleet, whoever re-ran it.
-            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
-            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", retry),
+            # Attempt 2 comes back to the fleet, whoever re-ran it.
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
             ("2", "someone", " admission shard-1 lag cli-product ", root, root),  # a code failure's re-run
             ("3", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
         ):
@@ -1496,7 +1518,7 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
                                  runner)
                 self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
-                # The shards and cli-product-tests follow admission on attempt 1.
+                # The shards and cli-product-tests follow admission.
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
                 # The evaluator has no format(): matrix shard 1 stands in.
                 shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
@@ -1513,9 +1535,9 @@ class Wiring(unittest.TestCase):
         for attempt, owned_jobs, gui_runner, runner in (
             ("1", owned, gui, gui),
             ("1", owned, "", root),
-            # A retry never comes back to the fleet.
-            ("2", owned, gui, retry),
-            ("2", owned, "", retry),
+            # Attempt 2 is placed like attempt 1; the bot's attempt 3 is not.
+            ("2", owned, gui, gui),
+            ("2", owned, "", root),
             ("1", " admission ", gui, retry),
             ("3", owned, gui, retry),
         ):
@@ -1533,7 +1555,9 @@ class Wiring(unittest.TestCase):
     def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
         # pr_admission_runner names a root runner that kept a build of the
         # run's merge base. Admission's attempt 1 asks for both labels; its
-        # consumers, and every retry, keep the root label.
+        # consumers keep the root label. A retry keeps the root label unless
+        # admission-placement ran again for it; the bot's attempt 3 goes to
+        # the retry runner.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
         warm = json.dumps([root, "glaeda-runner-cmux7-glaeda"])
@@ -1541,7 +1565,8 @@ class Wiring(unittest.TestCase):
         for attempt, actor, admission_runner, runner in (
             ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
-            ("2", "github-actions[bot]", warm, retry),
+            ("2", "github-actions[bot]", warm, root),
+            ("3", "github-actions[bot]", warm, retry),
             ("2", "someone", warm, root),  # a code failure's re-run: the root label, never the pin
             ("3", "someone", warm, root),
         ):
@@ -1568,9 +1593,9 @@ class Wiring(unittest.TestCase):
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
-                                       ("2", "github-actions[bot]", retry),
-                                       # Main has no failure attribution or re-run watch: every retry on Blacksmith.
-                                       ("2", "someone", retry),
+                                       # Attempt 2 is placed like attempt 1; attempt 3 goes to Blacksmith.
+                                       ("2", "github-actions[bot]", root),
+                                       ("2", "someone", root),
                                        ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,

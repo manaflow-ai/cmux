@@ -123,6 +123,7 @@ public enum UpdateState: Equatable {
         case (.installing(let lInstall), .installing(let rInstall)):
             return lInstall.isAutoUpdate == rInstall.isAutoUpdate
                 && lInstall.relaunchBlockers == rInstall.relaunchBlockers
+                && (lInstall.updateWhenClear == nil) == (rInstall.updateWhenClear == nil)
         default:
             return false
         }
@@ -337,16 +338,21 @@ public enum UpdateState: Equatable {
         /// these agents or commands. `retryTerminatingApplication` installs now anyway and
         /// `dismiss` defers the install.
         public var relaunchBlockers: UpdateRelaunchBlockers?
+        /// Set while the user is asked what to do about risky agents: switches the hold to
+        /// relaunching as soon as they finish.
+        public var updateWhenClear: (() -> Void)?
 
         /// Creates the payload.
         public init(isAutoUpdate: Bool = false,
                     retryTerminatingApplication: @escaping () -> Void,
                     dismiss: @escaping () -> Void,
-                    relaunchBlockers: UpdateRelaunchBlockers? = nil) {
+                    relaunchBlockers: UpdateRelaunchBlockers? = nil,
+                    updateWhenClear: (() -> Void)? = nil) {
             self.isAutoUpdate = isAutoUpdate
             self.retryTerminatingApplication = retryTerminatingApplication
             self.dismiss = dismiss
             self.relaunchBlockers = relaunchBlockers
+            self.updateWhenClear = updateWhenClear
         }
     }
 }

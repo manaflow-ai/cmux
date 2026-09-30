@@ -112,6 +112,7 @@ extension SocketTransport {
             }
         }
         guard connectResult == 0 else { return nil }
+        guard serverPeerCheck.isTrustedPeer(fd) else { return nil }
         let serverProcessID = peerProcessID(of: fd)
         guard validatingPeer(serverProcessID) else { return nil }
 

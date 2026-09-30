@@ -114,7 +114,8 @@ extension MobileIrxRuntimeComposition {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw CompositionError.scopeChanged }
                 return try key.sign(data)
-            })
+            },
+            journal: journal)
         let service = V2ControlService(configuration: try V2ControlConfiguration(
             baseURL: configuration.baseURL, device: device), dependencies: dependencies, store: stateStore)
         try await assertScope(scope, epoch: currentEpoch)
@@ -122,7 +123,9 @@ extension MobileIrxRuntimeComposition {
         controlTask = Task { [weak self] in
             for await snapshot in await service.events() {
                 guard !Task.isCancelled else { return }
-                await self?.apply(snapshot, scope: scope, epoch: currentEpoch)
+                guard let self else { return }
+                await self.apply(snapshot, scope: scope, epoch: currentEpoch)
+                await service.acknowledgeApplied(sequence: snapshot.sequence)
             }
         }
         await service.start()
