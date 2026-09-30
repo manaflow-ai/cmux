@@ -177,7 +177,7 @@ test("Stop during ACP startup settles the status before startup finishes", async
   });
 });
 
-test("Stop leaves the status alone when the agent answered session/new without a session id", async () => {
+test("An agent that answers session/new without a session id fails startup", async () => {
   await withFake("empty-session-id", async (paths) => {
     const adapter = makeAdapter(paths, ["--empty-session-id"]);
     const events: AgentEvent[] = [];
@@ -186,15 +186,20 @@ test("Stop leaves the status alone when the agent answered session/new without a
       const turn = adapter.send(sess, "live");
       await waitFor(paths.startupReady, (value) => value.includes("ready\n"), "startup");
       await writeFile(paths.startupGate, "release\n");
-      // The prompt reaching the agent proves startup published its state, and
-      // it published no session id, so this turn is live and uncancellable.
-      await waitFor(paths.promptLog, (value) => value.includes("live\n"), "prompt");
-
-      adapter.stop(sess);
-      expect(sess.status).toBe("running");
-
       await writeFile(paths.promptGate, "release\n");
       await turn;
+
+      // Without a session id the prompt cannot name a session and Stop has
+      // nothing to cancel, so the turn reports the failure and settles instead
+      // of running on with an unstoppable prompt in flight.
+      expect(await lines(paths.promptLog)).toEqual([]);
+      const errors = events.filter((event) => event.kind === "error") as { message: string }[];
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain("session/new without a sessionId");
+      expect(events.filter((event) => event.kind === "done")).toHaveLength(1);
+      expect(sess.status).toBe("idle");
+
+      adapter.stop(sess);
       expect(sess.status).toBe("idle");
     } finally {
       adapter.dispose(sess);
