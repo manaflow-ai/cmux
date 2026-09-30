@@ -688,6 +688,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
+            let defaults = UserDefaults.standard
+            let inheritedRightSidebar = "rightSidebar.mode="
+                + "\(defaults.string(forKey: "rightSidebar.mode") ?? "unset"), fileExplorer.isVisible="
+                + "\(defaults.object(forKey: "fileExplorer.isVisible").map { "\($0)" } ?? "unset")"
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -704,7 +708,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId))
+            XCTAssertNil(
+                appDelegate.existingWindowDock(forWindowId: windowId),
+                "A new window already has a Dock; persisted right sidebar at window creation: \(inheritedRightSidebar)"
+            )
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
 
