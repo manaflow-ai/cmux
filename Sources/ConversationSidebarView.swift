@@ -28,6 +28,7 @@ struct ConversationSidebarView: View {
     @State private var isLoadingMoreHistory = false
     @State private var canLoadMoreHistory = true
     @State private var historyPerAgentLimit = SessionIndexStore.perAgentLimit
+    @State private var historySourceGeneration: UInt64 = 0
     @State private var visibleHistoryCount = 24
     @State private var liveSessionRevision: UInt64 = 0
     @State private var livePresentationAgentsByDirectory: [String: [String: SessionAgent]] = [:]
@@ -274,6 +275,7 @@ struct ConversationSidebarView: View {
             // A reload replaces the authoritative index. Drop pages loaded
             // from the previous snapshot so deleted or changed sessions do
             // not survive in the expanded cache.
+            historySourceGeneration &+= 1
             expandedHistory = []
             historyPerAgentLimit = SessionIndexStore.perAgentLimit
             canLoadMoreHistory = true
@@ -390,14 +392,15 @@ struct ConversationSidebarView: View {
         // Only history entries already known to be live are candidates, and
         // the lookup reads the cached live index without scheduling a refresh.
         var fallbackOpen: [Row] = []
+        let activeTargets = SessionEntryResumeCoordinator.activeTargets(
+            for: liveHistoryCandidates,
+            tabManager: tabManager,
+            schedulingIndexRefresh: false
+        )
         for entry in liveHistoryCandidates {
             let key = VaultLiveSessionKeys.key(for: entry)
             guard !openIDs.contains(key), store.liveSessionKeys.contains(key),
-                  let target = SessionEntryResumeCoordinator.activeTarget(
-                    for: entry,
-                    tabManager: tabManager,
-                    schedulingIndexRefresh: false
-                  ) else {
+                  let target = activeTargets[key] else {
                 continue
             }
             let destination: Destination
@@ -563,6 +566,7 @@ struct ConversationSidebarView: View {
         guard !isLoadingMoreHistory, canLoadMoreHistory else { return }
         isLoadingMoreHistory = true
         defer { isLoadingMoreHistory = false }
+        let sourceGeneration = historySourceGeneration
 
         let previousEntries = projection.recentHistory(
             initial: store.entries,
@@ -576,6 +580,7 @@ struct ConversationSidebarView: View {
             offsetPerAgent: historyPerAgentLimit
         )
         guard !Task.isCancelled else { return }
+        guard sourceGeneration == historySourceGeneration else { return }
 
         historyErrors = outcome.errors
         paginatedProviderAgentsByID = projection.mergingProviderAgents(

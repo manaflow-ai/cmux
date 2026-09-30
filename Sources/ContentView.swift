@@ -2578,7 +2578,7 @@ struct ContentView: View {
             selectedLeftSidebarProviderId,
             extensionsEnabled: leftSidebarExtensionsExperimentalEnabled,
             customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled,
-            conversationSidebarEnabled: CmuxExtensionSidebarSelection.conversationSidebarEnabled
+            conversationSidebarEnabled: conversationSidebarEnabled
         )
     }
 
@@ -11350,12 +11350,15 @@ struct VerticalTabsSidebar: View, Equatable {
         // which would otherwise flash the default sidebar for a frame
         // before swapping to the custom one.
         _ = customSidebarsExperimentalEnabled
-        _ = conversationSidebarExperimentalEnabled
+        let conversationReleaseEnabled = featureFlags.isConversationSidebarAvailable
+        let conversationSidebarEnabled =
+            CmuxExtensionSidebarSelection.conversationSidebarEnabled
+            && conversationReleaseEnabled
         return CmuxExtensionSidebarSelection.effectiveProviderId(
             selected,
             extensionsEnabled: extensionsExperimentalEnabled,
             customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled,
-            conversationSidebarEnabled: CmuxExtensionSidebarSelection.conversationSidebarEnabled
+            conversationSidebarEnabled: conversationSidebarEnabled
         )
     }
 

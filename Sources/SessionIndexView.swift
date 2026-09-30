@@ -40,38 +40,58 @@ enum SessionEntryResumeCoordinator {
         tabManager: TabManager,
         schedulingIndexRefresh: Bool = true
     ) -> ActiveTarget? {
+        activeTargets(
+            for: [entry],
+            tabManager: tabManager,
+            schedulingIndexRefresh: schedulingIndexRefresh
+        )[VaultLiveSessionKeys.key(for: entry)]
+    }
+
+    /// Resolves several live entries in one snapshot pass. Conversations can
+    /// have many indexed rows that are all live; scanning every workspace,
+    /// Dock, and process observation once keeps rendering proportional to the
+    /// topology rather than the number of rows.
+    static func activeTargets(
+        for entries: [SessionEntry],
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
+    ) -> [String: ActiveTarget] {
+        let requestedKeys = Set(entries.map(VaultLiveSessionKeys.key(for:)))
+        guard !requestedKeys.isEmpty else { return [:] }
+        var targets: [String: ActiveTarget] = [:]
+
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
         // between refreshes.
         for workspace in tabManager.tabs {
-            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
-                workspace.panels[panelID] != nil
-                    && workspace.panelShellActivityStates[panelID] == .commandRunning
-                    && snapshot.kind.rawValue == entry.agent.rawValue
-                    && ManagedAgentSessionIdentity.sessionIDsMatch(
-                        kind: entry.agent.rawValue,
-                        lhs: snapshot.sessionId,
-                        rhs: entry.sessionId
-                    )
-            }) {
-                return .workspace(workspaceID: workspace.id, surfaceID: panel.key)
+            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId {
+                guard workspace.panels[panelID] != nil,
+                      workspace.panelShellActivityStates[panelID] == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .workspace(workspaceID: workspace.id, surfaceID: panelID)
             }
         }
 
         // Dock terminals keep the same restore snapshot and shell activity
         // state, but do not appear in the workspace panel dictionaries.
         for dock in DockSplitStore.liveStores {
-            if let panel = dock.restoredAgentLifecycle.snapshotsByPanelId.first(where: { panelID, snapshot in
-                dock.panels[panelID] != nil
-                    && (dock.panels[panelID] as? TerminalPanel)?.shellActivity.state == .commandRunning
-                    && snapshot.kind.rawValue == entry.agent.rawValue
-                    && ManagedAgentSessionIdentity.sessionIDsMatch(
-                        kind: entry.agent.rawValue,
-                        lhs: snapshot.sessionId,
-                        rhs: entry.sessionId
-                    )
-            }) {
-                return .dock(panelID: panel.key)
+            for (panelID, snapshot) in dock.restoredAgentLifecycle.snapshotsByPanelId {
+                guard dock.panels[panelID] != nil,
+                      (dock.panels[panelID] as? TerminalPanel)?.shellActivity.state == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .dock(panelID: panelID)
             }
         }
 
@@ -80,28 +100,32 @@ enum SessionEntryResumeCoordinator {
         let liveIndex = schedulingIndexRefresh
             ? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             : SharedLiveAgentIndex.shared.index
-        guard let index = liveIndex,
-              let match = index.forkValidationEntries().first(where: { panelKey, observation in
-                  observation.processLiveness == .running
-                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
-                      && ManagedAgentSessionIdentity.sessionIDsMatch(
-                          kind: entry.agent.rawValue,
-                          lhs: observation.snapshot.sessionId,
-                          rhs: entry.sessionId
-                      )
-                      && (tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
-                          || DockSplitStore.liveStore(containingPanel: panelKey.panelId) != nil)
-              }) else {
-            return nil
-        }
+        guard let index = liveIndex else { return targets }
 
-        if DockSplitStore.liveStore(containingPanel: match.0.panelId) != nil {
-            return .dock(panelID: match.0.panelId)
+        var workspaceIDsByPanelID: [UUID: UUID] = [:]
+        for workspace in tabManager.tabs {
+            for panelID in workspace.panels.keys {
+                workspaceIDsByPanelID[panelID] = workspace.id
+            }
         }
-        if tabManager.tabs.contains(where: { $0.id == match.0.workspaceId }) {
-            return .workspace(workspaceID: match.0.workspaceId, surfaceID: match.0.panelId)
+        var dockPanelIDs: Set<UUID> = []
+        for dock in DockSplitStore.liveStores {
+            dockPanelIDs.formUnion(dock.panels.keys)
         }
-        return .dock(panelID: match.0.panelId)
+        for (panelKey, observation) in index.forkValidationEntries() {
+            guard observation.processLiveness == .running else { continue }
+            let key = VaultLiveSessionKeys.key(
+                kind: observation.snapshot.kind.rawValue,
+                sessionID: observation.snapshot.sessionId
+            )
+            guard requestedKeys.contains(key), targets[key] == nil else { continue }
+            if dockPanelIDs.contains(panelKey.panelId) {
+                targets[key] = .dock(panelID: panelKey.panelId)
+            } else if let workspaceID = workspaceIDsByPanelID[panelKey.panelId] {
+                targets[key] = .workspace(workspaceID: workspaceID, surfaceID: panelKey.panelId)
+            }
+        }
+        return targets
     }
 
     /// Returns managed-session identities whose agent command is currently
