@@ -106,6 +106,58 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.isEmpty)
     }
 
+    @Test func codexProgressHookClearsPromptRingAndWorkspaceCount() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let event = semanticEvent(fixture, source: "codex")
+        var reconciler = AgentNotificationReconciler()
+        let decision = reconciler.apply(event)
+        AgentJournalLifecycleCenter.deliverNotification(
+            event,
+            identity: try #require(decision.identity)
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+
+        #expect(
+            AgentNotificationDelivery().enqueue(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Codex second question",
+                subtitle: "",
+                body: "Another answer needed",
+                category: .needsPermission,
+                pending: false,
+                agentKind: "codex",
+                correlationKey: "later-question",
+                sessionId: "session"
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 2)
+
+        let progressed = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            toolName: "Bash",
+            extraFieldsJSON: #"{"_hook_sent_at_ms":2_000,"tool_use_id":"next-tool"}"#
+        )
+        FeedCoordinator.shared.clearAgentPromptNotificationsSuperseded(by: progressed)
+
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+    }
+
     @Test(arguments: ["claude", "codex"])
     func semanticNotificationFollowsMovedSurfaceAndRejectsMissingSurface(source: String) throws {
         let fixture = try makeFixture()

@@ -156,6 +156,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let item = store.ingestReturningItem(event) else { return nil }
         observeSemanticLifecycle(event)
         retirePendingDecisionsSuperseded(by: event)
+        clearAgentPromptNotificationsSuperseded(by: event)
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -502,7 +503,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// prompt, or stop hook can only follow the decision. AskUserQuestion and
     /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
     static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
-        guard event.source == "claude", event.feedHookSentAtMs != nil else { return false }
+        guard ["claude", "codex"].contains(event.source), event.feedHookSentAtMs != nil else { return false }
         switch event.hookEventName {
         case .preToolUse:
             return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
@@ -511,6 +512,22 @@ final class FeedCoordinator: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    /// Applies the same hook progression rule to terminal notifications even
+    /// when no Feed waiter exists, which is the normal Codex notify-hook path.
+    @MainActor
+    func clearAgentPromptNotificationsSuperseded(by event: WorkstreamEvent) {
+        guard Self.supersedesPendingDecisions(event),
+              let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
+              let surfaceId = event.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
+        let sessionId = FeedWorkstreamIdentifier(rawValue: event.sessionId)?.sessionID ?? event.sessionId
+        _ = TerminalNotificationStore.shared.clearAgentAttentionNotification(
+            forTabId: workspaceId,
+            surfaceId: surfaceId,
+            agentKind: event.source,
+            sessionId: sessionId
+        )
     }
 
     /// Retires blocking requests that `event` proves were decided outside cmux:
