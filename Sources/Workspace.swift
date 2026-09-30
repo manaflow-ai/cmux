@@ -4945,6 +4945,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let panelID = self.surfaceOwnershipTarget(for: terminalPanel.id)?.containerPanelID
                 ?? terminalPanel.id
             self.tmuxWorkspaceFlash.trigger(panelId: panelID, reason: reason)
+            NotificationCenter.default.post(
+                name: .workspacePaneFlashDidChange,
+                object: self
+            )
         }
         terminalPanel.onRequestAgentHibernationResume = { [weak self, weak terminalPanel] focus in
             guard let self, let terminalPanel else { return false }

@@ -31,6 +31,10 @@ struct TmuxWorkspacePaneOverlayRefresher: View, Equatable {
                 guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
                 coordinator.scheduleGeometryRefresh(builder: builder)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .workspacePaneFlashDidChange)) { notification in
+                guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
+                coordinator.refresh(builder: builder)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
                 guard (notification.object as? Workspace)?.id == inputs.workspaceId else { return }
                 coordinator.refresh(builder: builder)

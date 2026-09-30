@@ -1,6 +1,15 @@
 import Foundation
 import Observation
 
+extension Notification.Name {
+    /// Posted after a workspace pane attention flash changes. The window
+    /// overlay observes this separately from geometry so a flash-only event
+    /// cannot wait for an unrelated layout refresh.
+    static let workspacePaneFlashDidChange = Notification.Name(
+        "cmux.workspacePaneFlashDidChange"
+    )
+}
+
 /// The workspace's latest pane attention flash, drawn by the window's
 /// workspace pane overlay when the tmux overlay experiment targets bonsplit
 /// panes.
