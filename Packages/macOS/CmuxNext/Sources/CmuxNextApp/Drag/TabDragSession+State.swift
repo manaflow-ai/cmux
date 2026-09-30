@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -54,8 +55,7 @@ extension TabDragSession {
         var outcome: TabDragOutcome = .cancel
         var presentation: Presentation = .none
         var monitor: Any?
-        var link: CADisplayLink?
-        var lastTime: CFTimeInterval?
+        var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.
         var touched: [ObjectIdentifier: any TabDropTargetProviding] = [:]
         var adapters: [ObjectIdentifier: (sidebar: SidebarTabDropTarget, layout: LayoutTabDropTarget)] = [:]

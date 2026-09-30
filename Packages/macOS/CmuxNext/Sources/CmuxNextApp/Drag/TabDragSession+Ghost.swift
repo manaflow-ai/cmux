@@ -31,30 +31,21 @@ extension TabDragSession {
     }
 
     func wake(_ drag: Drag) {
-        drag.lastTime = nil
-        drag.link?.isPaused = false
+        drag.link?.activate()
     }
 
-    @objc func tick(_ link: CADisplayLink) {
-        guard let current = [drag, landing].compactMap({ $0 }).first(where: { $0.link === link }) else {
-            link.invalidate()
-            return
-        }
-        let dt = current.lastTime.map { link.timestamp - $0 } ?? (1.0 / 120.0)
-        current.lastTime = link.timestamp
-        var moving = current.motion.step(min(dt, 1.0 / 30.0))
+    /// One ghost frame; false once the ghost settled.
+    func tick(_ current: Drag, elapsed dt: Double) -> Bool {
+        guard current === drag || current === landing else { return false }
+        var moving = current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
             update(current.point)
             moving = true
         }
         current.ghost.render(current.motion)
-        guard !moving else { return }
-        if current === landing {
-            finishLanding()
-        } else {
-            link.isPaused = true
-            current.lastTime = nil
-        }
+        guard !moving else { return true }
+        if current === landing { finishLanding() }
+        return false
     }
 
     /// Auto-scrolls the columns screen under the pointer. Strips and the
@@ -135,7 +126,7 @@ extension TabDragSession {
 
     func end(_ drag: Drag) {
         removeMonitors(drag)
-        drag.link?.invalidate()
+        drag.link?.deactivate()
         drag.link = nil
         drag.ghost.close()
     }

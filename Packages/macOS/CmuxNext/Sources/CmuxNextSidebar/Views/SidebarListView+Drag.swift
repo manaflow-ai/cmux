@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 
@@ -170,36 +171,33 @@ extension SidebarListView {
                                           zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
     }
 
-    /// Runs the display link only while the pointer is in an edge zone.
+    /// Ticks on the window's FrameScheduler only while the pointer is in an edge zone.
     func updateAutoscroll(windowPoint: NSPoint) {
         if autoscrollVelocity(windowPoint: windowPoint) != 0 { startAutoscroll() } else { stopAutoscroll() }
     }
 
     func startAutoscroll() {
-        guard autoscrollLink == nil else { return }
-        let link = displayLink(target: self, selector: #selector(autoscrollTick(_:)))
-        link.add(to: .main, forMode: .common)
-        autoscrollLink = link
+        autoscrollClient.activate()
     }
 
     func stopAutoscroll() {
-        autoscrollLink?.invalidate()
-        autoscrollLink = nil
+        autoscrollClient.deactivate()
     }
 
-    @objc func autoscrollTick(_ link: CADisplayLink) {
+    /// One autoscroll frame; false once there is nothing to scroll.
+    func autoscrollTick(_ tick: FrameTick) -> Bool {
         guard let windowPoint = drag?.lastWindowPoint ?? external?.windowPoint,
-              let scrollView = enclosingScrollView else { return stopAutoscroll() }
+              let scrollView = enclosingScrollView else { return false }
         let velocity = autoscrollVelocity(windowPoint: windowPoint)
-        guard velocity != 0 else { return stopAutoscroll() }
+        guard velocity != 0 else { return false }
         let clip = scrollView.contentView
         let b = clip.bounds
-        let dt = max(1.0 / 240, min(1.0 / 30, link.targetTimestamp - link.timestamp))
+        let dt = tick.elapsed
         let maxY = max(0, frame.height - b.height)
         let y = min(max(b.minY + velocity * dt, 0), maxY)
         // At the content edge there is nothing to scroll: stop until the
         // pointer moves again.
-        guard y != b.minY else { return stopAutoscroll() }
+        guard y != b.minY else { return false }
         clip.scroll(to: NSPoint(x: b.minX, y: y))
         scrollView.reflectScrolledClipView(clip)
         if drag != nil {
@@ -207,5 +205,6 @@ extension SidebarListView {
         } else if let external {
             _ = externalDragMoved(windowPoint: windowPoint, sourceMachine: external.sourceMachine)
         }
+        return true
     }
 }

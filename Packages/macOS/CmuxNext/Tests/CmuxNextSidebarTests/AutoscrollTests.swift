@@ -26,7 +26,7 @@ import Testing
         let list = sidebar.list
         _ = list.externalDragMoved(windowPoint: windowPoint(list, fraction: 0.5), sourceMachine: .local)
         #expect(list.external != nil)
-        #expect(list.autoscrollLink == nil)
+        #expect(!list.autoscrollClient.isActive)
         list.externalDragExited()
     }
 
@@ -34,9 +34,9 @@ import Testing
         let sidebar = makeSidebar()
         let list = sidebar.list
         _ = list.externalDragMoved(windowPoint: windowPoint(list, fraction: 0.99), sourceMachine: .local)
-        #expect(list.autoscrollLink != nil)
+        #expect(list.autoscrollClient.isActive)
         _ = list.externalDragMoved(windowPoint: windowPoint(list, fraction: 0.5), sourceMachine: .local)
-        #expect(list.autoscrollLink == nil)
+        #expect(!list.autoscrollClient.isActive)
         list.externalDragExited()
     }
 

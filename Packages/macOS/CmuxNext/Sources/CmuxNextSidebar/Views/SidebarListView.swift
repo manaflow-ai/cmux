@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// Scrollable document view that renders the sidebar tree.
@@ -33,7 +34,10 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// An inline rename ended; `byKeyboard` for Return, Escape or Tab (a
     /// click elsewhere already moved focus).
     var onRenameEnded: ((_ byKeyboard: Bool) -> Void)?
-    var autoscrollLink: CADisplayLink?
+    /// Drag autoscroll frames from the window's FrameScheduler.
+    lazy var autoscrollClient = FrameClient(owner: "Sidebar.autoscroll", view: self) { [weak self] tick in
+        self?.autoscrollTick(tick) ?? false
+    }
     var external: ExternalDrag?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
@@ -70,7 +74,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     isolated deinit {
-        autoscrollLink?.invalidate()
+        // The frame client deactivates in its own deinit (touching the lazy
+        // property here would create one that weakly captures a dying self).
         pendingGroupToggle?.task.cancel()
         NotificationCenter.default.removeObserver(self)
     }

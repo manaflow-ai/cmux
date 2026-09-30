@@ -1,7 +1,8 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
-// Layout, frame application, edge fades, and the display-link animation loop.
+// Layout, frame application, edge fades, and the FrameScheduler animation client.
 extension TabStripView {
     // MARK: - Layout
 
@@ -163,23 +164,14 @@ extension TabStripView {
 
     func startAnimating() {
         guard window != nil else { return }
-        if displayLink == nil {
-            let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-        }
-        displayLink?.isPaused = false
+        guard !animationClient.isActive else { return }
         MotionTrace.begin("tabs")
+        animationClient.activate()
     }
 
-    @objc func displayLinkFired(_ link: CADisplayLink) {
-        let now = link.timestamp
-        let dt = lastFrameTime.map { CGFloat(now - $0) } ?? (1.0 / 120.0)
-        lastFrameTime = now
-        advance(dt)
-    }
-
-    func advance(_ dt: CGFloat) {
+    /// One animation frame; false when everything settled.
+    @discardableResult
+    func advance(_ dt: CGFloat) -> Bool {
         var active = false
         for id in Array(motion.keys) {
             guard var m = motion[id] else { continue }
@@ -205,10 +197,7 @@ extension TabStripView {
             let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
             if bounds.contains(point) { updateHover(at: point) }
         }
-        if !active {
-            displayLink?.isPaused = true
-            lastFrameTime = nil
-            MotionTrace.end("tabs")
-        }
+        if !active { MotionTrace.end("tabs") }
+        return active
     }
 }

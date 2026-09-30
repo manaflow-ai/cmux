@@ -1,19 +1,22 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
-import QuartzCore
+import CmuxNextWakeups
 
 /// Sends terminal grid changes to the daemon only once a view's size has
 /// settled (architecture.md 4: resize at animation end). Layout springs,
 /// sidebar width animations, divider drags, and live window resizes all
 /// change pane sizes every frame; each daemon resize rebuilds the surface
 /// from a replay, so reports are held until two frames pass unchanged.
-final class ResizeCoordinator: NSObject {
+final class ResizeCoordinator {
     static let shared = ResizeCoordinator()
 
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 3)
     private var targets: [ObjectIdentifier: DaemonTerminalIO] = [:]
-    private var link: CADisplayLink?
+    /// Pane sizes span windows, so the settle count runs on the app scheduler.
+    private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", on: .app) { [weak self] _ in
+        self?.tick() ?? false
+    }
 
     func submit(_ io: DaemonTerminalIO, size: CellSize) {
         let key = ObjectIdentifier(io)
@@ -29,28 +32,14 @@ final class ResizeCoordinator: NSObject {
     }
 
     private func startLink() {
-        if link == nil, let screen = NSScreen.main ?? NSScreen.screens.first {
-            let link = screen.displayLink(target: self, selector: #selector(tick(_:)))
-            link.add(to: .main, forMode: .common)
-            self.link = link
-        }
-        guard let link else {
-            flushAll()
-            return
-        }
-        link.isPaused = false
+        frames.activate()
     }
 
-    @objc private func tick(_ link: CADisplayLink) {
+    /// One frame; false once every size settled.
+    private func tick() -> Bool {
         for (key, size) in settle.tick() {
             targets.removeValue(forKey: key)?.applySettled(size)
         }
-        if settle.isIdle { link.isPaused = true }
-    }
-
-    private func flushAll() {
-        while !settle.isIdle {
-            for (key, size) in settle.tick() { targets.removeValue(forKey: key)?.applySettled(size) }
-        }
+        return !settle.isIdle
     }
 }

@@ -13,7 +13,7 @@ final class SurfaceInvariantMonitor {
     /// Frames to wait after the last change (layout springs settle in ~250 ms).
     static let settleFrames = 30
     weak var services: AppServices?
-    private let frames = DisplayLinkFrameScheduler()
+    private let frames = FrameBatcher(owner: "SurfaceInvariantMonitor")
     private var remaining = 0
     private(set) var violations = 0
     private(set) var checks = 0

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -101,8 +102,10 @@ public final class TabStripView: NSView {
     var lastModelOrder: [TabID] = []
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    var displayLink: CADisplayLink?
-    var lastFrameTime: CFTimeInterval?
+    /// Springs and drag autoscroll tick on the window's FrameScheduler.
+    lazy var animationClient = FrameClient(owner: "TabStrip.animation", view: self) { [weak self] tick in
+        self?.advance(CGFloat(tick.elapsed)) ?? false
+    }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -237,9 +240,7 @@ public final class TabStripView: NSView {
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
-            displayLink?.invalidate()
-            displayLink = nil
-            lastFrameTime = nil
+            animationClient.deactivate()
             hoverCard.hide(allowsQuickReshow: false)
             groupEditor.hide()
             groups.holdTask?.cancel()

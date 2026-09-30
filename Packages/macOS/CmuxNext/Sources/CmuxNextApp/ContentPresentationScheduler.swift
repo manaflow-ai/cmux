@@ -27,7 +27,7 @@ final class ContentPresentationScheduler {
     /// A surface was created since the last frame; the frame's budget is spent.
     private var createdThisFrame = false
 
-    init(frames: any ControlFrameSource = DisplayLinkFrameScheduler()) {
+    init(frames: any ControlFrameSource = FrameBatcher(owner: "ContentPresentation")) {
         self.frames = frames
     }
 

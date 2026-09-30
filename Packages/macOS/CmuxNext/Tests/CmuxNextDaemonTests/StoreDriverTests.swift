@@ -6,7 +6,7 @@ import Testing
 
 /// Holds frame requests until the test flushes them, like a display link
 /// that fires when the test says so.
-final class ManualFrameScheduler: FrameScheduler {
+final class ManualFrameScheduler: FrameBatchScheduler {
     private let pending = Mutex<[@MainActor @Sendable () -> Void]>([])
     func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
         pending.withLock { $0.append(work) }

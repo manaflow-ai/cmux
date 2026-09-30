@@ -7,6 +7,10 @@ public struct FrameTick: Sendable {
     public var timestamp: CFTimeInterval
     /// Seconds since the previous frame, clamped to 1/240...1/30.
     public var elapsed: Double
+    /// Seconds since the previous frame, unclamped (frame-pacing probes).
+    public var rawElapsed: Double
+    /// The display's refresh period; nil for a synthesized (stalled) frame.
+    public var refreshInterval: Double?
 }
 
 /// A reason to receive frames: an animation, a drag autoscroll, a settle

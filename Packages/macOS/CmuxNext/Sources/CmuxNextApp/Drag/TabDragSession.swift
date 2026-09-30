@@ -3,7 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
-import QuartzCore
+import CmuxNextWakeups
 
 /// One drag, every destination (plans/cmux-next/REWRITE.md "Tab drag").
 ///
@@ -18,7 +18,7 @@ import QuartzCore
 /// under the pointer; Escape springs back. `TabDragLifecycle` guarantees
 /// every drag ends and the source strip gets its tab back unless it moved.
 ///
-/// A display link runs only while the ghost animates or a columns screen
+/// A frame client runs only while the ghost animates or a columns screen
 /// auto-scrolls, and is invalidated when the drag ends.
 final class TabDragSession: NSObject {
     unowned let services: AppServices
@@ -94,9 +94,11 @@ final class TabDragSession: NSObject {
         self.drag = drag
         focusDragBegan(item, from: pane)
         ghost.show()
-        drag.link = ghost.makeDisplayLink(target: self, selector: #selector(tick(_:)))
-        drag.link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        drag.link?.add(to: .main, forMode: .common)
+        drag.link = ghost.makeFrameClient(owner: "TabDrag.ghost") { [weak self, weak drag] tick in
+            guard let self, let drag else { return false }
+            return self.tick(drag, elapsed: tick.elapsed)
+        }
+        drag.link?.activate()
         update(point)
         loadThumbnail(previewTab, into: drag)
     }

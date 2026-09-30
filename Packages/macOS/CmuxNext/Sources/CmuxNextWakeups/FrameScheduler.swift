@@ -12,7 +12,8 @@ extension CADisplayLink: FrameLink {}
 
 /// The one display link of a window (architecture.md 3 and 5): it runs only
 /// while at least one ``FrameClient`` is active and pauses itself when the
-/// last one goes idle, so an idle window has no frame wakeups.
+/// last one goes idle (dropping the link), so an idle window has no frame
+/// wakeups.
 ///
 /// Every animation, drag autoscroll, resize settle and per-frame batch in
 /// CmuxNext is a client of its window's scheduler; window-less work (the
@@ -116,6 +117,9 @@ public final class FrameScheduler: NSObject {
 
     public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
 
+    /// A display link exists (only while clients are active).
+    public var hasLink: Bool { link != nil }
+
     // MARK: Clients
 
     func activate(_ client: FrameClient) {
@@ -138,8 +142,13 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() }
     }
 
+    /// Drops the link while idle: an idle window holds no display link at
+    /// all (and no link -> scheduler retain cycle); the next client makes a
+    /// new one.
     private func pause() {
-        link?.isPaused = true
+        link?.invalidate()
+        link = nil
+        lastTimestamp = nil
         stall.cancel()
         stalls = 0
     }
@@ -179,7 +188,7 @@ public final class FrameScheduler: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        frameDidFire(timestamp: link.timestamp)
+        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)
     }
 
     private func armStall() {
@@ -195,26 +204,27 @@ public final class FrameScheduler: NSObject {
             link = nil
         }
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
-        deliver(timestamp: nil)
+        deliver(timestamp: nil, refreshInterval: nil)
         guard !clients.isEmpty else { return }
         (link ?? makeLink())?.isPaused = false
         armStall()
     }
 
     /// One display frame (the link's tick; tests call it directly).
-    public func frameDidFire(timestamp: CFTimeInterval? = nil) {
+    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         stall.cancel()
         stalls = 0
-        deliver(timestamp: timestamp)
+        deliver(timestamp: timestamp, refreshInterval: refreshInterval)
         if clients.isEmpty { pause() } else { armStall() }
     }
 
-    private func deliver(timestamp: CFTimeInterval?) {
+    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) {
         frames &+= 1
         let now = timestamp ?? CACurrentMediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
-        let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0))
+        let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
+                             rawElapsed: elapsed, refreshInterval: refreshInterval)
         // Clients activated during this frame tick next frame.
         for client in clients.values where client.isActive {
             ledger.record(client.owner, reason: "frame")

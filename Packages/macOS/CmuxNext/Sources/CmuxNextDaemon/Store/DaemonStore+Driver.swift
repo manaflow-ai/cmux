@@ -81,7 +81,7 @@ final class EventInbox: Sendable {
 struct StoreDriver {
     let connection: DaemonConnection
     let inbox: EventInbox
-    let scheduler: any FrameScheduler
+    let scheduler: any FrameBatchScheduler
 }
 
 extension DaemonStore {
@@ -90,7 +90,7 @@ extension DaemonStore {
     /// per frame. A batch that invalidates the tree triggers one snapshot,
     /// fetched and decoded off the main actor; events it supersedes (by
     /// sequence barrier) are dropped. No polling and no timers.
-    public func run(connection: DaemonConnection, scheduler: any FrameScheduler = NextTurnFrameScheduler()) async {
+    public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
         let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
         self.driver = driver
         let pump = Task.detached { [weak self] () -> String? in

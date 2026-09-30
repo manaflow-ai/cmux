@@ -9,7 +9,7 @@ import CmuxNextSettings
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    private let frames = DisplayLinkFrameScheduler()
+    private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?

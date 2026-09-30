@@ -26,7 +26,8 @@ private final class FakeLink: FrameLink {
         #expect(!link.isPaused)
         scheduler.frameDidFire()
         #expect(remaining == 0)
-        #expect(link.isPaused)
+        #expect(link.invalidated)
+        #expect(!scheduler.hasLink)
         #expect(scheduler.activeClients.isEmpty)
         #expect(!client.isActive)
     }
@@ -42,7 +43,8 @@ private final class FakeLink: FrameLink {
         a.deactivate()
         #expect(!link.isPaused)
         b.deactivate()
-        #expect(link.isPaused)
+        #expect(link.invalidated)
+        #expect(!scheduler.hasLink)
     }
 
     @Test func framesAreCountedPerClientInTheLedger() {

@@ -1,6 +1,7 @@
 public import AppKit
 import CoreImage
 import IOSurface
+import CmuxNextWakeups
 import QuartzCore
 
 // Hover previews. Ghostty's Metal renderer presents each frame by setting an
@@ -56,17 +57,23 @@ enum TerminalSnapshotRenderer {
     }
 }
 
-/// Live, scaled mirror of a terminal for tab hover previews.
+/// Live, scaled mirror of a terminal (the terminal debug window only; hover
+/// previews use snapshots).
 ///
-/// Shares the source's presented IOSurface by pointer on every display
-/// refresh: no copy, no second Ghostty surface. While a mirror is in a
+/// Shares the source's presented IOSurface by pointer on every frame of its
+/// window's FrameScheduler: no copy, no second Ghostty surface. It ticks
+/// every frame while it is in a window (reviewed exception in
+/// plans/cmux-next/idle-wakeups.md: a debug surface the user opens and closes). While a mirror is in a
 /// window the source keeps rendering even if it is hidden or suspended, so
 /// the preview of a background tab stays live. Remove the mirror from its
 /// window when the preview closes.
 public final class TerminalMirrorView: NSView {
     private weak var session: TerminalSession?
-    private var link: CADisplayLink?
     private var holdsDemand = false
+    private lazy var frames = FrameClient(owner: "TerminalMirror.debug", view: self) { [weak self] _ in
+        self?.copyFrame()
+        return self != nil
+    }
 
     init(session: TerminalSession) {
         self.session = session
@@ -84,7 +91,6 @@ public final class TerminalMirrorView: NSView {
     }
 
     isolated deinit {
-        link?.invalidate()
         if holdsDemand { session?.mirrorDemand -= 1 }
     }
 
@@ -97,20 +103,13 @@ public final class TerminalMirrorView: NSView {
         if active, !holdsDemand {
             holdsDemand = true
             session?.mirrorDemand += 1
-            let link = displayLink(target: self, selector: #selector(refresh(_:)))
-            link.add(to: .main, forMode: .common)
-            self.link = link
+            frames.activate()
             copyFrame()
         } else if !active, holdsDemand {
             holdsDemand = false
             session?.mirrorDemand -= 1
-            link?.invalidate()
-            link = nil
+            frames.deactivate()
         }
-    }
-
-    @objc private func refresh(_ link: CADisplayLink) {
-        copyFrame()
     }
 
     private func copyFrame() {

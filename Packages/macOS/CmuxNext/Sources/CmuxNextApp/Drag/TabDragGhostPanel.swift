@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 
@@ -84,9 +85,10 @@ final class TabDragGhostPanel {
         panel.orderOut(nil)
     }
 
-    /// A display link on the ghost's own screen (120 Hz on ProMotion).
-    func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
-        root.displayLink(target: target, selector: selector)
+    /// A frame client of the ghost panel's own FrameScheduler (its screen,
+    /// 120 Hz on ProMotion).
+    func makeFrameClient(owner: String, onFrame: @escaping @MainActor (FrameTick) -> Bool) -> FrameClient {
+        FrameClient(owner: owner, view: root, onFrame: onFrame)
     }
 
     /// Lays the panel and its layers out for one motion frame.

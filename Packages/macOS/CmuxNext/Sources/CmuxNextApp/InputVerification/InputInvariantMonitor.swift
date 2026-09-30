@@ -19,7 +19,7 @@ final class InputInvariantMonitor {
     static let journalTail = 512
 
     weak var services: AppServices?
-    private let frames = DisplayLinkFrameScheduler()
+    private let frames = FrameBatcher(owner: "InputInvariantMonitor")
     private let store: DesyncReportStore
     private let tag: String?
     private var remaining = 0

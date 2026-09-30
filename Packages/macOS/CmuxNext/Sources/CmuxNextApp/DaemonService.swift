@@ -26,7 +26,7 @@ final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     @ObservationIgnored private var reconciling: Task<Void, Never>?
     @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
-    @ObservationIgnored private let scheduler = DisplayLinkFrameScheduler()
+    @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
     init(machineID: String = "local") {
