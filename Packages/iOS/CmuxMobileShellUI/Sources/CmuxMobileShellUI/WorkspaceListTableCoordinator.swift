@@ -1466,13 +1466,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             for indexPath in tableView.indexPathsForVisibleRows ?? [] {
                 guard let id = self.item(at: indexPath)?.workspaceID,
                       let workspace = self.configuration.workspacesByID[id],
-                      !workspace.terminals.isEmpty,
-                      (workspace.macConnectionStatus ?? self.configuration.connectionStatus) == .connected
+                      !workspace.terminals.isEmpty
                 else { continue }
                 probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
                     guard let self, let tableView, tableView.window != nil,
                           tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
-                          self.item(at: indexPath)?.workspaceID == id else { return false }
+                          self.item(at: indexPath)?.workspaceID == id,
+                          let current = self.configuration.workspacesByID[id],
+                          (current.macConnectionStatus ?? self.configuration.connectionStatus) == .connected
+                    else { return false }
                     self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
                     self.tableView(tableView, didSelectRowAt: indexPath)
                     return true
