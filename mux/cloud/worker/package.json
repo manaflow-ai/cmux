@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "vp test"
+    "dev": "cf dev",
+    "deploy": "cf deploy",
+    "smoke": "bun scripts/smoke.ts"
   },
   "dependencies": {
     "@mux/protocol": "workspace:*"
