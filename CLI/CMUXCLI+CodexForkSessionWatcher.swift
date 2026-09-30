@@ -435,9 +435,36 @@ extension CMUXCLI {
         }
     }
 
+    /// Identity and size of a transcript file, taken before a read so a write
+    /// that lands before the next watch is armed is still noticed.
+    struct CodexTranscriptFileState: Equatable {
+        let inode: UInt64
+        let size: Int64
+        let modifiedNanoseconds: Int64
+    }
+
+    func codexTranscriptFileState(path: String?) -> CodexTranscriptFileState? {
+        guard let path, !path.isEmpty else { return nil }
+        var info = stat()
+        guard stat(NSString(string: path).expandingTildeInPath, &info) == 0 else { return nil }
+        return CodexTranscriptFileState(
+            inode: UInt64(info.st_ino),
+            size: Int64(info.st_size),
+            modifiedNanoseconds: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)
+        )
+    }
+
     /// Filesystem events are the only synchronization primitive used by the
     /// rollout monitor; the semaphore bridge remains bounded by the watch deadline.
-    func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
+    /// `observedState` is the transcript state before the caller's last read:
+    /// the watch is armed after that read, so a change between the two would
+    /// otherwise raise no event and stall the monitor until the timeout.
+    func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        timeout: TimeInterval,
+        observedState: CodexTranscriptFileState? = nil
+    ) {
         guard timeout > 0 else { return }
         let semaphore = DispatchSemaphore(value: 0)
         var sources: [DispatchSourceFileSystemObject] = []
@@ -462,6 +489,12 @@ extension CMUXCLI {
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
         guard !sources.isEmpty else {
             _ = semaphore.wait(timeout: .now() + timeout)
+            return
+        }
+        if let observedState,
+           let currentState = codexTranscriptFileState(path: path),
+           currentState != observedState {
+            sources.forEach { $0.cancel() }
             return
         }
         _ = semaphore.wait(timeout: .now() + timeout)
