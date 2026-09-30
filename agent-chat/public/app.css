@@ -676,7 +676,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
 .diff-error { display: flex; align-items: center; gap: 8px; padding: 8px; font: calc(var(--font-size-base) - 2px) var(--font-sans); }
 .diff-error span { min-width: 0; overflow-wrap: anywhere; }
-.diff-retry { flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.28); border-radius: 6px; background: rgba(128, 128, 128, 0.08); color: inherit; cursor: pointer; font: inherit; padding: 2px 7px; }
+.diff-retry { flex-shrink: 0; border: 1px solid rgba(128, 128, 128, 0.28); border-radius: 6px; background: rgba(128, 128, 128, 0.08); color: inherit; cursor: default; font: inherit; padding: 2px 7px; }
 
 #chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 .routing-notice {
