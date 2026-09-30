@@ -332,15 +332,31 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
         guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
             return .templateUnavailable
         }
-        return installCustomSidebarTemplate(
+        let result = installCustomSidebarTemplate(
             template,
             name: template.suggestedName,
             uniquingIfNeeded: true
         )
+        if case let .created(name) = result {
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            CmuxExtensionSidebarSelection.setProviderId(
+                CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+            )
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        return result
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
 
     func openCustomSidebarInExternalEditor(named name: String) {

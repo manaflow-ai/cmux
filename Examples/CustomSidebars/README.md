@@ -6,23 +6,18 @@ They do not need Xcode, signing, or a build step.
 The examples intentionally keep their labels inline because interpreted
 sidebars do not have a localization catalog yet.
 
-Install one by copying it into your custom sidebar directory:
+Start with a built-in template from the app or CLI:
 
 ```bash
-mkdir -p ~/.config/cmux/sidebars
-cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
-cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+cmux sidebar templates
+cmux sidebar new agents-board --from agents-board
+cmux sidebar open agents-board
 ```
 
-Then enable **Settings -> Beta features -> Custom sidebars** and pick it from
-the sidebar toggle button's right-click menu.
-
-You can validate a copied sidebar with:
-
-```bash
-cmux sidebar validate status-board
-cmux sidebar validate finder
-```
+You can also copy any source file from this directory into
+`~/.config/cmux/sidebars/`. Enable **Settings -> Beta features -> Custom sidebars**
+then pick it from the sidebar toggle button's right-click menu. The manifest lists
+each template's display name, description, and intended placement.
 
 ## Included Sidebars
 

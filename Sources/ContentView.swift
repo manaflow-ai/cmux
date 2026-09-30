@@ -11299,6 +11299,14 @@ enum CmuxExtensionSidebarSelection {
         defaults.set(legacyProviderId, forKey: defaultsKey)
     }
 
+    private static func localizedTemplateName(_ template: CustomSidebarTemplateDescriptor) -> String {
+        String(localized: template.displayNameKey, defaultValue: template.displayName)
+    }
+
+    private static func localizedTemplateDescription(_ template: CustomSidebarTemplateDescriptor) -> String {
+        String(localized: template.descriptionKey, defaultValue: template.description)
+    }
+
     @MainActor
     static func showMenu(anchorView: NSView, event: NSEvent?) {
         // The right-click menu switches between the always-available built-in
@@ -11322,6 +11330,28 @@ enum CmuxExtensionSidebarSelection {
             item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
             menu.addItem(item)
         }
+        if customSidebarsEnabled {
+            menu.addItem(.separator())
+            let templatesItem = NSMenuItem(
+                title: String(localized: "sidebar.menu.newFromTemplate", defaultValue: "New from Template…"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            let templatesMenu = NSMenu()
+            for template in CustomSidebarTemplateCatalog().templates {
+                let item = NSMenuItem(
+                    title: localizedTemplateName(template),
+                    action: #selector(CmuxExtensionSidebarMenuTarget.installTemplate(_:)),
+                    keyEquivalent: ""
+                )
+                item.toolTip = localizedTemplateDescription(template)
+                item.representedObject = template.id
+                item.target = CmuxExtensionSidebarMenuTarget.shared
+                templatesMenu.addItem(item)
+            }
+            templatesItem.submenu = templatesMenu
+            menu.addItem(templatesItem)
+        }
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -11337,6 +11367,16 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    @objc func installTemplate(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else { return }
+        let result = hostActions.installCustomSidebarTemplate(id: id)
+        if case .created = result {
+            return
+        }
+        NSSound.beep()
     }
 }
 

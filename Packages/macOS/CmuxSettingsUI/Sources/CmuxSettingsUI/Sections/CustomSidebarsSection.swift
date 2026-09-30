@@ -122,21 +122,26 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "menu.help.gettingStarted", defaultValue: "Getting Started")
+                String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…")
             ) {
                 Menu {
-                    ForEach(onboardingAssets.examples) { example in
+                    ForEach(onboardingAssets.templates) { template in
                         Button {
-                            applyOnboardingResult(hostActions.installCustomSidebarExample(id: example.id))
+                            applyOnboardingResult(hostActions.installCustomSidebarTemplate(id: template.id))
                         } label: {
-                            Text(verbatim: example.title)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(String(localized: template.displayNameKey, defaultValue: template.displayName))
+                                Text(String(localized: template.descriptionKey, defaultValue: template.description))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 } label: {
-                    Text(String(localized: "agentSession.web.start", defaultValue: "Start"))
+                    Text(String(localized: "settings.customSidebars.newFromTemplate", defaultValue: "New from Template…"))
                 }
                 .controlSize(.small)
-                .accessibilityIdentifier("SettingsCustomSidebarsExamplesMenu")
+                .accessibilityIdentifier("SettingsCustomSidebarsTemplatesMenu")
             }
 
             SettingsCardDivider()

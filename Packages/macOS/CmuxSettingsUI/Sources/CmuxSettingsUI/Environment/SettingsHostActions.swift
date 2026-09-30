@@ -57,6 +57,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Creates a starter custom sidebar and opens it in the preferred editor.
     func createCustomSidebar() -> CustomSidebarOnboardingResult
 
+    /// Copies one bundled template into the custom-sidebar directory, selects it, and opens it.
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
 
@@ -540,9 +543,13 @@ public extension SettingsHostActions {
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
         .writeFailed
     }
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
         _ = id
         return .writeFailed
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
     func openCustomSidebarInExternalEditor(named name: String) { _ = name }
     func openCustomSidebarsFolder() {}

@@ -1,71 +1,43 @@
+import CmuxSettings
 import Foundation
 
-/// Loads the small starter and example files bundled with CmuxSettingsUI.
+/// Loads bundled custom-sidebar templates for Settings onboarding.
 public struct CustomSidebarOnboardingAssets: Sendable {
-    struct ExampleOption: Identifiable, Equatable, Sendable {
-        let id: String
-        let title: String
-        let suggestedName: String
+    public typealias ExampleOption = CustomSidebarTemplateDescriptor
+    private let catalog: CustomSidebarTemplateCatalog
+
+    public init() {
+        catalog = CustomSidebarTemplateCatalog()
     }
 
-    /// Creates an asset loader for the package's bundled onboarding files.
-    public init() {}
-
-    var examples: [ExampleOption] {
-        [
-            ExampleOption(
-                id: "focus",
-                title: "focus.js",
-                suggestedName: "focus"
-            ),
-            ExampleOption(
-                id: "activity",
-                title: "activity.js",
-                suggestedName: "activity"
-            ),
-        ]
+    public var templates: [CustomSidebarTemplateDescriptor] {
+        catalog.templates
     }
 
     /// Loads the known-good interpreted-Swift starter sidebar.
-    ///
-    /// - Returns: The bundled starter template, or nil when its resource is unavailable.
     public func starterTemplate() -> CustomSidebarTemplate? {
-        loadTemplate(resource: "starter", fileExtension: "swift", suggestedName: "my-sidebar")
-    }
-
-    /// Loads one bundled custom-sidebar example.
-    ///
-    /// - Parameter id: Stable example identifier from the Settings onboarding menu.
-    /// - Returns: The matching bundled template, or nil when the identifier or resource is unavailable.
-    public func exampleTemplate(id: String) -> CustomSidebarTemplate? {
-        guard let option = examples.first(where: { $0.id == id }) else { return nil }
-        return loadTemplate(resource: option.id, fileExtension: "js", suggestedName: option.suggestedName)
-    }
-
-    private func loadTemplate(
-        resource: String,
-        fileExtension: String,
-        suggestedName: String
-    ) -> CustomSidebarTemplate? {
-        guard let url = Bundle.module.url(
-            forResource: resource,
-            withExtension: fileExtension,
+        guard let sourceURL = Bundle.module.url(
+            forResource: "starter",
+            withExtension: "swift",
             subdirectory: "CustomSidebars"
-        ),
-        let source = try? String(contentsOf: url, encoding: .utf8) else {
+        ), let source = try? String(contentsOf: sourceURL, encoding: .utf8) else {
             return nil
         }
-        let installedSource = source
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { line in
-                !line.trimmingCharacters(in: .whitespaces)
-                    .hasPrefix("//   cp Examples/CustomSidebars/")
-            }
-            .joined(separator: "\n")
         return CustomSidebarTemplate(
-            suggestedName: suggestedName,
-            fileExtension: fileExtension,
-            source: installedSource
+            descriptor: CustomSidebarTemplateDescriptor(
+                id: "starter",
+                file: "starter.swift",
+                displayNameKey: "sidebar.template.starter.name",
+                displayName: "Starter",
+                descriptionKey: "sidebar.template.starter.description",
+                description: "A minimal workspace list to use as a starting point.",
+                kind: .left
+            ),
+            source: source
         )
+    }
+
+    public func exampleTemplate(id: String) -> CustomSidebarTemplate? {
+        catalog.template(id: id)
     }
 }
