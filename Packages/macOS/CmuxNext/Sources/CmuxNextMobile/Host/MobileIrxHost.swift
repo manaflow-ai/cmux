@@ -43,6 +43,13 @@ public actor MobileIrxHost {
     var endpointRefreshPending = false
     var acceptTask: Task<Void, Never>?
     var expiryTask: Task<Void, Never>?
+    /// Bumped by every `start()` and `stop()`. A provisioning run checks it
+    /// after each await and abandons itself once stale, so a stop that lands
+    /// mid-provisioning cannot be undone by the start resuming afterwards.
+    var lifetime: UInt64 = 0
+
+    /// Thrown inside `provision` when a newer `start()`/`stop()` took over.
+    struct Superseded: Error {}
 
     public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth,
                 makeBackend: @escaping @Sendable () async throws -> any MobileCompatBackend,
@@ -59,21 +66,38 @@ public actor MobileIrxHost {
 
     /// Provisions the v2 device and starts listening. Idempotent.
     public func start() async {
-        guard phase == .idle || phase == .stopped || { if case .failed = phase { true } else { false } }() else { return }
+        switch phase {
+        case .idle, .stopped, .failed: break
+        case .provisioning, .waitingForRelay, .listening: return
+        }
+        lifetime += 1
+        let run = lifetime
         phase = .provisioning
+        // A relay failure leaves the endpoint and control service running;
+        // release them before provisioning new ones (no-op otherwise).
+        await teardown()
         do {
-            try await provision()
+            try ensureCurrent(run)
+            try await provision(run: run)
+        } catch is Superseded {
+            journal.record("next-host", "provision-superseded", [:])
         } catch {
+            guard run == lifetime else { return }
             journal.record("next-host", "provision-failed", ["error": String(describing: error)])
             await teardown()
-            phase = .failed(String(describing: error))
+            if run == lifetime { phase = .failed(String(describing: error)) }
         }
     }
 
     /// Closes every phone session and stops the endpoint and control service.
     public func stop() async {
-        await teardown()
+        lifetime += 1
         phase = .stopped
+        await teardown()
+    }
+
+    private func ensureCurrent(_ run: UInt64) throws {
+        guard run == lifetime else { throw Superseded() }
     }
 
     /// Compat host identity reported in `mobile.host.status`.
@@ -84,16 +108,18 @@ public actor MobileIrxHost {
                              daemonLaneAvailable: true)
     }
 
-    private func provision() async throws {
+    private func provision(run: UInt64) async throws {
         let keys = MobileHostKeys(configuration: configuration)
         let deviceID = try keys.deviceID()
         let tuple = V2Identity(appNamespace: configuration.namespace, buildTag: configuration.tag,
                                deviceID: deviceID, environment: configuration.environment,
                                projectID: auth.projectID, teamID: auth.teamID, userID: auth.userID)
         let key = try await keys.key(identity: tuple)
+        try ensureCurrent(run)
         let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager(),
                                      identityKey: key)
         let restored = try await store.load(identity: tuple)
+        try ensureCurrent(run)
         let device = V2DeviceDescriptor(
             endpointID: key.endpointID, identity: tuple,
             identityGeneration: restored?.device?.descriptor.identityGeneration ?? 1,
@@ -120,7 +146,11 @@ public actor MobileIrxHost {
             journal: journal)
         let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
                                        dependencies: dependencies, store: store)
-        backend = try await makeBackend()
+        let made = try await makeBackend()
+        try ensureCurrent(run)
+        // From here to `service.start()` nothing suspends, so the resources
+        // below belong to this run; a later `stop()` tears them down.
+        backend = made
         self.identity = identity
         self.admission = admission
         macDeviceID = deviceID
@@ -143,6 +173,12 @@ public actor MobileIrxHost {
             }
         }
         await service.start()
+        guard run == lifetime else {
+            // Stopped while the service started: teardown already ran and
+            // released everything above; stop the service it could not reach.
+            await service.stop()
+            throw Superseded()
+        }
         journal.record("next-host", "control-started", ["cached": String(restored != nil)])
     }
 

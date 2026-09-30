@@ -21,6 +21,9 @@ extension MobileIrxHost {
                 guard let self, let cache = await self.cachedState else { return }
                 do {
                     _ = try await supervisor.readyEndpoint(credentials: Self.credentials(cache))
+                    // Teardown cancels this task; never revive the phase or
+                    // the accept loop after it.
+                    guard !Task.isCancelled else { return }
                     await self.endpointBecameReady(supervisor)
                     return
                 } catch {
@@ -36,10 +39,12 @@ extension MobileIrxHost {
 
     private func recordEndpointFailure(_ error: any Error) {
         journal.record("next-host", "endpoint-failed", ["error": String(describing: type(of: error))])
+        guard supervisor != nil else { return }
         phase = .failed("relay endpoint unavailable")
     }
 
     private func endpointBecameReady(_ supervisor: IrxEndpointSupervisor) async {
+        guard self.supervisor === supervisor else { return }
         endpointTask = nil
         let relay = await supervisor.homeRelayURL()
         phase = .listening(relayURL: relay)
