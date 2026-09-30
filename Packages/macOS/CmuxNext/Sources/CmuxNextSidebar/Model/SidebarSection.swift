@@ -18,18 +18,27 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case connected
         case connecting
         case offline
+        /// Connected, but the machine's cmux-tui lacks features this app
+        /// uses; they stay off until the machine is updated.
+        case updateAvailable
+        /// The machine's cmux-tui is too old for this app; nothing connects
+        /// until the machine is updated.
+        case updateRequired
     }
 
     public var id: MachineID
     public var name: String
     public var kind: Kind
     public var status: Status
+    /// Tooltip for the header: why an update is needed and what it enables.
+    public var detail: String?
 
-    public init(id: MachineID, name: String, kind: Kind, status: Status = .connected) {
+    public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
+        self.detail = detail
     }
 }
 

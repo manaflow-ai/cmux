@@ -182,9 +182,14 @@ extension DaemonConnection {
         _ = try await request(CloseTerminalRequest(terminalID: terminal, terminalIncarnation: incarnation, mutation: mutation()))
     }
 
+    /// Needs `tab-metadata-v1`; a daemon without it (a Cloud image's build)
+    /// gets `missingCapabilities` and no request.
     @discardableResult
     public func setTabPinned(_ surface: SurfaceID, _ pinned: Bool) async throws -> SetTabPinnedRequest.Response {
-        try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
+        guard identity?.supports(DaemonCapabilities.tabMetadata) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.tabMetadata])
+        }
+        return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`).

@@ -51,6 +51,9 @@ import Testing
         #expect(service.startup == .unavailable(.missingCapabilities(["view-attachment-detach-v1"])))
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
+        #expect(header.status == .updateRequired)
+        #expect(header.detail?.contains("view-attachment-detach-v1") == true)
+        #expect(service.compatibility?.level == .incompatible)
 
         // The machine is updated in place: same link socket, newer daemon.
         updated.withLock { $0 = true }
@@ -60,5 +63,11 @@ import Testing
             Issue.record("the updated machine never connected: \(service.store.connectionState)")
             return
         }
+        // Connected with the required set only: the optional features stay
+        // off and the header offers the update instead of hiding it.
+        #expect(service.compatibility?.level == .limited)
+        #expect(service.compatibility?.missingOptional == DaemonCapabilities.optional)
+        #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
+        #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
     }
 }

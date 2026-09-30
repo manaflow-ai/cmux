@@ -10,7 +10,8 @@ extension AppActionContext {
 
     /// Throws unless the daemon serves `capability`.
     func require(_ capability: String) throws {
-        guard services.activeDaemon.supports(capability) else { throw ActionFailure.needsDaemonCapability(capability) }
+        let daemon = services.activeDaemon
+        guard daemon.supports(capability) else { throw ActionFailure(message: daemon.missingCapabilityMessage(capability)) }
     }
 
     /// The targeted workspace (target, `workspace` argument) or the one the

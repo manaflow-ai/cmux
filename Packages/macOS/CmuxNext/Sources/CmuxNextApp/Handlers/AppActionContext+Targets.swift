@@ -39,7 +39,7 @@ extension AppActionContext {
     /// lacks `capability`.
     func needs(_ capability: String) -> @MainActor () -> String? {
         let daemon = services.activeDaemon
-        return { daemon.supports(capability) ? nil : RefusalStrings.needsDaemonCapability(capability) }
+        return { daemon.supports(capability) ? nil : daemon.missingCapabilityMessage(capability) }
     }
 
     func connection() -> DaemonConnection? {

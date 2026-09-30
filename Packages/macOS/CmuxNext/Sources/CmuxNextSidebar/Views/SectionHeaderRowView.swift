@@ -6,6 +6,10 @@ final class SectionHeaderRowView: SidebarRowView {
     private let glyph = NSImageView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
     private let status = CALayer()
+    /// "Update needed" after the status dot, for a machine whose cmux-tui
+    /// is too old (the tooltip says why).
+    private let badge = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textTertiary)
+    private var badgeText: String?
     private let chevron = NSImageView()
     let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
     private var statusColor: NSColor?
@@ -17,7 +21,7 @@ final class SectionHeaderRowView: SidebarRowView {
         glyph.contentTintColor = Palette.textSecondary
         chevron.contentTintColor = Palette.textTertiary
         layer?.addSublayer(status)
-        [glyph, name, chevron, addButton].forEach(addSubview)
+        [glyph, name, badge, chevron, addButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
 
@@ -46,6 +50,8 @@ final class SectionHeaderRowView: SidebarRowView {
             symbol = "pin.fill"
             title = Strings.pinned
             statusColor = nil
+            badgeText = nil
+            toolTip = nil
         case let .machine(machine):
             switch machine.kind {
             case .local: symbol = "laptopcomputer"
@@ -55,23 +61,35 @@ final class SectionHeaderRowView: SidebarRowView {
             title = machine.name
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusColor = nil
-            case (_, .connected): statusColor = Palette.success
+            case (_, .connected), (_, .updateAvailable): statusColor = Palette.success
             case (_, .connecting): statusColor = Palette.attention
             case (_, .offline): statusColor = Palette.textTertiary
+            case (_, .updateRequired): statusColor = Palette.danger
             }
             var label = machine.name
             switch machine.status {
             case .connected: label += ", " + Strings.statusConnected
             case .connecting: label += ", " + Strings.statusConnecting
             case .offline: label += ", " + Strings.statusOffline
+            case .updateAvailable: label += ", " + Strings.statusUpdateAvailable
+            case .updateRequired: label += ", " + Strings.statusUpdateRequired
             }
+            badgeText = switch machine.status {
+            case .updateAvailable: Strings.statusUpdateAvailable
+            case .updateRequired: Strings.statusUpdateRequired
+            default: nil
+            }
+            toolTip = machine.detail
             setAccessibilityLabel(label)
+            setAccessibilityHelp(machine.detail)
         }
         if section.kind == .pinned { setAccessibilityLabel(title) }
         glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
         name.stringValue = title
         name.font = SidebarStyle.headerFont
+        badge.stringValue = badgeText ?? ""
+        badge.font = SidebarStyle.headerFont
         chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(SidebarStyle.chevronConfig)
         setAccessibilityElement(true)
@@ -120,6 +138,13 @@ final class SectionHeaderRowView: SidebarRowView {
         let dot = SidebarStyle.dotSize
         status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2
+        badge.isHidden = badgeText == nil
+        if !badge.isHidden {
+            let bx = status.frame.maxX + Metrics.space2
+            let bw = min(ceil(badge.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - bx))
+            let bh = ceil(badge.intrinsicContentSize.height)
+            badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
+        }
         needsDisplay = true
     }
 

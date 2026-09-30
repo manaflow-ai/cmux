@@ -117,6 +117,9 @@ final class DaemonService {
     /// ends for good is replaced the same way, spaced by one backoff across
     /// such ends. Retries past their budget wait for a network path change,
     /// app activation or the link socket changing, never a fixed period.
+    /// An incompatible daemon (`compatibility` says so) is retried only on
+    /// such an event: the machine's daemon can be updated in place behind
+    /// the same link, and the next event then connects to the new build.
     func start(remote endpoint: @escaping @Sendable () async throws -> String) {
         guard runTask == nil else { return }
         let store = store
@@ -142,9 +145,18 @@ final class DaemonService {
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
+                    // Before the failure is published: an event from then on
+                    // (the machine updated, app activation) wakes the wait below.
+                    if DaemonStartup.isPermanent(error) { wake.rebaseline() }
                     await weakSelf?.noteStartupFailure(error)
                 }
-                guard let (connection, identity) = connected, let self, !Task.isCancelled else { return }
+                if Task.isCancelled { return }
+                guard let (connection, identity) = connected else {
+                    // Incompatible daemon: wait for an event only, then try again.
+                    guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
+                    continue
+                }
+                guard let self, !Task.isCancelled else { return }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: scheduler)

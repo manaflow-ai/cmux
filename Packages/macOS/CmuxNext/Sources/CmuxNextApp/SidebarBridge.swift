@@ -128,12 +128,23 @@ final class SidebarBridge {
     }
 
     static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true) -> SidebarMachine {
-        let status: SidebarMachine.Status = switch daemon.store.connectionState {
+        var status: SidebarMachine.Status = switch daemon.store.connectionState {
         case .connected: .connected
         case .connecting, .disconnected: live ? .connecting : .offline
         case .failed: live ? .connecting : .offline
         }
-        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status)
+        // A remote machine keeps its own cmux-tui build: say when it is too
+        // old instead of showing it as connecting (or silently limited).
+        let compat = kind == .local ? nil : daemon.compatibility
+        if let compat, live {
+            switch compat.level {
+            case .incompatible where daemon.startup.isUnavailable: status = .updateRequired
+            case .limited where status == .connected: status = .updateAvailable
+            default: break
+            }
+        }
+        let detail = (status == .updateRequired || status == .updateAvailable) ? compat.map(CloudStrings.compatibility) : nil
+        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status, detail: detail)
     }
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {

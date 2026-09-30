@@ -12576,6 +12576,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.updateCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "update this Cloud machine to use this (its cmux-tui lacks %@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث جهاز Cloud هذا لاستخدام هذه الميزة (يفتقر cmux-tui فيه إلى %@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ažurirajte ovu Cloud mašinu da biste ovo koristili (njenom cmux-tui nedostaje %@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "opdater denne Cloud-maskine for at bruge dette (dens cmux-tui mangler %@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "aktualisiere diese Cloud-Maschine, um das zu nutzen (ihrem cmux-tui fehlt %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "actualiza esta máquina de Cloud para usar esto (a su cmux-tui le falta %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "mettez à jour cette machine Cloud pour utiliser ceci (son cmux-tui n'a pas %@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "aggiorna questa macchina Cloud per usarlo (al suo cmux-tui manca %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを使うにはこの Cloud マシンをアップデートしてください (cmux-tui に %@ がありません)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន Cloud នេះ ដើម្បីប្រើមុខងារនេះ (cmux-tui របស់វាខ្វះ %@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 기능을 쓰려면 이 Cloud 머신을 업데이트하세요 (cmux-tui에 %@이(가) 없음)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "oppdater denne Cloud-maskinen for å bruke dette (dens cmux-tui mangler %@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zaktualizuj tę maszynę Cloud, aby tego użyć (jej cmux-tui nie ma %@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "atualize esta máquina do Cloud para usar isto (falta %@ no cmux-tui dela)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "обновите эту машину Cloud, чтобы использовать это (в её cmux-tui нет %@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตเครื่อง Cloud นี้เพื่อใช้ฟีเจอร์นี้ (cmux-tui ของเครื่องไม่มี %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bunu kullanmak için bu Cloud makinesini güncelleyin (cmux-tui'sinde %@ yok)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "оновіть цю машину Cloud, щоб скористатися цим (у її cmux-tui немає %@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hãy cập nhật máy Cloud này để dùng tính năng này (cmux-tui của máy thiếu %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新此 Cloud 机器以使用此功能（其 cmux-tui 缺少 %@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新此 Cloud 機器以使用此功能（其 cmux-tui 缺少 %@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
