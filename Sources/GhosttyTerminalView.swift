@@ -10906,7 +10906,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            self.syncKeyStateIndicator(text: self.currentKeyStateIndicatorText)
+            self.syncKeyStateIndicator(text: self.surfaceView.currentKeyStateIndicatorText)
         })
 
     }
