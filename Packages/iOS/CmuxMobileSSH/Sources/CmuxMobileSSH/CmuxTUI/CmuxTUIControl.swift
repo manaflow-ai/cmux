@@ -16,7 +16,12 @@ public actor CmuxTUIControl {
     /// Capabilities the client requires from the server.
     public static let requiredCapabilities: Set<String> = ["workspace-registry-v1", "attach-initial-size"]
     /// Client capabilities echoed through `set-client-info` when offered.
-    static let clientCapabilities = ["view-attachment-lease-v1", "view-attachment-detach-v1", browserPointerGuardCapability]
+    static let clientCapabilities = [
+        "view-attachment-lease-v1", "view-attachment-detach-v1", browserPointerGuardCapability,
+        // Replays arrive with their incomplete sequence in `pending`, emitted
+        // as output after the replay's colors.
+        "terminal-pending-sequence-v1",
+    ]
     /// Required on both peers before a browser surface can be attached.
     public static let browserPointerGuardCapability = "browser-pointer-frame-guard-v1"
 
@@ -538,12 +543,24 @@ public actor CmuxTUIControl {
         // A bad-JSON reply has no id and cannot be correlated; drop it.
     }
 
+    /// A replay ends at a parser boundary; its `pending` bytes resume the
+    /// sequence the daemon's parser is inside. Emit them as output after the
+    /// replay and its colors so the next output completes that sequence.
+    private func yieldPendingSequence(
+        _ event: CmuxTUIEventWire,
+        to attachment: AsyncStream<CmuxTUIAttachEvent>.Continuation
+    ) {
+        guard let pending = event.pending, !pending.isEmpty else { return }
+        attachment.yield(.output(Data(cmuxTUIBase64: pending)))
+    }
+
     private func dispatch(_ event: CmuxTUIEventWire, line: Data) {
         switch event.event {
         case "vt-state":
             guard let surface = event.surface, let attachment = attachments[surface] else { return }
             attachment.yield(.vtState(Data(cmuxTUIBase64: event.data), cols: event.cols ?? 0, rows: event.rows ?? 0))
             if let colors = event.colors { attachment.yield(.colors(colors.model)) }
+            yieldPendingSequence(event, to: attachment)
         case "output":
             guard let surface = event.surface, let attachment = attachments[surface] else { return }
             attachment.yield(.output(Data(cmuxTUIBase64: event.data)))
@@ -554,6 +571,7 @@ public actor CmuxTUIControl {
             let replay = Data(cmuxTUIBase64: event.replay ?? event.data)
             attachment.yield(.resized(cols: event.cols ?? 0, rows: event.rows ?? 0, replay: replay))
             if let colors = event.colors { attachment.yield(.colors(colors.model)) }
+            yieldPendingSequence(event, to: attachment)
         case "colors-changed":
             guard let surface = event.surface, let attachment = attachments[surface],
                   let colors = try? JSONDecoder().decode(CmuxTUIColorsWire.self, from: line) else { return }

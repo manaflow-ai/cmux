@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -39,6 +40,29 @@ MESSAGES = {
 }
 
 
+def _next_page(link_header: str | None) -> str | None:
+    """Return GitHub's RFC 8288 ``rel=next`` URL, if one is present."""
+    if not link_header:
+        return None
+    for link in link_header.split(","):
+        match = re.match(r"\s*<([^>]+)>\s*;\s*rel=\"?([^\";, ]+)", link)
+        if match and match.group(2) == "next":
+            return match.group(1)
+    return None
+
+
+def _read_jobs(request: urllib.request.Request) -> list[dict]:
+    """Read all pages so a late-created gate job cannot be mistaken as absent."""
+    jobs: list[dict] = []
+    while request is not None:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.load(response)
+            jobs.extend(payload.get("jobs", []))
+            next_url = _next_page(response.headers.get("Link"))
+        request = urllib.request.Request(next_url, headers=dict(request.header_items())) if next_url else None
+    return jobs
+
+
 def main(argv: list[str], env: dict[str, str]) -> int:
     if len(argv) != 1 or argv[0] not in MESSAGES:
         print(f"usage: fast_linux_gate.py {{{'|'.join(MESSAGES)}}}", file=sys.stderr)
@@ -56,8 +80,7 @@ def main(argv: list[str], env: dict[str, str]) -> int:
         "X-GitHub-Api-Version": "2022-11-28",
     })
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            jobs = json.load(response).get("jobs", [])
+        jobs = _read_jobs(request)
     except Exception as exc:  # An unreadable gate admits.
         print(f"::warning::Could not read {gate} ({exc}); {admitted}.")
         return 0

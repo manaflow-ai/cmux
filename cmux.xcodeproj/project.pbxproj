@@ -93,6 +93,7 @@
 		9758B0139758B0139758B013 /* CMUXCLI+AmpExtensionSourcePart3.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758B0039758B0039758B003 /* CMUXCLI+AmpExtensionSourcePart3.swift */; };
 		13019F000000000000000002 /* CMUXCLI+AuthTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019F000000000000000001 /* CMUXCLI+AuthTeam.swift */; };
 		A106490E0000000000000001 /* CMUXCLI+Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106490D0000000000000001 /* CMUXCLI+Automation.swift */; };
+		0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */; };
 		6D9C51AB30A64B1ABC819142 /* CMUXCLI+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */; };
 		6D9C51AB30A64B1ABC81914A /* CMUXCLI+AutoNamingDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */; };
 		6D9C51AB30A64B1ABC819143 /* CMUXCLI+AutoNamingGenericHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */; };
@@ -126,6 +127,7 @@
 		807AC28C2C2457B59F8792AC /* CMUXCLI+Current.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */; };
 		D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */; };
 		C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */; };
+		12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */; };
 		C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */; };
 		B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
 		B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */; };
@@ -197,6 +199,7 @@
 		A0C7444924A573561A39C95A /* CMUXCLI+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AECAFEDF2A8217119AC67F /* CMUXCLI+SSHTui.swift */; };
 		D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96971000000000000000001 /* CMUXCLI+Sudo.swift */; };
 		A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */; };
+		A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */; };
 		B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */; };
 		C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
@@ -237,6 +240,7 @@
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		7E1A1A0000000000000000A3 /* CmuxTerminalImport in Frameworks */ = {isa = PBXBuildFile; productRef = 7E1A1A0000000000000000A2 /* CmuxTerminalImport */; };
 		D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */; };
+		1606FB10C21C603790FEE7D3 /* CodexAutoNamingArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A62542679E9A9BFDD99A7BC6 /* CodexAutoNamingArgumentsTests.swift */; };
 		C1175700000000000000004A /* CodexHookCapturedSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1893BDBF86104694F22BC3C /* CodexHookCapturedSocketCommands.swift */; };
 		918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000050 /* CodexHookFailureCandidate.swift */; };
 		918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000040 /* CodexHookFailureSummary.swift */; };
@@ -304,6 +308,7 @@
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
 		CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
+		575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 575000020000000000000002 /* TmuxWaitForSignal.swift */; };
 		B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
 		A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */; };
@@ -473,6 +478,7 @@
 		E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Current.swift"; sourceTree = "<group>"; };
 		D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffSidecar.swift"; sourceTree = "<group>"; };
 		C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerBundledAssets.swift"; sourceTree = "<group>"; };
+		054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerPreferences.swift"; sourceTree = "<group>"; };
 		C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerShortcuts.swift"; sourceTree = "<group>"; };
 		B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
 		B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Events.swift"; sourceTree = "<group>"; };
@@ -544,6 +550,7 @@
 		E5AECAFEDF2A8217119AC67F /* CMUXCLI+SSHTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHTui.swift"; sourceTree = "<group>"; };
 		D96971000000000000000001 /* CMUXCLI+Sudo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Sudo.swift"; sourceTree = "<group>"; };
 		A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSelection.swift"; sourceTree = "<group>"; };
+		A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSizing.swift"; sourceTree = "<group>"; };
 		330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TaskHelp.swift"; sourceTree = "<group>"; };
 		C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TerminalCreation.swift"; sourceTree = "<group>"; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
@@ -571,6 +578,7 @@
 		C11757000000000000000005 /* cmuxCLITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxCLITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1175700000000000000001F /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
 		D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteRouting.swift; sourceTree = "<group>"; };
+		A62542679E9A9BFDD99A7BC6 /* CodexAutoNamingArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAutoNamingArgumentsTests.swift; sourceTree = "<group>"; };
 		D1893BDBF86104694F22BC3C /* CodexHookCapturedSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHookCapturedSocketCommands.swift"; sourceTree = "<group>"; };
 		918100000000000000000050 /* CodexHookFailureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureCandidate.swift; sourceTree = "<group>"; };
 		918100000000000000000040 /* CodexHookFailureSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureSummary.swift; sourceTree = "<group>"; };
@@ -645,6 +653,7 @@
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatLaunchContextError.swift; sourceTree = "<group>"; };
+		575000020000000000000002 /* TmuxWaitForSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWaitForSignal.swift; sourceTree = "<group>"; };
 		B81607322100000000000004 /* VMMachineTerminalResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMMachineTerminalResolution.swift; sourceTree = "<group>"; };
 		BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMRemoteWorkspaceResolver.swift; sourceTree = "<group>"; };
 		A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingArguments.swift; sourceTree = "<group>"; };
@@ -703,6 +712,7 @@
 		C11757000000000000000003 /* cmuxCLITests */ = {
 			isa = PBXGroup;
 			children = (
+				A62542679E9A9BFDD99A7BC6 /* CodexAutoNamingArgumentsTests.swift */,
 				C1175700000000000000000E /* BundledCLITestSupport.swift */,
 				C1175700000000000000000F /* CLIClaudeHookTimeoutRegressionTests.swift */,
 				C11757000000000000000010 /* CLICoderouterBootstrapTests.swift */,
@@ -814,6 +824,9 @@
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
 			isa = PBXGroup;
 			children = (
+				575000020000000000000002 /* TmuxWaitForSignal.swift */,
+				A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */,
+				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				A5001644 /* RemoteSessionBundledResourceLoader.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
@@ -1385,7 +1398,9 @@
 				C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */,
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
+				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
 				C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */,
+				1606FB10C21C603790FEE7D3 /* CodexAutoNamingArgumentsTests.swift in Sources */,
 				C1175700000000000000004A /* CodexHookCapturedSocketCommands.swift in Sources */,
 				C1175700000000000000004B /* CodexTeamsAppServerFixture.swift in Sources */,
 				C11757000000000000000061 /* CodexTeamsAppServerProcess.swift in Sources */,
@@ -1484,6 +1499,7 @@
 				807AC28C2C2457B59F8792AC /* CMUXCLI+Current.swift in Sources */,
 				D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */,
 				C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */,
+				12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */,
 				C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */,
 				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */,
@@ -1555,6 +1571,7 @@
 				A0C7444924A573561A39C95A /* CMUXCLI+SSHTui.swift in Sources */,
 				D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */,
 				A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */,
+				A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */,
 				B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */,
 				C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
@@ -1630,6 +1647,7 @@
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
 				D0F101000000000000000003 /* TerminalRawMode.swift in Sources */,
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
+				575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */,
 				B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */,
 				65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */,
 				A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */,

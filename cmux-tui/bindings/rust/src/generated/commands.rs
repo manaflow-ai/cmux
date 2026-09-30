@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85.
+// cmux-tui mux protocol 12, IR 7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -572,8 +572,11 @@ pub type DeleteWorkspaceGroupResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DetachAttachedViewRequest {
-    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub lease: Optional<String>,
     pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub view: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -582,7 +585,9 @@ pub type DetachAttachedViewResult = T::AttachedViewOutcomeResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DetachClientRequest {
-    pub client: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub by: Optional<T::SizeDetachActor>,
+    pub client: T::DetachClientTarget,
 }
 
 #[rustfmt::skip]
@@ -635,6 +640,12 @@ pub struct GetFrontendProjectionRequest {
 
 #[rustfmt::skip]
 pub type GetFrontendProjectionResult = T::FrontendProjection;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetSizeStateRequest {
+    pub surface: T::Id,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1119,6 +1130,14 @@ pub type NewWorkspaceResult = T::SurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteSizeActivityRequest {
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub view: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotifyRequest {
     pub body: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1236,8 +1255,11 @@ pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseAttachedViewSizeRequest {
-    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub lease: Optional<String>,
     pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub view: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1377,9 +1399,14 @@ pub type ReportFocusResult = T::EmptyResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResizeAttachedViewRequest {
     pub cols: u16,
-    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub identity: Optional<T::SizingIdentity>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub lease: Optional<String>,
     pub rows: u16,
     pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub view: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1522,9 +1549,17 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_kind: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub display_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub user_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1580,6 +1615,33 @@ pub struct SetRatioRequest {
 
 #[rustfmt::skip]
 pub type SetRatioResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetSizeCountsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub counts: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub lease: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub participant: Optional<String>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub view: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetSizePolicyRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub policy: Optional<T::SizePolicy>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2123,10 +2185,18 @@ impl CmuxClient {
     }
 
     pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        if !request.view.is_missing() {
+            self.require_protocol_field("detach-attached-view", 12)?;
+            self.require_capability_field("detach-attached-view", "shared-sizing-v1")?;
+        }
         self.execute(&DETACH_ATTACHED_VIEW_METADATA, &request)
     }
 
     pub fn detach_client(&mut self, request: DetachClientRequest) -> Result<DetachClientResult> {
+        if !request.by.is_missing() {
+            self.require_protocol_field("detach-client", 12)?;
+            self.require_capability_field("detach-client", "shared-sizing-v1")?;
+        }
         self.execute(&DETACH_CLIENT_METADATA, &request)
     }
 
@@ -2152,6 +2222,10 @@ impl CmuxClient {
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
         self.execute(&GET_FRONTEND_PROJECTION_METADATA, &request)
+    }
+
+    pub fn get_size_state(&mut self, request: GetSizeStateRequest) -> Result<T::GetSizeStateResult> {
+        self.execute(&GET_SIZE_STATE_METADATA, &request)
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {
@@ -2366,6 +2440,10 @@ impl CmuxClient {
         self.execute(&NEW_WORKSPACE_METADATA, &request)
     }
 
+    pub fn note_size_activity(&mut self, request: NoteSizeActivityRequest) -> Result<T::NoteSizeActivityResult> {
+        self.execute(&NOTE_SIZE_ACTIVITY_METADATA, &request)
+    }
+
     pub fn notify(&mut self, request: NotifyRequest) -> Result<T::NotifyResult> {
         self.execute(&NOTIFY_METADATA, &request)
     }
@@ -2407,6 +2485,10 @@ impl CmuxClient {
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
+        if !request.view.is_missing() {
+            self.require_protocol_field("release-attached-view-size", 12)?;
+            self.require_capability_field("release-attached-view-size", "shared-sizing-v1")?;
+        }
         self.execute(&RELEASE_ATTACHED_VIEW_SIZE_METADATA, &request)
     }
 
@@ -2471,6 +2553,14 @@ impl CmuxClient {
     }
 
     pub fn resize_attached_view(&mut self, request: ResizeAttachedViewRequest) -> Result<ResizeAttachedViewResult> {
+        if !request.identity.is_missing() {
+            self.require_protocol_field("resize-attached-view", 12)?;
+            self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
+        }
+        if !request.view.is_missing() {
+            self.require_protocol_field("resize-attached-view", 12)?;
+            self.require_capability_field("resize-attached-view", "shared-sizing-v1")?;
+        }
         self.execute(&RESIZE_ATTACHED_VIEW_METADATA, &request)
     }
 
@@ -2529,6 +2619,22 @@ impl CmuxClient {
     }
 
     pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+        if !request.device_kind.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
+        if !request.device_name.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
+        if !request.display_name.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
+        if !request.user_id.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
         self.execute(&SET_CLIENT_INFO_METADATA, &request)
     }
 
@@ -2563,6 +2669,14 @@ impl CmuxClient {
 
     pub fn set_ratio(&mut self, request: SetRatioRequest) -> Result<SetRatioResult> {
         self.execute(&SET_RATIO_METADATA, &request)
+    }
+
+    pub fn set_size_counts(&mut self, request: SetSizeCountsRequest) -> Result<T::SetSizeCountsResult> {
+        self.execute(&SET_SIZE_COUNTS_METADATA, &request)
+    }
+
+    pub fn set_size_policy(&mut self, request: SetSizePolicyRequest) -> Result<T::SetSizePolicyResult> {
+        self.execute(&SET_SIZE_POLICY_METADATA, &request)
     }
 
     pub fn set_split_ratio(&mut self, request: SetSplitRatioRequest) -> Result<SetSplitRatioResult> {

@@ -1,4 +1,5 @@
 public import CmuxUpdater
+import CoreGraphics
 public import Foundation
 import Observation
 
@@ -201,6 +202,10 @@ extension UpdaterService: UpdateActionDelegate {
         checkForUpdates()
     }
 
+    /// Nothing to capture: agent sessions and their resume state live in the
+    /// cmux-tui daemon, which keeps running through the relaunch.
+    public func updaterPrepareForRelaunch() async {}
+
     /// Nothing to save: terminals and layout live in the cmux-tui daemon and
     /// survive the relaunch. Sparkle's terminate goes through the normal
     /// `applicationShouldTerminate` path.
@@ -212,6 +217,16 @@ extension UpdaterService: UpdateActionDelegate {
     /// agent running), so a ready update is never held.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
         .empty
+    }
+
+    /// Time since the last hardware key, click or pointer move anywhere on
+    /// the Mac (HID state, so synthesized events do not count). An automatic
+    /// install waits for a quiet moment.
+    public func updaterTimeSinceLastUserInput() -> Duration {
+        // kCGAnyInputEventType is ~0; CGEventType has no case for it.
+        guard let anyInput = CGEventType(rawValue: ~0) else { return .zero }
+        let seconds = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+        return .milliseconds(Int64(max(0, seconds) * 1000))
     }
 }
 

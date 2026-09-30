@@ -11,6 +11,14 @@ with the legacy app, and the app in `Packages/macOS/CmuxNext` has no relay
 policy yet. Until one exists, no relay path may reach the app's control socket.
 Any new relay must implement the rules below.
 
+Main's last legacy policy (the 2026-09 `cmux ssh` audit, PR 15768) also kept
+these rules; a new relay keeps them too. The `surface.resume.*` methods are not
+relay methods: a resume binding holds a command that runs on the Mac. Relay
+callers see only what they need: a relay-created notification has no reply and
+names the remote destination in its title, and remote status or terminal
+session lifecycle answers carry only `enabled`, `state` and `connected`, with no
+window ids.
+
 ## Rules for any relay
 
 1. **Default is deny, and deny is safe.** The relay forwards only an explicit
@@ -25,10 +33,9 @@ Any new relay must implement the rules below.
 
    If any answer is yes, do not allowlist it; reshape the method or its params.
 3. **Deny command-bearing params** (`initial_command`, `command`,
-   `tmux_start_command`, `pane_start_command`) on every method. The legacy
-   policy's one exception (`surface.resume.set`, safe only because the app
-   dropped relay-originated resume bindings) does not carry over; a new
-   exception needs the same analysis and tests.
+   `tmux_start_command`, `pane_start_command`) on every method, with no
+   exceptions. The legacy `surface.resume.set` exception was removed on main
+   by the `cmux ssh` audit (PR 15768).
 4. **Never allowlist a method that spawns or respawns terminals** unless you have
    verified in the running app that the target executes on the remote host. The
    legacy plain-SSH respawn path fell back to local execution under the same

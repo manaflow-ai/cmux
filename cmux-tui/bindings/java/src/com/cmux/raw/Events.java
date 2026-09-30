@@ -42,6 +42,7 @@ public final class Events {
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
@@ -98,6 +99,7 @@ public final class Events {
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);

@@ -47,6 +47,9 @@
          location = "group:CmuxSyncStore">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalSizing">
+      </FileRef>
+      <FileRef
          location = "group:CmuxWorkspacePresence">
       </FileRef>
    </Group>

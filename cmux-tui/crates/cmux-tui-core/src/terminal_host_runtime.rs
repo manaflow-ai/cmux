@@ -4225,7 +4225,7 @@ mod unix {
                     encode_resize(
                         size.0,
                         size.1,
-                        &replay.bytes,
+                        &replay.self_contained_bytes(),
                         &replay.kitty_image_aliases,
                         next,
                         replay.kitty_state,
@@ -4316,7 +4316,7 @@ mod unix {
             let resize_payload = match encode_resize(
                 size.0,
                 size.1,
-                &replay.bytes,
+                &replay.self_contained_bytes(),
                 &replay.kitty_image_aliases,
                 cell_pixels,
                 replay.kitty_state,
@@ -4528,7 +4528,7 @@ mod unix {
                             encode_resize(
                                 cols,
                                 rows,
-                                &replay.bytes,
+                                &replay.self_contained_bytes(),
                                 &replay.kitty_image_aliases,
                                 cell_pixels,
                                 replay.kitty_state,
@@ -5869,7 +5869,7 @@ mod unix {
                     cols,
                     rows,
                     cell_pixels,
-                    replay: replay.bytes,
+                    replay: replay.self_contained_bytes().into_owned(),
                     kitty_image_aliases: replay.kitty_image_aliases,
                     kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
@@ -8700,6 +8700,7 @@ mod unix {
                     bytes: decoded.replay,
                     kitty_image_aliases: decoded.kitty_image_aliases,
                     kitty_state: decoded.kitty_state,
+                    pending_sequence: Vec::new(),
                 })
                 .unwrap();
             assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());

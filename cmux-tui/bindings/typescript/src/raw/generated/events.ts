@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85. */
+/* cmux-tui mux protocol 12, IR 7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee. */
 
 
 import type * as T from "./types.js";
@@ -82,7 +82,10 @@ export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
 export type DetachedEvent = { event: "detached" } & {
+  "by"?: T.SizeDetachActor;
+  "reason"?: T.DetachReason;
   "surface": T.Id;
+  "view"?: string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -251,6 +254,13 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
 export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
+  "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
+export type SizeStateEvent = { event: "size-state" } & {
+  "self_participant"?: string;
+  "state": T.SizeState;
   "surface": T.Id;
 };
 
@@ -472,6 +482,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -521,6 +532,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -571,6 +583,7 @@ export type KnownAttachEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -582,6 +595,7 @@ export type KnownByteAttachEvent =
   | OverflowEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -590,7 +604,8 @@ export type KnownRenderAttachEvent =
   | OverflowEvent
   | RenderDeltaEvent
   | RenderStateEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | SizeStateEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =

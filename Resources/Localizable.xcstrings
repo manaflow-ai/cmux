@@ -71819,127 +71819,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Upotreba: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: katalog površina. Terminali, VNC ekrani i preglednici\nna ovom Macu i na svakom cloud računalu su resursi (`<machine>/<kind>/<key>`,\nnpr. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); okna ih projiciraju. `open` ponovo koristi okno koje već\nprikazuje resurs osim s --new; --pane s prikazom dijeli to okno na toj strani,\n--tab dodaje tab. Lokalni terminal se premješta na odredište (prikazuje se jedanput).\n`new-terminal` kreira terminal na računalu (cloud: u njegovoj cmux-tui sesiji).\n`cmux vm tree` ispisuje isti katalog.\n\nresume: prikvači metapodatke naredbe za ponovni pokretanje na terminalnu površinu.\nJavne CLI veze se čuvaju radi inspekcije i ručnog vraćanja.\n\nZastavice:\n  --workspace <id|ref|index>   Kontekst radnog prostora (zadano: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Kontekst površine (zadano: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Kontekst prozora za reference/indekse radnog prostora i površine\n  --cwd <path>             Radni direktorij za vraćanje (zadano: $PWD)\n  --name <name>            Prikazni naziv za vezu\n  --kind <kind>            Vrsta veze, npr. agent ili tmux\n  --checkpoint <id>        Checkpoint ili id sesije provajdera\n  --checkpoint-id <id>     Isto kao --checkpoint i ima prednost\n  --source <source>        Oznaka izvora veze\n\nPrimjeri:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Upotreba: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: katalog površina. Terminali, VNC ekrani i preglednici\nna ovom Macu i na svakom cloud računalu su resursi (`<machine>/<kind>/<key>`,\nnpr. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); okna ih projiciraju. `open` ponovo koristi okno koje već\nprikazuje resurs osim s --new; --pane s prikazom dijeli to okno na toj strani,\n--tab dodaje tab. Lokalni terminal se premješta na odredište (prikazuje se jedanput).\n`new-terminal` kreira terminal na računalu (cloud: u njegovoj cmux-tui sesiji).\n`cmux vm tree` ispisuje isti katalog.\n\nresume: prikvači metapodatke naredbe za ponovni pokretanje na terminalnu površinu.\nJavne CLI veze se čuvaju radi inspekcije i ručnog vraćanja.\n\nZastavice:\n  --workspace <id|ref|index>   Kontekst radnog prostora (zadano: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Kontekst površine (zadano: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Kontekst prozora za reference/indekse radnog prostora i površine\n  --cwd <path>             Radni direktorij za vraćanje (zadano: $PWD)\n  --name <name>            Prikazni naziv za vezu\n  --kind <kind>            Vrsta veze, npr. agent ili tmux\n  --checkpoint <id>        Checkpoint ili id sesije provajdera\n  --checkpoint-id <id>     Isto kao --checkpoint i ima prednost\n  --source <source>        Oznaka izvora veze\n\nPrimjeri:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brug: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: overfladekataloget. Terminaler, VNC-skærme og browsere\npå denne Mac og på alle cloud-maskiner er ressourcer (`<machine>/<kind>/<key>`,\nf.eks. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); ruder projicerer dem. `open` genbruger ruden, der allerede\nviser en ressource, medmindre --new angives; --pane med en side deler den rude på den side,\n--tab tilføjer en fane til den. En lokal terminal flyttes til destinationen (vises én gang).\n`new-terminal` opretter en terminal på maskinen (cloud: i dens cmux-tui-session).\n`cmux vm tree` udskriver samme katalog.\n\nresume: tilknyt metadata om genstartskommando til en terminaloverflade.\nOffentlige CLI-bindinger gemmes til inspektion og manuel gendannelse.\n\nFlag:\n  --workspace <id|ref|index>   Arbejdsområdekontekst (standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Overfladekonkekst (standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Vindueskonkekst for arbejdsområde- og overfladerefs/indekser\n  --cwd <path>             Arbejdsmappe til gendannelse (standard: $PWD)\n  --name <name>            Vist navn for bindingen\n  --kind <kind>            Bindingstype, f.eks. agent eller tmux\n  --checkpoint <id>        Udbydercheckpoint eller sessions-id\n  --checkpoint-id <id>     Samme som --checkpoint og har forrang\n  --source <source>        Bindingskildelabel\n\nEksempler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Brug: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: overfladekataloget. Terminaler, VNC-skærme og browsere\npå denne Mac og på alle cloud-maskiner er ressourcer (`<machine>/<kind>/<key>`,\nf.eks. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); ruder projicerer dem. `open` genbruger ruden, der allerede\nviser en ressource, medmindre --new angives; --pane med en side deler den rude på den side,\n--tab tilføjer en fane til den. En lokal terminal flyttes til destinationen (vises én gang).\n`new-terminal` opretter en terminal på maskinen (cloud: i dens cmux-tui-session).\n`cmux vm tree` udskriver samme katalog.\n\nresume: tilknyt metadata om genstartskommando til en terminaloverflade.\nOffentlige CLI-bindinger gemmes til inspektion og manuel gendannelse.\n\nFlag:\n  --workspace <id|ref|index>   Arbejdsområdekontekst (standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Overfladekonkekst (standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Vindueskonkekst for arbejdsområde- og overfladerefs/indekser\n  --cwd <path>             Arbejdsmappe til gendannelse (standard: $PWD)\n  --name <name>            Vist navn for bindingen\n  --kind <kind>            Bindingstype, f.eks. agent eller tmux\n  --checkpoint <id>        Udbydercheckpoint eller sessions-id\n  --checkpoint-id <id>     Samme som --checkpoint og har forrang\n  --source <source>        Bindingskildelabel\n\nEksempler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utilizzo: cmux surface ls [<machine>|local] [--refresh] [--json]\n         cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n         cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n         cmux surface resume set [flags] -- <argv...>\n         cmux surface resume set [flags] --shell <command>\n         cmux surface resume show [--json] [flags]\n         cmux surface resume get [--json] [flags]\n         cmux surface resume clear [flags]\n\nls / open / new-terminal: il catalogo delle surface. Terminali, schermi VNC e browser\nsu questo Mac e su ogni macchina cloud sono risorse (`<machine>/<kind>/<key>`,\nes. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); i pannelli le proiettano. `open` riutilizza il pannello già\nvisualizzato per una risorsa, a meno di --new; --pane con un lato divide quel pannello su quel lato,\n--tab aggiunge una scheda. Un terminale locale si sposta alla destinazione (viene mostrato una sola volta).\n`new-terminal` crea un terminale sulla macchina (cloud: nella sua sessione cmux-tui).\n`cmux vm tree` stampa lo stesso catalogo.\n\nresume: collega metadati del comando di riavvio a una surface terminale.\nI binding pubblici della CLI vengono salvati per ispezione e ripristino manuale.\n\nFlag:\n  --workspace <id|ref|index>   Contesto workspace (predefinito: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contesto surface (predefinito: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contesto finestra per i ref/indici di workspace e surface\n  --cwd <path>             Directory di lavoro per il ripristino (predefinito: $PWD)\n  --name <name>            Nome visualizzato per il binding\n  --kind <kind>            Tipo di binding, ad esempio agent o tmux\n  --checkpoint <id>        Checkpoint del provider o id di sessione\n  --checkpoint-id <id>     Come --checkpoint, ha la precedenza\n  --source <source>        Etichetta sorgente del binding\n\nEsempi:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Utilizzo: cmux surface ls [<machine>|local] [--refresh] [--json]\n         cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n         cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n         cmux surface resume set [flags] -- <argv...>\n         cmux surface resume set [flags] --shell <command>\n         cmux surface resume show [--json] [flags]\n         cmux surface resume get [--json] [flags]\n         cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: il catalogo delle surface. Terminali, schermi VNC e browser\nsu questo Mac e su ogni macchina cloud sono risorse (`<machine>/<kind>/<key>`,\nes. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); i pannelli le proiettano. `open` riutilizza il pannello già\nvisualizzato per una risorsa, a meno di --new; --pane con un lato divide quel pannello su quel lato,\n--tab aggiunge una scheda. Un terminale locale si sposta alla destinazione (viene mostrato una sola volta).\n`new-terminal` crea un terminale sulla macchina (cloud: nella sua sessione cmux-tui).\n`cmux vm tree` stampa lo stesso catalogo.\n\nresume: collega metadati del comando di riavvio a una surface terminale.\nI binding pubblici della CLI vengono salvati per ispezione e ripristino manuale.\n\nFlag:\n  --workspace <id|ref|index>   Contesto workspace (predefinito: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contesto surface (predefinito: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contesto finestra per i ref/indici di workspace e surface\n  --cwd <path>             Directory di lavoro per il ripristino (predefinito: $PWD)\n  --name <name>            Nome visualizzato per il binding\n  --kind <kind>            Tipo di binding, ad esempio agent o tmux\n  --checkpoint <id>        Checkpoint del provider o id di sessione\n  --checkpoint-id <id>     Come --checkpoint, ha la precedenza\n  --source <source>        Etichetta sorgente del binding\n\nEsempi:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: កាតាឡុក surface។ Terminal, VNC screen និង browser\nនៅ Mac នេះ និងម៉ាស៊ីន cloud គ្រប់台 សុទ្ធជា resource (`<machine>/<kind>/<key>`,\nឧ. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); pane បង្ហាញពួកវា។ `open` ប្រើ pane ដែល\nកំពុងបង្ហាញ resource ឡើងវិញ លុះត្រាមាន --new; --pane ជាមួយទិស ចែក pane នោះ,\n--tab បន្ថែម tab ទៅវា។ terminal local ផ្លាស់ទៅ destination (បង្ហាញម្ដង)។\n`new-terminal` បង្កើត terminal នៅម៉ាស៊ីន (cloud: នៅ session cmux-tui របស់វា)។\n`cmux vm tree` បោះពុម្ពកាតាឡុកដូចគ្នា។\n\nresume: ភ្ជាប់ metadata នៃពាក្យបញ្ជារចាប់ផ្ដើមឡើងវិញទៅ surface terminal។\nBinding CLI សាធារណៈត្រូវរក្សាទុកសម្រាប់ពិនិត្យ និងស្ដារដោយដៃ។\n\nFlags:\n  --workspace <id|ref|index>   បរិបទ Workspace (លំនាំដើម: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     បរិបទ Surface (លំនាំដើម: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      បរិបទ Window សម្រាប់ ref/index workspace និង surface\n  --cwd <path>             ថតការងារសម្រាប់ restore (លំនាំដើម: $PWD)\n  --name <name>            ឈ្មោះបង្ហាញសម្រាប់ binding\n  --kind <kind>            ប្រភេទ binding ឧទាហរណ៍ agent ឬ tmux\n  --checkpoint <id>        checkpoint ឬ id session របស់ provider\n  --checkpoint-id <id>     ដូច --checkpoint ហើយមានអាទិភាពជាង\n  --source <source>        ស្លាកប្រភព binding\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: កាតាឡុក surface។ Terminal, VNC screen និង browser\nនៅ Mac នេះ និងម៉ាស៊ីន cloud គ្រប់台 សុទ្ធជា resource (`<machine>/<kind>/<key>`,\nឧ. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); pane បង្ហាញពួកវា។ `open` ប្រើ pane ដែល\nកំពុងបង្ហាញ resource ឡើងវិញ លុះត្រាមាន --new; --pane ជាមួយទិស ចែក pane នោះ,\n--tab បន្ថែម tab ទៅវា។ terminal local ផ្លាស់ទៅ destination (បង្ហាញម្ដង)។\n`new-terminal` បង្កើត terminal នៅម៉ាស៊ីន (cloud: នៅ session cmux-tui របស់វា)។\n`cmux vm tree` បោះពុម្ពកាតាឡុកដូចគ្នា។\n\nresume: ភ្ជាប់ metadata នៃពាក្យបញ្ជារចាប់ផ្ដើមឡើងវិញទៅ surface terminal។\nBinding CLI សាធារណៈត្រូវរក្សាទុកសម្រាប់ពិនិត្យ និងស្ដារដោយដៃ។\n\nFlags:\n  --workspace <id|ref|index>   បរិបទ Workspace (លំនាំដើម: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     បរិបទ Surface (លំនាំដើម: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      បរិបទ Window សម្រាប់ ref/index workspace និង surface\n  --cwd <path>             ថតការងារសម្រាប់ restore (លំនាំដើម: $PWD)\n  --name <name>            ឈ្មោះបង្ហាញសម្រាប់ binding\n  --kind <kind>            ប្រភេទ binding ឧទាហរណ៍ agent ឬ tmux\n  --checkpoint <id>        checkpoint ឬ id session របស់ provider\n  --checkpoint-id <id>     ដូច --checkpoint ហើយមានអាទិភាពជាង\n  --source <source>        ស្លាកប្រភព binding\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bruk: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: overflatekataloget. Terminaler, VNC-skjermer og nettlesere\npå denne Macen og på alle skymaskiner er ressurser (`<machine>/<kind>/<key>`,\nf.eks. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); ruter viser dem. `open` gjenbruker ruten som allerede\nviser en ressurs med mindre --new er angitt; --pane med en retning deler ruten på den siden,\n--tab legger til en fane. En lokal terminal flyttes til målet (den vises én gang).\n`new-terminal` oppretter en terminal på maskinen (sky: i dens cmux-tui-sesjon).\n`cmux vm tree` skriver ut samme katalog.\n\nresume: knytt metadata for omstartskommando til en terminaloverflate.\nOffentlige CLI-bindinger lagres for inspeksjon og manuell gjenoppretting.\n\nFlagg:\n  --workspace <id|ref|index>   Arbeidsområdekontekst (standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Overlatekontekst (standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde- og overflateferanser/indekser\n  --cwd <path>             Arbeidsmappe for gjenoppretting (standard: $PWD)\n  --name <name>            Visningsnavn for bindingen\n  --kind <kind>            Bindingstype, for eksempel agent eller tmux\n  --checkpoint <id>        Leverandørens sjekkpunkt eller sesjons-id\n  --checkpoint-id <id>     Samme som --checkpoint og har forrang\n  --source <source>        Bindingskildemerke\n\nEksempler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Bruk: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: overflatekataloget. Terminaler, VNC-skjermer og nettlesere\npå denne Macen og på alle skymaskiner er ressurser (`<machine>/<kind>/<key>`,\nf.eks. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); ruter viser dem. `open` gjenbruker ruten som allerede\nviser en ressurs med mindre --new er angitt; --pane med en retning deler ruten på den siden,\n--tab legger til en fane. En lokal terminal flyttes til målet (den vises én gang).\n`new-terminal` oppretter en terminal på maskinen (sky: i dens cmux-tui-sesjon).\n`cmux vm tree` skriver ut samme katalog.\n\nresume: knytt metadata for omstartskommando til en terminaloverflate.\nOffentlige CLI-bindinger lagres for inspeksjon og manuell gjenoppretting.\n\nFlagg:\n  --workspace <id|ref|index>   Arbeidsområdekontekst (standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Overlatekontekst (standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Vinduskontekst for arbeidsområde- og overflateferanser/indekser\n  --cwd <path>             Arbeidsmappe for gjenoppretting (standard: $PWD)\n  --name <name>            Visningsnavn for bindingen\n  --kind <kind>            Bindingstype, for eksempel agent eller tmux\n  --checkpoint <id>        Leverandørens sjekkpunkt eller sesjons-id\n  --checkpoint-id <id>     Samme som --checkpoint og har forrang\n  --source <source>        Bindingskildemerke\n\nEksempler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Użycie: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: katalog powierzchni. Terminale, ekrany VNC i przeglądarki\nna tym Macu i na każdej maszynie chmurowej są zasobami (`<machine>/<kind>/<key>`,\nnp. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panele je prezentują. `open` ponownie używa panelu\nwyświetlającego dany zasób, chyba że podano --new; --pane z kierunkiem dzieli ten panel\npo wskazanej stronie, --tab dodaje do niego kartę. Lokalny terminal przenosi się do miejsca\ndocelowego (jest wyświetlany raz). `new-terminal` tworzy terminal na maszynie\n(chmura: w jej sesji cmux-tui). `cmux vm tree` wyświetla ten sam katalog.\n\nresume: dołącz metadane polecenia restartu do powierzchni terminalu.\nPubliczne powiązania CLI są przechowywane do inspekcji i ręcznego przywracania.\n\nFlagi:\n  --workspace <id|ref|index>   Kontekst obszaru roboczego (domyślnie: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Kontekst powierzchni (domyślnie: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Kontekst okna dla referencji/indeksów obszaru roboczego i powierzchni\n  --cwd <path>             Katalog roboczy do przywracania (domyślnie: $PWD)\n  --name <name>            Nazwa wyświetlana powiązania\n  --kind <kind>            Rodzaj powiązania, np. agent lub tmux\n  --checkpoint <id>        Punkt kontrolny dostawcy lub id sesji\n  --checkpoint-id <id>     To samo co --checkpoint, ma pierwszeństwo\n  --source <source>        Etykieta źródła powiązania\n\nPrzykłady:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Użycie: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: katalog powierzchni. Terminale, ekrany VNC i przeglądarki\nna tym Macu i na każdej maszynie chmurowej są zasobami (`<machine>/<kind>/<key>`,\nnp. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panele je prezentują. `open` ponownie używa panelu\nwyświetlającego dany zasób, chyba że podano --new; --pane z kierunkiem dzieli ten panel\npo wskazanej stronie, --tab dodaje do niego kartę. Lokalny terminal przenosi się do miejsca\ndocelowego (jest wyświetlany raz). `new-terminal` tworzy terminal na maszynie\n(chmura: w jej sesji cmux-tui). `cmux vm tree` wyświetla ten sam katalog.\n\nresume: dołącz metadane polecenia restartu do powierzchni terminalu.\nPubliczne powiązania CLI są przechowywane do inspekcji i ręcznego przywracania.\n\nFlagi:\n  --workspace <id|ref|index>   Kontekst obszaru roboczego (domyślnie: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Kontekst powierzchni (domyślnie: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Kontekst okna dla referencji/indeksów obszaru roboczego i powierzchni\n  --cwd <path>             Katalog roboczy do przywracania (domyślnie: $PWD)\n  --name <name>            Nazwa wyświetlana powiązania\n  --kind <kind>            Rodzaj powiązania, np. agent lub tmux\n  --checkpoint <id>        Punkt kontrolny dostawcy lub id sesji\n  --checkpoint-id <id>     To samo co --checkpoint, ma pierwszeństwo\n  --source <source>        Etykieta źródła powiązania\n\nPrzykłady:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n     cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n     cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n     cmux surface resume set [flags] -- <argv...>\n     cmux surface resume set [flags] --shell <command>\n     cmux surface resume show [--json] [flags]\n     cmux surface resume get [--json] [flags]\n     cmux surface resume clear [flags]\n\nls / open / new-terminal: o catálogo de surfaces. Terminais, telas VNC e navegadores\nneste Mac e em cada máquina cloud são recursos (`<machine>/<kind>/<key>`,\nexemplo: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); os painéis os projetam. `open` reutiliza o painel que já\nexibe um recurso, a menos que --new seja usado; --pane com um lado divide o painel naquele lado,\n--tab adiciona uma aba a ele. Um terminal local move-se para o destino (é exibido uma vez).\n`new-terminal` cria um terminal na máquina (cloud: em sua sessão cmux-tui).\n`cmux vm tree` exibe o mesmo catálogo.\n\nresume: anexa metadados de comando de reinicialização a uma surface de terminal.\nAs vinculações públicas de CLI são armazenadas para inspeção e restauração manual.\n\nFlags:\n  --workspace <id|ref|index>   Contexto do workspace (padrão: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto da surface (padrão: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de janela para refs/índices de workspace e surface\n  --cwd <path>             Diretório de trabalho para restauração (padrão: $PWD)\n  --name <name>            Nome de exibição para a vinculação\n  --kind <kind>            Tipo de vinculação, por exemplo agent ou tmux\n  --checkpoint <id>        Checkpoint do provedor ou id de sessão\n  --checkpoint-id <id>     Igual a --checkpoint e tem precedência\n  --source <source>        Rótulo de origem da vinculação\n\nExemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n     cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n     cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n     cmux surface resume set [flags] -- <argv...>\n     cmux surface resume set [flags] --shell <command>\n     cmux surface resume show [--json] [flags]\n     cmux surface resume get [--json] [flags]\n     cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: o catálogo de surfaces. Terminais, telas VNC e navegadores\nneste Mac e em cada máquina cloud são recursos (`<machine>/<kind>/<key>`,\nexemplo: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); os painéis os projetam. `open` reutiliza o painel que já\nexibe um recurso, a menos que --new seja usado; --pane com um lado divide o painel naquele lado,\n--tab adiciona uma aba a ele. Um terminal local move-se para o destino (é exibido uma vez).\n`new-terminal` cria um terminal na máquina (cloud: em sua sessão cmux-tui).\n`cmux vm tree` exibe o mesmo catálogo.\n\nresume: anexa metadados de comando de reinicialização a uma surface de terminal.\nAs vinculações públicas de CLI são armazenadas para inspeção e restauração manual.\n\nFlags:\n  --workspace <id|ref|index>   Contexto do workspace (padrão: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto da surface (padrão: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de janela para refs/índices de workspace e surface\n  --cwd <path>             Diretório de trabalho para restauração (padrão: $PWD)\n  --name <name>            Nome de exibição para a vinculação\n  --kind <kind>            Tipo de vinculação, por exemplo agent ou tmux\n  --checkpoint <id>        Checkpoint do provedor ou id de sessão\n  --checkpoint-id <id>     Igual a --checkpoint e tem precedência\n  --source <source>        Rótulo de origem da vinculação\n\nExemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Использование: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: каталог поверхностей. Терминалы, экраны VNC и браузеры\nна этом Mac и на каждой облачной машине являются ресурсами (`<machine>/<kind>/<key>`,\nнапр. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); панели их отображают. `open` повторно использует уже\nотображающую ресурс панель, если не указан --new; --pane со стороной разделяет эту панель\nпо этой стороне, --tab добавляет к ней вкладку. Локальный терминал перемещается к цели\n(отображается однократно). `new-terminal` создаёт терминал на машине (cloud: в её cmux-tui сессии).\n`cmux vm tree` выводит тот же каталог.\n\nresume: привязка метаданных команды перезапуска к поверхности терминала.\nПубличные привязки CLI сохраняются для просмотра и ручного восстановления.\n\nФлаги:\n  --workspace <id|ref|index>   Контекст рабочего пространства (по умолчанию: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Контекст поверхности (по умолчанию: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Контекст окна для ссылок/индексов рабочего пространства и поверхности\n  --cwd <path>             Рабочий каталог для восстановления (по умолчанию: $PWD)\n  --name <name>            Отображаемое имя привязки\n  --kind <kind>            Тип привязки, например agent или tmux\n  --checkpoint <id>        Контрольная точка провайдера или идентификатор сессии\n  --checkpoint-id <id>     То же, что --checkpoint, имеет приоритет\n  --source <source>        Метка источника привязки\n\nПримеры:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Использование: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: каталог поверхностей. Терминалы, экраны VNC и браузеры\nна этом Mac и на каждой облачной машине являются ресурсами (`<machine>/<kind>/<key>`,\nнапр. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); панели их отображают. `open` повторно использует уже\nотображающую ресурс панель, если не указан --new; --pane со стороной разделяет эту панель\nпо этой стороне, --tab добавляет к ней вкладку. Локальный терминал перемещается к цели\n(отображается однократно). `new-terminal` создаёт терминал на машине (cloud: в её cmux-tui сессии).\n`cmux vm tree` выводит тот же каталог.\n\nresume: привязка метаданных команды перезапуска к поверхности терминала.\nПубличные привязки CLI сохраняются для просмотра и ручного восстановления.\n\nФлаги:\n  --workspace <id|ref|index>   Контекст рабочего пространства (по умолчанию: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Контекст поверхности (по умолчанию: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Контекст окна для ссылок/индексов рабочего пространства и поверхности\n  --cwd <path>             Рабочий каталог для восстановления (по умолчанию: $PWD)\n  --name <name>            Отображаемое имя привязки\n  --kind <kind>            Тип привязки, например agent или tmux\n  --checkpoint <id>        Контрольная точка провайдера или идентификатор сессии\n  --checkpoint-id <id>     То же, что --checkpoint, имеет приоритет\n  --source <source>        Метка источника привязки\n\nПримеры:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การใช้งาน: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: แคตตาล็อก surface ได้แก่ terminal, หน้าจอ VNC และเบราว์เซอร์\nบน Mac เครื่องนี้และบนเครื่อง cloud ทุกเครื่องถือเป็น resource (`<machine>/<kind>/<key>`,\nเช่น local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) โดย pane จะแสดง resource เหล่านั้น `open` จะนำ pane ที่\nแสดง resource อยู่แล้วมาใช้ซ้ำ เว้นแต่จะใช้ --new; --pane พร้อมทิศทางจะแยก pane นั้น\n--tab จะเพิ่ม tab ให้กับ pane นั้น terminal ในเครื่องจะย้ายไปยังปลายทาง (แสดงเพียงครั้งเดียว)\n`new-terminal` สร้าง terminal บนเครื่อง (cloud: ใน cmux-tui session ของเครื่องนั้น)\n`cmux vm tree` แสดงแคตตาล็อกเดียวกัน\n\nresume: แนบ metadata คำสั่งรีสตาร์ทเข้ากับ terminal surface\nการ binding CLI สาธารณะจะถูกเก็บไว้สำหรับการตรวจสอบและกู้คืนด้วยตนเอง\n\nFlags:\n  --workspace <id|ref|index>   บริบท workspace (ค่าเริ่มต้น: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     บริบท surface (ค่าเริ่มต้น: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      บริบท window สำหรับ ref/index ของ workspace และ surface\n  --cwd <path>             ไดเรกทอรีทำงานสำหรับการกู้คืน (ค่าเริ่มต้น: $PWD)\n  --name <name>            ชื่อที่แสดงสำหรับ binding\n  --kind <kind>            ประเภท binding เช่น agent หรือ tmux\n  --checkpoint <id>        checkpoint หรือ session id ของผู้ให้บริการ\n  --checkpoint-id <id>     เหมือนกับ --checkpoint และมีลำดับความสำคัญสูงกว่า\n  --source <source>        ป้ายกำกับแหล่งที่มาของ binding\n\nตัวอย่าง:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "การใช้งาน: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: แคตตาล็อก surface ได้แก่ terminal, หน้าจอ VNC และเบราว์เซอร์\nบน Mac เครื่องนี้และบนเครื่อง cloud ทุกเครื่องถือเป็น resource (`<machine>/<kind>/<key>`,\nเช่น local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) โดย pane จะแสดง resource เหล่านั้น `open` จะนำ pane ที่\nแสดง resource อยู่แล้วมาใช้ซ้ำ เว้นแต่จะใช้ --new; --pane พร้อมทิศทางจะแยก pane นั้น\n--tab จะเพิ่ม tab ให้กับ pane นั้น terminal ในเครื่องจะย้ายไปยังปลายทาง (แสดงเพียงครั้งเดียว)\n`new-terminal` สร้าง terminal บนเครื่อง (cloud: ใน cmux-tui session ของเครื่องนั้น)\n`cmux vm tree` แสดงแคตตาล็อกเดียวกัน\n\nresume: แนบ metadata คำสั่งรีสตาร์ทเข้ากับ terminal surface\nการ binding CLI สาธารณะจะถูกเก็บไว้สำหรับการตรวจสอบและกู้คืนด้วยตนเอง\n\nFlags:\n  --workspace <id|ref|index>   บริบท workspace (ค่าเริ่มต้น: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     บริบท surface (ค่าเริ่มต้น: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      บริบท window สำหรับ ref/index ของ workspace และ surface\n  --cwd <path>             ไดเรกทอรีทำงานสำหรับการกู้คืน (ค่าเริ่มต้น: $PWD)\n  --name <name>            ชื่อที่แสดงสำหรับ binding\n  --kind <kind>            ประเภท binding เช่น agent หรือ tmux\n  --checkpoint <id>        checkpoint หรือ session id ของผู้ให้บริการ\n  --checkpoint-id <id>     เหมือนกับ --checkpoint และมีลำดับความสำคัญสูงกว่า\n  --source <source>        ป้ายกำกับแหล่งที่มาของ binding\n\nตัวอย่าง:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kullanım: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: yüzey kataloğu. Bu Mac'teki ve her bulut makinesindeki\nterminal, VNC ekranı ve tarayıcılar birer kaynaktır (`<machine>/<kind>/<key>`,\nörn. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); bölmeler bunları yansıtır. `open`, --new belirtilmedikçe\nkaynağı zaten gösteren bölmeyi yeniden kullanır; --pane ile bir yön belirtilirse o bölme\nbölünür, --tab yeni sekme ekler. Yerel terminal hedefe taşınır (yalnızca bir kez gösterilir).\n`new-terminal` makinede terminal oluşturur (bulut: cmux-tui oturumunda).\n`cmux vm tree` aynı kataloğu yazdırır.\n\nresume: bir terminal yüzeyine yeniden başlatma komutu meta verisi ekler.\nGenel CLI bağlamaları inceleme ve manuel geri yükleme için saklanır.\n\nBayraklar:\n  --workspace <id|ref|index>   Çalışma alanı bağlamı (varsayılan: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Yüzey bağlamı (varsayılan: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Çalışma alanı ve yüzey ref/indeksleri için pencere bağlamı\n  --cwd <path>             Geri yükleme için çalışma dizini (varsayılan: $PWD)\n  --name <name>            Bağlama için görünen ad\n  --kind <kind>            Bağlama türü, örneğin agent veya tmux\n  --checkpoint <id>        Sağlayıcı kontrol noktası veya oturum kimliği\n  --checkpoint-id <id>     --checkpoint ile aynı, öncelik taşır\n  --source <source>        Bağlama kaynak etiketi\n\nÖrnekler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Kullanım: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: yüzey kataloğu. Bu Mac'teki ve her bulut makinesindeki\nterminal, VNC ekranı ve tarayıcılar birer kaynaktır (`<machine>/<kind>/<key>`,\nörn. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); bölmeler bunları yansıtır. `open`, --new belirtilmedikçe\nkaynağı zaten gösteren bölmeyi yeniden kullanır; --pane ile bir yön belirtilirse o bölme\nbölünür, --tab yeni sekme ekler. Yerel terminal hedefe taşınır (yalnızca bir kez gösterilir).\n`new-terminal` makinede terminal oluşturur (bulut: cmux-tui oturumunda).\n`cmux vm tree` aynı kataloğu yazdırır.\n\nresume: bir terminal yüzeyine yeniden başlatma komutu meta verisi ekler.\nGenel CLI bağlamaları inceleme ve manuel geri yükleme için saklanır.\n\nBayraklar:\n  --workspace <id|ref|index>   Çalışma alanı bağlamı (varsayılan: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Yüzey bağlamı (varsayılan: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Çalışma alanı ve yüzey ref/indeksleri için pencere bağlamı\n  --cwd <path>             Geri yükleme için çalışma dizini (varsayılan: $PWD)\n  --name <name>            Bağlama için görünen ad\n  --kind <kind>            Bağlama türü, örneğin agent veya tmux\n  --checkpoint <id>        Sağlayıcı kontrol noktası veya oturum kimliği\n  --checkpoint-id <id>     --checkpoint ile aynı, öncelik taşır\n  --source <source>        Bağlama kaynak etiketi\n\nÖrnekler:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Використання: cmux surface ls [<machine>|local] [--refresh] [--json]\n              cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n              cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n              cmux surface resume set [flags] -- <argv...>\n              cmux surface resume set [flags] --shell <command>\n              cmux surface resume show [--json] [flags]\n              cmux surface resume get [--json] [flags]\n              cmux surface resume clear [flags]\n\nls / open / new-terminal: каталог поверхонь. Термінали, екрани VNC і браузери\nна цьому Mac та на кожній хмарній машині є ресурсами (`<machine>/<kind>/<key>`,\nнаприклад local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); панелі їх проектують. `open` повторно використовує панель, що вже\nвідображає ресурс, якщо не вказано --new; --pane зі стороною розділяє панель з того боку,\n--tab додає до неї вкладку. Локальний термінал переміщується до призначення (відображається один раз).\n`new-terminal` створює термінал на машині (cloud: у її сеансі cmux-tui).\n`cmux vm tree` виводить той самий каталог.\n\nresume: прикріплити метадані команди перезапуску до поверхні термінала.\nПублічні прив'язки CLI зберігаються для перегляду і ручного відновлення.\n\nПрапори:\n  --workspace <id|ref|index>   Контекст робочого простору (за замовчуванням: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Контекст поверхні (за замовчуванням: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Контекст вікна для посилань/індексів робочого простору і поверхні\n  --cwd <path>             Робочий каталог для відновлення (за замовчуванням: $PWD)\n  --name <name>            Відображувана назва прив'язки\n  --kind <kind>            Тип прив'язки, наприклад agent або tmux\n  --checkpoint <id>        Контрольна точка або ідентифікатор сеансу провайдера\n  --checkpoint-id <id>     Те саме, що --checkpoint, має пріоритет\n  --source <source>        Мітка джерела прив'язки\n\nПриклади:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Використання: cmux surface ls [<machine>|local] [--refresh] [--json]\n              cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n              cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n              cmux surface resume set [flags] -- <argv...>\n              cmux surface resume set [flags] --shell <command>\n              cmux surface resume show [--json] [flags]\n              cmux surface resume get [--json] [flags]\n              cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: каталог поверхонь. Термінали, екрани VNC і браузери\nна цьому Mac та на кожній хмарній машині є ресурсами (`<machine>/<kind>/<key>`,\nнаприклад local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); панелі їх проектують. `open` повторно використовує панель, що вже\nвідображає ресурс, якщо не вказано --new; --pane зі стороною розділяє панель з того боку,\n--tab додає до неї вкладку. Локальний термінал переміщується до призначення (відображається один раз).\n`new-terminal` створює термінал на машині (cloud: у її сеансі cmux-tui).\n`cmux vm tree` виводить той самий каталог.\n\nresume: прикріплити метадані команди перезапуску до поверхні термінала.\nПублічні прив'язки CLI зберігаються для перегляду і ручного відновлення.\n\nПрапори:\n  --workspace <id|ref|index>   Контекст робочого простору (за замовчуванням: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Контекст поверхні (за замовчуванням: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Контекст вікна для посилань/індексів робочого простору і поверхні\n  --cwd <path>             Робочий каталог для відновлення (за замовчуванням: $PWD)\n  --name <name>            Відображувана назва прив'язки\n  --kind <kind>            Тип прив'язки, наприклад agent або tmux\n  --checkpoint <id>        Контрольна точка або ідентифікатор сеансу провайдера\n  --checkpoint-id <id>     Те саме, що --checkpoint, має пріоритет\n  --source <source>        Мітка джерела прив'язки\n\nПриклади:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách dùng: cmux surface ls [<machine>|local] [--refresh] [--json]\n         cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n         cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n         cmux surface resume set [flags] -- <argv...>\n         cmux surface resume set [flags] --shell <command>\n         cmux surface resume show [--json] [flags]\n         cmux surface resume get [--json] [flags]\n         cmux surface resume clear [flags]\n\nls / open / new-terminal: danh mục surface. Terminal, màn hình VNC và trình duyệt\ntrên Mac này và trên mọi cloud machine đều là resource (`<machine>/<kind>/<key>`,\nvd. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); pane hiển thị chúng. `open` dùng lại pane đang\nhiển thị resource trừ khi có --new; --pane với một hướng chia đôi pane theo hướng đó,\n--tab thêm tab vào pane. Terminal local chuyển đến đích (chỉ hiển thị một lần).\n`new-terminal` tạo terminal trên machine (cloud: trong phiên cmux-tui của nó).\n`cmux vm tree` in cùng danh mục đó.\n\nresume: gắn metadata lệnh khởi động lại vào terminal surface.\nCác ràng buộc CLI công khai được lưu để kiểm tra và khôi phục thủ công.\n\nFlags:\n  --workspace <id|ref|index>   Ngữ cảnh workspace (mặc định: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ngữ cảnh surface (mặc định: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Ngữ cảnh window cho workspace và ref/index của surface\n  --cwd <path>             Thư mục làm việc khi khôi phục (mặc định: $PWD)\n  --name <name>            Tên hiển thị cho ràng buộc\n  --kind <kind>            Loại ràng buộc, ví dụ agent hoặc tmux\n  --checkpoint <id>        Checkpoint hoặc id phiên của provider\n  --checkpoint-id <id>     Tương tự --checkpoint và có độ ưu tiên cao hơn\n  --source <source>        Nhãn nguồn của ràng buộc\n\nVí dụ:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Cách dùng: cmux surface ls [<machine>|local] [--refresh] [--json]\n         cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n         cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n         cmux surface resume set [flags] -- <argv...>\n         cmux surface resume set [flags] --shell <command>\n         cmux surface resume show [--json] [flags]\n         cmux surface resume get [--json] [flags]\n         cmux surface resume clear [flags]\n       cmux surface size|participants [--surface <id|ref|index>] [--json]\n       cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols <n> --rows <n>] [--surface <id|ref|index>]\n       cmux surface size-to-me|disconnect-others [--surface <id|ref|index>]\n       cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref|index>]\n       cmux surface disconnect-participant <participant-id> [--surface <id|ref|index>]\n\nls / open / new-terminal: danh mục surface. Terminal, màn hình VNC và trình duyệt\ntrên Mac này và trên mọi cloud machine đều là resource (`<machine>/<kind>/<key>`,\nvd. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); pane hiển thị chúng. `open` dùng lại pane đang\nhiển thị resource trừ khi có --new; --pane với một hướng chia đôi pane theo hướng đó,\n--tab thêm tab vào pane. Terminal local chuyển đến đích (chỉ hiển thị một lần).\n`new-terminal` tạo terminal trên machine (cloud: trong phiên cmux-tui của nó).\n`cmux vm tree` in cùng danh mục đó.\n\nresume: gắn metadata lệnh khởi động lại vào terminal surface.\nCác ràng buộc CLI công khai được lưu để kiểm tra và khôi phục thủ công.\n\nFlags:\n  --workspace <id|ref|index>   Ngữ cảnh workspace (mặc định: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ngữ cảnh surface (mặc định: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Ngữ cảnh window cho workspace và ref/index của surface\n  --cwd <path>             Thư mục làm việc khi khôi phục (mặc định: $PWD)\n  --name <name>            Tên hiển thị cho ràng buộc\n  --kind <kind>            Loại ràng buộc, ví dụ agent hoặc tmux\n  --checkpoint <id>        Checkpoint hoặc id phiên của provider\n  --checkpoint-id <id>     Tương tự --checkpoint và có độ ưu tiên cao hơn\n  --source <source>        Nhãn nguồn của ràng buộc\n\nVí dụ:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         }
       }
@@ -238235,844 +238235,6 @@
         }
       }
     },
-    "update.readyWaiting.agents": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Installs and relaunches when %lld agent finishes. Agents resume after the relaunch."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch."
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Wird installiert und neu gestartet, sobald %lld Agent fertig ist. Agenten werden nach dem Neustart fortgesetzt."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Wird installiert und neu gestartet, sobald %lld Agenten fertig sind. Agenten werden nach dem Neustart fortgesetzt."
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "S’installe et redémarre quand %lld agent a terminé. Les agents reprennent après le redémarrage."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "S’installe et redémarre quand %lld d’agents ont terminé. Les agents reprennent après le redémarrage."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "S’installe et redémarre quand %lld agents ont terminé. Les agents reprennent après le redémarrage."
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء الوكلاء (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيل واحد (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيلين (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكلاء. تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيلًا. تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيل. تستأنف الوكلاء بعد إعادة التشغيل."
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Se instala y reinicia cuando termine %lld agente. Los agentes se reanudan tras el reinicio."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Se instala y reinicia cuando terminen %lld de agentes. Los agentes se reanudan tras el reinicio."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Se instala y reinicia cuando terminen %lld agentes. Los agentes se reanudan tras el reinicio."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "將在 %lld 個代理完成後安裝並重新啟動。代理會在重新啟動後繼續。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "將在 %lld 個代理程式完成後安裝並重新啟動。代理程式在重新啟動後會繼續執行。"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "将在 %lld 个代理完成后安装并重新启动。代理会在重新启动后继续。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "等待 %lld 个 agent 完成后安装并重启。重启后 agent 将继续运行。"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "에이전트 %lld개가 끝나면 설치하고 다시 시작합니다. 다시 시작한 후 에이전트가 재개됩니다."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "에이전트 %lld개가 완료되면 설치 후 재시작됩니다. 에이전트는 재시작 후 재개됩니다."
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld 個のエージェントが終了するとインストールして再起動します。エージェントは再起動後に再開されます。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 件のエージェントが完了したらインストールして再起動します。エージェントは再起動後に再開されます。"
-                }
-              }
-            }
-          }
-        },
-        "bs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instalira i ponovo pokreće kada %lld agent završi. Agenti nastavljaju nakon ponovnog pokretanja."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instalira i ponovo pokreće kada %lld agenata završi. Agenti nastavljaju nakon ponovnog pokretanja."
-                }
-              }
-            }
-          }
-        },
-        "da": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installerer og genstarter når %lld agent er færdig. Agenter genoptages efter genstart."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installerer og genstarter når %lld agenter er færdige. Agenter genoptages efter genstart."
-                }
-              }
-            }
-          }
-        },
-        "it": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installa e riavvia quando %lld agente termina. Gli agenti riprendono dopo il riavvio."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installa e riavvia quando %lld agenti terminano. Gli agenti riprendono dopo il riavvio."
-                }
-              }
-            }
-          }
-        },
-        "km": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "នឹងដំឡើង និងដើរឡើងវិញពេល agent %lld បញ្ចប់។ Agents ចាប់ផ្តើមឡើងវិញក្រោយ relaunch។"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "នឹងដំឡើង និងដើរឡើងវិញពេល agent %lld បញ្ចប់។ Agents ចាប់ផ្តើមឡើងវិញក្រោយ relaunch។"
-                }
-              }
-            }
-          }
-        },
-        "nb": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installerer og starter på nytt når %lld agent er ferdig. Agenter gjenopptas etter omstart."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Installerer og starter på nytt når %lld agenter er ferdige. Agenter gjenopptas etter omstart."
-                }
-              }
-            }
-          }
-        },
-        "pl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instaluje i uruchamia ponownie, gdy %lld agent zakończy pracę. Agenci wznawiają działanie po ponownym uruchomieniu."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instaluje i uruchamia ponownie, gdy %lld agentów zakończy pracę. Agenci wznawiają działanie po ponownym uruchomieniu."
-                }
-              }
-            }
-          }
-        },
-        "pt-BR": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instala e reinicia quando %lld agente terminar. Os agentes retomam após o reinício."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Instala e reinicia quando %lld agentes terminarem. Os agentes retomam após o reinício."
-                }
-              }
-            }
-          }
-        },
-        "ru": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Установится и перезапустится, когда завершится %lld агент. Агенты возобновятся после перезапуска."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Установится и перезапустится, когда завершатся %lld агентов. Агенты возобновятся после перезапуска."
-                }
-              }
-            }
-          }
-        },
-        "th": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "จะติดตั้งและเปิดใหม่เมื่อ agent %lld ตัวเสร็จสิ้น Agent จะทำงานต่อหลังเปิดใหม่"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "จะติดตั้งและเปิดใหม่เมื่อ agent %lld ตัวเสร็จสิ้น Agent จะทำงานต่อหลังเปิดใหม่"
-                }
-              }
-            }
-          }
-        },
-        "tr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ajan bittiğinde kurar ve yeniden başlatır. Ajanlar yeniden başlatma sonrası devam eder."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ajan bittiğinde kurar ve yeniden başlatır. Ajanlar yeniden başlatma sonrası devam eder."
-                }
-              }
-            }
-          }
-        },
-        "uk": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Встановить і перезапустить, коли %lld агент завершить роботу. Агенти відновляться після перезапуску."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Встановить і перезапустить, коли %lld агентів завершать роботу. Агенти відновляться після перезапуску."
-                }
-              }
-            }
-          }
-        },
-        "vi": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Sẽ cài đặt và khởi động lại khi %lld agent hoàn thành. Các agent sẽ tiếp tục sau khi khởi động lại."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Sẽ cài đặt và khởi động lại khi %lld agent hoàn thành. Các agent sẽ tiếp tục sau khi khởi động lại."
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "update.readyWaiting.commands": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Relaunching will stop %lld running command. Choose Install Now when you're ready."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Relaunching will stop %lld running commands. Choose Install Now when you're ready."
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Der Neustart beendet %lld laufenden Befehl. Wähle „Jetzt installieren“, wenn du bereit bist."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Der Neustart beendet %lld laufende Befehle. Wähle „Jetzt installieren“, wenn du bereit bist."
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld commande en cours. Choisissez Installer maintenant quand vous êtes prêt."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld de commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Le redémarrage arrêtera %lld commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف الأوامر قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمر واحد قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمرين قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أوامر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمرًا قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "El reinicio detendrá %lld comando en ejecución. Elige Instalar ahora cuando estés listo."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "El reinicio detendrá %lld de comandos en ejecución. Elige Instalar ahora cuando estés listo."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "El reinicio detendrá %lld comandos en ejecución. Elige Instalar ahora cuando estés listo."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "重新啟動將停止 %lld 個執行中的命令。準備好後請選擇「立即安裝」。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "重新啟動將中止 %lld 個執行中的指令。準備好後請選擇「立即安裝」。"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "重新启动将停止 %lld 个正在运行的命令。准备好后请选择“立即安装”。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "重启将停止 %lld 个正在运行的命令。准备好后请选择立即安装。"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "다시 시작하면 실행 중인 명령 %lld개가 중지됩니다. 준비되면 지금 설치를 선택하세요."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "재시작하면 실행 중인 명령 %lld개가 중지됩니다. 준비되면 지금 설치를 선택하세요."
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "再起動すると実行中の %lld 個のコマンドが停止します。準備ができたら「今すぐインストール」を選択してください。"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "再起動すると %lld 件の実行中コマンドが停止します。準備ができたら「今すぐインストール」を選択してください。"
-                }
-              }
-            }
-          }
-        },
-        "bs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ponovno pokretanje će zaustaviti %lld pokrenuti komandu. Odaberi Instaliraj Sada kada budete spremi."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ponovno pokretanje će zaustaviti %lld pokrenute komande. Odaberi Instaliraj Sada kada budete spremi."
-                }
-              }
-            }
-          }
-        },
-        "da": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Genstart stopper %lld kørende kommando. Vælg Installer nu når du er klar."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Genstart stopper %lld kørende kommandoer. Vælg Installer nu når du er klar."
-                }
-              }
-            }
-          }
-        },
-        "it": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Il riavvio interromperà %lld comando in esecuzione. Scegli Installa ora quando sei pronto."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Il riavvio interromperà %lld comandi in esecuzione. Scegli Installa ora quando sei pronto."
-                }
-              }
-            }
-          }
-        },
-        "km": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "ការ relaunch នឹងឈប់ command %lld ដែលកំពុងដំណើរការ។ ជ្រើស Install Now ពេលអ្នករួចរាល់។"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "ការ relaunch នឹងឈប់ command %lld ដែលកំពុងដំណើរការ។ ជ្រើស Install Now ពេលអ្នករួចរាល់។"
-                }
-              }
-            }
-          }
-        },
-        "nb": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Omstart vil stoppe %lld kommando som kjører. Velg Installer nå når du er klar."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Omstart vil stoppe %lld kommandoer som kjører. Velg Installer nå når du er klar."
-                }
-              }
-            }
-          }
-        },
-        "pl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ponowne uruchomienie zatrzyma %lld działające polecenie. Wybierz Zainstaluj teraz, gdy będziesz gotowy."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ponowne uruchomienie zatrzyma %lld działające polecenia. Wybierz Zainstaluj teraz, gdy będziesz gotowy."
-                }
-              }
-            }
-          }
-        },
-        "pt-BR": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Reiniciar irá interromper %lld comando em execução. Escolha Instalar Agora quando estiver pronto."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Reiniciar irá interromper %lld comandos em execução. Escolha Instalar Agora quando estiver pronto."
-                }
-              }
-            }
-          }
-        },
-        "ru": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "При перезапуске будет остановлена %lld выполняющаяся команда. Нажмите «Установить сейчас», когда будете готовы."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "При перезапуске будут остановлены %lld выполняющихся команд. Нажмите «Установить сейчас», когда будете готовы."
-                }
-              }
-            }
-          }
-        },
-        "th": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "การเปิดใหม่จะหยุดคำสั่งที่กำลังทำงาน %lld คำสั่ง เลือก ติดตั้งเดี๋ยวนี้ เมื่อพร้อม"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "การเปิดใหม่จะหยุดคำสั่งที่กำลังทำงาน %lld คำสั่ง เลือก ติดตั้งเดี๋ยวนี้ เมื่อพร้อม"
-                }
-              }
-            }
-          }
-        },
-        "tr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Yeniden başlatma %lld çalışan komutu durduracak. Hazır olduğunuzda Şimdi Kur'u seçin."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Yeniden başlatma %lld çalışan komutu durduracak. Hazır olduğunuzda Şimdi Kur'u seçin."
-                }
-              }
-            }
-          }
-        },
-        "uk": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Перезапуск зупинить %lld активну команду. Натисніть «Встановити зараз», коли будете готові."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Перезапуск зупинить %lld активних команд. Натисніть «Встановити зараз», коли будете готові."
-                }
-              }
-            }
-          }
-        },
-        "vi": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Khởi động lại sẽ dừng %lld lệnh đang chạy. Chọn Cài Đặt Ngay khi bạn sẵn sàng."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Khởi động lại sẽ dừng %lld lệnh đang chạy. Chọn Cài Đặt Ngay khi bạn sẵn sàng."
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "shortcut.pasteLastScreenshot.label": {
       "extractionState": "manual",
       "localizations": {
@@ -250859,6 +250021,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "覆寫 Unix socket 路徑。未設定時,CLI 預設使用 ~/.local/state/cmux/cmux.sock,並自動探索帶標籤的/除錯 socket。"
+          }
+        }
+      }
+    },
+    "cli.restore.error.routedLauncherNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this session was started with '%1$@ claude proxy', but '%1$@' is not on PATH in this shell. Add it to PATH, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: このセッションは「%1$@ claude proxy」で起動されましたが、このシェルの PATH に「%1$@」がありません。PATH に追加してから、再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此会话是通过“%1$@ claude proxy”启动的，但此 shell 的 PATH 中没有“%1$@”。请将其添加到 PATH，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Sitzung wurde mit „%1$@ claude proxy“ gestartet, aber „%1$@“ ist in dieser Shell nicht im PATH. Fügen Sie es zum PATH hinzu und versuchen Sie es dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session a été démarrée avec « %1$@ claude proxy », mais « %1$@ » n'est pas dans le PATH de ce shell. Ajoutez-le au PATH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: بدأت هذه الجلسة باستخدام '%1$@ claude proxy'، لكن '%1$@' غير موجود في PATH في هذه الصدفة. أضفه إلى PATH، ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión se inició con '%1$@ claude proxy', pero '%1$@' no está en el PATH de este shell. Agréguelo al PATH y vuelva a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此工作階段是以「%1$@ claude proxy」啟動的，但此 shell 的 PATH 中沒有「%1$@」。請將其加入 PATH，然後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 세션은 '%1$@ claude proxy'로 시작되었지만 이 셸의 PATH에 '%1$@'이(가) 없습니다. PATH에 추가한 후 다시 시도하십시오."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: ova sesija je pokrenuta sa '%1$@ claude proxy', ali '%1$@' nije u PATH-u u ovoj ljusci. Dodajte ga u PATH, zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: denne session blev startet med '%1$@ claude proxy', men '%1$@' er ikke i PATH i denne shell. Føj det til PATH, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: questa sessione è stata avviata con '%1$@ claude proxy', ma '%1$@' non è nel PATH di questa shell. Aggiungilo al PATH, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: សម័យនេះត្រូវបានចាប់ផ្ដើមដោយ '%1$@ claude proxy' ប៉ុន្តែ '%1$@' មិនមាននៅក្នុង PATH នៃ shell នេះទេ។ បន្ថែមវាទៅ PATH រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: denne økten ble startet med '%1$@ claude proxy', men '%1$@' er ikke i PATH i dette skallet. Legg det til i PATH, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: ta sesja została uruchomiona przez '%1$@ claude proxy', ale '%1$@' nie ma w PATH tej powłoki. Dodaj go do PATH i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: esta sessão foi iniciada com '%1$@ claude proxy', mas '%1$@' não está no PATH deste shell. Adicione-o ao PATH e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: этот сеанс запущен через '%1$@ claude proxy', но '%1$@' нет в PATH этой оболочки. Добавьте его в PATH и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: เซสชันนี้เริ่มด้วย '%1$@ claude proxy' แต่ไม่มี '%1$@' ใน PATH ของเชลล์นี้ เพิ่มลงใน PATH แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: bu oturum '%1$@ claude proxy' ile başlatıldı, ancak '%1$@' bu kabukta PATH içinde değil. PATH'e ekleyin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: цей сеанс запущено через '%1$@ claude proxy', але '%1$@' немає в PATH цієї оболонки. Додайте його до PATH і повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "restore: phiên này được khởi động bằng '%1$@ claude proxy', nhưng '%1$@' không có trong PATH của shell này. Hãy thêm nó vào PATH rồi thử lại."
           }
         }
       }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d47bea9f7d0d29f310c6ec2e6a529451364fa5c8572ad0acfa44674593e08d85. */
+/* cmux-tui mux protocol 12, IR 7131edd5518de27c504ed96ee17b9fa933df9a54215b2ae0b379098a62d5ddee. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -37,6 +37,7 @@ export type AttachedViewOutcomeResult = {
 export type AttachedViewResizeResult = {
   "accepted": boolean;
   "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
   "reservation_id": (bigint) | null;
 };
 
@@ -149,6 +150,11 @@ export type DeclarativeLayout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+/** Opaque JSON: A uint64 client id or a shared-sizing participant id string. */
+export type DetachClientTarget = JsonValue;
+
+export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "superseded";
+
 export type EmptyResult = {
 };
 
@@ -213,6 +219,11 @@ export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
   "width_px": number;
+};
+
+export type GetSizeStateResult = {
+  "self_participant": (string) | null;
+  "state": SizeState;
 };
 
 export type GuestUrlAcknowledgeResult = {
@@ -371,6 +382,11 @@ export type MoveTerminalResult = {
   "terminal_revision": bigint;
   "workspace": (Id) | null;
   "workspace_key": string;
+};
+
+export type NoteSizeActivityResult = {
+  "changed": boolean;
+  "participant": string;
 };
 
 export type NotificationLevel = "info" | "warning" | "error";
@@ -649,6 +665,16 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetSizeCountsResult = {
+  "changed"?: boolean;
+  "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
+};
+
+export type SetSizePolicyResult = {
+  "state"?: SizeState;
+};
+
 export type SetTerminalIdlePolicyResult = {
   "idle_close_seconds": (bigint) | null;
   "terminal_id": string;
@@ -675,6 +701,54 @@ export type SidebarPluginResult = {
 export type Size = {
   "cols": number;
   "rows": number;
+};
+
+export type SizeDetachActor = {
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
+};
+
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+
+export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
+
+export type SizeParticipant = {
+  "counts": boolean;
+  "counts_override": (boolean) | null;
+  "device_kind": SizeDeviceKind;
+  "device_name": (string) | null;
+  "display_name": (string) | null;
+  "id": string;
+  "priority_key": string;
+  "user_id": (string) | null;
+  "via": (string) | null;
+  "viewport": (Size) | null;
+};
+
+export type SizePolicy = {
+  "fixed"?: (Size) | null;
+  "mode"?: SizeMode;
+  "priority"?: Array<string>;
+};
+
+export type SizeReason = "latest" | "smallest" | "largest" | "priority" | "fixed" | "held" | "priority-fallback";
+
+export type SizeState = {
+  "cols": number;
+  "generation": bigint;
+  "owners": Array<string>;
+  "participants": Array<SizeParticipant>;
+  "policy": SizePolicy;
+  "reason": SizeReason;
+  "rows": number;
+};
+
+export type SizingIdentity = {
+  "device_kind"?: (string) | null;
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
 };
 
 export type SplitDirection = "right" | "down";

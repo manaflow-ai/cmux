@@ -12,7 +12,7 @@ macOS 26 pools:
 
     order     vars.CI_PR_POOL_ORDER without its macOS 15 pool; by default
                 blacksmith-12vcpu-macos-26, then blacksmith-6vcpu-macos-26
-    headroom  a machine free (pr_runner_pool.POOL_CAPACITIES), or at most
+    headroom  a machine free on that label's Blacksmith plan capacity, or at most
               vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 0), and no
               queued release or nightly job on the pool
 
@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import datetime as dt
 import os
 from collections.abc import Callable, Mapping, Sequence
@@ -364,26 +365,37 @@ def resolve(
     ) or SMALL_RUNNER
 
 
-def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
-                    pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
-    """Idle and online runners per owned label (and its root label) from the runners API, or None.
+def read_live_runners(repo: str, env: Mapping[str, str], owned: str | None,
+                      pr_xcode_app: str | None) -> list[Mapping[str, Any]] | None:
+    """The repository's runners from the runners API, or None.
 
-    Needs the org App's token (ROUTE_TOKEN) and owned pools on; any error
-    leaves the snapshot to decide.
+    Needs the org App's token (ROUTE_TOKEN), owned pools on and a pin that
+    names an owned pool; any error leaves the snapshot and CI_OWNED_POOL_SLOTS to decide.
     """
     token = (env.get("ROUTE_TOKEN") or "").strip()
-    if not token or not repo or (owned or "").strip() != "1":
-        return None
-    labels = pr_runner_pool.owned_pools(pr_xcode_app)
-    labels += tuple(pr_runner_pool.root_label(label) for label in labels)
-    if not labels:
+    if not token or not repo or (owned or "").strip() != "1" or not pr_runner_pool.owned_pools(pr_xcode_app):
         return None
     try:
-        runners = pr_runner_pool.GitHub(token, repo).runners()
+        return pr_runner_pool.GitHub(token, repo).runners()
     except Exception as error:  # noqa: BLE001 - the snapshot path still decides
         print(f"could not list runners ({error}); using the snapshot", file=sys.stderr)
         return None
+
+
+def live_owned(runners: Sequence[Mapping[str, Any]] | None,
+               pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Idle and online runners per owned label (and its root label), or None without a listing."""
+    if runners is None:
+        return None
+    labels = pr_runner_pool.owned_pools(pr_xcode_app)
+    labels += tuple(pr_runner_pool.root_label(label) for label in labels)
     return pr_runner_pool.live_owned_free(runners, labels), pr_runner_pool.live_online(runners, labels)
+
+
+def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,
+                    pr_xcode_app: str | None) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Idle and online runners per owned label (and its root label) from the runners API, or None."""
+    return live_owned(read_live_runners(repo, env, owned, pr_xcode_app), pr_xcode_app)
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
@@ -410,10 +422,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     run_id = (env.get("GITHUB_RUN_ID") or "").strip()
     now = dt.datetime.now(dt.timezone.utc)
 
+    runners = read_live_runners(repo, env, args.owned, args.pr_xcode_app)
+    # Which owned labels route (a pool, its root label): the online runners when they were read,
+    # CI_OWNED_POOL_SLOTS only when they could not be (pr_runner_pool.routing_slots()).
+    owned_slots = (args.owned_slots if runners is None else
+                   json.dumps(pr_runner_pool.routing_slots(args.owned_slots, args.pr_xcode_app, runners)))
+
     def measure() -> PoolLoad | None:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
-        idle, online = read_live_owned(repo, env, args.owned, args.pr_xcode_app) or (None, None)
+        idle, online = live_owned(runners, args.pr_xcode_app) or (None, None)
         return measure_load(pr_runner_pool.GitHub(token, repo), now=now,
                             exclude_run_id=int(run_id) if run_id.isdigit() else None,
                             live_owned=idle, live_online=online)
@@ -421,7 +439,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(resolve(
         args.requested, args.variable,
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
-        owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
+        owned=args.owned, owned_slots=owned_slots, pr_xcode_app=args.pr_xcode_app,
         queue_rounds=args.queue_rounds,
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),

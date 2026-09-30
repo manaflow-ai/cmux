@@ -23,6 +23,10 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "ProtocolKeyInput": "TerminalKeyInput",
     "TabRef": "TabRef",
     "PaneRef": "PaneRef",
+    "DetachClientTarget": "DetachClientTarget",
+    "TerminalDetachActor": "SizeDetachActor",
+    "TerminalSizingPolicy": "SizePolicy",
+    "ClientIdentityWire": "SizingIdentity",
 }
 
 sys.path.insert(0, str(BINDINGS))

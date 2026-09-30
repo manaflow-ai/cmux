@@ -511,3 +511,25 @@ Rules:
 3. Session name for release builds: `main` (shared with the standalone
    `cmux-tui` CLI, so the TUI and the app see the same terminals) or a
    dedicated `cmux-app` session.
+
+## 8. Upstream features from main (catch-up merge 2026-09-30)
+
+The merge of main `4d9bec3bc1d` brought these daemon features. The app uses
+none of them yet. Each row says what the app gets if it adopts the feature.
+
+| Feature | Daemon surface | What the app should do |
+| --- | --- | --- |
+| Shared terminal sizing (`shared-sizing-v1`, main PR 15203) | `core/sizing_policy.rs` reducer (twin of `Packages/Shared/CmuxTerminalSizing`, fixtures in `schemas/terminal-sizing/`, contract `docs/shared-terminal-sizing.md`). Default policy `latest`: the counting view with the newest activity (attach, `set-client-sizing` claim, `send`/`send-key`) sets the grid. Commands `get-size-state`, `set-size-policy` (`latest`, `smallest`, `largest`, `priority`, `fixed`), `set-size-counts`, `note-size-activity`; event `size-state`; `participant`/`size_state` in terminal `attach-surface` responses; identity fields `user_id`, `display_name`, `device_kind`, `device_name` on `set-client-info` (`commands.md` "Sizing", `set-client-info`). | Send `device_kind:"mac"` and a device name in `set-client-info`, so phones of the same user defer to the Mac. Advertise `shared-sizing-v1` to get `size-state` and show who sets the grid (tab chip, size panel, like the legacy app did). Section 2.5 stays correct: `set-client-sizing` now maps onto the reducer. |
+| Pending escape sequence on replay (`terminal-pending-sequence-v1`, main PR 15533) | A byte-attach `vt-state` or `resized` replay can end inside an escape sequence. A capable client receives the unfinished bytes in a separate `pending` field and writes them after its own sequences (`commands.md` capabilities, `events.md`). Without the capability, the initial replay carries the bytes inline, but a later `resized` replay that ends mid-sequence cancels the attach stream, so the viewer must reattach. | Add `terminal-pending-sequence-v1` to `DaemonCapabilities.advertised` and write `pending` into the Ghostty mirror after the replay and the cursor-style restore. Until then, the attach loop must treat a `detached` after `resized` as "reattach now". |
+| Targeted detach with reasons | `detach-client` takes a `DetachClientTarget` (client or shared-sizing participant); `detached` carries `reason` and `actor` (`DetachReason`, `SizeDetachActor`). | Show why a view was detached (host shut down, superseded, network, someone else) instead of a generic error. |
+| `cmux ssh` hardening (main PRs 15116, 15768) | `cmux-remote`: validated ssh argv (`ssh_args.rs`), hardened bootstrap and artifact upload; the CLI side merged into `CLI/` and `CmuxFoundation` (`posixShellWord`, `isOptionLikeSSHDestination`, `SSHControlSocketDirectory`, `UnixSocketPeerCheck`). | Nothing for the daemon client. Any app `cmux ssh` path must go through `cmux-tui`/the CLI, not a new Swift SSH stack. The relay rule "command-bearing params are denied on every method, no exceptions" now holds (skills/cmux-socket-policy/references/remote-relay-authorization.md). |
+
+CLI compatibility gap from the same merge: the new `cmux surface size`,
+`size-policy`, `size-to-me`, `disconnect-others`, `size-counts` and
+`disconnect-participant` verbs (`CLI/CMUXCLI+SurfaceSizing.swift`) call the
+socket methods `terminal.size_state`, `terminal.size_policy.set`,
+`terminal.size_counts.set`, `terminal.size_to_me`,
+`terminal.participants.disconnect_others` and
+`terminal.participant.disconnect`. The cmux-next control socket does not serve
+them yet; map them onto the daemon commands above when the size UI lands (see
+cli-compat.md).

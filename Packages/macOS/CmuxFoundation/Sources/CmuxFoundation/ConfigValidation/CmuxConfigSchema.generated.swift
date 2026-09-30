@@ -548,10 +548,17 @@ enum CmuxEmbeddedConfigSchema {
           "description": "App appearance mode."
         },
         "accentColor": {
-          "type": "string",
-          "enum": ["cmux", "system"],
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["cmux", "system"]
+            },
+            {
+              "$ref": "#/$defs/colorHex"
+            }
+          ],
           "default": "cmux",
-          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes; a \"#RRGGBB\" hex uses that color in light and dark mode. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
         },
         "appIcon": {
           "type": "string",
@@ -806,7 +813,17 @@ enum CmuxEmbeddedConfigSchema {
         "textEditingGestures": {
           "type": "boolean",
           "default": false,
-          "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
+          "description": "Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop, tmux) has the terminal on the alternate screen, it gets the keys as if gestures were off, unless textEditingGesturesInFullScreenApps is on. Ghostty's own bindings still apply there, so Command+Left sends Ctrl+A and Option+Left sends Esc b."
+        },
+        "textEditingCommandMovesByWord": {
+          "type": "boolean",
+          "default": false,
+          "description": "With textEditingGestures on, switch to a browser-style layout: Command arrow and Delete keys move and delete by word, like Option, and Control+Left/Right move to the start and end of the line. Every other Control chord, including Ctrl+W and Ctrl+C, still reaches the terminal. macOS reserves Control+Left/Right for switching Spaces by default; turn those off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control for Control+arrows to reach cmux."
+        },
+        "textEditingGesturesInFullScreenApps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep textEditingGestures active while a full-screen application has the terminal on the alternate screen. tmux, screen, and zellij keep the outer terminal on the alternate screen even at their shell prompt, so turn this on to use gestures inside a multiplexer. Applications that bind the gesture chords themselves then receive the translated keys."
         },
         "showPasswordInputIndicator": {
           "type": "boolean",
@@ -827,13 +844,13 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
-          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+          "description": "Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
         },
         "focusTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
-          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "description": "Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
         "agentHibernation": {
           "type": "object",
@@ -1563,7 +1580,7 @@ enum CmuxEmbeddedConfigSchema {
       "properties": {
         "matchTerminalBackground": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Use the terminal background instead of the sidebar tint."
         },
         "tintColor": {
@@ -2102,6 +2119,7 @@ enum CmuxEmbeddedConfigSchema {
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "pasteLastScreenshot",
+              "sizeTerminalToMyWindow",
               "clearScreenKeepScrollback",
               "simulatorHome",
               "simulatorRotateLeft",
@@ -2182,7 +2200,9 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerScrollToTop",
               "diffViewerOpenFileSearch",
               "diffViewerNextFile",
-              "diffViewerPreviousFile"
+              "diffViewerPreviousFile",
+              "diffViewerNextHunk",
+              "diffViewerPreviousHunk"
             ]
           },
           "properties": {
@@ -2224,6 +2244,12 @@ enum CmuxEmbeddedConfigSchema {
             },
             "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
@@ -2233,7 +2259,7 @@ enum CmuxEmbeddedConfigSchema {
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"

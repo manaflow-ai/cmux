@@ -15,7 +15,8 @@ did not change, so a kept `.build` rebuilds only what the change touched.
 `link` points each package's `.build` (every Package.swift under Packages/*/*)
 at STORE/spm-scratch/<fingerprint>/<package path>, outside
 the workspace, where the clean cannot reach. The fingerprint hashes
-`xcodebuild -version`, `swift -version` and the workspace path, so another
+`xcodebuild -version`, `swift -version`, the workspace path and the vendored
+bonsplit commit, so a build against another bonsplit is never reused, and another
 Xcode (an upgrade, or a pull request's CMUX_CI_XCODE_APP) or another runner's
 workspace never reuses modules another compiler built for another path.
 
@@ -61,13 +62,33 @@ def packages(workspace: Path) -> list[Path]:
     return [path.parent for path in sorted(workspace.glob("Packages/*/*/Package.swift"))]
 
 
+def bonsplit_commit(workspace: Path) -> str:
+    """The vendored bonsplit commit the checkout records, or "" when it has none.
+
+    Many packages compile against bonsplit, and SwiftPM's modification-time
+    check does not notice a submodule that moved to other sources whose files
+    are older than the kept build, so a scratch directory is per bonsplit
+    commit: an object built against one bonsplit never links against another.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD:vendor/bonsplit"],
+            capture_output=True, text=True, timeout=60, check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip()
+
+
 def toolchain_fingerprint(workspace: Path) -> str:
-    """The Xcode and Swift versions (DEVELOPER_DIR's) and the workspace path, hashed."""
+    """The Xcode and Swift versions (DEVELOPER_DIR's), the workspace path and the
+    vendored bonsplit commit, hashed."""
     parts = ["spm-scratch-v1"]
     for command in (["xcodebuild", "-version"], ["swift", "-version"]):
         result = subprocess.run(command, capture_output=True, text=True, timeout=60, check=True)
         parts.append(result.stdout + result.stderr)
     parts.append(str(workspace))
+    parts.append(bonsplit_commit(workspace))
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:24]
 
 

@@ -74,6 +74,10 @@ use crate::resource_mutation::{ResourceMutationMetrics, ResourceMutationPlan};
 use crate::resource_selector::{
     ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
+use crate::sizing_policy::{
+    TerminalDeviceKind, TerminalGridSize, TerminalSizingEngine, TerminalSizingParticipant,
+    TerminalSizingPolicy, TerminalSizingReason, TerminalSizingState,
+};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_protocol::TerminalExit;
@@ -994,6 +998,13 @@ pub enum MuxEvent {
     },
     /// A control connection ended.
     ClientDetached(u64),
+    /// The shared sizing state of a terminal changed. Emitted once per
+    /// placement of the terminal runtime; `generation` orders the states.
+    SizeStateChanged {
+        surface: SurfaceId,
+        runtime: SurfaceId,
+        state: Arc<TerminalSizingState>,
+    },
     /// A recovered event subscription may have missed client lifecycle
     /// events, so consumers must reload the authoritative client list.
     ClientListInvalidated,
@@ -1900,10 +1911,45 @@ struct SurfaceClientSizing {
     exclusive_client: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct TerminalGeometryAuthority {
-    placement: SurfaceId,
+/// Shared sizing state of one terminal runtime (one PTY grid). Every client
+/// view of every placement of the runtime and every relay sub-view is one
+/// participant of `engine`; see `docs/shared-terminal-sizing.md`.
+struct TerminalSizingEntry {
+    engine: TerminalSizingEngine,
+    /// Placements whose views joined this runtime. Size-state events fan out
+    /// to each of them.
+    placements: BTreeSet<SurfaceId>,
+    /// Every participant of `engine`, keyed by participant id.
+    members: HashMap<String, SizingMember>,
+    /// The grid this engine last applied. The engine resizes the PTY only
+    /// when its decision changes, so it never fights a resize it did not
+    /// make (for example a direct terminal-host renderer).
+    applied: std::cell::Cell<Option<(u16, u16)>>,
+}
+
+/// Which connection and placement one engine participant belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SizingMember {
     client: u64,
+    placement: SurfaceId,
+    /// Relay sub-view name; `None` for the connection's own view.
+    view: Option<String>,
+}
+
+/// Identity of one control connection for the sizing engine.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ClientSizingIdentity {
+    pub(crate) user_id: Option<String>,
+    pub(crate) display_name: Option<String>,
+    pub(crate) device_kind: TerminalDeviceKind,
+    pub(crate) device_name: Option<String>,
+}
+
+/// Where a size-state publication goes after the sizing lock is released.
+struct SizeStatePublication {
+    runtime: SurfaceId,
+    placements: Vec<SurfaceId>,
+    state: Arc<TerminalSizingState>,
 }
 
 #[derive(Default)]
@@ -1913,17 +1959,34 @@ struct ClientSizingState {
     latest_explicit_size: Option<(u64, (u16, u16))>,
     next_size_order: u64,
     policies: HashMap<SurfaceId, SurfaceClientSizing>,
-    terminal_authorities: HashMap<SurfaceId, TerminalGeometryAuthority>,
-    /// Per terminal runtime, the owners that a later claim displaced, most
-    /// recent last. When the current owner releases or disconnects, the most
-    /// recent displaced owner that still reports a viewport takes geometry
-    /// back, so a laptop regains its size when a phone stops viewing.
-    displaced_terminal_authorities: HashMap<SurfaceId, Vec<TerminalGeometryAuthority>>,
     terminal_runtime_by_placement: HashMap<SurfaceId, SurfaceId>,
+    /// Shared sizing engines keyed by terminal runtime id.
+    terminal_sizing: HashMap<SurfaceId, TerminalSizingEntry>,
+    /// Per-terminal policy overrides keyed by terminal runtime id.
+    terminal_size_policies: HashMap<SurfaceId, TerminalSizingPolicy>,
+    /// Workspace default policies for terminals without an override.
+    workspace_size_policies: HashMap<WorkspaceId, TerminalSizingPolicy>,
+    /// Runtimes whose published state changed since the last flush.
+    pending_size_states: BTreeSet<SurfaceId>,
 }
 
-/// Bound on remembered displaced owners per terminal runtime.
-const DISPLACED_TERMINAL_AUTHORITY_CAPACITY: usize = 8;
+/// Host participant id of one client's view of one terminal placement. The
+/// runtime's own placement keeps the short `c<client>` form.
+pub(crate) fn view_participant_id(runtime: SurfaceId, placement: SurfaceId, client: u64) -> String {
+    if placement == runtime { format!("c{client}") } else { format!("c{client}@{placement}") }
+}
+
+fn entry_owns(sizing: &ClientSizingState, runtime: SurfaceId, participant: &str) -> bool {
+    sizing
+        .terminal_sizing
+        .get(&runtime)
+        .is_some_and(|entry| entry.engine.state().owners.iter().any(|owner| owner == participant))
+}
+
+/// Host participant id of one relay sub-view.
+pub(crate) fn sub_view_participant_id(client: u64, view: &str) -> String {
+    format!("c{client}/{view}")
+}
 
 impl ClientSizingState {
     fn next_size_order(&mut self) -> u64 {
@@ -1973,72 +2036,45 @@ impl ClientSizingState {
         )
     }
 
+    /// Whether this client's view of `surface` currently sets a dimension of
+    /// the runtime's shared grid.
     fn owns_terminal_geometry(&self, runtime: SurfaceId, surface: SurfaceId, client: u64) -> bool {
-        self.terminal_authorities
+        let id = view_participant_id(runtime, surface, client);
+        self.terminal_sizing
             .get(&runtime)
-            .is_some_and(|authority| authority.placement == surface && authority.client == client)
+            .is_some_and(|entry| entry.engine.state().owners.contains(&id))
     }
 
-    /// Installs `authority` as the runtime's owner and remembers the owner it
-    /// displaced. Returns the previous owner.
-    fn install_terminal_authority(
-        &mut self,
-        runtime: SurfaceId,
-        authority: TerminalGeometryAuthority,
-    ) -> Option<TerminalGeometryAuthority> {
-        let previous = self.terminal_authorities.insert(runtime, authority);
-        let displaced = self.displaced_terminal_authorities.entry(runtime).or_default();
-        displaced.retain(|entry| *entry != authority && Some(*entry) != previous);
-        if let Some(previous) = previous.filter(|previous| *previous != authority) {
-            displaced.push(previous);
-            if displaced.len() > DISPLACED_TERMINAL_AUTHORITY_CAPACITY {
-                displaced.remove(0);
-            }
-        }
-        if displaced.is_empty() {
-            self.displaced_terminal_authorities.remove(&runtime);
-        }
-        previous
+    /// Connections whose views or relay sub-views set a dimension of the grid.
+    fn terminal_owner_clients(&self, runtime: SurfaceId) -> HashSet<u64> {
+        let Some(entry) = self.terminal_sizing.get(&runtime) else { return HashSet::new() };
+        entry
+            .engine
+            .state()
+            .owners
+            .iter()
+            .filter_map(|owner| entry.members.get(owner).map(|member| member.client))
+            .collect()
     }
 
-    /// After the runtime lost its owner, hands geometry back to the most
-    /// recently displaced owner that still has a viewport report for a
-    /// placement of this runtime. Returns that owner and its reported size.
-    fn restore_displaced_terminal_authority(
-        &mut self,
-        runtime: SurfaceId,
-    ) -> Option<(TerminalGeometryAuthority, (u16, u16))> {
-        if self.terminal_authorities.contains_key(&runtime) {
-            return None;
+    fn note_size_state(&mut self, runtime: SurfaceId, changed: bool) {
+        if changed {
+            self.pending_size_states.insert(runtime);
         }
-        let mut displaced = self.displaced_terminal_authorities.remove(&runtime)?;
-        while let Some(candidate) = displaced.pop() {
-            let placement_is_live =
-                self.terminal_runtime_by_placement.get(&candidate.placement) == Some(&runtime);
-            let size = self
-                .surfaces
-                .get(&candidate.placement)
-                .and_then(|viewers| viewers.get(&candidate.client))
-                .copied();
-            if let (true, Some(size)) = (placement_is_live, size) {
-                self.terminal_authorities.insert(runtime, candidate);
-                if !displaced.is_empty() {
-                    self.displaced_terminal_authorities.insert(runtime, displaced);
-                }
-                return Some((candidate, size));
-            }
-        }
-        None
     }
 
-    fn forget_displaced_terminal_authorities(
-        &mut self,
-        mut forget: impl FnMut(&TerminalGeometryAuthority) -> bool,
-    ) {
-        self.displaced_terminal_authorities.retain(|_, displaced| {
-            displaced.retain(|entry| !forget(entry));
-            !displaced.is_empty()
-        });
+    fn take_size_state_publications(&mut self) -> Vec<SizeStatePublication> {
+        std::mem::take(&mut self.pending_size_states)
+            .into_iter()
+            .filter_map(|runtime| {
+                let entry = self.terminal_sizing.get(&runtime)?;
+                Some(SizeStatePublication {
+                    runtime,
+                    placements: entry.placements.iter().copied().collect(),
+                    state: Arc::new(entry.engine.state().clone()),
+                })
+            })
+            .collect()
     }
 
     fn report_participates(&self, surface: SurfaceId, client: u64) -> bool {
@@ -2080,7 +2116,7 @@ impl ClientSizingState {
         // report. Passive terminal viewports never influence future PTYs.
         // Cache browser fallback once per surface to keep this scan linear.
         let mut fallback_by_surface = HashMap::<SurfaceId, bool>::new();
-        let ((surface, _), order) = self
+        let ((surface, reporter), order) = self
             .report_order
             .iter()
             .filter(|((surface, client), _)| {
@@ -2101,9 +2137,8 @@ impl ClientSizingState {
             })
             .max_by_key(|(_, order)| *order)
             .map(|(key, order)| (*key, *order))?;
-        let size = if let Some(runtime) = self.terminal_runtime_by_placement.get(&surface) {
-            let authority = self.terminal_authorities.get(runtime)?;
-            self.surfaces.get(&surface).and_then(|viewers| viewers.get(&authority.client)).copied()
+        let size = if self.terminal_runtime_by_placement.contains_key(&surface) {
+            self.surfaces.get(&surface).and_then(|viewers| viewers.get(&reporter)).copied()
         } else {
             let use_excluded = fallback_by_surface[&surface];
             self.effective_size(surface, use_excluded)
@@ -8411,9 +8446,9 @@ impl Mux {
         size
     }
 
-    /// Record one viewer's available grid. A terminal report changes its PTY
-    /// only when that client and placement hold explicit geometry authority;
-    /// browser surfaces retain their existing shared-size reducer.
+    /// Record one viewer's available grid. A terminal report feeds the shared
+    /// sizing engine and changes the PTY only when the engine's policy lets
+    /// it; browser surfaces retain their existing shared-size reducer.
     pub fn resize_surface_for_client(
         &self,
         id: SurfaceId,
@@ -8457,6 +8492,7 @@ impl Mux {
             result.2.applied_report_order,
         );
         drop(sizing);
+        self.publish_size_states();
         Ok(result.0)
     }
 
@@ -8509,6 +8545,7 @@ impl Mux {
             self.control_clients.restore_size(client, id, *previous);
         }
         drop(sizing);
+        self.publish_size_states();
         result
     }
 
@@ -8537,6 +8574,7 @@ impl Mux {
             },
         );
         drop(sizing);
+        self.publish_size_states();
         result
     }
 
@@ -8595,8 +8633,12 @@ impl Mux {
         };
         if let Some(runtime) = terminal_runtime {
             sizing.terminal_runtime_by_placement.insert(id, runtime);
+            self.sync_terminal_view_locked(sizing, runtime, id, client);
             let authoritative = sizing.owns_terminal_geometry(runtime, id, client);
             if !authoritative {
+                // The report may still move the grid through another owner,
+                // for example when it stops being the smallest viewport.
+                self.apply_terminal_grid(sizing, runtime);
                 return Ok((
                     (false, None),
                     previous_geometry,
@@ -8608,15 +8650,36 @@ impl Mux {
                     },
                 ));
             }
-            return match self.resize_surface_with_completion(
-                id,
-                requested.0,
-                requested.1,
-                completion,
-            ) {
+            let (target, applied) =
+                sizing.terminal_sizing.get(&runtime).map_or((requested, None), |entry| {
+                    ((entry.engine.state().cols, entry.engine.state().rows), Some(&entry.applied))
+                });
+            if applied.is_some_and(|applied| applied.get() == Some(target))
+                || previous_geometry == Some(target)
+            {
+                // The owner's decision is already in effect. Re-applying it
+                // would override a resize this engine did not make.
+                if let Some(applied) = applied {
+                    applied.set(Some(target));
+                }
+                return Ok((
+                    (false, None),
+                    Some(target),
+                    ClientSizeRollback {
+                        previous_size: previous,
+                        previous_report_order: previous_order,
+                        previous_geometry,
+                        applied_report_order: report_order,
+                    },
+                ));
+            }
+            if let Some(applied) = applied {
+                applied.set(Some(target));
+            }
+            return match self.resize_surface_with_completion(id, target.0, target.1, completion) {
                 Ok(changed) => Ok((
                     changed,
-                    Some(requested),
+                    Some(target),
                     ClientSizeRollback {
                         previous_size: previous,
                         previous_report_order: previous_order,
@@ -8644,6 +8707,10 @@ impl Mux {
                             sizing.report_order.remove(&(id, client));
                         }
                     }
+                    if let Some(entry) = sizing.terminal_sizing.get(&runtime) {
+                        entry.applied.set(previous_geometry);
+                    }
+                    self.sync_terminal_view_locked(sizing, runtime, id, client);
                     Err(error)
                 }
             };
@@ -8746,8 +8813,16 @@ impl Mux {
             }
         }
         if let Some(runtime) = terminal_runtime {
-            let owns_geometry = sizing.owns_terminal_geometry(runtime, id, client);
-            let desired_geometry = owns_geometry
+            let owned_geometry = sizing.owns_terminal_geometry(runtime, id, client);
+            self.sync_terminal_view_locked(&mut sizing, runtime, id, client);
+            self.apply_terminal_grid(&sizing, runtime);
+            // A failed first attach whose provisional report owned the grid
+            // restores the preceding geometry when nobody else can take over.
+            let held = sizing
+                .terminal_sizing
+                .get(&runtime)
+                .is_some_and(|entry| entry.engine.state().reason == TerminalSizingReason::Held);
+            let desired_geometry = (owned_geometry && held)
                 .then_some(rollback.previous_size.or(rollback.previous_geometry))
                 .flatten();
             drop(sizing);
@@ -8755,6 +8830,7 @@ impl Mux {
             if let Some((cols, rows)) = desired_geometry {
                 let _ = self.resize_surface(id, cols, rows);
             }
+            self.publish_size_states();
             return;
         }
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
@@ -8874,18 +8950,7 @@ impl Mux {
         if let Some(runtime) =
             self.surface(surface_id).and_then(|surface| surface.terminal_runtime_id())
         {
-            let Some(authority) = sizing.terminal_authorities.get(&runtime) else {
-                return;
-            };
-            let Some((cols, rows)) = sizing
-                .surfaces
-                .get(&authority.placement)
-                .and_then(|viewers| viewers.get(&authority.client))
-                .copied()
-            else {
-                return;
-            };
-            let _ = self.resize_surface(authority.placement, cols, rows);
+            self.apply_terminal_grid(sizing, runtime);
             return;
         }
         let use_excluded = sizing.uses_excluded_fallback(surface_id, attached_clients);
@@ -8935,16 +9000,17 @@ impl Mux {
         };
         sizing.report_order.remove(&(id, client));
         if let Some(runtime) = terminal_runtime {
-            let released = sizing.owns_terminal_geometry(runtime, id, client);
-            let mut restored = None;
-            if released {
-                sizing.terminal_authorities.remove(&runtime);
-                restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
-            }
+            let owners_before = sizing.terminal_owner_clients(runtime);
+            // A released view keeps its participant while its stream stays
+            // attached; a final detach removes it and elects the next owner.
+            self.sync_terminal_view_locked(&mut sizing, runtime, id, client);
+            self.apply_terminal_grid(&sizing, runtime);
+            let owners_after = sizing.terminal_owner_clients(runtime);
             drop(sizing);
-            if released {
-                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
-            }
+            self.publish_size_states();
+            self.emit_client_sizing_changes(
+                owners_before.symmetric_difference(&owners_after).copied(),
+            );
             return;
         }
         let fallback_after = sizing.uses_excluded_fallback(id, Some(&attached_clients));
@@ -9008,18 +9074,32 @@ impl Mux {
             affected.insert(*surface);
             false
         });
-        let released_runtimes = sizing
-            .terminal_authorities
-            .iter()
-            .filter(|(_, authority)| authority.client == client)
-            .map(|(runtime, _)| *runtime)
-            .collect::<Vec<_>>();
-        sizing.terminal_authorities.retain(|_, authority| authority.client != client);
-        sizing.forget_displaced_terminal_authorities(|authority| authority.client == client);
-        let mut restored_geometry_clients = Vec::new();
-        for runtime in released_runtimes {
-            restored_geometry_clients
-                .extend(self.restore_displaced_terminal_geometry(&mut sizing, runtime));
+        // Drop every view and relay sub-view of the departed client. Each
+        // engine elects its next owner in the same step, so the grid follows
+        // the remaining viewers instead of freezing.
+        let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
+        let mut owner_changes = HashSet::new();
+        for runtime in runtimes {
+            let owners_before = sizing.terminal_owner_clients(runtime);
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
+            let departed = entry
+                .members
+                .iter()
+                .filter(|(_, member)| member.client == client)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            if departed.is_empty() {
+                continue;
+            }
+            let mut changed = false;
+            for id in departed {
+                entry.members.remove(&id);
+                changed |= entry.engine.detach(&id);
+            }
+            sizing.note_size_state(runtime, changed);
+            self.apply_terminal_grid(&sizing, runtime);
+            let owners_after = sizing.terminal_owner_clients(runtime);
+            owner_changes.extend(owners_before.symmetric_difference(&owners_after).copied());
         }
         let mut restored_surfaces = HashSet::new();
         for (surface, policy) in &mut sizing.policies {
@@ -9054,10 +9134,11 @@ impl Mux {
                 changed_clients.extend(reporters.keys().copied());
             }
         }
-        changed_clients.extend(restored_geometry_clients);
+        changed_clients.extend(owner_changes);
         changed_clients.remove(&client);
         self.apply_effective_client_sizes(&sizing, affected, &attached_clients);
         drop(sizing);
+        self.publish_size_states();
         self.emit_client_sizing_changes(changed_clients);
     }
 
@@ -9070,70 +9151,542 @@ impl Mux {
             .and_then(|viewers| viewers.get(&client).copied())
     }
 
-    /// Assign canonical PTY geometry to one explicit client/placement pair.
-    /// Other reports remain viewport hints and never resize the shared PTY.
+    /// Activity by one client view: attach, explicit focus-click, or keyboard,
+    /// paste or mouse input. Under the default `latest` policy the view takes
+    /// the grid when it has reported a viewport. Returns whether the
+    /// published size state changed.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId, client: u64) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
         if client != 0 && !self.control_clients.contains(client) {
             return None;
         }
-        let mut sizing = self.client_sizing.lock().unwrap();
-        let authority = TerminalGeometryAuthority { placement: surface, client };
-        sizing.terminal_runtime_by_placement.insert(surface, runtime);
-        let previous = sizing.install_terminal_authority(runtime, authority);
-        let changed = previous != Some(authority);
-        let claimed_size =
-            sizing.surfaces.get(&surface).and_then(|viewers| viewers.get(&client)).copied();
-        drop(sizing);
-        if let Some((cols, rows)) = claimed_size {
-            let _ = self.resize_surface(surface, cols, rows);
-        }
-        if changed {
-            let mut changed_clients = vec![client];
-            if let Some(previous) = previous
-                && previous.client != client
-            {
-                changed_clients.push(previous.client);
-            }
-            self.emit_client_sizing_changes(changed_clients);
-        }
-        Some(changed)
+        Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            sizing.terminal_runtime_by_placement.insert(surface, runtime);
+            let id = view_participant_id(runtime, surface, client);
+            let participant = mux.view_participant(sizing, runtime, surface, client);
+            let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
+            entry
+                .members
+                .insert(id.clone(), SizingMember { client, placement: surface, view: None });
+            let changed = if entry.engine.contains(&id) {
+                entry.engine.note_activity(&id)
+            } else {
+                entry.engine.attach(participant)
+            };
+            sizing.note_size_state(runtime, changed);
+            changed
+        }))
     }
 
+    /// Keyboard, paste or mouse input from an attached client. Unlike
+    /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
+    /// one-shot `send` from an unattached connection cannot take the grid.
+    pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
+        let _ = self.note_terminal_activity(surface, client, None);
+    }
+
+    /// Activity of the caller's own view (`view:None`) or of one of its relay
+    /// sub-views, for example a phone whose input a Mac mirror forwards.
+    /// `None` means the terminal or participant does not exist; otherwise
+    /// whether the published size state changed.
+    pub(crate) fn note_terminal_activity(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        view: Option<&str>,
+    ) -> Option<bool> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let id = match view {
+            Some(view) => sub_view_participant_id(client, view),
+            None => view_participant_id(runtime, surface, client),
+        };
+        self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            if entry.members.get(&id).is_none_or(|member| member.client != client) {
+                return None;
+            }
+            let changed = entry.engine.note_activity(&id);
+            sizing.note_size_state(runtime, changed);
+            Some(changed)
+        })
+    }
+
+    /// Restore the automatic counts rule for every view of this terminal.
+    /// This is the terminal meaning of the legacy "use all client sizes".
     pub fn release_terminal_geometry(&self, surface: SurfaceId) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        Some(self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { return false };
+            let ids = entry.engine.participant_ids().map(str::to_owned).collect::<Vec<_>>();
+            let mut changed = false;
+            for id in ids {
+                if entry.engine.participant(&id).is_some_and(|p| p.counts_override.is_some()) {
+                    changed |= entry.engine.set_counts_override(&id, None);
+                }
+            }
+            sizing.note_size_state(runtime, changed);
+            changed
+        }))
+    }
+
+    /// Mirror a client view's attachment and latest report into the sizing
+    /// engine after an attach commits. Idempotent.
+    pub(crate) fn sync_terminal_client_view(&self, surface: SurfaceId, client: u64) {
+        let Some(runtime) = self.surface(surface).and_then(|surface| surface.terminal_runtime_id())
+        else {
+            return;
+        };
+        self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            mux.sync_terminal_view_locked(sizing, runtime, surface, client);
+        });
+    }
+
+    /// Push a client's changed identity into every engine it participates in.
+    pub(crate) fn refresh_terminal_client_identity(&self, client: u64) {
         let mut sizing = self.client_sizing.lock().unwrap();
-        let owner = sizing.terminal_authorities.get(&runtime).copied();
-        if owner.is_some_and(|authority| {
-            authority.client != 0 && !self.control_clients.contains(authority.client)
-        }) {
-            return None;
+        let identity = self.client_sizing_identity(client);
+        let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
+        for runtime in runtimes {
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
+            let views = entry
+                .members
+                .iter()
+                .filter(|(_, member)| member.client == client && member.view.is_none())
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            let mut changed = false;
+            for id in views {
+                let mut participant = TerminalSizingParticipant::new(id, identity.device_kind);
+                participant.user_id = identity.user_id.clone();
+                participant.display_name = identity.display_name.clone();
+                participant.device_name = identity.device_name.clone();
+                changed |= entry.engine.update_identity(&participant);
+            }
+            sizing.note_size_state(runtime, changed);
+            // The same-user handheld rule may change who counts.
+            self.apply_terminal_grid(&sizing, runtime);
         }
-        let released = sizing.terminal_authorities.remove(&runtime);
-        // An explicit release freezes the grid; no displaced owner returns.
-        sizing.displaced_terminal_authorities.remove(&runtime);
         drop(sizing);
-        if let Some(released) = released {
-            self.emit_client_sizing_changes([released.client]);
-            Some(true)
-        } else {
-            Some(false)
+        self.publish_size_states();
+    }
+
+    /// Create or update one relay sub-view (for example a phone behind a Mac
+    /// mirror) and record its viewport. Returns the host participant id and
+    /// whether the view now sets a dimension of the grid.
+    pub(crate) fn report_terminal_sub_view(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        view: &str,
+        identity: Option<ClientSizingIdentity>,
+        viewport: Option<(u16, u16)>,
+    ) -> anyhow::Result<(String, bool)> {
+        let runtime = self
+            .surface(surface)
+            .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
+            .terminal_runtime_id()
+            .ok_or_else(|| anyhow::anyhow!("relay views are supported only for terminals"))?;
+        anyhow::ensure!(
+            self.control_clients.attached_client_ids_for_surface(surface).contains(&client),
+            "relay views require an attached relay connection for surface {surface}"
+        );
+        let id = sub_view_participant_id(client, view);
+        let via = view_participant_id(runtime, surface, client);
+        let owns = self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
+            entry.members.insert(
+                id.clone(),
+                SizingMember { client, placement: surface, view: Some(view.to_string()) },
+            );
+            let has_identity = identity.is_some();
+            let identity = identity.unwrap_or_default();
+            let participant = TerminalSizingParticipant {
+                id: id.clone(),
+                user_id: identity.user_id,
+                display_name: identity.display_name,
+                device_kind: identity.device_kind,
+                device_name: identity.device_name,
+                via: Some(via),
+                viewport: viewport.map(|(cols, rows)| TerminalGridSize::new(cols, rows)),
+                counts_override: None,
+            };
+            let changed = if entry.engine.contains(&id) {
+                let mut changed = has_identity && entry.engine.update_identity(&participant);
+                changed |= match participant.viewport {
+                    Some(viewport) => entry.engine.report(&id, viewport),
+                    None => false,
+                };
+                changed
+            } else {
+                entry.engine.attach(participant)
+            };
+            sizing.note_size_state(runtime, changed);
+            entry_owns(sizing, runtime, &id)
+        });
+        Ok((id, owns))
+    }
+
+    /// Forget one relay sub-view's viewport and keep it attached.
+    pub(crate) fn release_terminal_sub_view(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        view: &str,
+    ) -> Option<bool> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let id = sub_view_participant_id(client, view);
+        self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            if entry.members.get(&id).is_none_or(|member| member.client != client) {
+                return None;
+            }
+            let changed = entry.engine.clear_viewport(&id);
+            sizing.note_size_state(runtime, changed);
+            Some(changed)
+        })
+    }
+
+    /// Remove one relay sub-view. The next owner takes the grid.
+    pub(crate) fn detach_terminal_sub_view(
+        &self,
+        surface: SurfaceId,
+        client: u64,
+        view: &str,
+    ) -> Option<bool> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let id = sub_view_participant_id(client, view);
+        self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            if entry.members.get(&id).is_none_or(|member| member.client != client) {
+                return None;
+            }
+            entry.members.remove(&id);
+            let changed = entry.engine.detach(&id);
+            sizing.note_size_state(runtime, changed);
+            Some(changed)
+        })
+    }
+
+    /// Resolve a host participant id on any terminal to its connection,
+    /// placement and relay sub-view name.
+    pub(crate) fn terminal_participant_member(
+        &self,
+        participant: &str,
+    ) -> Option<(u64, SurfaceId, Option<String>)> {
+        let sizing = self.client_sizing.lock().unwrap();
+        sizing.terminal_sizing.values().find_map(|entry| {
+            entry
+                .members
+                .get(participant)
+                .map(|member| (member.client, member.placement, member.view.clone()))
+        })
+    }
+
+    /// Set or clear one participant's explicit counts choice.
+    pub fn set_terminal_size_counts(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+        counts: Option<bool>,
+    ) -> Option<bool> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let entry = sizing.terminal_sizing.get_mut(&runtime)?;
+            if !entry.engine.contains(participant) {
+                return None;
+            }
+            let changed = entry.engine.set_counts_override(participant, counts);
+            sizing.note_size_state(runtime, changed);
+            Some(changed)
+        })
+    }
+
+    /// Set (`Some`) or clear (`None`) a terminal's policy override.
+    pub fn set_terminal_size_policy(
+        &self,
+        surface: SurfaceId,
+        policy: Option<TerminalSizingPolicy>,
+    ) -> Option<TerminalSizingState> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            match policy {
+                Some(policy) => sizing.terminal_size_policies.insert(runtime, policy),
+                None => sizing.terminal_size_policies.remove(&runtime),
+            };
+            let resolved = mux.resolved_size_policy(sizing, runtime, surface);
+            let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
+            let changed = entry.engine.set_policy(resolved);
+            sizing.note_size_state(runtime, changed);
+            sizing.terminal_sizing[&runtime].engine.state().clone()
+        }))
+    }
+
+    /// Pins the `latest` policy on the workspace that shows `surface`, for
+    /// tests about latest-activity semantics (the default is `smallest`).
+    #[cfg(test)]
+    pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
+        let workspace = self.surface_workspace(surface).expect("surface has a workspace");
+        self.set_workspace_size_policy(
+            workspace,
+            Some(TerminalSizingPolicy::new(
+                crate::sizing_policy::TerminalSizingMode::Latest,
+                Vec::new(),
+                None,
+            )),
+        )
+        .expect("pin latest size policy");
+    }
+
+    /// Set (`Some`) or clear (`None`) a workspace's default policy and apply
+    /// it to every live terminal in that workspace without an override.
+    pub(crate) fn set_workspace_size_policy(
+        &self,
+        workspace: WorkspaceId,
+        policy: Option<TerminalSizingPolicy>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.with_state(|state| state.workspaces.iter().any(|w| w.id == workspace)),
+            "unknown workspace {workspace}"
+        );
+        let mut sizing = self.client_sizing.lock().unwrap();
+        match policy {
+            Some(policy) => sizing.workspace_size_policies.insert(workspace, policy),
+            None => sizing.workspace_size_policies.remove(&workspace),
+        };
+        let affected = sizing
+            .terminal_sizing
+            .iter()
+            .filter(|(runtime, _)| !sizing.terminal_size_policies.contains_key(runtime))
+            .filter_map(|(runtime, entry)| {
+                let placement = entry.placements.iter().next().copied().unwrap_or(*runtime);
+                (self.surface_workspace(placement) == Some(workspace))
+                    .then_some((*runtime, placement))
+            })
+            .collect::<Vec<_>>();
+        let mut owner_changes = HashSet::new();
+        for (runtime, placement) in affected {
+            let owners_before = sizing.terminal_owner_clients(runtime);
+            let resolved = self.resolved_size_policy(&sizing, runtime, placement);
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
+            let changed = entry.engine.set_policy(resolved);
+            sizing.note_size_state(runtime, changed);
+            self.apply_terminal_grid(&sizing, runtime);
+            owner_changes.extend(
+                owners_before
+                    .symmetric_difference(&sizing.terminal_owner_clients(runtime))
+                    .copied(),
+            );
+        }
+        drop(sizing);
+        self.publish_size_states();
+        self.emit_client_sizing_changes(owner_changes);
+        Ok(())
+    }
+
+    /// The terminal's published size state, creating its engine on demand.
+    pub fn terminal_size_state(&self, surface: SurfaceId) -> Option<TerminalSizingState> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let mut sizing = self.client_sizing.lock().unwrap();
+        Some(self.terminal_sizing_entry(&mut sizing, runtime, surface).engine.state().clone())
+    }
+
+    /// The host participant id of `client`'s own view of `surface`.
+    pub fn terminal_view_participant_id(&self, surface: SurfaceId, client: u64) -> Option<String> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        Some(view_participant_id(runtime, surface, client))
+    }
+
+    fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
+        if client == 0 {
+            // The in-process frontend, named after its host like a remote TUI.
+            static DEVICE_NAME: OnceLock<String> = OnceLock::new();
+            let device_name = DEVICE_NAME.get_or_init(|| {
+                crate::platform::local_hostname().unwrap_or_else(|| "cmux-tui".to_string())
+            });
+            return ClientSizingIdentity {
+                device_kind: TerminalDeviceKind::Tui,
+                device_name: Some(device_name.clone()),
+                ..ClientSizingIdentity::default()
+            };
+        }
+        self.control_clients.sizing_identity(client).unwrap_or_default()
+    }
+
+    fn view_participant(
+        &self,
+        sizing: &ClientSizingState,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+        client: u64,
+    ) -> TerminalSizingParticipant {
+        let identity = self.client_sizing_identity(client);
+        TerminalSizingParticipant {
+            id: view_participant_id(runtime, placement, client),
+            user_id: identity.user_id,
+            display_name: identity.display_name,
+            device_kind: identity.device_kind,
+            device_name: identity.device_name,
+            via: None,
+            viewport: sizing
+                .surfaces
+                .get(&placement)
+                .and_then(|viewers| viewers.get(&client))
+                .map(|&(cols, rows)| TerminalGridSize::new(cols, rows)),
+            counts_override: None,
         }
     }
 
-    /// Re-elects the most recently displaced owner of `runtime` (see
-    /// `ClientSizingState::restore_displaced_terminal_authority`) and resizes
-    /// the terminal to its viewport. Returns the restored client.
-    fn restore_displaced_terminal_geometry(
+    fn resolved_size_policy(
+        &self,
+        sizing: &ClientSizingState,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+    ) -> TerminalSizingPolicy {
+        if let Some(policy) = sizing.terminal_size_policies.get(&runtime) {
+            return policy.clone();
+        }
+        self.surface_workspace(placement)
+            .and_then(|workspace| sizing.workspace_size_policies.get(&workspace).cloned())
+            .unwrap_or_default()
+    }
+
+    fn terminal_sizing_entry<'a>(
+        &self,
+        sizing: &'a mut ClientSizingState,
+        runtime: SurfaceId,
+        placement: SurfaceId,
+    ) -> &'a mut TerminalSizingEntry {
+        if !sizing.terminal_sizing.contains_key(&runtime) {
+            let (cols, rows) = self
+                .surface(placement)
+                .or_else(|| self.surface(runtime))
+                .map_or((80, 24), |surface| surface.size());
+            let policy = self.resolved_size_policy(sizing, runtime, placement);
+            sizing.terminal_sizing.insert(
+                runtime,
+                TerminalSizingEntry {
+                    engine: TerminalSizingEngine::new(TerminalGridSize::new(cols, rows), policy),
+                    placements: BTreeSet::new(),
+                    members: HashMap::new(),
+                    applied: std::cell::Cell::new(None),
+                },
+            );
+        }
+        let entry = sizing.terminal_sizing.get_mut(&runtime).expect("inserted above");
+        entry.placements.insert(placement);
+        entry
+    }
+
+    /// Mirror one client view's attachment and latest report into the
+    /// engine. A view is present while its connection is attached to the
+    /// placement or while it has a retained report.
+    fn sync_terminal_view_locked(
         &self,
         sizing: &mut ClientSizingState,
         runtime: SurfaceId,
-    ) -> Option<u64> {
-        let (authority, (cols, rows)) = sizing.restore_displaced_terminal_authority(runtime)?;
-        let _ = self.resize_surface(authority.placement, cols, rows);
-        Some(authority.client)
+        placement: SurfaceId,
+        client: u64,
+    ) {
+        let id = view_participant_id(runtime, placement, client);
+        let has_report =
+            sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
+        let attached = client != 0
+            && self.control_clients.attached_client_ids_for_surface(placement).contains(&client);
+        let present = attached || has_report;
+        let known =
+            sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
+        if !present && !known {
+            return;
+        }
+        let participant =
+            present.then(|| self.view_participant(sizing, runtime, placement, client));
+        let entry = self.terminal_sizing_entry(sizing, runtime, placement);
+        let changed = match participant {
+            None => {
+                entry.members.remove(&id);
+                entry.engine.detach(&id)
+            }
+            Some(participant) => {
+                entry.members.insert(id.clone(), SizingMember { client, placement, view: None });
+                let viewport = participant.viewport.map(TerminalGridSize::clamped);
+                match entry.engine.participant(&id).map(|current| current.viewport) {
+                    None => entry.engine.attach(participant),
+                    Some(current) if current == viewport => false,
+                    Some(_) => match viewport {
+                        Some(viewport) => entry.engine.report(&id, viewport),
+                        None => entry.engine.clear_viewport(&id),
+                    },
+                }
+            }
+        };
+        sizing.note_size_state(runtime, changed);
+    }
+
+    /// Resize the PTY to the engine's decision when that decision changed.
+    /// A held grid is left alone.
+    fn apply_terminal_grid(&self, sizing: &ClientSizingState, runtime: SurfaceId) {
+        let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return };
+        let state = entry.engine.state();
+        if state.reason == TerminalSizingReason::Held
+            || entry.applied.get() == Some((state.cols, state.rows))
+        {
+            return;
+        }
+        entry.applied.set(Some((state.cols, state.rows)));
+        let Some(surface) = entry
+            .placements
+            .iter()
+            .find_map(|placement| self.surface(*placement))
+            .or_else(|| self.surface(runtime))
+        else {
+            return;
+        };
+        if surface.size() != (state.cols, state.rows) {
+            let _ = self.resize_surface(surface.id, state.cols, state.rows);
+        }
+    }
+
+    /// Run one engine mutation, apply the resulting grid, then publish size
+    /// state and client ownership changes after the sizing lock is released.
+    fn mutate_terminal_sizing<R>(
+        &self,
+        runtime: SurfaceId,
+        mutate: impl FnOnce(&Self, &mut ClientSizingState) -> R,
+    ) -> R {
+        let mut sizing = self.client_sizing.lock().unwrap();
+        let owners_before = sizing.terminal_owner_clients(runtime);
+        let result = mutate(self, &mut sizing);
+        self.apply_terminal_grid(&sizing, runtime);
+        let owners_after = sizing.terminal_owner_clients(runtime);
+        drop(sizing);
+        self.publish_size_states();
+        self.emit_client_sizing_changes(owners_before.symmetric_difference(&owners_after).copied());
+        result
+    }
+
+    /// Deliver pending size states to subscribers and attach streams. Call
+    /// only without the sizing lock held.
+    fn publish_size_states(&self) {
+        let publications = self.client_sizing.lock().unwrap().take_size_state_publications();
+        for publication in publications {
+            for placement in publication.placements {
+                if self.surface(placement).is_none() {
+                    continue;
+                }
+                self.control_clients.send_size_state(
+                    placement,
+                    publication.runtime,
+                    &publication.state,
+                );
+                self.emit(MuxEvent::SizeStateChanged {
+                    surface: placement,
+                    runtime: publication.runtime,
+                    state: publication.state.clone(),
+                });
+            }
+        }
     }
 
     fn emit_client_sizing_changes(&self, clients: impl IntoIterator<Item = u64>) {
@@ -9151,9 +9704,32 @@ impl Mux {
         client: u64,
         participating: bool,
     ) -> Option<bool> {
-        if self.surface(surface)?.terminal_runtime_id().is_some() {
+        if let Some(runtime) = self.surface(surface)?.terminal_runtime_id() {
+            // Terminals map the legacy participation switch onto the shared
+            // engine: disabling sets `counts_override:false`; enabling clears
+            // that choice and counts as activity.
+            let id = view_participant_id(runtime, surface, client);
             if participating {
-                return self.claim_terminal_geometry(surface, client);
+                {
+                    let _lifecycle = self.lock_client_sizing_lifecycle();
+                    if client != 0 && !self.control_clients.contains(client) {
+                        return None;
+                    }
+                }
+                let cleared = self
+                    .client_sizing
+                    .lock()
+                    .unwrap()
+                    .terminal_sizing
+                    .get(&runtime)
+                    .and_then(|entry| entry.engine.participant(&id))
+                    .is_some_and(|participant| participant.counts_override == Some(false));
+                if cleared {
+                    self.set_terminal_size_counts(surface, &id, None);
+                }
+                return self
+                    .claim_terminal_geometry(surface, client)
+                    .map(|changed| changed || cleared);
             }
             let _lifecycle = self.lock_client_sizing_lifecycle();
             // Revalidate after acquiring the sizing lifecycle fence. A
@@ -9163,16 +9739,22 @@ impl Mux {
             if client != 0 && !self.control_clients.contains(client) {
                 return None;
             }
-            let runtime = self.surface(surface)?.terminal_runtime_id()?;
-            let mut sizing = self.client_sizing.lock().unwrap();
-            let owns = sizing.owns_terminal_geometry(runtime, surface, client);
-            if owns {
-                sizing.terminal_authorities.remove(&runtime);
-                let restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
-                drop(sizing);
-                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
-            }
-            return Some(owns);
+            return Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+                sizing.terminal_runtime_by_placement.insert(surface, runtime);
+                let participant = mux.view_participant(sizing, runtime, surface, client);
+                let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
+                let mut attached = false;
+                if !entry.engine.contains(&id) {
+                    entry.members.insert(
+                        id.clone(),
+                        SizingMember { client, placement: surface, view: None },
+                    );
+                    attached = entry.engine.attach(participant);
+                }
+                let changed = entry.engine.set_counts_override(&id, Some(false));
+                sizing.note_size_state(runtime, attached || changed);
+                changed
+            }));
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         self.surface(surface)?;
@@ -9218,7 +9800,7 @@ impl Mux {
                 return None;
             }
             self.client_surface_size(surface, target)?;
-            return self.claim_terminal_geometry(surface, target);
+            return self.set_client_size_participation(surface, target, true);
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         self.surface(surface)?;
@@ -9250,7 +9832,8 @@ impl Mux {
         Some(true)
     }
 
-    /// Release canonical terminal geometry, freezing the current PTY size.
+    /// Restore automatic sizing: terminals clear every counts override,
+    /// browsers drop their include/exclude policy.
     pub fn use_all_client_sizes(&self, surface: SurfaceId) -> Option<bool> {
         if self.surface(surface)?.terminal_runtime_id().is_some() {
             return self.release_terminal_geometry(surface);
@@ -11090,9 +11673,35 @@ impl Mux {
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
         sizing.policies.remove(&surface);
         sizing.terminal_runtime_by_placement.remove(&surface);
-        sizing.terminal_authorities.retain(|_, authority| authority.placement != surface);
-        sizing.forget_displaced_terminal_authorities(|authority| authority.placement == surface);
+        // Views of a closed placement leave their runtime's engine; the
+        // engine itself lives while another placement still shows it.
+        let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
+        for runtime in runtimes {
+            let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { continue };
+            if !entry.placements.remove(&surface) {
+                continue;
+            }
+            let departed = entry
+                .members
+                .iter()
+                .filter(|(_, member)| member.placement == surface)
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>();
+            let mut changed = false;
+            for id in departed {
+                entry.members.remove(&id);
+                changed |= entry.engine.detach(&id);
+            }
+            if entry.placements.is_empty() {
+                sizing.terminal_sizing.remove(&runtime);
+                sizing.terminal_size_policies.remove(&runtime);
+            } else {
+                sizing.note_size_state(runtime, changed);
+                self.apply_terminal_grid(&sizing, runtime);
+            }
+        }
         drop(sizing);
+        self.publish_size_states();
         self.placement_notifications.lock().unwrap().remove(&surface);
         self.control_clients.forget_surface_attach_epoch(surface);
     }
@@ -23939,35 +24548,53 @@ mod tests {
         assert!(mux.kitty_image_budget.lock().unwrap().entries.is_empty());
     }
 
+    // Shared sizing (docs/shared-terminal-sizing.md) replaced the explicit
+    // geometry-authority model: a view that joins is activity, so under the
+    // `latest` policy (pinned here; the default is `smallest`) the newest view with a viewport sets the grid,
+    // and a claim (focus or input) moves it back.
     #[test]
-    fn passive_terminal_viewports_never_resize_the_canonical_grid() {
+    fn terminal_views_follow_the_latest_activity() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
 
-        assert!(!mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap());
-        assert_eq!(surface.size(), (80, 24));
-        assert_eq!(mux.client_surface_size(surface.id, 0), Some((120, 40)));
-        assert!(!mux.client_size_participates(surface.id, 0));
-
-        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        assert!(mux.resize_surface_for_client(surface.id, 0, 120, 40).unwrap());
         assert_eq!(surface.size(), (120, 40));
         assert!(mux.client_size_participates(surface.id, 0));
+        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(false));
 
-        assert!(!mux.resize_surface_for_client(surface.id, 7, 60, 20).unwrap());
-        assert_eq!(surface.size(), (120, 40));
-        assert_eq!(mux.client_surface_size(surface.id, 7), Some((60, 20)));
+        assert!(mux.resize_surface_for_client(surface.id, 7, 60, 20).unwrap());
+        assert_eq!(surface.size(), (60, 20));
+        assert!(mux.client_size_participates(surface.id, 7));
+        assert!(!mux.client_size_participates(surface.id, 0));
+
+        // A later report from a non-owner is a viewport hint only.
+        assert!(!mux.resize_surface_for_client(surface.id, 0, 130, 45).unwrap());
+        assert_eq!(surface.size(), (60, 20));
+
+        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        assert_eq!(surface.size(), (130, 45));
         assert!(!mux.client_size_participates(surface.id, 7));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.owners, ["c0"]);
+        assert_eq!(
+            state.participants.iter().map(|row| row.participant.id.as_str()).collect::<Vec<_>>(),
+            ["c0", "c7"]
+        );
     }
 
     #[test]
     fn geometry_authority_moves_between_views_of_one_terminal() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(source.id);
         let projected = projected_terminal_view(&mux, &source);
 
         assert!(source.shares_terminal_runtime(&projected));
-        assert!(!mux.resize_surface_for_client(source.id, 0, 110, 35).unwrap());
-        assert!(!mux.resize_surface_for_client(projected.id, 0, 60, 20).unwrap());
+        assert!(mux.resize_surface_for_client(source.id, 0, 110, 35).unwrap());
+        assert_eq!(source.size(), (110, 35));
+        assert!(mux.resize_surface_for_client(projected.id, 0, 60, 20).unwrap());
+        assert_eq!(source.size(), (60, 20));
 
         assert_eq!(mux.claim_terminal_geometry(source.id, 0), Some(true));
         assert_eq!(source.size(), (110, 35));
@@ -24335,49 +24962,134 @@ mod tests {
     }
 
     #[test]
-    fn releasing_geometry_authority_freezes_the_terminal() {
+    fn opting_out_holds_the_grid_until_automatic_sizing_is_restored() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
         mux.resize_surface_for_client(surface.id, 0, 100, 30).unwrap();
-        mux.claim_terminal_geometry(surface.id, 0).unwrap();
         assert_eq!(surface.size(), (100, 30));
 
-        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
+        // `counts_override:false` (legacy "disable sizing") leaves nobody
+        // counting, so the grid is held rather than resized.
+        assert_eq!(mux.set_client_size_participation(surface.id, 0, false), Some(true));
         assert!(!mux.resize_surface_for_client(surface.id, 0, 70, 20).unwrap());
         assert_eq!(surface.size(), (100, 30));
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.reason, TerminalSizingReason::Held);
 
-        assert_eq!(mux.claim_terminal_geometry(surface.id, 0), Some(true));
+        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
         assert_eq!(surface.size(), (70, 20));
     }
 
     #[test]
-    fn removing_the_authoritative_viewport_freezes_the_terminal() {
+    fn the_in_process_frontend_joins_shared_sizing_with_a_device_name() {
         let mux = test_mux();
-        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let projected = projected_terminal_view(&mux, &source);
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
-        mux.resize_surface_for_client(projected.id, 0, 96, 28).unwrap();
-        mux.claim_terminal_geometry(projected.id, 0).unwrap();
-        assert_eq!(source.size(), (96, 28));
+        mux.resize_surface_for_client(surface.id, 0, 100, 30).unwrap();
 
-        mux.remove_surface_size_client(projected.id, 0);
-        assert!(!mux.resize_surface_for_client(source.id, 7, 55, 18).unwrap());
-        assert_eq!(source.size(), (96, 28));
-        assert!(!mux.client_size_participates(projected.id, 0));
+        let id = mux.terminal_view_participant_id(surface.id, 0).unwrap();
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let participant = &state.participant(&id).unwrap().participant;
+        assert_eq!(participant.device_kind, TerminalDeviceKind::Tui);
+        assert!(
+            participant.device_name.as_deref().is_some_and(|name| !name.is_empty()),
+            "other viewers name this TUI after its host, or cmux-tui"
+        );
     }
 
     #[test]
-    fn only_authoritative_reports_seed_future_terminal_geometry() {
+    fn removing_the_owner_viewport_elects_the_next_owner() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(source.id);
+        let projected = projected_terminal_view(&mux, &source);
+
+        mux.resize_surface_for_client(source.id, 7, 55, 18).unwrap();
+        mux.resize_surface_for_client(projected.id, 0, 96, 28).unwrap();
+        assert_eq!(source.size(), (96, 28));
+        assert!(mux.client_size_participates(projected.id, 0));
+
+        // The owner leaves; the grid follows the remaining view instead of
+        // freezing at the departed owner's size.
+        mux.remove_surface_size_client(projected.id, 0);
+        assert_eq!(source.size(), (55, 18));
+        assert!(!mux.client_size_participates(projected.id, 0));
+        assert!(mux.client_size_participates(source.id, 7));
+        let state = mux.terminal_size_state(source.id).unwrap();
+        assert_eq!(state.owners, ["c7"]);
+        assert_eq!(state.reason, TerminalSizingReason::Latest);
+    }
+
+    #[test]
+    fn only_owner_reports_seed_future_terminal_geometry() {
         let mux = test_mux();
         let source = mux.new_workspace(None, Some((80, 24))).unwrap();
 
         mux.resize_surface_for_client(source.id, 0, 111, 33).unwrap();
-        mux.claim_terminal_geometry(source.id, 0).unwrap();
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
 
         mux.resize_surface_for_client(source.id, 7, 50, 15).unwrap();
+        assert_eq!(mux.set_terminal_size_counts(source.id, "c7", Some(false)), Some(true));
+        assert_eq!(source.size(), (111, 33));
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (111, 33));
+    }
+
+    #[test]
+    fn terminal_size_policy_changes_publish_size_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let workspace = mux.surface_workspace(surface.id).unwrap();
+        mux.resize_surface_for_client(surface.id, 0, 150, 30).unwrap();
+        mux.resize_surface_for_client(surface.id, 7, 118, 42).unwrap();
+        assert_eq!(surface.size(), (118, 42));
+        let events = mux.subscribe();
+
+        mux.set_workspace_size_policy(
+            workspace,
+            Some(TerminalSizingPolicy::new(
+                crate::sizing_policy::TerminalSizingMode::Smallest,
+                Vec::new(),
+                None,
+            )),
+        )
+        .unwrap();
+        assert_eq!(surface.size(), (118, 30));
+        let published = (0..8)
+            .filter_map(|_| events.recv_timeout(Duration::from_secs(1)).ok())
+            .find_map(|event| match event {
+                MuxEvent::SizeStateChanged { surface: event_surface, state, .. }
+                    if event_surface == surface.id =>
+                {
+                    Some(state)
+                }
+                _ => None,
+            })
+            .expect("policy change publishes size state");
+        assert_eq!(published.reason, TerminalSizingReason::Smallest);
+        assert_eq!(published.owners, ["c0", "c7"]);
+        let generation = published.generation;
+
+        // A terminal override beats the workspace default.
+        let state = mux
+            .set_terminal_size_policy(
+                surface.id,
+                Some(TerminalSizingPolicy::new(
+                    crate::sizing_policy::TerminalSizingMode::Fixed,
+                    Vec::new(),
+                    Some(TerminalGridSize::new(100, 25)),
+                )),
+            )
+            .unwrap();
+        assert_eq!(state.generation, generation + 1);
+        assert_eq!(state.reason, TerminalSizingReason::Fixed);
+        assert_eq!(surface.size(), (100, 25));
+
+        // Clearing the override falls back to the workspace default.
+        let state = mux.set_terminal_size_policy(surface.id, None).unwrap();
+        assert_eq!(state.reason, TerminalSizingReason::Smallest);
+        assert_eq!(surface.size(), (118, 30));
     }
     #[test]
     fn agent_reports_apply_hook_authority() {
@@ -24674,6 +25386,10 @@ mod tests {
         assert_eq!(records[0].source, AgentSource::Hook);
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        // The socket report commits its own revision only when it wins the
+        // race; a socket report that lands after the hook is retained by the
+        // hook-owned record without a new revision. Either way the hook's
+        // commit is the last batch.
         let batches = mux.resource_events_after(revision).unwrap().batches;
         let last = batches.last().expect("the hook report published a revision");
         assert_eq!(last.revision, hook_commit.revision);

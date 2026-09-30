@@ -1124,6 +1124,7 @@ mod tests {
         // Replay returns the recorded failure instead of running the close.
         assert_eq!(replay.code, error.code);
         assert_eq!(replay.details, error.details);
+        assert_eq!(replay.message, error.message);
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);

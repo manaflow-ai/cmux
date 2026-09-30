@@ -253,3 +253,46 @@ Today on this branch `nightly.yml:541,1099`, `release.yml:272`, `ci-macos.yml:40
 | `test-macos-suite.yml:405`, `ci-macos-compat.yml:254` (`-scheme cmux` then legacy UI tests) | wrong app | deleted in B1 |
 
 Decisions for the user: X1 (reuse or rewrite Updater/Notifications/Git), X2 (drop the tunnel system extension), macOS 14/15 update policy, Intel variants, Sentry and PostHog in cmux-next, CLI verbs to drop (simulator, markdown, diff, import), and whether B1 lands on the branch before the merge gate items (it removes the legacy fallback build from the branch; main keeps it until merge).
+
+## 5. Main catch-up merge 2026-09-30 (main `4d9bec3bc1d`)
+
+The merge kept every deletion above. Git reported 543 modify/delete conflicts
+and 66 new files inside deleted legacy directories; the merge removes all of
+them, plus new files that main added to deleted packages (CmuxTerminalSharing,
+CmuxTerminalPrediction, CmuxCloud, CmuxTerminal, CmuxSettingsUI and others),
+and new files in shrunk CLI packages that only legacy code used
+(CmuxCore `Remote/BrowserProxyCredential`, `ManagedProxySessionDelegate`,
+`PrivateAddressRouteSelector`, `PrivateNetworkHostPolicy`,
+`RemoteLinkDestinations`, `RemoteLinkOpenPolicy`; CmuxSurfaceCatalogModel
+`CloudPort*`, `CloudVMDisplayMembership`, `SurfaceMachineInfo`; CmuxTerminalCore
+`TerminalLinkContextMenuPolicy`, `RuntimeClipboardReadContent`;
+CmuxControlSocket `ControlWorkspaceRemoteLocalSocketPath`).
+
+Ported into the surviving code:
+
+| Main change | Where it landed |
+| --- | --- |
+| cmux-tui: shared terminal sizing (PR 15203), replay resume inside escape sequences (PR 15533), `cmux ssh` hardening (PRs 15116, 15768), full-gate test fixes (PR 15240) | `cmux-tui/` (merged with the branch's daemon work); features for the app in cmux-tui-contract.md section 8 |
+| Automatic update install at a quiet moment (PR 15296): two new `UpdateActionDelegate` requirements | `CmuxNextUpdater/UpdaterService.swift` (`updaterPrepareForRelaunch` is empty because the daemon keeps every terminal; `updaterTimeSinceLastUserInput` reads HID idle time) |
+| New CLI files `CMUXCLI+DiffViewerPreferences`, `CMUXCLI+SurfaceSizing`, `TmuxWaitForSignal`, tests `CMUXCLI+AutoNaming`, `CodexAutoNamingArgumentsTests` | `cmux-cli` and `cmuxCLITests` targets in the pbxproj |
+| `local-tmux` name validation `\z` anchor (security) | `CLI/LocalTmuxCommandBuilder.swift` |
+| SSH and socket helpers the CLI calls (`posixShellWord`, `isOptionLikeSSHDestination`, `SSHControlSocketDirectory`, `UnixSocketPeerCheck`, `UnixSocketConnectProbe`, owned-file openers, `RemoteRelayClientHandshake`, `WorkspaceHostLabel`) | kept in CmuxFoundation |
+| `Packages/Shared/CmuxTerminalSizing` (the iOS packages now link it) | kept, added to `cmux.xcworkspace` |
+| Relay rule: command-bearing params denied on every method, no exception | CLAUDE.md, skills/cmux-socket-policy/references/remote-relay-authorization.md |
+| CLI strings (`cli.surface.usage` sizing verbs, `cli.restore.error.routedLauncherNotFound`) | `Resources/Localizable.xcstrings` |
+
+Dropped with the legacy app. Reimplement in cmux-next only when the feature
+returns:
+
+| Area | Main PRs |
+| --- | --- |
+| Shared-sizing Mac UI (size panel, tab chip, detached card, local terminal sharing host) | 15203 (Swift side) |
+| Cloud sidebar and menus: display membership across clients, optimistic row open, machine author, Cloud menu bar extra, persistent create buttons, team picker dropdown, Ports and VPN onboarding copy, plan usage, pane pinned to daemon grid, self-starting display creation | 15748, 15747, 15309, 15822, 15680, 15078, 13239, 15180, 15792, 15744 |
+| Terminal view: right-click link destination, browser-style navigation layout and `terminalAlternateScreen` shortcut, keys consumed while the runtime is unavailable, overlay scrollers, split-divider color, dialogs in Ghostty theme colors, predicted echo | 15325, 14863, 15738, 15214, 15093, 15515, 15211 |
+| Agents: hibernation launch fidelity, background-work status and glyphs, stale Needs input badge | 15287, 15278, 15170 and the background-work series |
+| Settings and windows: Themes page, custom accent color, Dock out of beta, Feature Flags window keys, discoverable-Mac confirmation, My Devices notification sync, updater badge icon | 15112, 15510, 15456, 15565, 15677, 15198, 15756 |
+| Browser (legacy WebKit, CmuxBrowser): WebAuthn input limits (security; port if WebAuthn returns), dismissible remote browser warning, diff toolbar clicks, remote browser proxy and private-network link policies (CmuxCore files above; security, port with a remote browser proxy) | 15525, 15726, 14525, 15116 |
+| Legacy Swift SSH stack (CmuxRemoteSession, CmuxRemoteWorkspace relay policy): password-only route-sensitive hosts, remote command kept without a persistent session, bounded bootstrap waits | 15713, 15764, 15608 |
+| Diff viewer app UI (the CLI part merged) | 6010, 15576, 14538 |
+| Sidebar ellipsis cut, pane drop target, subtle selection follow-ups | 15893, 15550, 15195 |
+| Legacy CI lanes (app-host shards, e2e, pr-media upload helpers) | main changes to deleted CI files |

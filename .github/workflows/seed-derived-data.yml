@@ -167,6 +167,10 @@ jobs:
       group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}${{ contains(fromJSON(needs.decide.outputs.far || '[]'), matrix.root && format('{0}@{1}', matrix.pool, matrix.root) || matrix.pool) && '-far' || '' }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    permissions:
+      contents: read
+      # Only "Start compile attribution" writes: it dispatches ci-compile-attribution.yml.
+      actions: write
     # A chain with no seed yet builds cold. The first root 2 seed on the
     # trusted pool (cmux11s) spent 14 minutes on checkout, packages and
     # resolve, then 44 in Build, and 60 cancelled it before it saved, so the
@@ -439,6 +443,23 @@ jobs:
         if: always() && steps.adopt.outputs.hit == 'true'
         continue-on-error: true
         run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
+      # This Build is main's compile verdict for the push. When it fails, start
+      # ci-compile-attribution.yml now rather than when the slowest pool ends
+      # the run (4 and 11 minutes later for the two breaks of 2026-09-29), so
+      # the culprit is named within minutes. It only dispatches; a failure to
+      # is harmless, since the run's completion triggers the attribution too.
+      - name: Start compile attribution
+        if: failure() && steps.build.outcome == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --silent --show-error --max-time 20 -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/ci-compile-attribution.yml/dispatches" \
+            -d '{"ref":"main"}'
 
       - name: Bound seed size
         id: bound
