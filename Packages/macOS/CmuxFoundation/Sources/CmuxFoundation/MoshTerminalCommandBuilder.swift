@@ -16,6 +16,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
     private let preparationShellScript: String?
     private let managementReadyShellScript: String?
     private let sshFallbackCommand: String
+    private let sshFallbackLauncherPaths: [String]
     private let localMoshMissingMessage: String
     private let localMoshUnsupportedMessage: String
     private let remoteMoshMissingMessage: String
@@ -36,6 +37,8 @@ public struct MoshTerminalCommandBuilder: Sendable {
     ///   - preparationShellScript: Optional local preparation run before capability checks.
     ///   - managementReadyShellScript: Optional local callback run after SSH preparation succeeds and before Mosh starts.
     ///   - sshFallbackCommand: Complete local SSH terminal command used when Mosh is unavailable.
+    ///   - sshFallbackLauncherPaths: Launcher files that only `sshFallbackCommand` runs. Each deletes
+    ///     itself when it runs, so they are removed before Mosh replaces the shell.
     ///   - localMoshMissingMessage: User-facing message printed when no local `mosh` executable exists.
     ///   - localMoshUnsupportedMessage: User-facing message printed when local Mosh lacks the required remote-IP mode.
     ///   - remoteMoshMissingMessage: User-facing message printed when `mosh-server` is absent remotely.
@@ -53,6 +56,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
         preparationShellScript: String? = nil,
         managementReadyShellScript: String? = nil,
         sshFallbackCommand: String,
+        sshFallbackLauncherPaths: [String] = [],
         localMoshMissingMessage: String,
         localMoshUnsupportedMessage: String,
         remoteMoshMissingMessage: String,
@@ -70,6 +74,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
         self.preparationShellScript = preparationShellScript
         self.managementReadyShellScript = managementReadyShellScript
         self.sshFallbackCommand = sshFallbackCommand
+        self.sshFallbackLauncherPaths = sshFallbackLauncherPaths
         self.localMoshMissingMessage = localMoshMissingMessage
         self.localMoshUnsupportedMessage = localMoshUnsupportedMessage
         self.remoteMoshMissingMessage = remoteMoshMissingMessage
