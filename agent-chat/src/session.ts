@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
@@ -436,19 +437,18 @@ export function useSession(): SessionState {
   }, []);
 
   useEffect(() => {
-    let closed = false;
-    const connect = () => {
-      const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws"));
-      wsRef.current = ws;
-      ws.onopen = () => {
+    const disconnect = openSessionConnection({
+      createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
+      onSocket: (ws) => { wsRef.current = ws; },
+      onOpen: () => {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
-      };
-      ws.onmessage = (e) => {
+      },
+      onMessage: (e) => {
         const msg = JSON.parse(e.data);
         switch (msg.kind) {
           case "hello": {
@@ -660,15 +660,12 @@ export function useSession(): SessionState {
             }
             break;
         }
-      };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
-    };
-    connect();
+      },
+    });
     return () => {
-      closed = true;
+      disconnect();
       clearPendingStartTimeout();
       closeHandoffWindow();
-      wsRef.current?.close();
     };
   }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
