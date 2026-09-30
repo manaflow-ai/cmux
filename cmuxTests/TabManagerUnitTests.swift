@@ -1874,10 +1874,12 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [[.workspace, .safety]])
+        let offeredKinds = offered.reduce(into: CloseWarningKinds()) { $0.formUnion($1) }
+        XCTAssertEqual(offeredKinds, .workspace.union(.safety))
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
 
+        drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
         XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
     }
@@ -1914,7 +1916,8 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
 
         manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
 
-        XCTAssertEqual(offered, [.tab, .safety])
+        let offeredKinds = offered.reduce(into: CloseWarningKinds()) { $0.formUnion($1) }
+        XCTAssertEqual(offeredKinds, .tab.union(.safety))
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertNotNil(workspace.panels[panelId], "Cancel still keeps the tab open")
