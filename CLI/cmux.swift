@@ -21539,7 +21539,11 @@ struct CMUXCLI {
         while index < args.count {
             let arg = args[index]
             if arg == "--window" {
-                guard index + 1 < args.count else {
+                // A flag where the id belongs is a missing value, not a value.
+                // Swallowing it would hide the typed flag and, with a later
+                // `--window=<id>`, run the command against a window the caller
+                // never asked for.
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("--") else {
                     throw CLIError(message: String(
                         localized: "cli.palette.error.windowRequiresValue",
                         defaultValue: "palette list: --window requires an id"
