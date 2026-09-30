@@ -37,13 +37,19 @@ extension MachinesPanelViewModel {
     }
 
     /// Derived from the latest settled read, the coordinator's network state,
-    /// and whether a recovery read is in flight. An initial transient failure
-    /// stays quiet while the first fleet load retries; sign-in and plan gates
-    /// keep their meaning while a recovery read runs; only a transient failure
-    /// after a successful load becomes "reconnecting".
+    /// and whether a recovery read is in flight. Initial transient failures
+    /// stay quiet for a bounded retry window so startup does not jump; a
+    /// persistent outage then becomes actionable. Sign-in and plan gates keep
+    /// their meaning while a recovery read runs, and a settled transient
+    /// failure after a successful load remains visible.
     var listStatus: MachineListStatus? {
         if isNetworkOffline { return .waitingForNetwork }
-        guard let listProblem, hasLoadedOnce || listProblem != .unreachable else { return nil }
+        guard let listProblem else { return nil }
+        if listProblem == .unreachable,
+           !hasLoadedOnce,
+           initialTransientFailureCount < Self.initialTransientFailureLimit {
+            return nil
+        }
         return isRecoveringList && listProblem == .unreachable ? .reconnecting : .failed(listProblem)
     }
 }

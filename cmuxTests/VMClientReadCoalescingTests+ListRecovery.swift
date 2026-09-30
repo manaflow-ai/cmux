@@ -64,6 +64,37 @@ extension VMClientReadCoalescingTests {
         #expect(model.machines.count == 1)
     }
 
+    @Test("A persistent initial failure becomes actionable after bounded quiet retries")
+    func persistentInitialFailureBecomesVisible() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        let clock = CloudReadManualClock()
+        let model = MachinesPanelViewModel(
+            client: fixture.client,
+            pollingClock: clock,
+            isCloudEnabled: { true }
+        )
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually {
+            model.initialTransientFailureCount == 1 && !model.isLoading
+        }
+        #expect(model.listStatus == nil)
+
+        for expectedCount in 2...MachinesPanelViewModel.initialTransientFailureLimit {
+            clock.advance(by: MachinesPanelViewModel.pollInterval)
+            try await listEventually {
+                model.initialTransientFailureCount == expectedCount && !model.isLoading
+            }
+            if expectedCount < MachinesPanelViewModel.initialTransientFailureLimit {
+                #expect(model.listStatus == nil)
+            }
+        }
+        #expect(model.listStatus == .failed(.unreachable))
+    }
+
     @Test("An automatic refresh replaces a transient failure with reconnecting while it is in flight")
     func automaticRefreshAfterTransientFailure() async throws {
         let fixture = try await CloudRefreshFixture.make()

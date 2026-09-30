@@ -27,6 +27,10 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Set by a recovery read (panel shown, back online, Retry) until it settles;
     /// routine polls never set it, so a real outage does not flicker.
     @Published private(set) var isRecoveringList = false
+    /// Number of consecutive transient failures before the first successful
+    /// list read. The panel stays quiet for the first few retries so startup
+    /// does not jump, then exposes the existing actionable failure state.
+    private(set) var initialTransientFailureCount = 0
     /// Per-machine coderouter spend from the last successful usage fetch,
     /// keyed by machine id. Refreshed with every machine-list refresh (the
     /// slow poll and the explicit Refresh verb), never more often. Empty on
@@ -367,6 +371,7 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
     }
     static let pollInterval: Duration = .seconds(45)
+    static let initialTransientFailureLimit = 3
     /// A refresh asked for while one is in flight runs again afterwards: a
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
@@ -424,6 +429,7 @@ final class MachinesPanelViewModel: ObservableObject {
         lastErrorDescription = nil
         listProblem = nil
         hasLoadedOnce = false
+        initialTransientFailureCount = 0
         isLoading = false
     }
 
@@ -520,68 +526,4 @@ final class MachinesPanelViewModel: ObservableObject {
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: [:])
     }
 
-    func applyRefreshResult(_ result: Result<VMListPage, Error>, generation: UInt64, scope: String?) {
-        guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier, isCloudEnabled() else { return }
-        do {
-            let page = try result.get()
-            try Task.checkCancellation()
-            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
-                  isCloudEnabled() else { return }
-            let previous = resourceStats?.snapshot ?? [:]
-            let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
-            self.freeAccessWindowDays = freeAccessWindowDays
-            var snapshots = page.vms.map {
-                MachineSnapshotBuilder.snapshot(
-                    from: $0,
-                    freeAccessWindowDays: freeAccessWindowDays,
-                    previousStats: previous[$0.id]
-                )
-            }
-            snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
-            // The authoritative fleet plus catalog-only rows is the complete
-            // visible set: a pin whose machine is gone from both is pruned.
-            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
-            machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
-            machines = snapshots
-            lastLimits = page.limits
-            scheduleFreeAccessTransition()
-            refreshStats()
-            refreshUsage()
-            readCatalog()
-            plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
-            lastErrorDescription = nil
-            listProblem = nil
-        } catch is CancellationError {
-            return
-        } catch let error as URLError where error.code == .notConnectedToInternet {
-            // The read coordinator's offline verdict (URLSession transport errors
-            // arrive as backendUnreachable): not a list failure; offline owns it.
-            return
-        } catch let error as VMClientError {
-            guard !Task.isCancelled, generation == refreshGeneration,
-                  scope == machinePinStore?.scopeIdentifier else { return }
-            if case .notSignedIn = error {
-                machines = []
-                machineIndexByID.removeAll()
-                plan = nil
-                activeOperation = nil
-                lastErrorDescription = nil
-                listProblem = nil
-                hasLoadedOnce = false
-                isLoading = false
-                return
-            }
-            lastErrorDescription = String(describing: error)
-            listProblem = Self.classifyListFailure(error)
-        } catch {
-            guard !Task.isCancelled, generation == refreshGeneration,
-                  scope == machinePinStore?.scopeIdentifier else { return }
-            lastErrorDescription = String(describing: error)
-            listProblem = .unreachable
-        }
-        hasLoadedOnce = hasLoadedOnce || listProblem != .unreachable
-        #if DEBUG
-        cmuxDebugLog("cloud.machines.list settled count=\(machines.count) problem=\(String(describing: listProblem))")
-        #endif
-    }
 }
