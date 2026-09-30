@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applySupersededMessage, diffCounts, mergeEventRecords, normalizeCatalog, permissionFromMessage, settleOptimisticPrompt, toolOutput } from "./direct";
+import { applySupersededMessage, diffCounts, mergeEventRecords, normalizeCatalog, permissionFromMessage, removeQueuedPrompt, settleOptimisticPrompt, toolOutput } from "./direct";
 import type { AcpmuxRow } from "./model";
 
 describe("direct acpmux event helpers", () => {
@@ -59,5 +59,11 @@ describe("direct acpmux event helpers", () => {
 
   test("preserves nested raw tool output", () => {
     expect(toolOutput({ rawOutput: { content: [{ type: "text", text: "command result" }] } })).toBe("command result");
+    expect(toolOutput({ rawOutput: { formatted_output: "formatted result" } })).toBe("formatted result");
+    expect(toolOutput({ output: "x".repeat(5000) })).toHaveLength(4000);
+  });
+
+  test("removes a queued prompt when its user message starts", () => {
+    expect(removeQueuedPrompt([{ id: "p1", prompt: "run it" }, { id: "p2", prompt: "later" }], "p1", "run it")).toEqual([{ id: "p2", prompt: "later" }]);
   });
 });

@@ -56,16 +56,22 @@ export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows
   messageRows.delete(oldMessageId);
 }
 
+export function removeQueuedPrompt(queue: { id: string; prompt: string }[], promptId?: string, text?: string): { id: string; prompt: string }[] {
+  if (!promptId && !text) return queue;
+  return queue.filter((entry) => entry.id !== promptId && (!text || entry.prompt !== text));
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
+  if (typeof content?.formatted_output === "string") return content.formatted_output;
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   if (content && typeof content === "object") return textFromContent(content.content ?? content.text ?? content.output ?? content.rawOutput);
   return "";
 }
 
 export function toolOutput(update: any): string {
-  return textFromContent(update.content) || textFromContent(update.rawOutput) || textFromContent(update.output);
+  return (textFromContent(update.content) || textFromContent(update.rawOutput) || textFromContent(update.output)).slice(0, 4000);
 }
 
 export function diffCounts(value: any): { additions?: number; deletions?: number } {
@@ -365,7 +371,7 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
-    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.turnStartedAt = undefined; this.turnSummaryIds.clear(); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.streamingUserMessage = undefined; this.sawUserMessage = false; this.chunkSeqsByRow.clear(); this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
+    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.turnStartedAt = undefined; this.turnSummaryIds.clear(); this.turnToolCount = 0; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.streamingUserMessage = undefined; this.sawUserMessage = false; this.chunkSeqsByRow.clear(); this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -381,6 +387,7 @@ export class AcpmuxDirectClient {
         const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        this.queue = removeQueuedPrompt(this.queue, fallbackPromptId ?? promptId, text);
         this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true; this.turnStartedAt ??= event.at; this.sawUserMessage = true; this.streamingUserMessage = undefined;
       }
       else if (event.kind === "turn_started") { this.turnOpen = true; this.turnToolCount = 0; this.turnStartedAt = event.at; this.turnSummaryIds.delete("__current"); this.sawUserMessage = false; this.streamingUserMessage = undefined; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
@@ -392,6 +399,7 @@ export class AcpmuxDirectClient {
         }
       }
       else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        if (!this.turnOpen && this.turnStartedAt === undefined) return;
         this.turnOpen = false;
         if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 }); }
         this.rows.delete("typing");

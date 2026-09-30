@@ -110,6 +110,10 @@ function VirtualTranscript({ rows, sessionId, onToggleActivity, expanded, foldTo
   // Measure the same width that will be painted so wide panes cannot overlap rows.
   const transcriptWidth = Math.max(120, Math.min(760, width - 36));
   const measure = (row: AcpmuxRow, rowWidth: number) => {
+    const kind = rowKind(row);
+    const customMeasure = registry[kind]?.measure;
+    if (customMeasure) return customMeasure(row, rowWidth);
+    if (kind === "editedFiles") return 34 + (row.items?.length ?? 0) * 24;
     if (row.kind === "activity" && (!foldToolCalls || expanded.has(row.id))) {
       const lineWidth = Math.max(24, Math.floor(rowWidth / 8));
       const itemHeight = (item: AcpmuxActivity) => {
@@ -119,7 +123,7 @@ function VirtualTranscript({ rows, sessionId, onToggleActivity, expanded, foldTo
       };
       return 28 + (row.items ?? []).reduce((total, item) => total + itemHeight(item), 0);
     }
-    return registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id);
+    return measuredHeights.get(row.id);
   };
   const layout = layoutConversation(rows, transcriptWidth, measurementCache.current, measure);
   const range = visibleLayoutRange(layout, scrollTop, height);
@@ -157,6 +161,7 @@ export function AcpmuxApp() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [registryEpoch, setRegistryEpoch] = useState(0);
   const [layoutOptions, setLayoutOptions] = useState<{ bubble?: boolean; density?: string; showTimestamps?: boolean; foldToolCalls?: boolean }>({});
+  const [actionsReady, setActionsReady] = useState(false);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
@@ -213,6 +218,7 @@ export function AcpmuxApp() {
         const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
+          setActionsReady(next.connection === "connected");
           void persistSession(next.sessionId);
         });
         if (cancelled) { client.close(); return; }
@@ -228,6 +234,7 @@ export function AcpmuxApp() {
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
         };
+        setActionsReady(true);
         client.snapshot();
       } catch (error) {
         if (!cancelled) {
@@ -240,8 +247,8 @@ export function AcpmuxApp() {
     return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
   }, []);
   void registryEpoch;
-  const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
+  const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!actionsReady) return; const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
   const layoutClass = `acpmux-shell density-${layoutOptions.density ?? "comfortable"}`;
-  return <section className={layoutClass} data-bubble={layoutOptions.bubble === false ? "false" : "true"} data-show-timestamps={layoutOptions.showTimestamps ? "true" : "false"}><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><div className="acpmux-session-controls"><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select><button type="button" className="acpmux-new-session" onClick={() => void callNative("chat.new", {})}>New</button></div></header>{snapshot.canLoadOlder && <button className="acpmux-load-older" type="button" onClick={() => void callNative("chat.history")}>Load older messages</button>}<VirtualTranscript rows={snapshot.rows} sessionId={snapshot.sessionId} expanded={expanded} foldToolCalls={layoutOptions.foldToolCalls !== false} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
+  return <section className={layoutClass} data-bubble={layoutOptions.bubble === false ? "false" : "true"} data-show-timestamps={layoutOptions.showTimestamps ? "true" : "false"}><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><div className="acpmux-session-controls"><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select><button type="button" className="acpmux-new-session" onClick={() => void callNative("chat.new", {})}>New</button></div></header>{snapshot.canLoadOlder && <button className="acpmux-load-older" type="button" onClick={() => void callNative("chat.history")}>Load older messages</button>}<VirtualTranscript rows={snapshot.rows} sessionId={snapshot.sessionId} expanded={expanded} foldToolCalls={layoutOptions.foldToolCalls !== false} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" disabled={!actionsReady} /><button type="submit" disabled={!actionsReady}>Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")} disabled={!actionsReady}>Stop</button></form></section>;
 }
