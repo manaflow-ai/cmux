@@ -131,9 +131,10 @@ final class CloudWorkspaceProjectionCoordinator {
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
-                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !desired.isEmpty {
+                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !desired.isEmpty,
+                   Set(desired).isSubset(of: Set(layout.placements)) {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
-                    environment.applyLayout(workspaceID, layout.includingMissingPlacements(desired), Array(live))
+                    environment.applyLayout(workspaceID, layout, Array(live))
                 }
                 failures[workspaceID] = nil
             } catch is CancellationError {

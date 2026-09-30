@@ -20,6 +20,20 @@ extension Workspace {
             tabs[SurfaceResourcePlacement(resource: projection.resource, remoteWorkspaceID: projection.remoteWorkspaceID,
                                           remoteTabID: projection.remoteTabID)] = tab
         }
+        // A layout document is lossy when the daemon has published a tab before
+        // its resource inventory (or while a delta is still being assembled). Do
+        // not let that partial document turn a valid local split into a flat pane.
+        // The next complete graph will retry the same projection. A complete
+        // one-pane document remains valid and is allowed to represent a real
+        // remote collapse.
+        let expectedPlacements = Set(projections.map {
+            SurfaceResourcePlacement(
+                resource: $0.resource,
+                remoteWorkspaceID: $0.remoteWorkspaceID,
+                remoteTabID: $0.remoteTabID
+            )
+        })
+        guard expectedPlacements.isSubset(of: Set(layout.placements)) else { return }
         guard layout.placements.allSatisfy({ tabs[$0] != nil }) else { return }
         if cloudLayoutMatches(layout, live: bonsplitController.treeSnapshot(), tabs: tabs) {
             // External ratios suppress Bonsplit's geometry callback. Reconcile
