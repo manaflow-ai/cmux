@@ -204,11 +204,15 @@ final class AgentAutoResumeCoordinator {
         if loweredRows.contains(where: { $0.contains("esc to cancel") || $0.contains("press enter to") || $0.contains("enter to confirm") || $0.contains("enter to select") }) {
             return .dialog
         }
-        let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> ", "❯", ">"]
-        guard let promptIndex = plainRows.lastIndex(where: { row in
+        let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> "]
+        guard let lastNonEmptyIndex = plainRows.lastIndex(where: {
+            !$0.trimmingCharacters(in: .whitespaces).isEmpty
+        }),
+        let promptIndex = plainRows.lastIndex(where: { row in
             let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
             return promptPrefixes.contains(where: trimmed.hasPrefix)
-        }) else { return .unknown }
+        }),
+        promptIndex == lastNonEmptyIndex else { return .unknown }
         var typed = ""
         for index in promptIndex..<rows.count {
             let spans = rows[index].sorted { $0.column < $1.column }
