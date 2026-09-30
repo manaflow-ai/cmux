@@ -244,6 +244,24 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return try await agentRestoreAdmissionReleaseResponse(request)
         }
+        if request.method == "agent.hibernate" {
+            return try await agentHibernateResponse(request)
+        }
+        if request.method == "agent.wake" {
+            return try await agentWakeResponse(request)
+        }
+        if request.method.hasPrefix("agent.message.") {
+            if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,
+               let dispatchError = try await v2MainAsync({
+                   self.controlRemoteRelayDispatchError(method: request.method, params: request.params)
+               }) {
+                return Self.v2Encoder.response(id: request.id, dispatchError)
+            }
+            // Relay requests are revalidated at worker dispatch and the
+            // handler rechecks resolved message targets against the live
+            // remote surface snapshot.
+            return await agentMessageResponse(request)
+        }
         if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
            ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
@@ -300,6 +318,20 @@ extension TerminalController {
                 result: typedResult
             )
             return Self.v2Encoder.response(id: request.id, typedResult)
+        }
+
+        if request.method == "surface.input_state" {
+            // Several main-actor hops; run them on a GCD thread rather than
+            // parking a cooperative-pool thread while main is busy.
+            return await runSocketWorkerBlockingBody {
+                self.socketWorkerV2Response(
+                    handling: ControlRequest(
+                        id: request.id,
+                        method: request.method,
+                        params: request.params
+                    )
+                )
+            }
         }
 
         if request.method == "surface.read_text" {
