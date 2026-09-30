@@ -1,6 +1,6 @@
 # Hosted cmux-tui the cmux-next app bundles. Refresh: scripts/cmux-next/pin-cmux-tui.sh --help
-commit=c27a76e10accf5d72007797a9413dad405cade79
-url=https://files.cmux.com/cmux-tui/c27a76e10accf5d72007797a9413dad405cade79/cmux-tui-aarch64-apple-darwin
-run=36711320154
-verified_run=36711358521
-sha256=a73f0e516f619a28b3a861eb4ee4d87a31ec5360c3ec1d11406d11501f85f75a
+commit=c5ba33878ab6a560079857454caa01b3842bf5a5
+url=https://files.cmux.com/cmux-tui/c5ba33878ab6a560079857454caa01b3842bf5a5/cmux-tui-aarch64-apple-darwin
+run=36737171105
+verified_run=36733324160
+sha256=2816183bd64229cd3211efaa3d14984c3d9f3a6ef091679ac3c0ff2a97a69482
