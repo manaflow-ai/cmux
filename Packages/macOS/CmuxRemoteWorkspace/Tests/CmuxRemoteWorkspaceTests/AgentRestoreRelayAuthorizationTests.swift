@@ -6,6 +6,8 @@ import Testing
 struct AgentRestoreRelayAuthorizationTests {
     @Test("admission and release remain withheld until session state is owner-scoped", arguments: [
         "agent.restore.admit", "agent.restore.release",
+        // Hibernation acts on local agent processes and is never relayed.
+        "agent.hibernate", "agent.wake",
     ])
     func restoreSelectors(method: String) {
         let policy = RemoteRelayAuthorizationPolicy()
