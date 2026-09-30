@@ -308,7 +308,7 @@ extension DaemonConnection {
     /// store resync, with an error. d1aa608 and older closed the socket
     /// instead, losing the shutdown reply.)
     @discardableResult
-    public func shutdownDaemon(endTerminals: Bool = false) async throws -> ShutdownDaemonRequest.Response {
+    public func shutdownDaemon(endTerminals: Bool = false, keepLayout: Bool = false) async throws -> ShutdownDaemonRequest.Response {
         guard let identity else { throw DaemonError.notConnected }
         guard endTerminals else {
             return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
@@ -320,22 +320,29 @@ extension DaemonConnection {
         let transport = try LineTransport(path: endpoint.socketPath)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
-        return try await Self.perform(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                      on: transport, timeout: Self.endTerminalsTimeout)
+        let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,
+                                            keepLayout: keepLayout ? true : nil)
+        return try await Self.perform(request, on: transport, timeout: Self.endTerminalsTimeout)
     }
 
     /// Quit's end choices: stops this connection (so the daemon's exit
     /// cannot trigger a reconnect that starts a new daemon), then ends every
     /// terminal and stops the daemon (`shutdown-daemon end_terminals`).
     /// With `deletingWorkspaces` (End Everything) it first closes every
-    /// workspace, so the next owner starts with none; the layout otherwise
-    /// stays and reopens with fresh shells. Both run on their own socket.
-    /// Returns the ended count.
+    /// workspace, so the next owner starts with none. With `keepingLayout`
+    /// (End Sessions, Keep Layout) on a daemon that serves
+    /// `end-terminals-keep-layout-v1`, placed terminals keep their tabs,
+    /// dead, so the next launch restarts a shell in each with the same
+    /// splits (`relaunchKeptTabs`); older daemons remove the tabs. Both run
+    /// on their own socket. Returns the ended count and whether the tabs
+    /// were kept.
     @discardableResult
-    public func endSessionsAndStop(deletingWorkspaces: Bool = false) async throws -> UInt64 {
+    public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async throws -> EndedSessions {
+        let keepsLayout = false && keepingLayout  // not implemented yet
         await close()
         if deletingWorkspaces { try await closeEveryWorkspace() }
-        return try await shutdownDaemon(endTerminals: true).endedTerminals ?? 0
+        let reply = try await shutdownDaemon(endTerminals: true, keepLayout: keepsLayout)
+        return EndedSessions(endedTerminals: reply.endedTerminals ?? 0, keptLayout: keepsLayout)
     }
 
     /// Closes every workspace on a short-lived socket (their terminals

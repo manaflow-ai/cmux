@@ -54,7 +54,7 @@ struct QuitSessionsTests {
         let leakedHosts = await TerminalHosts.awaitExit(hosts)
         let leakedDaemon = await TerminalHosts.awaitExit([h.identity.pid])
         if !leakedHosts.isEmpty || !leakedDaemon.isEmpty { await h.stop() }
-        #expect(ended == 3)
+        #expect(ended.endedTerminals == 3)
         #expect(leakedHosts.isEmpty, "terminal hosts outlived End: \(leakedHosts)")
         #expect(leakedDaemon.isEmpty, "the daemon outlived End")
 
@@ -72,5 +72,64 @@ struct QuitSessionsTests {
         #expect(workspaces.count == (deletingWorkspaces ? 0 : 2), "\(workspaces.map(\.name))")
         #expect(workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.terminalID != nil }.isEmpty,
                 "an ended terminal came back")
+    }
+
+    /// End Sessions, Keep Layout on a daemon with
+    /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
+    /// keeps both panes and the split ratio with dead tabs, and
+    /// `relaunchKeptTabs` restarts a shell in each, in its recorded
+    /// directory, without changing the layout. A pinned cmux-tui without the
+    /// capability skips the check.
+    @Test func endKeepLayoutRestartsEachTabInTheSameSplit() async throws {
+        let h = try await BranchDaemonHarness.start()
+        defer { try? FileManager.default.removeItem(at: h.root) }
+        guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return await h.stop() }
+        let other = h.root.appendingPathComponent("other")
+        let hosts: Set<Int32>
+        let plan: KeptLayoutPlan
+        let before: DaemonTree
+        do {
+            try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+            let (_, pane, _) = try await h.workspaceWithTerminal("kept")
+            _ = try await h.connection.split(pane, direction: .right, options: SpawnOptions(cwd: other.path))
+            before = try await h.tree()
+            plan = KeptLayoutPlan(tree: before)
+            #expect(plan.tabs.count == 2)
+            hosts = TerminalHosts.of(daemon: h.identity.pid)
+        } catch {
+            await h.stop()
+            throw error
+        }
+        let ended = try await h.connection.endSessionsAndStop(keepingLayout: true)
+        #expect(ended.keptLayout && ended.endedTerminals == 2)
+        #expect(await TerminalHosts.awaitExit(hosts).isEmpty)
+        #expect(await TerminalHosts.awaitExit([h.identity.pid]).isEmpty)
+
+        let binary = try #require(RealBinary.url)
+        let base = ProcessInfo.processInfo.environment
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
+        _ = try await launcher.ensure()
+        let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        _ = try await next.start()
+        do {
+            let kept = try await next.listWorkspaces()
+            let keptTabs = kept.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+            #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
+            #expect(kept.workspaces.first?.screens.first?.layout == before.workspaces.first?.screens.first?.layout)
+            #expect(try await next.relaunchKeptTabs(plan) == 2)
+            let after = try await next.listWorkspaces()
+            #expect(after.workspaces.first?.screens.first?.layout == before.workspaces.first?.screens.first?.layout,
+                    "the relaunch changed the layout")
+            let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
+            #expect(tabs.map(\.count) == [1, 1], "\(tabs)")
+            #expect(tabs.flatMap { $0 }.allSatisfy { !$0.dead })
+            #expect(tabs.last?.first?.cwd?.hasSuffix("/other") == true, "\(String(describing: tabs.last?.first?.cwd))")
+        } catch {
+            await BranchDaemonHarness.shutDown(next)
+            throw error
+        }
+        await BranchDaemonHarness.shutDown(next)
     }
 }

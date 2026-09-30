@@ -211,6 +211,7 @@ final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        relaunchKeptLayoutIfNeeded(connection)
     }
 
     /// Records a failed first-connect attempt. Shows as unavailable once the
