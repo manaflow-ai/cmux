@@ -6114,7 +6114,7 @@ struct ContentView: View {
             bundleResourceURL: bundleResourceURL,
             configuredExecutablePaths: configuredExecutablePaths
         )
-        return Set([AgentSessionProviderID.claude, .codex].filter {
+        return Set(AgentSessionProviderID.allCases.filter {
             (try? resolver.resolve($0)) != nil
         })
     }
