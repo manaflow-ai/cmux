@@ -8610,6 +8610,22 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            let metadata = copyAction.resolvedConfigMetadata
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: Self.commandPaletteCopyActionCommandID(copyAction),
+                    title: constant(metadata.title),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: metadata.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserRight",
@@ -9521,6 +9537,22 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
+            }
+        }
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            registry.register(commandId: Self.commandPaletteCopyActionCommandID(copyAction)) {
+                if let terminalCopyAction = copyAction.terminalCopyAction {
+                    let workspace = tabManager.selectedWorkspace
+                    TerminalCopyActionRunner.run(
+                        terminalCopyAction,
+                        workspace: workspace,
+                        panelId: workspace?.focusedPanelId
+                    )
+                }
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
@@ -11083,13 +11115,17 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
+        customSidebarsEnabled(defaults: .standard)
+    }
+
+    static func customSidebarsEnabled(defaults: UserDefaults) -> Bool {
         // `DisableCustomSidebars` (MDM): interpreted sidebars are user- or
         // agent-authored code that can dispatch `cmux(...)` commands.
         guard !ManagedDevicePolicy().isEnforced(.disableCustomSidebars) else { return false }
         // See ``isEnabled``: read only the beta-features section so a body-path
         // access does not allocate the entire `SettingCatalog` (issue #5970).
         let key = BetaFeaturesCatalogSection().customSidebars
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+        return Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
     /// Directory custom sidebars are authored into.
