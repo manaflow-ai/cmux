@@ -1,11 +1,16 @@
 public import Foundation
+internal import Security
 
 /// The client side of the `cmux ssh` CLI relay handshake.
 ///
 /// The macOS cmux CLI runs it on a remote Mac, where `CMUX_SOCKET_PATH` names
-/// a forwarded TCP port on the remote loopback. The caller owns the socket and
-/// its deadlines and passes line I/O in; nothing but the handshake is written
-/// until ``perform(readLine:writeLine:)`` returns.
+/// a forwarded TCP port on the remote loopback. While that forward is down,
+/// another user on the remote Mac can bind the port, so the handshake is
+/// mutual: the client proves the token with its MAC over the relay's nonce,
+/// and the relay proves it with `relay_mac` over a fresh client nonce. The
+/// caller owns the socket and its deadlines and passes line I/O in; nothing
+/// but the auth line is written until ``perform(readLine:writeLine:)``
+/// returns, and it returns only after the relay's proof checks out.
 public struct RemoteRelayClientHandshake: Sendable {
     /// Why the handshake refused to continue.
     public enum Failure: Error, Equatable, Sendable {
@@ -13,7 +18,14 @@ public struct RemoteRelayClientHandshake: Sendable {
         case invalidChallenge
         /// The relay rejected the client's MAC.
         case rejected
+        /// The listener did not prove it holds the relay token.
+        case relayNotProven
+        /// No random client nonce could be generated.
+        case nonceUnavailable
     }
+
+    /// Size of the client nonce, matching the Go remote CLI.
+    public static let clientNonceByteCount = 32
 
     private let relayID: String
     private let relayToken: Data
@@ -33,6 +45,8 @@ public struct RemoteRelayClientHandshake: Sendable {
     /// - Parameters:
     ///   - readLine: Returns the next line from the relay, without its newline.
     ///   - writeLine: Writes one line to the relay; the data ends with a newline.
+    /// - Throws: ``Failure`` when the relay is not authenticated, or any error
+    ///   from `readLine` and `writeLine`.
     public func perform(
         readLine: () throws -> String,
         writeLine: (Data) throws -> Void
@@ -47,6 +61,10 @@ public struct RemoteRelayClientHandshake: Sendable {
               !nonce.isEmpty else {
             throw Failure.invalidChallenge
         }
+        guard !relayToken.isEmpty else { throw Failure.rejected }
+        guard let clientNonce = Self.randomClientNonce() else {
+            throw Failure.nonceUnavailable
+        }
 
         let mac = RemoteRelayAuthentication.clientMAC(
             token: relayToken,
@@ -57,6 +75,7 @@ public struct RemoteRelayClientHandshake: Sendable {
         let payload = try JSONSerialization.data(withJSONObject: [
             "relay_id": relayID,
             "mac": RemoteRelayAuthentication.hexString(from: mac),
+            "client_nonce": clientNonce,
         ])
         try writeLine(payload + Data([0x0A]))
 
@@ -64,6 +83,28 @@ public struct RemoteRelayClientHandshake: Sendable {
               (result["ok"] as? Bool) == true else {
             throw Failure.rejected
         }
+        // Anyone who connected once has seen the relay ID, so only a proof
+        // over this client's nonce shows the listener holds the relay token.
+        let expectedProof = RemoteRelayAuthentication.relayProofMAC(
+            token: relayToken,
+            relayID: relayID,
+            clientNonce: clientNonce,
+            serverNonce: nonce,
+            version: version
+        )
+        guard let proofHex = result["relay_mac"] as? String,
+              let receivedProof = RemoteRelayAuthentication.hexData(from: proofHex),
+              RemoteRelayAuthentication.constantTimeEqual(receivedProof, expectedProof) else {
+            throw Failure.relayNotProven
+        }
+    }
+
+    private static func randomClientNonce() -> String? {
+        var bytes = [UInt8](repeating: 0, count: clientNonceByteCount)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return nil
+        }
+        return RemoteRelayAuthentication.hexString(from: Data(bytes))
     }
 
     private static func jsonObject(_ line: String) -> [String: Any]? {

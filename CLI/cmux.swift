@@ -3745,6 +3745,10 @@ final class SocketClient {
             return "Invalid relay authentication challenge"
         case .rejected:
             return "Relay authentication failed"
+        case .relayNotProven:
+            return "Relay did not prove it holds the relay token; reconnect this SSH workspace"
+        case .nonceUnavailable:
+            return "Failed to create relay authentication nonce"
         }
     }
 
