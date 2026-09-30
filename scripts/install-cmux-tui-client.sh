@@ -26,6 +26,8 @@
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60, below 1 KiB/s) bound each download attempt.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -132,9 +134,31 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   exit 0
 fi
 
+# A dead HTTP/2 stream holds a transfer open until the server resets it, which
+# took twenty minutes per attempt on a Release job, and curl's own --retry
+# reuses that connection. Bound each attempt by progress and give each its own
+# curl process, so a retry opens a fresh connection (download-with-retry.sh).
+DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
+DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+download() { # <url> <output>
+  local attempt=1
+  until curl --proto '=https' --tlsv1.2 -fsSL \
+      --connect-timeout 30 \
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
+      --max-time 600 \
+      "$1" -o "$2"; do
+    if (( attempt >= DOWNLOAD_ATTEMPTS )); then
+      echo "error: could not download $1 after $attempt attempts" >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+}
+
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+download "$MANIFEST_URL" "$MANIFEST"
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
@@ -165,7 +189,7 @@ fetch_slice() { # <artifact-name> -> path
   if [[ -f "$out" ]] && [[ "$(sha256_of "$out")" == "$want" ]]; then
     printf '%s' "$out"; return
   fi
-  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$BASE/$name" -o "$out.tmp"
+  download "$BASE/$name" "$out.tmp"
   got="$(sha256_of "$out.tmp")"
   [[ "$got" == "$want" ]] || { echo "error: sha256 mismatch for $name (want $want, got $got)" >&2; rm -f "$out.tmp"; exit 1; }
   mv -f "$out.tmp" "$out"
