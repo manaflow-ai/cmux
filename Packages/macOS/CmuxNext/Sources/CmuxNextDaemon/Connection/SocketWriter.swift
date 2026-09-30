@@ -19,7 +19,7 @@ final class SocketWriter: Sendable {
         var pending = Data()
         var draining = false
         var closed = false
-        var failure: String?
+        var failure: SocketWriteFailure?
     }
 
     private let fd: Int32
@@ -35,12 +35,12 @@ final class SocketWriter: Sendable {
 
     /// Appends `bytes` after everything written before. Returns an error
     /// description when the socket failed, closed, or the backlog passed the limit.
-    func write(_ bytes: Data) -> String? {
-        let (error, startDrain) = state.withLock { state -> (String?, Bool) in
+    func write(_ bytes: Data) -> SocketWriteFailure? {
+        let (error, startDrain) = state.withLock { state -> (SocketWriteFailure?, Bool) in
             if let failure = state.failure { return (failure, false) }
-            guard !state.closed else { return ("socket closed", false) }
+            guard !state.closed else { return (.closed, false) }
             guard state.pending.count + bytes.count <= limit else {
-                return ("cmux-tui is not reading its socket (\(state.pending.count) bytes queued)", false)
+                return (.backlog(queued: state.pending.count), false)
             }
             state.pending.append(bytes)
             guard !state.draining else { return (nil, false) }
@@ -88,8 +88,8 @@ final class SocketWriter: Sendable {
         }
     }
 
-    private static func writeAll(_ bytes: Data, fd: Int32) -> String? {
-        bytes.withUnsafeBytes { raw -> String? in
+    private static func writeAll(_ bytes: Data, fd: Int32) -> SocketWriteFailure? {
+        bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
             guard var pointer = raw.baseAddress else { return nil }
             var remaining = raw.count
             while remaining > 0 {
@@ -97,15 +97,38 @@ final class SocketWriter: Sendable {
                 let written = Darwin.write(fd, pointer, remaining)
                 if written < 0 {
                     if errno == EINTR { continue }
-                    return "write: \(String(cString: strerror(errno)))"
+                    return .errno(errno)
                 }
                 // A blocking write returns 0 only when it cannot progress;
                 // retrying would loop without writing anything.
-                if written == 0 { return "write: no progress" }
+                if written == 0 { return .noProgress }
                 remaining -= written
                 pointer += written
             }
             return nil
+        }
+    }
+}
+
+/// Why `SocketWriter.write` failed.
+enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
+    /// The other end closed the connection (EPIPE, ECONNRESET).
+    case peerClosed
+    /// The owner closed the writer.
+    case closed
+    /// The peer stopped reading and the backlog passed the limit.
+    case backlog(queued: Int)
+    /// A blocking write returned 0 (no progress).
+    case noProgress
+    case errno(Int32)
+
+    var description: String {
+        switch self {
+        case .peerClosed: "peer closed the socket"
+        case .closed: "socket closed"
+        case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
+        case .noProgress: "write: no progress"
+        case .errno(let code): "write: \(String(cString: strerror(code)))"
         }
     }
 }

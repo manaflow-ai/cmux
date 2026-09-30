@@ -42,12 +42,31 @@ import Testing
         defer { close(local); close(remote) }
         let writer = SocketWriter(fd: local, label: "test.writer", limit: 256 * 1024)
         defer { writer.close() }
-        var failure: String?
+        var failure: SocketWriteFailure?
         let started = ContinuousClock.now
         for _ in 0..<64 where failure == nil {
             failure = writer.write(Data(repeating: 1, count: 64 * 1024))
         }
-        #expect(failure?.contains("not reading") == true)
+        #expect(failure?.description.contains("not reading") == true)
         #expect(ContinuousClock.now - started < .milliseconds(500))
+    }
+
+    /// A peer that closed (daemon restart, CLI client gone) must give a
+    /// "peer closed" failure, never SIGPIPE: the default action of SIGPIPE
+    /// ends the whole process. The pair is made without SO_NOSIGPIPE, as any
+    /// caller could hand one over; SocketWriter must protect itself.
+    @Test func writingAfterThePeerClosedFailsWithoutKillingTheProcess() async throws {
+        let (local, remote) = socketPair()
+        defer { close(local) }
+        close(remote)
+        let writer = SocketWriter(fd: local, label: "test.writer")
+        defer { writer.close() }
+        var failure: SocketWriteFailure?
+        let deadline = ContinuousClock.now + .seconds(5)
+        while failure == nil, ContinuousClock.now < deadline {
+            failure = writer.write(Data("ping\n".utf8))
+            if failure == nil { try await Task.sleep(for: .milliseconds(5)) }
+        }
+        #expect(failure == .peerClosed)
     }
 }

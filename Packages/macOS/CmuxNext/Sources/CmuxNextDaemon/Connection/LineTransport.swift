@@ -191,7 +191,7 @@ final class LineTransport: Sendable {
             submittedID = id
             var line = payload
             line.append(0x0A)
-            writeFailure = socket.fd >= 0 ? writer.write(line) : "socket closed"
+            writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
             return nil
         }
         if let early {
