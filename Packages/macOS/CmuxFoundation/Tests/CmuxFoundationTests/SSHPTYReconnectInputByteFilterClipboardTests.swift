@@ -74,6 +74,27 @@ struct SSHPTYReconnectInputByteFilterClipboardTests {
         #expect(filter.filter(normalInput) == normalInput)
     }
 
+    @Test(
+        "a stop request mid clipboard reply still discards the rest of the reply",
+        arguments: terminators
+    )
+    func stopRequestMidReplyDiscardsRestOfReply(terminator: String) {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        #expect(filter.filter(Data("\u{1B}]52;c;c2Vj".utf8)) == Data())
+
+        let normalInput = Data("ls\n".utf8)
+        let forwarded = stopAndForward(&filter, later: [
+            Data("cmV0".utf8),
+            Data("LXRva2Vu\(terminator)".utf8) + normalInput,
+            Data("\u{1B}]52;c;bGl2ZQ==\u{07}".utf8),
+        ])
+
+        // Only the reply in flight is dropped; later input is live, including
+        // a later clipboard reply for a query the live shell made.
+        #expect(forwarded == normalInput + Data("\u{1B}]52;c;bGl2ZQ==\u{07}".utf8))
+        #expect(!filter.isFilteringActive)
+    }
+
     @Test("OSC 52 bytes after filtering ends are forwarded unchanged")
     func forwardsClipboardSequenceAfterFilteringEnds() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
@@ -88,6 +109,21 @@ struct SSHPTYReconnectInputByteFilterClipboardTests {
     /// does when no byte arrives within its 25 ms continuation timeout: a
     /// filter reporting `hasPendingInput` is ended with `stopFiltering()` and
     /// the returned bytes are forwarded to the remote PTY.
+    /// Applies what the CLI stdin pump does when the output side asks it to
+    /// stop filtering: it forwards what `stopFiltering()` returns, then routes
+    /// each later read through the filter only while `isFilteringActive`,
+    /// forwarding reads unchanged once the filter reports it is done.
+    private func stopAndForward(
+        _ filter: inout SSHPTYReconnectInputByteFilter,
+        later reads: [Data]
+    ) -> Data {
+        var forwarded = filter.stopFiltering()
+        for read in reads {
+            forwarded.append(filter.isFilteringActive ? filter.filter(read) : read)
+        }
+        return forwarded
+    }
+
     private func expireContinuationTimeout(_ filter: inout SSHPTYReconnectInputByteFilter) -> Data {
         filter.hasPendingInput ? filter.stopFiltering() : Data()
     }
