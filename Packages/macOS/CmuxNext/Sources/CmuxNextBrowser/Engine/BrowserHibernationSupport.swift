@@ -22,9 +22,11 @@ extension WebKitTab: BrowserHibernationSource {
     /// Returns false when WebKit rejected it; the caller then loads the URL.
     @discardableResult
     public func restore(_ state: BrowserRestoreState) -> Bool {
-        guard case .webKit(let data) = state else { return false }
+        guard case .webKit(let data) = state, !data.isEmpty else { return false }
+        // WebKit loads the restored current item itself; loading the URL on
+        // top would add a history entry.
         webView.interactionState = data
-        return webView.backForwardList.currentItem != nil
+        return true
     }
 }
 

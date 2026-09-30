@@ -222,3 +222,15 @@ struct SurfaceLedgerWarmSetTests {
         #expect(ledger.capacity == 1)
     }
 }
+
+/// The warm set follows physical memory and memory pressure.
+struct WarmSetBudgetTests {
+    @Test func sizesFromMemoryAndShrinksUnderPressure() {
+        let gb: UInt64 = 1 << 30
+        #expect(WarmSetBudget.forMemory(physicalBytes: 8 * gb, pressure: .normal) == WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 64 * gb, pressure: .normal) == WarmSetBudget(terminalCapacity: 10, parkedWorkspaces: 3))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .normal) == WarmSetBudget(terminalCapacity: 12, parkedWorkspaces: 3))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .warning) == WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1))
+        #expect(WarmSetBudget.forMemory(physicalBytes: 256 * gb, pressure: .critical) == WarmSetBudget(terminalCapacity: 0, parkedWorkspaces: 0))
+    }
+}

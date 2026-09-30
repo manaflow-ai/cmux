@@ -74,6 +74,7 @@ class Bench:
         self.control = control
         self.app_pid = app_pid
         self.args = args
+        self.lag_samples = 0
 
     # -- workload -------------------------------------------------------
 
@@ -183,7 +184,13 @@ class Bench:
             for pane in window.get("panes", []):
                 if not pane.get("visible") or pane.get("selected_tab") is None:
                     continue
-                if pane.get("blank"):
+                lagging = pane.get("shown_tab") not in (None, pane.get("selected_tab")) and pane.get("content_visible", False)
+                if pane.get("blank") and lagging:
+                    # The previous tab still shows, drawn, until the next
+                    # display frame presents the new selection (per-frame
+                    # coalescing): not a blank frame. Counted apart.
+                    self.lag_samples += 1
+                elif pane.get("blank"):
                     violations.append(f"blank pane {pane['pane']} selected={pane.get('selected_tab')} shown={pane.get('shown_tab')}")
                 if "content_visible" in pane:
                     has_content_visible = True
@@ -204,6 +211,7 @@ class Bench:
         before = usage(self.app_pid)
         control.call("debug.frames", {"action": "start"}, timeout=10)
         changes, sampled, violations, transient = 0, 0, [], []
+        self.lag_samples = 0
         deadline = time.monotonic() + self.args.seconds
         interval = self.args.interval / 1000.0
         next_at = time.monotonic()
@@ -234,12 +242,13 @@ class Bench:
             "invariant_samples": sampled,
             "transient_violations": transient[:20],
             "transient_violation_count": len(transient),
+            "lagging_samples": self.lag_samples,
             "settled_violations": violations,
         }
         print(f"== {name}: {changes} changes, frames p50 {frames.get('p50_ms', 0):.1f} p99 {frames.get('p99_ms', 0):.1f} "
               f"max {frames.get('max_ms', 0):.1f} ms, missed {frames.get('missed')}, stalls {stalls}, "
               f"footprint {row['footprint_mb_before']} -> {row['footprint_mb_after']} MB, "
-              f"transient {len(transient)}/{sampled}, settled {len(violations)}")
+              f"transient {len(transient)}/{sampled} (lagging one frame {self.lag_samples}), settled {len(violations)}")
         for violation in violations:
             print(f"   SETTLED {violation}")
         return row

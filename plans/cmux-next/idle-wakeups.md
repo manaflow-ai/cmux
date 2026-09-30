@@ -153,6 +153,15 @@ cmux-tui hosted CI idle test (10 s, context switches per second): macOS daemon 3
 
 Every case returns to visible when shown. No visibility change was needed: the fork's tab strip hides inactive tabs as Chrome does, hidden content hides the page's host view, and a minimized parent hides the page window (occlusion). UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab (reaching them needs moving the user's windows or system input).
 
+### Tab lifecycle (tagged `tlnext`, 2dbaac77833, `bench-idle.sh --fresh`, 30 s per case, load average about 275)
+
+| Case | App wakeups/s | App CPU | Daemon wakeups/s | Renderers |
+| --- | --- | --- | --- | --- |
+| terminals | 0.63 | 0.010% | 0.03 | none |
+| chromium-static | 3.07 | 0.242% | 0.03 | 0.33 and 0.93 wakeups/s, under 0.01% CPU |
+
+Within the base range (0.28-0.45 and about 3). The ledger shows only `BusyWatchdog.window:deadline` (0.1/s): the content lifecycle, parked workspaces and hibernation add no periodic wakeup (hibernation arms one one-shot `DemandTimer` for the earliest page deadline, 60 min by default, and listens to the memory pressure dispatch source). chromium-hidden was skipped: its `workspace new` request missed the 2 s control deadline on the loaded machine.
+
 ## 8. Status and open items
 
 Landed on feat-cmux-next: primitives 4c2ec798a99; display-link migration, L1 red/green, accept backoff red/green, local PTY hangup, ChromiumWarmup, debug.wakeups, busy watchdog, gate rules, bench (this agent, f2d6ff9e9d2 through the bench commits); reconnect and IO loops ad7db2fa600, 887b84df5ca, 2f862b32b3e; CEF pump 15d83591310, 23289d1437c; cmux-tui dc5cb26c16d, 51b68635143, pin 98d5750d09e; minimize action bd75453ec9b.

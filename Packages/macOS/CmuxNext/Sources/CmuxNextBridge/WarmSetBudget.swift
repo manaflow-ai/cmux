@@ -21,12 +21,13 @@ public struct WarmSetBudget: Hashable, Sendable {
         self.parkedWorkspaces = max(0, parkedWorkspaces)
     }
 
-    /// Estimated cost of one hidden terminal surface (grid, atlas share,
-    /// Metal layer backing store).
-    public static let terminalCostBytes: UInt64 = 16 << 20
+    /// Measured cost of one hidden terminal surface in the app's footprint
+    /// (triple-buffered IOSurfaces at a 1100x720 point window on a 2x
+    /// display, grid, atlas share): about 48 MB.
+    public static let terminalCostBytes: UInt64 = 48 << 20
 
-    /// 1/64 of physical memory for hidden terminal surfaces (4 to 24 of
-    /// them) and one parked workspace per 8 GB (1 to 4). Under a pressure
+    /// 1/128 of physical memory for hidden terminal surfaces (4 to 12 of
+    /// them) and one parked workspace per 16 GB (1 to 3). Under a pressure
     /// warning 4 surfaces and 1 workspace; critical keeps only what shows.
     public static func forMemory(physicalBytes: UInt64, pressure: MemoryPressureLevel) -> WarmSetBudget {
         switch pressure {
@@ -35,9 +36,9 @@ public struct WarmSetBudget: Hashable, Sendable {
         case .warning:
             return WarmSetBudget(terminalCapacity: 4, parkedWorkspaces: 1)
         case .normal:
-            let surfaces = Int((physicalBytes / 64) / terminalCostBytes)
-            let workspaces = Int(physicalBytes / (8 << 30))
-            return WarmSetBudget(terminalCapacity: min(24, max(4, surfaces)), parkedWorkspaces: min(4, max(1, workspaces)))
+            let surfaces = Int((physicalBytes / 128) / terminalCostBytes)
+            let workspaces = Int(physicalBytes / (16 << 30))
+            return WarmSetBudget(terminalCapacity: min(12, max(4, surfaces)), parkedWorkspaces: min(3, max(1, workspaces)))
         }
     }
 
