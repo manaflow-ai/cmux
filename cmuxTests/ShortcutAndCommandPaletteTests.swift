@@ -599,6 +599,14 @@ final class FullScreenShortcutTests: XCTestCase {
                 usesInlineTextHandling: false
             )
         )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: false,
+                isAgentInboxReplyFieldFocused: true
+            )
+        )
     }
 }
 

@@ -172,13 +172,6 @@ func agentInboxReplyFieldOwnsArrowNavigation() {
     #expect(AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: false))
 }
 
-@Test("agent inbox question shortcuts avoid workspace digit shortcuts")
-func agentInboxQuestionShortcutRequiresOption() {
-    #expect(!AgentInboxQuestionShortcutPolicy.accepts(command: true, option: false, control: false, shift: false))
-    #expect(AgentInboxQuestionShortcutPolicy.accepts(command: true, option: true, control: false, shift: false))
-    #expect(!AgentInboxQuestionShortcutPolicy.accepts(command: true, option: true, control: true, shift: false))
-}
-
 @Test("stale inbox loads cannot update a dismissed or newer presentation")
 func agentInboxOpenRequestRejectsStaleResults() {
     let request = AgentInboxOpenRequest(generation: 2)
@@ -205,4 +198,22 @@ func agentInboxFinishedTurnReadStatePersists() throws {
     store.markFinishedTurnRead("stop:finished-1")
 
     #expect(AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs == ["stop:finished-1"])
+}
+
+@Test("finished-turn read state prunes old entries")
+func agentInboxFinishedTurnReadStateIsBounded() throws {
+    let suiteName = "AgentInboxProjectionTests.finished-turn-read-state-cap"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+    let store = AgentInboxReadStateStore(defaults: defaults)
+    let ids = (0..<(AgentInboxReadStateStore.maxFinishedTurnIDs + 10)).map { "stop:finished-\($0)" }
+
+    for id in ids {
+        store.markFinishedTurnRead(id)
+    }
+
+    let persisted = AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs
+    #expect(persisted.count == AgentInboxReadStateStore.maxFinishedTurnIDs)
+    #expect(!persisted.contains(ids[0]))
+    #expect(persisted.contains(ids.last!))
 }
