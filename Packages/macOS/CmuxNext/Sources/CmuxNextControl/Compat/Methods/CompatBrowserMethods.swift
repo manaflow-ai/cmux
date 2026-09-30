@@ -128,8 +128,12 @@ enum CompatBrowserMethods {
         result["source_pane_ref"] = .string(source.ref)
         result["target_pane_id"] = result["pane_id"]
         result["target_pane_ref"] = result["pane_ref"]
-        result["created_split"] = true
-        result["placement_strategy"] = "split_right"
+        result.merge(placementFields(.split)) { $1 }
         return .object(result)
+    }
+
+    /// The reply fields that say where the tab went.
+    static func placementFields(_ placement: CompatBrowserSplitPlacement) -> [String: JSON] {
+        ["created_split": true, "placement_strategy": "split_right"]
     }
 }
