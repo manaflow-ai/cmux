@@ -11,6 +11,7 @@ import Testing
         return arguments[index + 1]
     }
 
+    /// The OpenCode invocation must read only the prompt in cmux's temporary directory.
     @Test func argumentsKeepTheSummarizerInItsTemporaryDirectory() throws {
         let arguments = AutoNamingEnvironmentPolicy.openCodeSummarizerArguments(
             directory: "/tmp/cmux-autoname",
@@ -23,6 +24,7 @@ import Testing
         #expect(arguments.contains("Generate a 2-5 word title from the attached conversation excerpt. Output only the title."))
     }
 
+    /// The environment denies tools and config overrides while retaining provider credentials.
     @Test func environmentDisablesOpenCodeToolsAndProjectConfig() throws {
         let environment = policy.openCodeSummarizerEnvironment(from: [
             "CMUX_WORKSPACE_ID": "workspace",

@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Runs one generic agent's detached, tool-disabled title summarizer.
     func runAutoNamingSummarizer(
         def: AgentHookDef,
         prompt: String,

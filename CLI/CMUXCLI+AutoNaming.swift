@@ -156,6 +156,9 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     /// request itself.
     static let openCodeDenyAllPermissionsJSON = #"{"*":"deny"}"#
 
+    /// Returns the provider-capable environment for an isolated OpenCode pass.
+    /// User-selected config paths are removed so only cmux's temporary project
+    /// and the global provider discovery path remain visible.
     func openCodeSummarizerEnvironment(from env: [String: String]) -> [String: String] {
         let configOverrideKeys = [
             "OPENCODE_CONFIG",
