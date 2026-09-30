@@ -139,7 +139,9 @@
     "backToBlog": "กลับไปบล็อก",
     "readTheDocs": "อ่านเอกสาร",
     "viewChangelog": "ดู Changelog",
-    "otherPlatforms": "แพลตฟอร์มอื่น ๆ"
+    "otherPlatforms": "แพลตฟอร์มอื่น ๆ",
+    "copyCode": "คัดลอกโค้ด",
+    "copied": "คัดลอกแล้ว"
   },
   "nav": {
     "docs": "เอกสาร",
@@ -1541,7 +1543,6 @@
       "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์ (Option+Z).",
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
       "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",
@@ -2330,6 +2331,28 @@
       "fixTransferDisabled": "นโยบายที่มีการจัดการปิดการถ่ายโอนไฟล์ ติดต่อผู้ดูแลระบบ",
       "supportTitle": "ขอความช่วยเหลือ",
       "supportDesc": "หากการสร้างล้มเหลว ให้ใช้ Copy Error ในการแจ้งเตือน แล้วแนบข้อผิดพลาดพร้อม trace ID (ถ้ามี) เมื่อติดต่อฝ่ายสนับสนุน"
+    },
+    "ui": {
+      "onThisPage": "ในหน้านี้",
+      "copyPage": "คัดลอกหน้า",
+      "copyPageDesc": "คัดลอกหน้าเป็น Markdown สำหรับ LLM",
+      "copied": "คัดลอกแล้ว",
+      "pageActions": "การทำงานเพิ่มเติมของหน้า",
+      "openInChatGPT": "เปิดใน ChatGPT",
+      "openInClaude": "เปิดใน Claude",
+      "openInDesc": "ถามคำถามเกี่ยวกับหน้านี้",
+      "askPrompt": "อ่าน {url} เพื่อให้ฉันถามคำถามเกี่ยวกับหน้านี้ได้",
+      "previous": "ก่อนหน้า",
+      "next": "ถัดไป",
+      "helpful": "หน้านี้มีประโยชน์หรือไม่?",
+      "yes": "ใช่",
+      "no": "ไม่",
+      "thanks": "ขอบคุณสำหรับความคิดเห็น",
+      "raiseIssue": "แจ้งปัญหา",
+      "openNavigation": "เปิดการนำทาง",
+      "closeNavigation": "ปิดการนำทาง",
+      "searchShortcut": "ค้นหาเอกสาร (⌘K)",
+      "navigation": "เอกสาร"
     }
   },
   "legal": {
