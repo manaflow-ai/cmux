@@ -14,6 +14,14 @@ name: iOS E2E
 # still reports green.
 on:
   workflow_dispatch:
+    inputs:
+      connectivity_only:
+        description: Verify Tailscale authentication and backend access without app tests
+        type: boolean
+        default: false
+      backend_probe_url:
+        description: Existing dev-backend Serve URL (required for connectivity_only)
+        type: string
   pull_request:
 
 permissions:
@@ -41,7 +49,56 @@ env:
   CMUX_E2E_BACKEND_HOST: cmux-dev-backend-1.tail137216.ts.net
 
 jobs:
+  tailnet-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.connectivity_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate backend probe URL
+        env:
+          BACKEND_PROBE_URL: ${{ inputs.backend_probe_url }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+          url = urlsplit(os.environ["BACKEND_PROBE_URL"])
+          if not (
+              url.scheme == "https"
+              and url.hostname == os.environ["CMUX_E2E_BACKEND_HOST"]
+              and url.port is not None and 3800 <= url.port <= 4799
+              and url.username is None and url.password is None
+              and url.path in ("", "/") and not url.query and not url.fragment
+          ):
+              raise SystemExit("Expected the dev-backend HTTPS origin on port 3800-4799")
+          PY
+
+      - name: Join tailnet with GitHub identity
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+        with:
+          oauth-client-id: ${{ vars.TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_OIDC_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Verify backend SSH and HTTPS
+        env:
+          BACKEND_PROBE_URL: ${{ inputs.backend_probe_url }}
+        run: |
+          set -euo pipefail
+          # Expand id on the backend, not the runner.
+          # shellcheck disable=SC2016
+          timeout 60s tailscale ssh "ubuntu@${CMUX_E2E_BACKEND_HOST}" \
+            'test "$(id -un)" = ubuntu && curl -fsS --max-time 20 http://127.0.0.1:8477/healthz' \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+          code="$(curl --silent --show-error --max-time 30 --output /dev/null \
+            --write-out '%{http_code}' "$BACKEND_PROBE_URL")"
+          test "$code" = 200
+          echo 'Tailscale identity, backend SSH as ubuntu, and Serve HTTPS passed.' >> "$GITHUB_STEP_SUMMARY"
+
   route:
+    if: ${{ !inputs.connectivity_only }}
     # Decides whether the lane runs and which backend stack tag it uses.
     # Cheap Linux layer so every PR gets a routed conclusion (see header).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -111,6 +168,9 @@ jobs:
           echo "route: run_e2e=$run_e2e web_changed=$web_changed backend_tag=$backend_tag"
 
   backend:
+    permissions:
+      contents: read
+      id-token: write
     # Ensures a dev backend stack (web + Postgres) for this run's tag on the
     # durable VM and proves the runner-side tailnet path to it before either
     # macOS job spends its queue slot.
@@ -130,12 +190,10 @@ jobs:
       backend_url: ${{ steps.ensure.outputs.backend_url }}
     steps:
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA like the other third-party
-        # actions in this repo once the action version settles.
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ vars.TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_OIDC_AUDIENCE }}
           tags: tag:ci
 
       - name: Ping backend host
@@ -160,11 +218,10 @@ jobs:
           # dev-backend.sh) owns these stacks: `dev-backend.sh url --tag
           # <tag>` ensures the tagged web+Postgres Docker stack on the VM and
           # prints its private Tailscale Serve URL; `status` shows the
-          # 12-running / 64-registered stack budget this job must respect
+          # current stack budget this job must respect
           # before ensuring. It drives the VM's control API over SSH, so CI
-          # needs a dedicated deploy key — secret CMUX_DEV_BACKEND_SSH_KEY,
-          # NOT yet provisioned — loaded into an ssh-agent here and never
-          # written to disk or echoed. Until that lands, emit the serve
+          # uses Tailscale SSH as ubuntu, authorized by the tailnet policy;
+          # no private SSH key is needed. Until that lands, emit the serve
           # origin shape so the drivers fail loudly against a missing stack
           # instead of a missing variable.
           backend_url="https://${CMUX_E2E_BACKEND_HOST}"
@@ -172,6 +229,9 @@ jobs:
           echo "ensure (stub): tag=$BACKEND_TAG url=$backend_url" >> "$GITHUB_STEP_SUMMARY"
 
   mac-host:
+    permissions:
+      contents: read
+      id-token: write
     # Compiles nothing: reuses the prebuilt tagged Mac app, signs it into the
     # CI Stack account, advertises it through the backend so the iOS client
     # can discover it, then blocks on the done-file until the iOS job signals
@@ -225,9 +285,10 @@ jobs:
         # the action's macOS-runner support on the Blacksmith image.
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ vars.TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_OIDC_AUDIENCE }}
           tags: tag:ci
+          args: --ssh
           # Deterministic name (see workflow env): the parallel iOS job must
           # be able to SSH here without a runtime hostname exchange.
           hostname: ${{ env.CMUX_E2E_MAC_TAILNET_HOSTNAME }}
@@ -268,6 +329,9 @@ jobs:
         run: ./scripts/e2e/mac-host.sh
 
   ios-e2e:
+    permissions:
+      contents: read
+      id-token: write
     # The client half: fresh named simulator, prebuilt sim app, sign-in ->
     # pair -> Iroh connect -> 6-step terminal script (scripts/e2e/README.md).
     # Runs in parallel with mac-host (see that job's comment) and ALWAYS
@@ -319,11 +383,10 @@ jobs:
           exit 1
 
       - name: Join tailnet
-        # TODO(ios-e2e): pin to a commit SHA (see backend job).
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ vars.TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_OIDC_AUDIENCE }}
           tags: tag:ci
           hostname: cmux-e2e-ios-${{ github.run_id }}
 
@@ -395,13 +458,15 @@ jobs:
     # needed job failed, was cancelled, or was skipped unexpectedly. Fork PRs
     # are a neutral skip — the secret-fenced jobs cannot run there, and a red
     # would block every outside contribution.
-    needs: [route, backend, mac-host, ios-e2e]
+    needs: [tailnet-preflight, route, backend, mac-host, ios-e2e]
     if: always()
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate
         env:
+          CONNECTIVITY_ONLY: ${{ inputs.connectivity_only }}
+          PREFLIGHT_RESULT: ${{ needs.tailnet-preflight.result }}
           ROUTE_RESULT: ${{ needs.route.result }}
           RUN_E2E: ${{ needs.route.outputs.run_e2e }}
           BACKEND_TAG: ${{ needs.route.outputs.backend_tag }}
@@ -411,6 +476,11 @@ jobs:
           IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           set -euo pipefail
+          if [ "$CONNECTIVITY_ONLY" = "true" ]; then
+            echo "- Tailscale connectivity: $PREFLIGHT_RESULT (app E2E not run)" >> "$GITHUB_STEP_SUMMARY"
+            test "$PREFLIGHT_RESULT" = success
+            exit
+          fi
           {
             echo "### iOS E2E"
             echo "- route: $ROUTE_RESULT (run_e2e=${RUN_E2E:-<unset>}, backend tag=${BACKEND_TAG:-<unset>})"

@@ -40,6 +40,7 @@ each step covers live in [scripts/e2e/README.md](../../scripts/e2e/README.md).
 | Job | Runner | Timeout | Does |
 | --- | --- | --- | --- |
 | `route` | Linux (`blacksmith-4vcpu-ubuntu-2404`) | 5m | Sets `run_e2e=true` for manual dispatch; pull-request runs are skipped, with a backend tag selected for dispatch. |
+| `tailnet-preflight` | Linux | 5m | Optional manual connectivity check: GitHub identity authentication, backend SSH as `ubuntu`, and an existing Serve HTTPS URL. Skips app jobs. |
 | `backend` | Linux | 10m | Joins the tailnet (`tailscale/github-action@v4`, tag:ci), pings the backend host, ensures the tagged stack (stub; real call is cmuxterm-hq `scripts/dev-backend.sh url --tag <tag>` over SSH). |
 | `mac-host` | macOS (`MACOS_RUNNER_PR` or `blacksmith-6vcpu-macos-26`) | 45m | Downloads the prebuilt Mac app (reuse pending), joins the tailnet under the deterministic name `cmux-e2e-mac-<run_id>`, launches signed into the CI Stack account, advertises through the backend, waits on `/tmp/e2e-done-<run_id>` (bounded ~25m). |
 | `ios-e2e` | macOS (`MACOS_RUNNER_IOS` fallback chain) | 45m | Downloads the sim app product (pending), boots a fresh per-run simulator, runs `scripts/e2e/ios-e2e-run.sh`, then ALWAYS signals the Mac's done-file over Tailscale SSH, uploads evidence, deletes the sim. |
@@ -60,13 +61,43 @@ cancelled, or was skipped unexpectedly; neutral-skip green on fork PRs (the
 secret-fenced jobs cannot run there). It writes the route decision and each
 job's result to the step summary.
 
-## Secrets
+## Authentication
+
+Tailscale uses GitHub workload identity federation. Repository variables
+`TS_OIDC_CLIENT_ID` and `TS_OIDC_AUDIENCE` contain non-secret configuration.
+Only jobs joining the tailnet receive `id-token: write`. No Tailscale OAuth
+secret or backend SSH private key is required.
+
+The federated credential has only `auth_keys` Write and `tag:ci`. Restrict
+its issuer to `https://token.actions.githubusercontent.com`, subject to
+`repo:manaflow-ai/cmux:ref:refs/heads/main`, and custom claims to:
+
+```json
+{
+  "repository_id": "1144115288",
+  "repository_owner_id": "171392238",
+  "workflow_ref": "manaflow-ai/cmux/.github/workflows/ios-e2e.yml@refs/heads/main",
+  "event_name": "workflow_dispatch"
+}
+```
+
+This permits the current manual-only lane on `main`. PR automation needs a
+separately reviewed trust policy before promotion. To validate a migration
+before merge, temporarily restrict the credential to the exact test branch
+and `workflow_sha`, then restore the main-only trust after the run.
+
+Dispatch `ios-e2e.yml` with `connectivity_only=true` and `backend_probe_url`
+set to an existing, running dev-backend Serve origin including its port.
+This checks authentication, SSH access to the backend control service, and
+HTTP 200 from the HTTPS origin without modifying backend stacks or starting
+app jobs. The aggregate labels this as connectivity verification, not an
+app E2E pass.
+
+### App secrets
 
 | Secret | Jobs | Purpose |
 | --- | --- | --- |
-| `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | backend, mac-host, ios-e2e | Tailnet OAuth join, tag:ci. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | mac-host, ios-e2e | Dedicated CI Stack account, same pair as ios-streamed-validate.yml; both ends must resolve one account for pairing's same-account RPC gate. |
-| `CMUX_DEV_BACKEND_SSH_KEY` | backend | **Not yet provisioned.** Deploy key for the VM's dev-backend control API, needed by the real ensure call. |
 
 Secrets travel only through step environments, never argv, never echoed.
 Every secret-mounting job is fenced with
@@ -76,11 +107,13 @@ forks as a neutral skip instead of a red.
 
 ## Tailscale ACL requirements
 
-- `tag:ci` → `cmux-dev-backend-1.tail137216.ts.net` on 443 (Tailscale Serve
-  web API for sign-in/pairing/advertise) and 22 (dev-backend control SSH,
-  once the ensure call lands).
+- `tag:ci` → `tag:dev-backend` on 3800-4799 (Tailscale Serve web API for
+  sign-in/pairing/advertise) and 22 (dev-backend control SSH). The SSH policy
+  permits only `ubuntu`. Tailscale SSH owns tailnet port 22 on this host,
+  so an OpenSSH private key does not authenticate this connection.
 - `tag:ci` → `tag:ci` on port 22 ONLY (Tailscale SSH, for the done-file
-  signal), with an SSH rule mapping to the runner login user.
+  signal), with an SSH rule permitting only `runner`. The Mac host enables
+  the Tailscale SSH server using `--ssh`.
 
 The narrowness of the second rule is load-bearing: if runners could reach
 each other on arbitrary ports, Iroh's path probing could discover the
@@ -105,7 +138,7 @@ does not count against the lane's flake budget during shadow. A red with no
 1. **Shadow.** The workflow runs on manual dispatch while pull-request runs are skipped, and
    on dispatch. Expected red until the TODOs land, in this order: real
    router via `scripts/ci/detect_ci_change_areas.py`; backend ensure with
-   `CMUX_DEV_BACKEND_SSH_KEY`; Mac app product reuse
+   Tailscale SSH as `ubuntu`; Mac app product reuse
    (`scripts/ci/reuse_app_host_products.py` consumer path); iOS sim product
    reuse (test-ios.yml's `ios-test-product-*` artifact); the two driver
    scripts. During shadow, track pass rate and `[infra-preflight]` rate
