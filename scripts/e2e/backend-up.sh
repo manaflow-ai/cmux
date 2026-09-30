@@ -37,6 +37,8 @@
 # Usage: backend-up.sh up     start and health-check everything, then return
 #        backend-up.sh hold   block until CMUX_E2E_BACKEND_DONE_FILE appears
 #                             or CMUX_E2E_WAIT_TIMEOUT_SECONDS expires
+#        backend-up.sh down   stop and remove everything `up` created; safe to
+#                             run after any partial `up`, and more than once
 #
 # Env contract (docs/ci/ios-e2e.md#per-run-backend):
 #   CMUX_E2E_BACKEND_FQDN            tailnet name this runner joined with
@@ -279,8 +281,42 @@ hold() {
   phase "done" "completion signal received"
 }
 
+# Everything `up` leaves behind: three process trees, the Postgres container,
+# Serve listeners, and secret-bearing files (.dev.vars with the Stack server
+# key and the per-run relay key, the TLS key). Each step tolerates a missing
+# piece, so `down` also cleans a failed or partial `up`.
+down() {
+  local pid_file pid
+  for pid_file in "$STATE"/*.pid; do
+    [[ -f "$pid_file" ]] || continue
+    pid="$(cat "$pid_file")"
+    # The subshells exec wrangler, which spawns workerd; stop the children
+    # first so no workerd outlives its parent.
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  local deadline=$(( $(date +%s) + 10 ))
+  for pid_file in "$STATE"/*.pid; do
+    [[ -f "$pid_file" ]] || continue
+    pid="$(cat "$pid_file")"
+    while kill -0 "$pid" 2>/dev/null && (( $(date +%s) < deadline )); do sleep 0.2; done
+    pkill -KILL -P "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
+    rm -f "$pid_file"
+  done
+  docker rm -f -v "$PG_CONTAINER" >/dev/null 2>&1 || true
+  sudo tailscale serve reset >/dev/null 2>&1 || true
+  rm -f "$REPO_ROOT/workers/iroh-v2/.dev.vars" "$REPO_ROOT/workers/presence/.dev.vars"
+  # Root owns the TLS files (chowned for Postgres), so remove them with sudo;
+  # logs survive for the upload step, which runs before `down`.
+  sudo rm -rf "${STATE:?}/tls" "${STATE:?}/wrangler-iroh-v2" "${STATE:?}/wrangler-presence" \
+    "${STATE:?}/relay.toml"
+  phase down "stopped processes, removed Postgres, Serve, secrets and state"
+}
+
 case "${1:-}" in
   up) up ;;
   hold) hold ;;
-  *) echo "usage: $0 up|hold" >&2; exit 2 ;;
+  down) down ;;
+  *) echo "usage: $0 up|hold|down" >&2; exit 2 ;;
 esac

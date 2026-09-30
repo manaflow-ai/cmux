@@ -274,6 +274,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # Runs after the log upload. Blacksmith runners are ephemeral, but the
+      # job must not rely on that: stop every process and delete the files
+      # that hold the Stack server key and the per-run keys.
+      - name: Stop per-run backend
+        if: always()
+        run: ./scripts/e2e/backend-up.sh down
+
   mac-ios-e2e:
     # The Mac and simulator share one runner. That removes the runner-to-runner
     # network shortcut while relay-only policy keeps terminal traffic on the
