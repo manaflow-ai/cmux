@@ -64,8 +64,10 @@ TIMINGS_FILE="$EVIDENCE_DIR/steps.jsonl"
 : > "$TIMINGS_FILE"
 
 fail() {
-  echo "E2E FAIL [$STEP_NAME]: $*" >&2
+  echo "E2E FAIL step=$STEP_NAME: $*" >&2
   shot "failure"
+  # Keep a stable final line for CI result parsers and failure attribution.
+  echo "E2E FAIL step=$STEP_NAME" >&2
   exit 1
 }
 
