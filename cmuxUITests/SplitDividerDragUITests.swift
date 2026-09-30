@@ -293,13 +293,25 @@ final class SplitDividerDragUITests: SettingsUITestCase {
         let target = point(in: window, x: before.maxX - 24, y: before.midY)
         source.press(forDuration: 0.3, thenDragTo: target)
 
-        let split = poll(timeout: 6) { terminal.frame.width < before.width * 0.75 }
+        let findField = app.descendants(matching: .any)["TerminalFindSearchTextField"]
+        var findFrame = CGRect.zero
+        let split = poll(timeout: 6) {
+            findFrame = findField.frame
+            let terminalFrame = terminal.frame
+            let terminalResized = terminalFrame.width < before.width * 0.75
+            let findPaneIsAdjacent = findField.exists
+                && findFrame.width > 20
+                && findFrame.minX >= terminalFrame.maxX - 8
+                && findFrame.maxY >= terminalFrame.minY
+                && findFrame.minY <= terminalFrame.maxY
+            return terminalResized && findPaneIsAdjacent
+        }
         attach(window.screenshot(), name: "02 after sidebar tool drag")
         session.attachDragLog(to: self)
         XCTAssertTrue(
             split,
-            "Expected dropping the Find tool on the pane's right edge to split it. " +
-                "before=\(before) after=\(terminal.frame)"
+            "Expected dropping the Find tool on the pane's right edge to split it and expose an adjacent Find pane. " +
+                "before=\(before) terminal=\(terminal.frame) findField=\(findFrame)"
         )
     }
 
