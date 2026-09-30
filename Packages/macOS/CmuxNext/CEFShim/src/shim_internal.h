@@ -40,6 +40,9 @@ struct ForkApi {
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;
+  // API version 8: Chromium never shows a window of its own.
+  void (*set_window_request_handler)(int (*)(void*, const void*), void*) = nullptr;
+  int (*foreign_browser_count)() = nullptr;
 };
 
 struct Host {
@@ -48,6 +51,7 @@ struct Host {
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
+  cmux_shim_window_request_fn window_request = nullptr;
 };
 
 ForkApi& fork_api();
@@ -86,6 +90,19 @@ CefRefPtr<CefClient> MakeClient(int request);
 // Client for browsers Chromium creates in windows the host did not create
 // (CefBrowserProcessHandler::GetDefaultClient).
 CefRefPtr<CefClient> DefaultClient();
+
+// Popups a page asked for (OnBeforePopup), waiting for their
+// OnAfterCreated: the disposition and window features go with the new tab's
+// AFTER_CREATED event (shim_windows.mm).
+void RememberPopup(int opener, int disposition, const CefPopupFeatures& features);
+// Returns opener << 32 | disposition for AFTER_CREATED's b, and the window
+// features ("x,y,width,height" or ""). Takes the opener's oldest popup.
+int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features);
+void ForgetPopups(int opener);
+// Chrome commands that would open a window of Chromium's own.
+bool IsWindowCommand(int command_id);
+// Binds the host's window request handler to the fork (API 8).
+void InstallWindowRequestHandler();
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

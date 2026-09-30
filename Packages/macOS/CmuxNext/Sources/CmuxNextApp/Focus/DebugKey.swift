@@ -21,7 +21,7 @@ enum DebugKey {
         "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
         "pageup": (String(UnicodeScalar(NSPageUpFunctionKey)!), 116), "pagedown": (String(UnicodeScalar(NSPageDownFunctionKey)!), 121),
         "home": (String(UnicodeScalar(NSHomeFunctionKey)!), 115), "end": (String(UnicodeScalar(NSEndFunctionKey)!), 119),
-        "delete": ("\u{7f}", 51), "forwarddelete": (String(UnicodeScalar(NSDeleteFunctionKey)!), 117), "a": ("a", 0),
+        "delete": ("\u{7f}", 51), "forwarddelete": (String(UnicodeScalar(NSDeleteFunctionKey)!), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
     ]
 
     /// ANSI virtual key codes, so Chromium accelerators (extension commands

@@ -95,4 +95,17 @@ import Testing
         #expect(CEFDisposition(raw: 7).tabDisposition == nil)
         #expect(CEFDisposition(raw: 99) == .unknown)
     }
+
+    /// AFTER_CREATED carries the opener, its disposition and window features,
+    /// so a popup the fork placed opens as a popup, a background tab stays
+    /// in the background.
+    @Test func afterCreatedCarriesTheOpenerAndDisposition() {
+        let event = CEFShimEvent(kind: 2, browser: 12, request: 0, a: 0, b: (Int64(7) << 32) | 5,
+                                 s1: "10,20,400,300", s2: "")
+        #expect(event == .afterCreated(browser: 12, request: 0, window: 0, created: CEFCreatedBy(
+            opener: 7, disposition: .newPopup, features: CGRect(x: 10, y: 20, width: 400, height: 300)
+        )))
+        #expect(CEFShimEvent(kind: 26, browser: 3, request: 34001, a: 0, b: 0, s1: "", s2: "")
+            == .chromeCommand(browser: 3, command: 34001))
+    }
 }

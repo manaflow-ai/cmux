@@ -65,6 +65,11 @@ final class AppServices {
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
+        cache.cef.openURLWithoutWindow = { [weak self] url, disposition in
+            // Chromium wanted a window and has none for that profile: a new
+            // browser tab in the focused pane (Chromium opens nothing).
+            self?.windows?.active?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+        }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self

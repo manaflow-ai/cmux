@@ -30,8 +30,9 @@ nonisolated enum ChromiumWindowVerdict: Equatable, Sendable {
 }
 
 nonisolated enum ChromiumWindowRule {
-    /// Today nothing is checked: Chromium's windows show as they are.
     static func verdict(_ facts: ChromiumWindowFacts) -> ChromiumWindowVerdict {
-        .allow
+        guard facts.chromium, facts.visible, !facts.hasParent, facts.titled,
+              !facts.devTools, !facts.floating else { return .allow }
+        return facts.browserWindow ? .hide : .close
     }
 }

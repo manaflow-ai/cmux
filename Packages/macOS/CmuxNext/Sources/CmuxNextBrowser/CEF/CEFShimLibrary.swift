@@ -17,6 +17,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         UnsafePointer<CChar>?, UnsafePointer<CChar>?
     ) -> Void
     typealias KeyFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Int32
+    /// `cmux_shim_window_request_fn`: ctx, kind, disposition, source,
+    /// has_bounds, x, y, width, height, url, profile path -> anchor browser.
+    typealias WindowRequestFn = @convention(c) (
+        UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32,
+        UnsafePointer<CChar>?, UnsafePointer<CChar>?
+    ) -> Int32
 
     let abiIDFn: @convention(c) () -> UnsafePointer<CChar>?
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
@@ -88,6 +94,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let liveBrowserCount: @convention(c) () -> Int32
     let windowCount: @convention(c) () -> Int32
     let shutdown: @convention(c) () -> Void
+    /// Chromium never shows a window of its own (fork API 8; no-op before).
+    let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// Browsers Chromium created outside cmux (fork API 8; -1 before).
+    let foreignBrowserCount: @convention(c) () -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -182,6 +192,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
+        setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")

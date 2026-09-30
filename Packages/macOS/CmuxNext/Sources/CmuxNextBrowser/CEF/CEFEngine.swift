@@ -91,6 +91,18 @@ public final class CEFEngine: BrowserEngine {
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
+    /// Chromium asked for a window (a link, `window.open`,
+    /// `chrome.windows.create`) and no Chromium window of its profile exists:
+    /// Chromium opens nothing, and this opens the URL in a new cmux tab.
+    public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)? {
+        get { CEFRuntime.shared.openURLWithoutWindow }
+        set { CEFRuntime.shared.openURLWithoutWindow = newValue }
+    }
+
+    /// Chromium never opens a window of its own: what the window requests,
+    /// the fork's guard and the app's window guard saw (`debug.cef`).
+    public var windowReport: CEFWindowReport { CEFRuntime.shared.windowReport }
+
     /// Synchronous tab creation for the debug window: the first call maps
     /// the framework on the main thread. App code uses `makeTab`.
     public func makeCEFTab(_ configuration: BrowserTabConfiguration) throws -> CEFTab {

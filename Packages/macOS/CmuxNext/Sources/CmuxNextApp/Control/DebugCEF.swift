@@ -32,6 +32,7 @@ enum DebugCEF {
         }
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+        object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -69,6 +70,23 @@ enum DebugCEF {
             }
         }
         return out
+    }
+
+    /// Chromium never opens a window of its own: `chromium_windows` must be
+    /// empty; `guard_blocked` counts windows the app hid after they showed.
+    private static func windows(_ report: CEFWindowReport) -> JSONValue {
+        .object([
+            "chromium_windows": .array(report.chromiumWindows.map { .string($0) }),
+            "requests": .number(Double(report.requests)),
+            "refused": .number(Double(report.refused)),
+            "recent": .array(report.recent.map { .string($0) }),
+            "blocked_commands": .array(report.blockedCommands.map { .number(Double($0)) }),
+            "fork_foreign_browsers": .number(Double(report.foreignBrowsers)),
+            "guard_blocked": .number(Double(report.guardBlocked)),
+            "guard_recent": .array(report.guardRecent.map { .string($0) }),
+            "unplaced_tabs": .number(Double(report.unplacedTabs)),
+            "fork_api": .number(Double(report.forkAPIVersion)),
+        ])
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {

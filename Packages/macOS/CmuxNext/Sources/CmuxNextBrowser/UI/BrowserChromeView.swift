@@ -350,7 +350,9 @@ public final class BrowserChromeView: NSView {
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
         let content = tab.contentView
-        let bars = ([findBar, promptBar] as [NSView]).filter { !$0.isHidden && $0.superview != nil }
+        var candidates: [NSView] = [findBar, promptBar]
+        if let notice = currentNotice { candidates.append(notice) }
+        let bars = candidates.filter { !$0.isHidden && $0.superview != nil }
         let rects = (bars + pageStatus.shown).map { convert($0.frame, to: content) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }

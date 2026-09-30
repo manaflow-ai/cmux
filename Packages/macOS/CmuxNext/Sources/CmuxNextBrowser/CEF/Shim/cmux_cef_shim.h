@@ -30,7 +30,11 @@ extern "C" {
 typedef enum {
   CMUX_SHIM_CONTEXT_INITIALIZED = 1,
   // browser_id created; request = token passed to create_window (0 when
-  // Chromium created the tab itself); a = Chromium window id.
+  // Chromium created the tab itself); a = Chromium window id (0 while the
+  // tab is in no window yet: a popup before Chromium places it);
+  // b = opener browser id << 32 | the cef_window_open_disposition_t the
+  // opener asked for (0 = unknown); s1 = "x,y,width,height" window features
+  // of a popup, or "".
   CMUX_SHIM_AFTER_CREATED = 2,
   CMUX_SHIM_BEFORE_CLOSE = 3,
   CMUX_SHIM_ADDRESS = 4,          // s1 = url (main frame)
@@ -69,6 +73,11 @@ typedef enum {
   CMUX_SHIM_RENDER_UNRESPONSIVE = 24,
   // The renderer answers again after RENDER_UNRESPONSIVE.
   CMUX_SHIM_RENDER_RESPONSIVE = 25,
+  // A Chrome command that opens a window of Chromium's own (New Window,
+  // New Incognito Window, Task Manager, feedback, guest profile, Move Tab to
+  // New Window, app windows). The shim blocked it; request = the IDC_*
+  // command id (chrome/app/chrome_command_ids.h).
+  CMUX_SHIM_CHROME_COMMAND = 26,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -95,6 +104,28 @@ typedef void (*cmux_shim_event_fn)(void* ctx,
 // Main thread, before the page sees a key down. ns_event is an NSEvent*.
 // Return 1 when the host consumed it.
 typedef int (*cmux_shim_key_fn)(void* ctx, int browser_id, void* ns_event);
+// Main thread, possibly inside a Chromium navigation (fork API 8). Chromium
+// wants a window of its own, or a tab with no window to hold it: a link or
+// window.open that opens a new window or popup, a link from a chrome://
+// page, chrome.windows.create, a Browser Chromium created by itself.
+// kind = cmux_window_request_kind_t of the fork (0 tab, 1 window, 2 popup,
+// 3 incognito, 4 app); disposition = the requested
+// cef_window_open_disposition_t; source_browser_id = the tab that asked, or
+// 0; x/y/width/height are valid when has_bounds (screen DIPs); profile_path
+// = the Chromium profile directory. Return the browser id of a tab whose
+// window gets the new tab, or 0 to open nothing in Chromium. Must not
+// create or close browsers.
+typedef int (*cmux_shim_window_request_fn)(void* ctx,
+                                           int kind,
+                                           int disposition,
+                                           int source_browser_id,
+                                           int has_bounds,
+                                           int x,
+                                           int y,
+                                           int width,
+                                           int height,
+                                           const char* url,
+                                           const char* profile_path);
 
 
 // SHA-256 (64 lowercase hex digits) of this header as the shim was built.
@@ -210,6 +241,14 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_bro
 CMUX_SHIM_EXPORT int cmux_shim_unresponsive_reply(int browser_id, int terminate);
 // Ends a CONTEXT_MENU: command_id < 0 cancels.
 CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int event_flags);
+
+// Chromium never shows a window of its own (fork API 8). The handler
+// chooses where each window request goes; without one the fork uses the
+// requesting tab's window. No-op on older forks.
+CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler);
+// Browsers (windows) Chromium created outside cmux and never showed since
+// start (fork API 8); -1 on older forks.
+CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

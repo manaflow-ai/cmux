@@ -158,6 +158,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(ext_commands, "cmux_ext_commands");
   CMUX_BIND(ext_command_run, "cmux_ext_command_run");
   CMUX_BIND(tab_move_to_window, "cmux_tab_move_to_window");
+  CMUX_BIND(set_window_request_handler, "cmux_set_window_request_handler");
+  CMUX_BIND(foreign_browser_count, "cmux_foreign_browser_count");
 #undef CMUX_BIND
 }
 
@@ -279,6 +281,9 @@ int cmux_shim_window_count(void) {
 void cmux_shim_shutdown(void) {
   if (fork_api().set_observer) {
     fork_api().set_observer(nullptr, nullptr);
+  }
+  if (fork_api().set_window_request_handler) {
+    fork_api().set_window_request_handler(nullptr, nullptr);
   }
   host() = Host();
   request_contexts().clear();

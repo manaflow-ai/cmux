@@ -83,32 +83,3 @@ nonisolated struct CEFWindowCandidate: Equatable, Sendable {
     /// The pane is on screen.
     var visible: Bool
 }
-
-/// What the runtime does with a request.
-nonisolated enum CEFWindowDecision: Equatable, Sendable {
-    /// Chromium adds the tab to the window of `anchor`; the runtime adopts
-    /// it as a cmux tab when it arrives there.
-    case insert(anchor: Int32, disposition: BrowserNewTabDisposition)
-    /// No Chromium window of that profile exists: Chromium opens nothing
-    /// and cmux opens `url` in a new tab of its own.
-    case openInNewTab(url: String, disposition: BrowserNewTabDisposition)
-    /// Chromium opens nothing, and cmux tells the user why.
-    case refuse(CEFWindowRefusal)
-}
-
-nonisolated enum CEFWindowRefusal: Equatable, Sendable {
-    /// Incognito: cmux has no Chromium incognito window, and a normal tab
-    /// would store the history and cookies the user wanted to keep out.
-    case offTheRecord
-}
-
-nonisolated enum CEFWindowPolicy {
-    /// Today's behavior: Chromium opens its own window, then the runtime
-    /// moves the tab into the last shown pane as a selected tab.
-    static func decide(_ request: CEFWindowRequest, candidates: [CEFWindowCandidate]) -> CEFWindowDecision {
-        guard let chosen = candidates.first(where: \.lastShown) ?? candidates.first else {
-            return .openInNewTab(url: request.url, disposition: .foregroundTab)
-        }
-        return .insert(anchor: chosen.anchor, disposition: .foregroundTab)
-    }
-}
