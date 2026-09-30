@@ -15,6 +15,8 @@ import Darwin
 ///
 /// A failing step is recorded and the tour continues, so one bad identifier
 /// still leaves every later screenshot; the test fails at the end listing them.
+/// Cloud sidebar evidence tours: `cloud-sidebar-audit-tour` and
+/// `cloud-machine-author-tour` in `dogfood/scenarios/`.
 final class DogfoodScenarioUITests: XCTestCase {
     private var socketPath = ""
     private var lastSocketError = "no attempt"
@@ -223,26 +225,55 @@ final class DogfoodScenarioUITests: XCTestCase {
         return element
     }
 
+    /// One step of a menu path: the item directly under `owner`'s menu.
+    ///
+    /// `menus` and `menuItems` are descendant queries, so `owner.menuItems[x]`
+    /// matches anywhere in that menu's whole subtree. The File menu alone has
+    /// two `New Window` items and two `Close Workspace` items at different
+    /// depths, so a descendant lookup raises "Multiple matching elements" for
+    /// a path that names exactly one of them. Taking the direct children of
+    /// the one open `Menu` makes each path element mean what it reads as.
+    private func menuChild(_ title: String, of owner: XCUIElement) -> XCUIElement {
+        owner.menus.firstMatch.children(matching: .menuItem)[title]
+    }
+
+    /// Every element after the first names a direct child of the menu the one
+    /// before it opened, so a submenu item needs its submenu in the path.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
-        var scope = bar
+        var opened = bar
+        var reached: [String] = [top]
         for item in path.dropFirst() {
-            // Scoped to the menu that was opened, not the whole app. A DEBUG
-            // build lists "Cloud Sidebar Spacing Lab…" in both the Debug menu
-            // and the Help menu, and an app-wide `menuItems[…]` matched both,
-            // so the click failed with "Multiple matching elements found" on an
-            // item that is unambiguous inside the menu the tour just opened.
-            // Each step scopes the next, so a submenu path stays anchored too.
-            let menuItem = scope.menuItems[item]
+            let menuItem = menuChild(item, of: opened)
             guard menuItem.waitForExistence(timeout: 3) else {
-                app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item) under \(path.joined(separator: " > "))")
+                // One Escape per menu still standing. Escape closes a single
+                // level, so a path that failed inside a submenu used to leave
+                // its parent menu open; a failed step is recorded and the tour
+                // carries on, so every later click landed on the menu overlay
+                // and every later shot, `99-final` included, was taken through
+                // it. One bad title cost the rest of the tour.
+                //
+                // `reached` bounds the loop but does not set it: a middle
+                // element that named a plain command ran it and closed the
+                // menus already, and an extra Escape would go to the app, where
+                // it is a keystroke to whatever the focused terminal is running.
+                for _ in reached where app.menus.count > 0 {
+                    app.typeKey(.escape, modifierFlags: [])
+                }
+                // Name the prefix that resolved, not the whole path: a middle
+                // element with no submenu fails here, and blaming the last
+                // element for that points at the wrong step.
+                throw DogfoodError(
+                    "no menu item \(item) under \(reached.joined(separator: " > "))"
+                )
             }
             menuItem.click()
-            scope = menuItem
+            // A submenu's own items hang off the item that opened it.
+            opened = menuItem
+            reached.append(item)
         }
     }
 
@@ -327,13 +358,22 @@ final class DogfoodScenarioUITests: XCTestCase {
     /// tours read better filling the display. Not every locale says "Zoom".
     private func zoomFrontWindow(in app: XCUIApplication) {
         let windowMenu = app.menuBars.menuBarItems["Window"]
-        guard windowMenu.waitForExistence(timeout: 3) else { return }
+        guard windowMenu.waitForExistence(timeout: 3) else {
+            log.append("launch: no Window menu, so the window was left at its default size")
+            return
+        }
         windowMenu.click()
-        let zoom = app.menuItems["Zoom"]
+        // Scoped like `clickMenu`: `Zoom` is unique app-wide today, but this
+        // runs before every tour, so one new duplicate title would break all
+        // of them at step zero.
+        let zoom = menuChild("Zoom", of: windowMenu)
         if zoom.waitForExistence(timeout: 2) {
             zoom.click()
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         } else {
+            // Say so. Every shot in the tour is then a default-size window, and
+            // a silent miss here reads as the app having changed, not the menu.
+            log.append("launch: no Zoom item, so the window was left at its default size")
             app.typeKey(.escape, modifierFlags: [])
         }
     }
