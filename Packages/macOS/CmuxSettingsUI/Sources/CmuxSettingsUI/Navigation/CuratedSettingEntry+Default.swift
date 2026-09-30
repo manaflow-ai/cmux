@@ -25,6 +25,19 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "claude-path", title: String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), synonyms: "Claude Binary Path automation.claudeBinaryPath claude binary executable path cli command custom"),
             .init(section: .automation, id: "ripgrep-path", title: String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), synonyms: "Ripgrep Binary Path automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
             .init(section: .automation, id: "subagent-notifications", title: String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), synonyms: "Suppress Subagent Notifications automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
+            .init(
+                section: .automation,
+                id: "agent-error-auto-resume",
+                title: String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
+                detailText: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection."),
+                paths: ["automation.agentAutoResume"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.automation.agent-error-auto-resume",
+                    defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"
+                ),
+                anchorPath: "automation.agentAutoResume"
+            ),
+            .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
 
@@ -285,7 +298,6 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"),
                 synonyms: String(localized: "settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position")
             ),
-
             // TextBox
             .init(section: .textBox, id: "show-textbox-new-terminals", title: String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"), synonyms: "Show TextBox on New Terminals terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab"),
             .init(section: .textBox, id: "focus-textbox-new-terminals", title: String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), synonyms: "Focus TextBox on New Terminals terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab"),
@@ -427,6 +439,13 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."),
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
+            ),
+            .init(
+                section: .betaFeatures,
+                id: "conversationSidebar",
+                title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
+                paths: ["sidebar.beta.conversations.enabled"],
+                synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),

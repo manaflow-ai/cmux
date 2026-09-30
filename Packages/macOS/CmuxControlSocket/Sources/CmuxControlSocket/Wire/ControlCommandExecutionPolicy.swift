@@ -104,6 +104,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Agent messages: store reads and appends with at most one
+        // main-actor hop for target resolution or the delivery hold.
+        "agent.message.send",
+        "agent.message.list",
+        "agent.message.claim",
+        "agent.message.mark_read",
+        "agent.message.poll",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -115,6 +122,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Provider discovery reads config or runs `opencode models`; chat
         // send/interrupt await terminal input. Neither may hold the main actor.
         "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
+        // Prompt submission suspends between paste and Enter while agent
+        // editors commit the paste. The socket worker awaits the final result.
+        "mobile.terminal.paste",
+        "terminal.paste",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -167,6 +178,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.input_state` reads the screen through the render-grid
+        // export in one short `v2MainSync` hop (`cmux send` asks it before
+        // typing). App-side for the same reason as `surface.read_text`.
+        "surface.input_state",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.

@@ -2615,9 +2615,12 @@ final class ClaudeHookSessionStore {
     /// bounded store, so hook routing can recover without silently destroying
     /// the user's previous session mappings.
     private func quarantineOversizedState(at url: URL) throws -> ClaudeHookSessionStoreFile {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1_000)
         let backupURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).quarantined.json", isDirectory: false)
-        try? fileManager.removeItem(at: backupURL)
+            .appendingPathComponent(
+                ".\(url.lastPathComponent).quarantined.\(timestamp).\(UUID().uuidString).json",
+                isDirectory: false
+            )
         try fileManager.moveItem(at: url, to: backupURL)
         return ClaudeHookSessionStoreFile()
     }
@@ -5650,7 +5653,11 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            // `agent message` and `agent inbox` are local agent messaging;
+            // everything else stays an alias of `cmux vm agent`.
+            if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -7642,7 +7649,7 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-            let (usesPaste, textArgs) = Self.splitSendPasteFlag(rem2)
+            let (usesPaste, force, textArgs) = Self.splitSendPasteFlag(rem2)
             let rawText = textArgs.dropFirst(textArgs.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
             if usesPaste {
@@ -7655,6 +7662,7 @@ struct CMUXCLI {
                     surface: sfArg,
                     windowRaw: windowRaw,
                     submit: false,
+                    force: force,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -7669,6 +7677,14 @@ struct CMUXCLI {
                 if let wsId { params["workspace_id"] = wsId }
                 let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
                 if let sfId { params["surface_id"] = sfId }
+                if !force {
+                    try ensureAgentPromptIsFree(
+                        for: Self.terminalInputWriteKind(forTypedText: text),
+                        command: "send",
+                        target: params,
+                        client: client
+                    )
+                }
                 let payload = try client.sendV2(method: "surface.send_text", params: params)
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
                 Self.printSendPasteHintIfNeeded(text)
@@ -7690,7 +7706,8 @@ struct CMUXCLI {
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let keyArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
+            let (force, rem3) = Self.splitLeadingForceFlag(rem2)
+            let keyArgs = rem3.first == "--" ? Array(rem3.dropFirst()) : rem3
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             if keyArgs.count > 1 {
                 let trailing = keyArgs.dropFirst().joined(separator: " ")
@@ -7710,6 +7727,9 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
+            if !force {
+                try ensureAgentPromptIsFree(for: .key, command: "send-key", target: params, client: client)
+            }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
@@ -7722,7 +7742,8 @@ struct CMUXCLI {
                 throw CLIError(message: "send-panel requires --panel")
             }
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(panelArg, windowRaw: windowRaw)
-            let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
+            let (force, rem3) = Self.splitLeadingForceFlag(rem2)
+            let rawText = rem3.dropFirst(rem3.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send-panel requires text") }
             let text = unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
@@ -7732,6 +7753,14 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
+            if !force {
+                try ensureAgentPromptIsFree(
+                    for: Self.terminalInputWriteKind(forTypedText: text),
+                    command: "send-panel",
+                    target: params,
+                    client: client
+                )
+            }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
@@ -7744,7 +7773,8 @@ struct CMUXCLI {
                 throw CLIError(message: "send-key-panel requires --panel")
             }
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(panelArg, windowRaw: windowRaw)
-            let skpArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
+            let (force, rem3) = Self.splitLeadingForceFlag(rem2)
+            let skpArgs = rem3.first == "--" ? Array(rem3.dropFirst()) : rem3
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
             if skpArgs.count > 1 {
@@ -7765,6 +7795,9 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
+            if !force {
+                try ensureAgentPromptIsFree(for: .key, command: "send-key-panel", target: params, client: client)
+            }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
@@ -20591,6 +20624,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
+              --force                      Send even into an open dialog
 
             Example:
               cmux send-key enter
@@ -20606,6 +20640,7 @@ struct CMUXCLI {
               --panel <id|ref|index>       Target panel (required)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace/panel refs and indexes
+              --force                      Send even over a draft or into an open dialog
 
             Example:
               cmux send-panel --panel surface:2 "echo hello\\n"
@@ -20620,6 +20655,7 @@ struct CMUXCLI {
               --panel <id|ref|index>       Target panel (required)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace/panel refs and indexes
+              --force                      Send even into an open dialog
 
             Example:
               cmux send-key-panel --panel surface:2 enter
@@ -21067,6 +21103,18 @@ struct CMUXCLI {
             print("")
             print(verbText)
             return true
+        }
+        if command == "agent", let verb = commandArgs.first?.lowercased() {
+            switch verb {
+            case "message", "msg":
+                print(Self.agentMessageHelp)
+                return true
+            case "inbox":
+                print(Self.agentInboxHelp)
+                return true
+            default:
+                break
+            }
         }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
@@ -28684,6 +28732,7 @@ struct CMUXCLI {
                     isSubagent: isNestedAgentSession,
                     pendingWork: hasUnsettledWork,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
+                    detail: stopFailure?.journalDetail,
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
@@ -38593,6 +38642,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
+        enrichStopFeedEvent(&event, hookEventName: hookEventName, rawObject: parsedInput.rawObject)
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
@@ -38787,6 +38837,24 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// Feed reading must retain the completion, not the notification preview.
+    /// Both native Feed hooks and wrapper hooks call this with the raw payload.
+    private func enrichStopFeedEvent(
+        _ event: inout [String: Any],
+        hookEventName: String,
+        rawObject: [String: Any]?
+    ) {
+        guard hookEventName == "Stop", let rawObject else { return }
+        let keys = ["last_assistant_message", "lastAssistantMessage", "assistant_response",
+                    "assistantResponse", "assistantPreamble", "assistant_preamble"]
+        let nested = ["extra", "data", "context"].compactMap { rawObject[$0] as? [String: Any] }
+        guard let message = firstString(in: rawObject, keys: keys)
+            ?? nested.lazy.compactMap({ self.firstString(in: $0, keys: keys) }).first else { return }
+        var input = event["tool_input"] as? [String: Any] ?? [:]
+        input["reason"] = message
+        event["tool_input"] = input
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -41065,6 +41133,7 @@ export default {
             promptText: promptText,
             promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
+        enrichStopFeedEvent(&eventDict, hookEventName: hookEventName, rawObject: stdinObj)
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? causalEvidence.requestIdentity.map { "\(workstreamID):\(Data($0.utf8).base64EncodedString())" }
@@ -42011,6 +42080,9 @@ export default {
 
         case "claude":
             telemetry.breadcrumb("hooks.claude.dispatch")
+            if try runAgentInboxHookIfMatched(agent: "claude", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.claude.completed")
@@ -42025,6 +42097,10 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
+            if def.name == "codex",
+               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runGenericAgentHook(
                     def: def,
