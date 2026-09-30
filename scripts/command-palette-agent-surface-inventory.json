@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Classification of every \"palette.*\" string literal in the app sources, checked by",
-    "scripts/check-command-palette-agent-surface.py. A new palette command fails the guard",
+    "the palette agent surface guard script. A new palette command fails that guard",
     "until it is classified here, so publishing a command to agents through",
     "`cmux palette list` stays a decision instead of a side effect.",
     "excludedCommandIds must match CommandPaletteAgentSurface.notAgentSurfaceCommandIds."
