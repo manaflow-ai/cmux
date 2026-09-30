@@ -5997,12 +5997,11 @@ impl Surface {
         !matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Local { .. })
     }
 
-    /// Ask a hosted terminal to exit through its existing owner connection.
-    /// This waits for the host's termination receipt (at most the control
-    /// response timeout) while holding the runtime lock, so only the
-    /// host-close pool calls it, never a request's reply path. It does not
-    /// wait for the exit itself. Local terminals return `None` and keep their
-    /// existing kill path. Pass the result to [`Self::wait_for_host_exit`].
+    /// Ask a hosted terminal to exit through its existing owner connection,
+    /// without waiting for a receipt or the exit. Local terminals return
+    /// `None` and keep their existing kill path. Pass the result to
+    /// [`Self::wait_for_host_exit`], whose durable exit receipt is the
+    /// authoritative completion.
     #[cfg(unix)]
     pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
@@ -6010,10 +6009,10 @@ impl Surface {
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
         let observed = pty.stream_progress.revision();
         let already_exited = {
-            let mut runtime = pty.runtime.lock().unwrap();
-            match &mut *runtime {
+            let runtime = pty.runtime.lock().unwrap();
+            match &*runtime {
                 PtyRuntime::Hosted(host) => {
-                    host.terminate().map_err(|error| {
+                    host.request_termination().map_err(|error| {
                         anyhow::anyhow!("send terminal-host termination: {error}")
                     })?;
                     false

@@ -1598,6 +1598,15 @@ mod unix {
             self.protocol_version
         }
 
+        /// Ask the host to end without a receipt: a Terminate with request
+        /// id 0, which the host acts on and never acknowledges. The caller
+        /// waits for the durable exit receipt instead. A receipted Terminate
+        /// would block on its TerminateAck, which the surface's reader thread
+        /// delivers only after the terminal output queued ahead of it.
+        pub fn request_termination(&self) -> std::io::Result<()> {
+            self.send(MessageKind::Terminate, &[])
+        }
+
         pub fn terminate(&mut self) -> anyhow::Result<()> {
             if !self.record.supports_terminate_ack {
                 self.send(MessageKind::Terminate, &[])?;
