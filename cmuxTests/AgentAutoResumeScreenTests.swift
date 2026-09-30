@@ -48,14 +48,16 @@ struct AgentAutoResumeScreenTests {
     @Test func wrappedDraftWithCursorOnContinuationDoesNotResume() throws {
         let frame = try screen([
             "› ",
-            "draft text on a second line"
-        ], cursorRow: 1)
-        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .unknown)
+            "  draft text on a second line",
+            "────────────────────────"
+        ], cursorRow: 0)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
     }
 
     @Test func normalAgentStatusRowDoesNotLookLikeADraft() throws {
         let frame = try screen([
             "❯ ",
+            "────────────────────────",
             "Sonnet 4.5 · ctx 12%"
         ], cursorRow: 0)
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)

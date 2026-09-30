@@ -251,6 +251,27 @@ final class AgentAutoResumeCoordinator {
         }
         guard typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .draft }
         let stalledFooter = nonEmptyRows.last?.hasSuffix("Goal stalled (/goal resume)") == true
+        for index in (promptIndex + 1)..<rows.count {
+            let plain = plainRows[index].trimmingCharacters(in: .whitespaces)
+            if plain.isEmpty || plain.allSatisfy({ "─│╭╮╰╯".contains($0) || $0.isWhitespace }) {
+                break
+            }
+            let typedRow = rows[index].filter { !$0.faint }.map(\.text).joined()
+                .trimmingCharacters(in: .whitespaces)
+            guard !typedRow.isEmpty else { continue }
+            let lowered = typedRow.lowercased()
+            let isStatusRow = lowered.contains("ctx ")
+                || lowered.contains("auto mode on")
+                || lowered.contains("shift+tab")
+                || (lowered.contains("· /")
+                    && (lowered.hasPrefix("gpt-")
+                        || lowered.hasPrefix("o1")
+                        || lowered.hasPrefix("o3")
+                        || lowered.hasPrefix("o4")))
+            if !isStatusRow {
+                return .draft
+            }
+        }
         return stalledFooter ? .codexGoalResume : .emptyPrompt
     }
 
@@ -283,7 +304,6 @@ final class AgentAutoResumeCoordinator {
 
         @MainActor
         func matchesManagedSession(_ sessionId: String?, agent: String) -> Bool {
-            guard let sessionId, !sessionId.isEmpty else { return false }
             let binding: SurfaceResumeBindingSnapshot?
             let currentSessionId: String?
             switch self {
@@ -299,8 +319,11 @@ final class AgentAutoResumeCoordinator {
             }
             guard let binding,
                   binding.isAgentHookBinding,
-                  binding.kind == nil || binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == agent.lowercased(),
-                  let currentSessionId else { return false }
+                  binding.kind == nil
+                      || binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == agent.lowercased()
+            else { return false }
+            guard let sessionId, !sessionId.isEmpty else { return true }
+            guard let currentSessionId else { return false }
             return currentSessionId == sessionId
         }
 
