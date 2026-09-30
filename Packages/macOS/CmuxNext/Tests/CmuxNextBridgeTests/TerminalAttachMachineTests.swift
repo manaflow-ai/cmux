@@ -10,6 +10,7 @@ struct TerminalAttachMachineTests {
     static let initial = CellSize(cols: 80, rows: 24)
     static let wide = CellSize(cols: 120, rows: 40)
     static let narrow = CellSize(cols: 60, rows: 20)
+    static let phone = CellSize(cols: 44, rows: 30)
 
     private func bytes(_ text: String) -> Data { Data(text.utf8) }
 
@@ -94,12 +95,52 @@ struct TerminalAttachMachineTests {
         #expect(machine.reduce(.visibility(true)) == [.claim(7, Self.narrow)])
     }
 
-    @Test func liveResizesReportOnlyChanges() {
+    // "window-size latest": the most recently active client holds geometry.
+    // A visible pane that resizes takes it back, whoever held it.
+    @Test func aVisibleResizeClaimsGeometry() {
         var machine = live()
         #expect(machine.claimed)
         #expect(machine.reduce(.resize(Self.wide)) == [])
-        #expect(machine.reduce(.resize(Self.narrow)) == [.resize(7, Self.narrow)])
+        #expect(machine.reduce(.resize(Self.narrow)) == [.claim(7, Self.narrow)])
         #expect(machine.reduce(.resize(CellSize(cols: 0, rows: 3))) == [])
+    }
+
+    @Test func anotherClientsGridMakesTheNextKeyPressReclaim() {
+        var machine = live()
+        #expect(machine.reduce(.gridAnnounced(7, Self.phone)) == [])
+        #expect(!machine.claimed)
+        // Geometry first, so the program sees the Mac's width before the key.
+        #expect(machine.reduce(.input(bytes("\u{3}"))) == [.claim(7, Self.wide), .send(7, bytes("\u{3}"))])
+        #expect(machine.claimed)
+        #expect(machine.reduce(.input(bytes("x"))) == [.send(7, bytes("x"))])
+    }
+
+    @Test func focusReclaimsAfterAnotherClientSizedTheTerminal() {
+        var machine = live()
+        #expect(machine.reduce(.focused) == [])
+        _ = machine.reduce(.gridAnnounced(7, Self.phone))
+        #expect(machine.reduce(.focused) == [.claim(7, Self.wide)])
+        #expect(machine.reduce(.focused) == [])
+    }
+
+    @Test func theViewsOwnGridKeepsTheClaim() {
+        var machine = live()
+        #expect(machine.reduce(.gridAnnounced(7, Self.wide)) == [])
+        #expect(machine.claimed)
+        #expect(machine.reduce(.input(bytes("x"))) == [.send(7, bytes("x"))])
+    }
+
+    @Test func aHiddenViewNeverReclaimsOnInput() {
+        var machine = live(visible: false)
+        _ = machine.reduce(.gridAnnounced(7, Self.phone))
+        #expect(machine.reduce(.input(bytes("x"))) == [.send(7, bytes("x"))])
+        #expect(machine.reduce(.focused) == [])
+    }
+
+    @Test func aGridFromAnEndedLinkIsIgnored() {
+        var machine = live()
+        #expect(machine.reduce(.gridAnnounced(99, Self.phone)) == [])
+        #expect(machine.claimed)
     }
 
     @Test func visibleWithoutASizeClaimsOnTheFirstReport() {

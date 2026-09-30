@@ -57,6 +57,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case resize(CellSize)
         /// The surface started or stopped rendering (SurfaceLedger).
         case visibility(Bool)
+        /// The surface gained keyboard focus.
+        case focused
+        /// `link`'s stream announced the PTY grid (a daemon `resized`).
+        case gridAnnounced(Link, CellSize)
         /// `link`'s stream ended.
         case ended(Link, TerminalChannelCloseReason)
         /// The tab closed or the view was dropped.
@@ -122,6 +126,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .input(let data): input(data)
         case .resize(let size): resize(size)
         case .visibility(let visible): setVisible(visible)
+        case .focused: []
+        case .gridAnnounced: []
         case .ended(let link, let reason): ended(link, reason: reason)
         case .close: close()
         }

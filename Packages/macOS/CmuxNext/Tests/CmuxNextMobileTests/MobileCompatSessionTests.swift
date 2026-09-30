@@ -114,6 +114,33 @@ struct MobileCompatSessionTests {
         #expect(!missing.ok && missing.error?["code"] as? String == "not_found")
     }
 
+    // "window-size latest": after another client (the Mac) sized the
+    // terminal, the phone's next keystroke takes geometry back, once.
+    @Test func phoneInputReclaimsGeometryAfterAnotherClientSizedTheTerminal() async throws {
+        let (session, backend, recorder) = try makeSession()
+        _ = try await call(session, "mobile.terminal.replay", [
+            "workspace_id": Self.workspace, "surface_id": Self.surface,
+            "client_id": "phone", "viewport_columns": 50, "viewport_rows": 20])
+        let channel = try #require(backend.lastChannel)
+        #expect(channel.claims == 1)
+        let input: [String: Any] = ["workspace_id": Self.workspace, "surface_id": Self.surface, "text": "x"]
+        _ = try await call(session, "terminal.input", input)
+        #expect(channel.claims == 1)
+
+        channel.push(.resized(TerminalReplay(cols: 120, rows: 40, data: Data(), colors: nil)))
+        await recorder.wait(for: 1)
+        _ = try await call(session, "terminal.input", input)
+        #expect(channel.claims == 2)
+        _ = try await call(session, "terminal.input", input)
+        #expect(channel.claims == 2)
+
+        // The phone's own grid coming back keeps its claim.
+        channel.push(.resized(TerminalReplay(cols: 50, rows: 20, data: Data(), colors: nil)))
+        await recorder.wait(for: 2)
+        _ = try await call(session, "terminal.input", input)
+        #expect(channel.claims == 2)
+    }
+
     @Test func unknownMethodsAnswerMethodNotFound() async throws {
         let (session, _, _) = try makeSession()
         for method in ["mobile.browser.list", "mobile.chat.sessions", "mobile.simulator.list"] {

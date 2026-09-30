@@ -3,8 +3,9 @@
 
 Runs random layout changes (splits, closes, sidebar, zoom, density, font
 size, equalize, a workspace round trip) and foreign geometry claims (a second
-daemon client attaches to a visible terminal, claims canonical geometry at
-another size, and leaves), then checks every visible terminal: `stty size`
+daemon client attaches to the focused terminal, claims canonical geometry at
+another size and leaves; a Mac resize or key press must take it back, tmux
+"window-size latest"), then checks every visible terminal: `stty size`
 and `$COLUMNS` inside the shell must equal the grid the Ghostty mirror
 renders (`debug.surfaces`). A mismatch is what leaves zsh's PROMPT_SP `%`
 mark on its own line after Ctrl-C.
@@ -158,13 +159,40 @@ def daemon_surface(pane_key):
     return None
 
 
+def focused_terminal():
+    """(pane key, surface ref) of the focused visible terminal pane."""
+    focused = [pane["pane"] for window in rpc("debug.surfaces").get("windows", [])
+               for pane in window["panes"] if pane.get("focused")]
+    return next(((pane, surface) for pane, surface, _, _ in visible_terminals() if pane in focused), None)
+
+
+def mac_activity():
+    """A Mac key press in the focused pane (Ctrl-C, the reported repro) or a
+    Mac layout resize."""
+    if random.random() < 0.5:
+        rpc("debug.key", {"key": "c", "modifiers": ["ctrl"]})
+        return "Mac key press"
+    action("toggleSidebar")
+    return "Mac resize"
+
+
+def expect_mac_grid(pane, foreign, label):
+    """The Mac took geometry back: the pane no longer renders the foreign size."""
+    grid = rendered_grid(pane)
+    ok = grid is not None and grid != foreign
+    print(f"  {'ok ' if ok else 'BAD'} {label}: Mac holds geometry again, rendered {grid}, foreign {foreign}")
+    return not ok
+
+
 def displace():
-    """Another client claims one visible terminal at a foreign size, the Mac
-    layout changes meanwhile, then the client leaves."""
-    targets = visible_terminals()
-    if not DAEMON or not targets:
+    """"window-size latest": another client (the phone) claims the focused
+    terminal at a foreign size, the Mac takes it back by resizing, the other
+    client reclaims on its own input and leaves, and a Mac key press or
+    resize takes it back again. The grid must equal `stty size` throughout."""
+    target = focused_terminal()
+    if not DAEMON or not target:
         return 0
-    pane, surface, _, _ = random.choice(targets)
+    pane, _ = target
     number = daemon_surface(pane)
     if number is None:
         return 0
@@ -178,10 +206,15 @@ def displace():
     bad = check(f"claimed {cols}x{rows} by another client")
     action("toggleSidebar")
     bad += check("Mac resized while another client holds geometry")
+    bad += expect_mac_grid(pane, (cols, rows), "Mac resize")
+    # The other client's own input takes it back (the phone does this).
+    d.request("set-client-sizing", surface=number, enabled=True, exclusive=True)
+    bad += check("other client reclaimed")
     d.close()
     bad += check("other client left")
-    action("toggleSidebar")
-    return bad + check("Mac resized after the other client left")
+    label = mac_activity()
+    bad += check(f"{label} after the other client left")
+    return bad + expect_mac_grid(pane, (cols, rows), label)
 
 
 def split():
