@@ -1,7 +1,7 @@
 // Catalog rows for resource usage (hover-card CPU and memory). Titles live
 // in Localizable.xcstrings. The numbers are the `resources` control method.
 
-extension ActionCatalog {
+nonisolated extension ActionCatalog {
     static func resourceActions() -> [ActionDescriptor] {
         [
             ActionDescriptor(
