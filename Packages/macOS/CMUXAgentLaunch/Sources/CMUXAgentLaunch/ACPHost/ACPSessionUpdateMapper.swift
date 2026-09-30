@@ -246,7 +246,7 @@ public struct ACPSessionUpdateMapper {
             guard let name else { return nil }
             return Self.textBlock("[attachment: \(name)]")
         }
-        var block: [String: Any] = [
+        let block: [String: Any] = [
             "type": "resource_link",
             "uri": URL(fileURLWithPath: path).absoluteString,
             "name": name ?? (path as NSString).lastPathComponent,

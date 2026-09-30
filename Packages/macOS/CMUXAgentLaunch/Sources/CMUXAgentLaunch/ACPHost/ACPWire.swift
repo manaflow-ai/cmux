@@ -128,11 +128,11 @@ public enum ACPErrorCode: Int, CaseIterable, Sendable {
 
 /// Builds the envelopes this host writes back to the client.
 ///
-/// Deliberately not `Sendable`. The payloads are `[String: Any]` holding
-/// decoded Foundation JSON, which cannot be checked, and an `@unchecked`
-/// conformance would promise thread safety this type does not have. A value
-/// is built and serialized on one actor, so the conformance is not needed.
-public enum ACPOutgoingMessage {
+/// Payload dictionaries contain decoded Foundation JSON and are serialized
+/// synchronously before a value crosses an actor boundary. The unchecked
+/// conformance is limited to this immutable envelope value; callers must not
+/// mutate a payload dictionary while it is being serialized.
+public enum ACPOutgoingMessage: @unchecked Sendable {
     /// A successful response. `result` is always an object, never bare `null`,
     /// so a client can add fields to its handling later without special-casing.
     case result(id: ACPRequestIdentifier, [String: Any])
@@ -163,10 +163,9 @@ public enum ACPOutgoingMessage {
     /// stable key order makes the stream diffable in a test or a capture.
     /// Returns nil for a payload JSONSerialization refuses, which the caller
     /// has to report rather than send a truncated frame.
-    public var jsonLine: String? { Self.line(envelope) }
+    public var jsonLine: String? { Self.serializedLine(envelope) }
 
-    /// Serializes an envelope that was built outside this value type.
-    public static func line(_ envelope: [String: Any]) -> String? {
+    private static func serializedLine(_ envelope: [String: Any]) -> String? {
         guard JSONSerialization.isValidJSONObject(envelope),
               let data = try? JSONSerialization.data(
                   withJSONObject: envelope,
