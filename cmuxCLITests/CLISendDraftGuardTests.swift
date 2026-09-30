@@ -225,7 +225,6 @@ struct CLISendDraftGuardTests {
             screenTexts: [
                 "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
                 "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
-                "Claude Code\n❯\u{00A0}/goal resume\n/goal resume",
                 "Claude Code\n❯\u{00A0}",
             ]
         )
