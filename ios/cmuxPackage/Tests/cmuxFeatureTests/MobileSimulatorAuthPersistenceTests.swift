@@ -60,8 +60,8 @@ import Testing
             accessGroup: nil,
             legacyProjectID: "project-a"
         )
-        // Memory storage keeps authenticated SDK operations recoverable
-        // without attributing persisted credentials to an unknown bundle.
+        // Memory storage keeps authenticated operations from trapping in the
+        // SDK without attributing persisted credentials to an unknown bundle.
         guard case .memory = choice else {
             Issue.record("A missing app identity must not select a persistent token store")
             return
