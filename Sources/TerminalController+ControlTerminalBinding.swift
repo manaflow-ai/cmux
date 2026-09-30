@@ -198,6 +198,13 @@ extension TerminalController {
               let owned = resolved.workspace.terminalInputTarget(forPanelID: surfaceID) else {
             return nil
         }
+        if let target = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID),
+           target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
+            return (resolved.workspace, surfaceID, target)
+        }
+        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID) {
+            owned.panel.surface.admitStartupRestoreRuntime()
+        }
         owned.panel.resumeAgentHibernationForRemoteAttach()
         guard await owned.panel.surface.waitForRuntimeSurfaceReady() else {
             return nil

@@ -71,6 +71,47 @@ struct MobileTerminalReplayHibernationTests {
         }
     }
 
+    @Test func replayAdmitsAFirstVisitRestoreBeforeCapturingState() async throws {
+        try await withAppContext { workspace in
+            let manager = try #require(AppDelegate.shared?.tabManager)
+            let heldWorkspace = try #require(manager.addWorkspaceIfActive(
+                title: "Held remote replay",
+                initialTerminalStartupRestoreAgent: makeAgent(sessionID: "codex-first-visit-replay"),
+                select: false,
+                eagerLoadTerminal: false,
+                initialTerminalStartsOnFirstVisit: true
+            ))
+            let panel = try #require(heldWorkspace.focusedTerminalPanel)
+            #expect(heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.contains(panel.id))
+            let marker = "REMOTE_FIRST_VISIT_REPLAY_READY"
+            panel.surface.onRuntimeReady = { [weak panel] in
+                guard let runtime = panel?.surface.surface else { return }
+                marker.withCString {
+                    ghostty_surface_process_output(runtime, $0, UInt(marker.utf8.count))
+                }
+            }
+            defer { panel.surface.onRuntimeReady = nil }
+
+            let result = await TerminalController.shared.mobileHostHandleRPC(MobileHostRPCRequest(
+                id: "first-visit-replay",
+                method: "mobile.terminal.replay",
+                params: ["workspace_id": heldWorkspace.id.uuidString, "surface_id": panel.id.uuidString],
+                auth: nil
+            ))
+            guard case let .ok(rawPayload) = result else {
+                Issue.record("Expected first-visit replay success, got \(result)")
+                return
+            }
+            let payload = try #require(rawPayload as? [String: Any])
+            let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(
+                #require(payload["render_grid"], "A first-visit replay must admit the held runtime")
+            )
+            #expect(frame.plainRows().joined(separator: "\n").contains(marker))
+            #expect(heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.isEmpty)
+            #expect(workspace.id != heldWorkspace.id)
+        }
+    }
+
     @Test func rejectedReplayLeavesHibernatedAgentAsleep() async throws {
         try await withAppContext { workspace in
             let (panelId, panel) = try hibernateFocusedAgent(in: workspace)
@@ -93,9 +134,20 @@ struct MobileTerminalReplayHibernationTests {
     private func hibernateFocusedAgent(in workspace: Workspace) throws -> (UUID, TerminalPanel) {
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-        let agent = SessionRestorableAgentSnapshot(
+        let agent = makeAgent(sessionID: "codex-remote-replay-resume")
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        try #require(panel.isAgentHibernated)
+        return (panelId, panel)
+    }
+
+    private func makeAgent(sessionID: String) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "codex-remote-replay-resume",
+            sessionId: sessionID,
             workingDirectory: "/tmp/cmux-agent-hibernation",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
@@ -107,13 +159,6 @@ struct MobileTerminalReplayHibernationTests {
                 source: nil
             )
         )
-        try #require(workspace.enterAgentHibernation(
-            panelId: panelId,
-            agent: agent,
-            lastActivityAt: Date(timeIntervalSince1970: 0)
-        ))
-        try #require(panel.isAgentHibernated)
-        return (panelId, panel)
     }
 
     private func withAppContext(
