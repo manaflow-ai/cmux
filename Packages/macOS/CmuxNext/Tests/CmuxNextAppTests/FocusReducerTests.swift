@@ -244,6 +244,31 @@ struct FocusReducerTests {
         #expect(state.resolved == .addressBar(pane: "a", tab: "web"))
     }
 
+    /// Split Browser Right/Down (live on nxtbp): the handler opens the tab
+    /// in the source pane, moves it into a new split, then expects its
+    /// surface. The daemon reports the tab in the source pane before the
+    /// move, so the expectation landed there, and the move then reset the
+    /// target to the source pane's content: the new pane never got the
+    /// omnibar. `splitBrowserEvents` mirrors `BrowserHandlers.bindSplits`.
+    static func splitBrowserEvents(generation: UInt64) -> [FocusEvent] {
+        [.expect(.surface("s-web"), target: .addressBar, generation: generation)]
+    }
+
+    @Test func splitBrowserFocusesTheNewPanesOmnibarAfterTheMove() {
+        var state = Self.loaded()
+        let generation = Self.run([.beginIntent], from: state).0.generation
+        state = Self.run([.beginIntent], from: state).0
+        // The daemon reports the new tab in the source pane first.
+        var opened = Self.topology()
+        opened.panes[0].tabs.append(Self.browser("web"))
+        state = Self.run([.topology(opened)] + Self.splitBrowserEvents(generation: generation), from: state).0
+        // Then the split moves it into its own pane.
+        var split = Self.topology()
+        split.panes.insert(Pane(id: "new", tabs: [Self.browser("web")], selected: "web"), at: 1)
+        state = Self.run([.topology(split)], from: state).0
+        #expect(state.resolved == .addressBar(pane: "new", tab: "web"))
+    }
+
     @Test func addressBarRequiresABrowserTab() {
         let state = Self.run([.focusTarget(.addressBar, source: .keyboard)], from: Self.loaded()).0
         #expect(state.resolved == .terminal(pane: "a", tab: "t1"))
