@@ -4,7 +4,6 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 import type { ReadyTeamBillingViewJson, TeamBillingViewJson } from "@/services/billing/dashboardBilling";
-import { teamPriceCopy } from "./billing-format";
 import { teamPortalHref } from "./checkout-links";
 import { teamPlanCards } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
@@ -49,7 +48,7 @@ export function TeamBillingPanel({
         scope={{ kind: "team", teamId: view.team.id }}
         periodEnd={view.subscription?.currentPeriodEnd ?? null}
         canManagePayment={view.canManageBilling && view.billingManagement === "stripe"}
-        currentPrice={view.subscription ? teamPriceCopy(t, view.subscription.price) : view.granted ? null : undefined}
+        currentPrice={view.subscription ? view.subscription.price : view.granted ? null : undefined}
       />
     </div>
   );

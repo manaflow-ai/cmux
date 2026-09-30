@@ -502,7 +502,8 @@
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
           ]
-        }
+        },
+        "billedAnnually": "naplaćuje se godišnje"
       },
       "change": {
         "title": "Preći na {plan}?",

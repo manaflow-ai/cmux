@@ -5,20 +5,12 @@ import { type ReactNode, useState } from "react";
 import { Badge, InlineError } from "@/dashboard-app/components/settings-ui";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { useResumePlan } from "@/dashboard-app/queries/billing";
-import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "@/services/billing/plans";
+import type { SubscriptionPrice } from "@/services/billing/subscriptionPrice";
 import { formatBillingDate } from "./billing-format";
 import { CancelPlanDialog } from "./cancel-plan-dialog";
 import { ChangePlanDialog } from "./change-plan-dialog";
 import { personalCheckoutHref, teamCheckoutHref, teamPortalHref } from "./checkout-links";
-import { type PickerPlanId, type PlanCard, sharedUnavailableReason, type SwitchPlanId } from "./plan-model";
-
-const MONTHLY_USD: Readonly<Record<PickerPlanId, number>> = {
-  free: 0,
-  go: GO_PRICING_USD.month.billedAmount,
-  pro: PRO_PRICING_USD.month.billedAmount,
-  max: MAX_PRICING_USD.month.billedAmount,
-  team: TEAM_PRICING_USD.month.billedAmount,
-};
+import { type PlanCard, planCardPrice, sharedUnavailableReason, type SwitchPlanId } from "./plan-model";
 
 /** Personal scope, or the team whose plan this is. */
 export type PickerScope = { readonly kind: "personal"; readonly returnTo: string } | { readonly kind: "team"; readonly teamId: string };
@@ -46,7 +38,8 @@ export function PlanPicker({
    * grandfathered price), replacing the list price on the current card; null
    * when Stripe sent no usable amount, which shows no amount at all.
    */
-  readonly currentPrice?: string | null;
+  /** The current subscription's own Stripe price; null when granted; undefined for the list price. */
+  readonly currentPrice?: SubscriptionPrice | null;
 }) {
   const t = useTranslations("dashboard.billing.picker");
   const locale = useLocale();
@@ -124,14 +117,7 @@ export function PlanPicker({
               <h2 className="text-sm font-medium">{t(`names.${card.id}`)}</h2>
               {card.current ? <Badge>{t("current")}</Badge> : null}
             </div>
-            {card.current && currentPrice !== undefined ? (
-              currentPrice ? <p className="mt-2 text-lg font-medium tabular-nums">{currentPrice}</p> : null
-            ) : (
-              <p className="mt-2">
-                <span className="text-lg font-medium tabular-nums">${MONTHLY_USD[card.id]}</span>{" "}
-                <span className="text-xs text-muted">{card.id === "team" ? t("perSeatMonth") : t("perMonth")}</span>
-              </p>
-            )}
+            <CardPrice price={planCardPrice(card.id, card.current, currentPrice)} />
             <ul className="mt-3 space-y-1 text-xs text-muted">
               {(t.raw(`features.${card.id}`) as string[]).map((line) => <li key={line}>{line}</li>)}
             </ul>
@@ -154,5 +140,19 @@ export function PlanPicker({
         <CancelPlanDialog open={cancelling} onOpenChange={setCancelling} plan={paidCurrent} endsOn={periodDate} teamId={teamId} />
       ) : null}
     </section>
+  );
+}
+
+function CardPrice({ price }: { readonly price: ReturnType<typeof planCardPrice> }) {
+  const t = useTranslations("dashboard.billing.picker");
+  if (!price) return null;
+  return (
+    <p className="mt-2">
+      <span className="text-lg font-medium tabular-nums">{price.amount}</span>{" "}
+      <span className="text-xs text-muted">
+        {t(price.unit)}
+        {price.annual ? `, ${t("billedAnnually")}` : ""}
+      </span>
+    </p>
   );
 }

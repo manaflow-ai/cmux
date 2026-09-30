@@ -404,7 +404,7 @@
       "revokeTitle": "Revoke {name}?",
       "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
       "revokeError": "Could not revoke this Mac.",
-      "emptyBody": "A Mac appears here the first time cmux on it connects to one of your Cloud VMs."
+      "emptyBody": "A Mac appears here the first time it connects to one of your Cloud VMs."
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -727,7 +727,8 @@
             "One invoice for the whole team",
             "Priority support"
           ]
-        }
+        },
+        "billedAnnually": "billed annually"
       },
       "change": {
         "title": "Switch to {plan}?",

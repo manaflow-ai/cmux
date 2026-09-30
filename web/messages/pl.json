@@ -502,7 +502,8 @@
             "Jedna faktura dla całego zespołu",
             "Priorytetowe wsparcie"
           ]
-        }
+        },
+        "billedAnnually": "płatne rocznie"
       },
       "change": {
         "title": "Zmienić na {plan}?",

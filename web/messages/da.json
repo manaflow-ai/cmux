@@ -502,7 +502,8 @@
             "Én faktura til hele teamet",
             "Prioriteret support"
           ]
-        }
+        },
+        "billedAnnually": "faktureres årligt"
       },
       "change": {
         "title": "Skift til {plan}?",

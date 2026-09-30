@@ -266,7 +266,8 @@ describe("dashboard billing screen", () => {
 
     expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
     expect(html).toContain("Renews on");
-    expect(html).toContain("$50/mo");
+    expect(html).toContain('data-plan="pro"');
+    expect(html).toMatch(/data-plan="pro".*?>\$50<\/span> <span[^>]*>per month<\/span>/);
     // Cancel lives on the Free card; Max switches in place, never through the portal.
     expect(html).toContain("Cancel plan");
     expect(html).toContain("Switch to Max");
@@ -278,12 +279,12 @@ describe("dashboard billing screen", () => {
   test("prices every Stripe Pro subscription from its own price amount", async () => {
     customerRows = [{ id: "cus_123" }];
     const cases: Array<[string | undefined, number, "month" | "year", string]> = [
-      ["cmux-pro-yearly-480", 48000, "year", "$40/mo, billed annually"],
-      ["cmux-pro-yearly-288", 28800, "year", "$24/mo, billed annually"],
-      ["cmux-pro-yearly", 24000, "year", "$20/mo, billed annually"],
-      ["cmux-pro-monthly", 3000, "month", "$30/mo"],
+      ["cmux-pro-yearly-480", 48000, "year", ">$40</span> <span class=\"text-xs text-muted\">per month, billed annually<"],
+      ["cmux-pro-yearly-288", 28800, "year", ">$24</span> <span class=\"text-xs text-muted\">per month, billed annually<"],
+      ["cmux-pro-yearly", 24000, "year", ">$20</span> <span class=\"text-xs text-muted\">per month, billed annually<"],
+      ["cmux-pro-monthly", 3000, "month", ">$30</span> <span class=\"text-xs text-muted\">per month<"],
       // Stack-era Prices carry no lookup key at all.
-      [undefined, 3000, "month", "$30/mo"],
+      [undefined, 3000, "month", ">$30</span> <span class=\"text-xs text-muted\">per month<"],
     ];
     for (const [lookupKey, unitAmount, recurringInterval, expected] of cases) {
       subscriptionRows = [
@@ -365,7 +366,7 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("Renews on");
     expect(html).toContain("Seats");
     expect(html).toContain("3 of 4 used");
-    expect(html).toContain("$60/seat/mo");
+    expect(html).toContain(">$60</span> <span class=\"text-xs text-muted\">per seat per month<");
     expect(html).toContain("Cancel plan");
     expect(html).toContain('href="/api/billing/portal?scope=team&amp;teamId=team-pro"');
     expect(proUser.hasPermission).toHaveBeenCalledWith(team, "team_admin");
@@ -387,7 +388,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage({ team: "team-pro" })).toContain("$48/seat/mo, billed annually");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$48</span> <span class=\"text-xs text-muted\">per seat per month, billed annually<");
   });
 
   test("uses the current Stripe price interval over stale checkout metadata", async () => {
@@ -406,7 +407,7 @@ describe("dashboard billing screen", () => {
     ];
     customerRows = [{ id: "cus_team" }];
 
-    expect(await renderBillingPage({ team: "team-pro" })).toContain("$35/seat/mo");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$35</span> <span class=\"text-xs text-muted\">per seat per month<");
 
     subscriptionRows = [
       stripeSubscriptionRow({
@@ -419,7 +420,7 @@ describe("dashboard billing screen", () => {
         recurringInterval: "year",
       }),
     ];
-    expect(await renderBillingPage({ team: "team-pro" })).toContain("$28/seat/mo, billed annually");
+    expect(await renderBillingPage({ team: "team-pro" })).toContain(">$28</span> <span class=\"text-xs text-muted\">per seat per month, billed annually<");
   });
 
   test("nudges admins when members exceed paid seats without blocking", async () => {

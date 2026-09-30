@@ -1,3 +1,6 @@
+import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "@/services/billing/plans";
+import { formatUsd, type SubscriptionPrice } from "@/services/billing/subscriptionPrice";
+
 /**
  * Pure rules for the plan picker: which plans show, which one is current,
  * and the single action each card carries. The components render this.
@@ -100,3 +103,36 @@ export function sharedUnavailableReason(cards: readonly PlanCard[]): Extract<Pla
   const [only] = [...reasons];
   return reasons.size === 1 && only ? only : null;
 }
+
+const LIST_MONTHLY_USD: Readonly<Record<PickerPlanId, number>> = {
+  free: 0,
+  go: GO_PRICING_USD.month.billedAmount,
+  pro: PRO_PRICING_USD.month.billedAmount,
+  max: MAX_PRICING_USD.month.billedAmount,
+  team: TEAM_PRICING_USD.month.billedAmount,
+};
+
+export type PlanCardPrice = {
+  readonly amount: string;
+  readonly unit: "perMonth" | "perSeatMonth";
+  readonly annual: boolean;
+};
+
+/**
+ * One price shape for every card: the list price, or for the current card
+ * the subscription's own Stripe price (grandfathered or annual), shown per
+ * month. Null when the current plan has no price to show (granted).
+ * `currentPrice` undefined means "use the list price".
+ */
+export function planCardPrice(
+  id: PickerPlanId,
+  current: boolean,
+  currentPrice: SubscriptionPrice | null | undefined,
+): PlanCardPrice | null {
+  const unit = id === "team" ? "perSeatMonth" : "perMonth";
+  if (!current || currentPrice === undefined) return { amount: `$${formatUsd(LIST_MONTHLY_USD[id])}`, unit, annual: false };
+  if (currentPrice === null) return null;
+  const annual = currentPrice.interval === "year";
+  return { amount: `$${formatUsd(annual ? currentPrice.amountUsd / 12 : currentPrice.amountUsd)}`, unit, annual };
+}
+

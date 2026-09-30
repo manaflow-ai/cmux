@@ -502,7 +502,8 @@
             "Eine Rechnung für das ganze Team",
             "Priorisierter Support"
           ]
-        }
+        },
+        "billedAnnually": "jährliche Abrechnung"
       },
       "change": {
         "title": "Zu {plan} wechseln?",

@@ -502,7 +502,8 @@
             "Tüm ekip için tek fatura",
             "Öncelikli destek"
           ]
-        }
+        },
+        "billedAnnually": "yıllık faturalandırılır"
       },
       "change": {
         "title": "{plan} planına geçilsin mi?",

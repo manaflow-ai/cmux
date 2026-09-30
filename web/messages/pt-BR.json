@@ -502,7 +502,8 @@
             "Uma fatura para a equipe toda",
             "Suporte prioritário"
           ]
-        }
+        },
+        "billedAnnually": "cobrado anualmente"
       },
       "change": {
         "title": "Mudar para {plan}?",

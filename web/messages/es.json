@@ -502,7 +502,8 @@
             "Una sola factura para todo el equipo",
             "Soporte prioritario"
           ]
-        }
+        },
+        "billedAnnually": "facturado anualmente"
       },
       "change": {
         "title": "¿Cambiar a {plan}?",

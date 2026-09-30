@@ -8,7 +8,6 @@ import type { PersonalBillingJson } from "@/services/billing/dashboardBilling";
 import { localeHref } from "../../lib/locale-href";
 import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
-import { personalPriceCopy } from "./billing-format";
 import { personalPlanCards } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
 import { PlanWelcome, welcomePlan } from "./plan-welcome";
@@ -65,7 +64,7 @@ function PersonalBilling({ data }: { data: PersonalBillingJson }) {
       periodEnd={subscription?.currentPeriodEnd ?? null}
       canManagePayment={status.billingManagement === "stripe"}
       // A plan granted without a subscription charges nothing, so it shows no price.
-      currentPrice={subscription ? personalPriceCopy(t, subscription.price, subscriptionPlan(subscription.plan)) : status.isPro ? null : undefined}
+      currentPrice={subscription ? subscription.price : status.isPro ? null : undefined}
     />
   );
   return (
@@ -82,10 +81,6 @@ function PersonalBilling({ data }: { data: PersonalBillingJson }) {
       {cards.find((card) => card.current)?.id === "free" ? <PricingView surface="dashboard_billing">{picker}</PricingView> : picker}
     </>
   );
-}
-
-function subscriptionPlan(plan: string | null): "go" | "pro" | "max" {
-  return plan === "max" ? "max" : plan === "go" ? "go" : "pro";
 }
 
 const BILLING_BANNERS = [
