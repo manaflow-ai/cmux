@@ -408,10 +408,17 @@ public struct MobileAuthComposition {
         #endif
     }
 
+    /// - Parameter simulatorSupportDirectory: Where the simulator build keeps
+    ///   its sandboxed token files. Injected so a test can exercise the
+    ///   unresolvable-directory path; production always passes the default.
     static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
-        legacyProjectID: String
+        legacyProjectID: String,
+        simulatorSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
     ) -> TokenStoreInit {
         guard let appNamespace else {
             // A malformed or test bundle must not leave StackClientApp without
@@ -425,10 +432,7 @@ public struct MobileAuthComposition {
         // Unsigned simulator apps cannot rely on Keychain entitlements. Keep
         // tokens in this simulator app's sandbox so a process restart exercises
         // real session restoration. Bundle and Stack project remain isolated.
-        guard let support = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else { return .none }
+        guard let support = simulatorSupportDirectory else { return .none }
         let projectComponent = Data(legacyProjectID.utf8).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
