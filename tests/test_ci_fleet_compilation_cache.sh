@@ -22,6 +22,8 @@ done
 
 grep -Fq 'fleet-cas-settings.sh' "$SCRIPT" || fail 'compile script must query fleet-cas settings'
 grep -Fq 'COMPILATION_CACHE_REMOTE_SERVICE_PATH' "$SCRIPT" || fail 'compile script must pass the fleet CAS socket setting'
+grep -Fq 'fleet_plugin_ok' "$SCRIPT" || fail 'compile script must require a healthy fleet plugin response before switching CAS'
+grep -Fq 'fleet_remote_ok' "$SCRIPT" || fail 'compile script must require a healthy fleet remote response before switching CAS'
 
 grep -Fq 'glaeda-compile-telemetry.json' "$WORKFLOW" || fail 'compile admission must publish the host telemetry sidecar'
 
