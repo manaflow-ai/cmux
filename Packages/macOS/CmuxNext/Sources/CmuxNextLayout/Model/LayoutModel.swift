@@ -25,6 +25,9 @@ public final class LayoutModel {
     /// Pins the column centering mode (tests, the demo); nil follows
     /// cmux.json `layout.centerFocusedColumn` through `DesignSettings`.
     public var centerFocusedColumnOverride: CenterFocusedColumn?
+    /// Pins the width of new columns (tests, the demo); nil follows cmux.json
+    /// `layout.defaultColumnWidth` (see `defaultColumnWidth`).
+    public var defaultColumnWidthOverride: Double?
     /// niri `center-focused-column`: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -319,12 +322,6 @@ public final class LayoutModel {
     }
 
     // MARK: Structure
-
-    /// Requests a new column after the focused pane's column (niri-style).
-    public func newColumn(width: Double = ColumnWidthPreset.defaultWidth) {
-        guard let focusedPane else { return }
-        emit(.newColumn(after: focusedPane, width: width))
-    }
 
     /// Requests a split of the focused pane.
     public func splitFocusedPane(axis: SplitAxis) {

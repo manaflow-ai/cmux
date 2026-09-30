@@ -63,6 +63,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
+    /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
+    public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
