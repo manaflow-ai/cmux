@@ -84,6 +84,8 @@ final class BrowserReplTabAttachment {
 
     private var renderHost: BrowserOffscreenRenderHost?
     private weak var renderHostWebView: WKWebView?
+    /// The web view whose window occlusion detection is off while attached.
+    private weak var occlusionDisabledWebView: WKWebView?
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
@@ -124,17 +126,31 @@ final class BrowserReplTabAttachment {
     }
 
     /// Keeps the tab rendering like a foreground page while a session drives
-    /// it: `requestAnimationFrame`, timers and `visibilityState` all pause in
-    /// a hidden WebKit page, and Playwright-style actionability waits for
-    /// animation frames, and pages in a non-key window get no mouse moves. A
-    /// tab not shown in the key window moves into the same imperceptible
-    /// offscreen render window screenshots use, which reports itself as key,
-    /// for as long as the session stays attached (the phone stream holds one
-    /// the same way). A tab the user is looking at in the key window stays.
+    /// it. `requestAnimationFrame`, timers and `visibilityState` pause in a
+    /// hidden WebKit page, and Playwright-style actionability waits for
+    /// animation frames.
+    ///
+    /// - A tab shown in a pane stays in that pane and keeps rendering live
+    ///   there; occlusion detection is off while attached, so a covered
+    ///   window keeps running the page.
+    /// - A tab no pane shows moves into a render window that lies outside
+    ///   every screen and reports itself as key (pages in a non-key window
+    ///   get no mouse moves, so no `:hover`). It returns to its pane as soon
+    ///   as the pane shows it (``paneVisibilityDidChange(visible:)``), and on
+    ///   detach.
     func keepRendering() {
         guard isAttached, let panel else { return }
         _ = panel.restoreDiscardedWebViewIfNeeded(reason: "browser.repl", allowBlankShellHeal: false)
         let webView = panel.webView
+        if occlusionDisabledWebView !== webView {
+            if let previous = occlusionDisabledWebView { Self.setOcclusionDetection(true, on: previous) }
+            Self.setOcclusionDetection(false, on: webView)
+            occlusionDisabledWebView = webView
+        }
+        if panel.isWebViewVisibleInPane {
+            releaseRenderHost()
+            return
+        }
         if let renderHost, renderHostWebView === webView {
             renderHost.reassertAutomationFocus()
             return
@@ -142,56 +158,48 @@ final class BrowserReplTabAttachment {
         renderHost?.abandon()
         renderHost = nil
         renderHostWebView = nil
-        // A tab the user sees in the key window is left alone. Otherwise the
-        // page is hidden or inactive (WebKit drops mouse moves, so `:hover`,
-        // for pages in a non-key window), and it moves to the render window.
-        guard !(Self.isVisiblyRendering(webView) && webView.window?.isKeyWindow == true),
-              panel.mobileBrowserStreamRenderHost == nil,
+        guard panel.mobileBrowserStreamRenderHost == nil,
               !webView.cmuxIsElementFullscreenActiveOrTransitioning else {
             return
         }
         renderHost = BrowserOffscreenRenderHost(
             webView: webView,
-            viewportSize: Self.renderViewportSize(panel: panel, webView: webView),
-            reportsKeyWindow: true
+            viewportSize: Self.renderViewportSize(panel: panel),
+            reportsKeyWindow: true,
+            placement: .offAllScreens
         )
         renderHostWebView = webView
-        // The render window is nearly transparent; WebKit must not treat
-        // window occlusion as hidden.
-        Self.setOcclusionDetection(false, on: webView)
+    }
+
+    /// Called by the panel when a pane starts or stops showing this tab. A
+    /// shown tab leaves the render window at once, so the pane is never blank.
+    func paneVisibilityDidChange(visible: Bool) {
+        guard visible else { return }
+        releaseRenderHost()
     }
 
     /// Viewport of a hidden driven tab: Playwright's default page size, so
     /// results do not depend on whatever window last hosted the tab.
     static let hiddenTabViewportSize = NSSize(width: 1280, height: 800)
 
-    /// The viewport a driven tab renders at: an explicit `setViewportSize`,
-    /// else the size of the pane showing it, else ``hiddenTabViewportSize``.
-    private static func renderViewportSize(panel: BrowserPanel, webView: WKWebView) -> NSSize {
+    /// The viewport a hidden driven tab renders at: an explicit
+    /// `setViewportSize`, else ``hiddenTabViewportSize``.
+    private static func renderViewportSize(panel: BrowserPanel) -> NSSize {
         if let viewport = panel.viewportModel.viewport { return viewport.size }
-        if isVisiblyRendering(webView), let window = webView.window,
-           !(window is BrowserOffscreenRenderPanel),
-           window.identifier?.rawValue != BrowserPanel.backgroundPreloadWindowIdentifier {
-            let size = webView.bounds.size
-            if size.width > 1, size.height > 1 { return size }
-        }
         return hiddenTabViewportSize
     }
 
-    /// Whether WebKit considers the page visible (its `isViewVisible` rules).
-    private static func isVisiblyRendering(_ webView: WKWebView) -> Bool {
-        guard let window = webView.window, window.isVisible, !webView.isHiddenOrHasHiddenAncestor else {
-            return false
-        }
-        return window.occlusionState.contains(.visible)
-    }
+    /// Whether the tab currently renders in the off-screen render window.
+    var isInRenderWindow: Bool { renderHost != nil }
 
     private func releaseRenderHost() {
         guard let host = renderHost else { return }
         renderHost = nil
         if let webView = renderHostWebView, webView === panel?.webView {
             host.restore()
-            Self.setOcclusionDetection(true, on: webView)
+            // The pane's portal skipped this web view while the render window
+            // held it; bring it back into the pane now.
+            BrowserWindowPortalRegistry.refresh(webView: webView, reason: "browserReplRelease")
         } else {
             host.abandon()
         }
@@ -222,6 +230,10 @@ final class BrowserReplTabAttachment {
         fileChoosers.removeAll()
         uninstrument()
         releaseRenderHost()
+        if let webView = occlusionDisabledWebView {
+            Self.setOcclusionDetection(true, on: webView)
+            occlusionDisabledWebView = nil
+        }
         panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.detach")
         if let cmuxWebView = panel?.webView as? CmuxWebView {
             cmuxWebView.automationDragCapture = nil

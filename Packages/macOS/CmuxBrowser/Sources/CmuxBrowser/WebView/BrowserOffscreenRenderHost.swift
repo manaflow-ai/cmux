@@ -16,12 +16,35 @@ public final class BrowserOffscreenRenderHost {
     private let window: BrowserOffscreenRenderPanel
     private let contentView: NSView
     private let mirrorView: BrowserStreamMacMirrorView?
+    private let placement: Placement
     private var isFinished = false
 
-    /// - Parameter reportsKeyWindow: Make the render window report itself as
-    ///   key (see `BrowserOffscreenRenderPanel.reportsKeyWindowForAutomation`)
-    ///   so a driven page behaves as active, including hover.
-    public init(webView: WKWebView, viewportSize: NSSize, reportsKeyWindow: Bool = false) {
+    /// Where the render window sits.
+    public enum Placement: Sendable {
+        /// A sliver on the main screen's corner at a floating level, nearly
+        /// transparent, with a mirror of streamed frames left in the pane.
+        /// For hosts that keep WebKit's window occlusion detection on (phone
+        /// streaming), where WebKit needs part of the window on screen.
+        case screenEdge
+        /// Fully outside every screen, transparent, at the normal level and
+        /// behind other windows, with nothing left in the pane. For hosts
+        /// that turn WebKit's occlusion detection off, so WebKit keeps the
+        /// page visible and rendering (rAF, timers) although no pixel of the
+        /// window is on a display. The window can never be seen or clicked.
+        case offAllScreens
+    }
+
+    /// - Parameters:
+    ///   - reportsKeyWindow: Make the render window report itself as key (see
+    ///     `BrowserOffscreenRenderPanel.reportsKeyWindowForAutomation`) so a
+    ///     driven page behaves as active, including hover.
+    ///   - placement: See ``Placement``.
+    public init(
+        webView: WKWebView,
+        viewportSize: NSSize,
+        reportsKeyWindow: Bool = false,
+        placement: Placement = .screenEdge
+    ) {
         let capturedPresentationView = webView.cmuxBrowserViewportPresentationView
         let capturedPreviousSuperview = capturedPresentationView.superview
         let previousSubviews = capturedPreviousSuperview?.subviews ?? []
@@ -41,12 +64,12 @@ public final class BrowserOffscreenRenderHost {
 
         // While the live web view renders offscreen, the pane would otherwise be
         // blank; a read-only mirror keeps the Mac pane showing what the phone sees.
-        let capturedMirrorView = capturedPreviousSuperview != nil
+        let capturedMirrorView = capturedPreviousSuperview != nil && placement == .screenEdge
             ? BrowserStreamMacMirrorView(frame: .zero)
             : nil
 
         let normalizedSize = Self.normalizedViewportSize(viewportSize)
-        let frame = Self.renderFrame(for: normalizedSize)
+        let frame = Self.renderFrame(for: normalizedSize, placement: placement)
         let renderWindow = BrowserOffscreenRenderPanel(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -59,9 +82,16 @@ public final class BrowserOffscreenRenderHost {
         renderWindow.hasShadow = false
         renderWindow.isOpaque = false
         renderWindow.backgroundColor = .clear
-        renderWindow.alphaValue = 0.01
         renderWindow.ignoresMouseEvents = true
-        renderWindow.level = .floating
+        switch placement {
+        case .screenEdge:
+            renderWindow.alphaValue = 0.01
+            renderWindow.level = .floating
+        case .offAllScreens:
+            renderWindow.alphaValue = 0
+            renderWindow.level = .normal
+            renderWindow.sharingType = .none
+        }
         renderWindow.hidesOnDeactivate = false
         renderWindow.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
         renderWindow.isExcludedFromWindowsMenu = true
@@ -81,6 +111,7 @@ public final class BrowserOffscreenRenderHost {
         window = renderWindow
         contentView = renderContentView
         mirrorView = capturedMirrorView
+        self.placement = placement
 
         webView.cmuxBeginBrowserViewportExternalRenderHost()
         capturedPresentationView.removeFromSuperview()
@@ -92,7 +123,10 @@ public final class BrowserOffscreenRenderHost {
         renderContentView.addSubview(capturedPresentationView)
         webView.cmuxApplyBrowserViewportLayout(in: renderContentView.bounds)
         renderWindow.contentView = renderContentView
-        renderWindow.orderFrontRegardless()
+        switch placement {
+        case .screenEdge: renderWindow.orderFrontRegardless()
+        case .offAllScreens: renderWindow.orderBack(nil)
+        }
         if reportsKeyWindow {
             // WebKit treats a page as focused (`document.hasFocus()`, focus and
             // blur events) only while its window is key and the web view is
@@ -125,7 +159,7 @@ public final class BrowserOffscreenRenderHost {
     public func resize(to viewportSize: NSSize) -> Bool {
         guard !isFinished, presentationView.superview === contentView else { return false }
         let normalizedSize = Self.normalizedViewportSize(viewportSize)
-        window.setFrame(Self.renderFrame(for: normalizedSize), display: false)
+        window.setFrame(Self.renderFrame(for: normalizedSize, placement: placement), display: false)
         contentView.frame = NSRect(origin: .zero, size: normalizedSize)
         contentView.bounds = NSRect(origin: .zero, size: normalizedSize)
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
@@ -221,6 +255,32 @@ public final class BrowserOffscreenRenderHost {
             width: min(max(width, 1), 4096),
             height: min(max(height, 1), 4096)
         )
+    }
+
+    /// The render window's frame for `placement`.
+    /// - Parameter screens: Screen frames; the ``Placement/offAllScreens``
+    ///   frame lies outside all of them.
+    static func renderFrame(
+        for viewportSize: NSSize,
+        placement: Placement,
+        screens: [NSRect] = NSScreen.screens.map(\.frame)
+    ) -> NSRect {
+        switch placement {
+        case .screenEdge:
+            return renderFrame(for: viewportSize)
+        case .offAllScreens:
+            // Left of and below every screen, with a margin so a screen added
+            // later at the old edge does not overlap it at once.
+            let union = screens.reduce(NSRect.null) { $0.union($1) }
+            let bounds = union.isNull ? NSRect.zero : union
+            let margin: CGFloat = 10_000
+            return NSRect(
+                x: bounds.minX - viewportSize.width - margin,
+                y: bounds.minY - viewportSize.height - margin,
+                width: viewportSize.width,
+                height: viewportSize.height
+            )
+        }
     }
 
     private static func renderFrame(for viewportSize: NSSize) -> NSRect {

@@ -2241,6 +2241,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
     private var isPresentingPendingInteractiveBrowserPrompt = false
     private var isWebViewVisibleInUI: Bool = false
+
+    /// Whether a pane currently shows this tab's web view.
+    var isWebViewVisibleInPane: Bool { isWebViewVisibleInUI }
     var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
@@ -2713,6 +2716,9 @@ final class BrowserPanel: Panel, ObservableObject {
             webViewLastVisibleAt = now
         }
         refreshWebViewLifecycleState()
+        if changed {
+            BrowserReplTabAttachments.shared.attachment(for: id)?.paneVisibilityDidChange(visible: visible)
+        }
 
         if visible {
             cancelHiddenWebViewDiscard()
