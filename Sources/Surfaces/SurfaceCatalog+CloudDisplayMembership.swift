@@ -7,7 +7,7 @@ extension SurfaceCatalog {
     /// authority.
     func cloudDisplayMemberships() -> [CloudVMDisplayMembership] {
         let knownDisplayIDs = Set(resources.keys.filter { $0.kind == .display })
-        cloudStates.values
+        return cloudStates.values
             .flatMap(\.displayMemberships)
             .filter {
                 knownDisplayIDs.contains(SurfaceResourceID(
@@ -153,31 +153,4 @@ extension SurfaceCatalog {
         return view
     }
 
-    /// Fills a legacy projection's missing remote coordinates, or replaces a
-    /// stale coordinate only when the caller explicitly supplied the same tab.
-    /// The set remains the single owner of projection identity.
-    @discardableResult
-    func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
-        guard let view else { return projection }
-        if view.isCloudDisplayMembershipView {
-            guard projection.remoteTabID == nil else { return projection }
-            projections.remove(projection)
-            var updated = projection
-            updated.remoteWorkspaceID = view.workspace.id
-            updated.remoteTabID = nil
-            projections.insert(updated)
-            reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
-            notifyChange(for: updated.resource.machine)
-            return updated
-        }
-        guard projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
-        projections.remove(projection)
-        var updated = projection
-        updated.remoteWorkspaceID = view.workspace.id
-        updated.remoteTabID = view.tabID
-        projections.insert(updated)
-        reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
-        notifyChange(for: updated.resource.machine)
-        return updated
-    }
 }

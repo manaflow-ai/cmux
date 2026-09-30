@@ -1258,6 +1258,34 @@ final class SurfaceCatalog {
         notifyChange(for: source.resource.machine)
     }
 
+    /// Fills a legacy projection's missing remote coordinates, or replaces a
+    /// stale coordinate only when the caller explicitly supplied the same tab.
+    /// The set remains the single owner of projection identity.
+    @discardableResult
+    private func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
+        guard let view else { return projection }
+        if view.isCloudDisplayMembershipView {
+            guard projection.remoteTabID == nil else { return projection }
+            projections.remove(projection)
+            var updated = projection
+            updated.remoteWorkspaceID = view.workspace.id
+            updated.remoteTabID = nil
+            projections.insert(updated)
+            reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
+            notifyChange(for: updated.resource.machine)
+            return updated
+        }
+        guard projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
+        projections.remove(projection)
+        var updated = projection
+        updated.remoteWorkspaceID = view.workspace.id
+        updated.remoteTabID = view.tabID
+        projections.insert(updated)
+        reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
+        notifyChange(for: updated.resource.machine)
+        return updated
+    }
+
     /// Returns whether the panel is backed by a non-local resource projection.
     func hasCloudProjection(panelID: UUID, workspaceID: UUID) -> Bool {
         // Cache hits must observe the same authoritative inputs as cache misses.
