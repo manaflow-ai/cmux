@@ -277,6 +277,14 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try XCTSkipIf(
+            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
+            "macOS 26 aborts while forming weak references during these AppKit window fixtures"
+        )
+    }
+
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
@@ -823,10 +831,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() async throws {
-        try XCTSkipIf(
-            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
-            "macOS 26 aborts while forming a weak reference during this remote-session window teardown"
-        )
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
@@ -3975,10 +3979,6 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
     func testFocusPanelDismissesUnreadNotificationWithDismissFlash() throws {
-        try XCTSkipIf(
-            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
-            "macOS 26 aborts while forming a weak reference during this AppKit focus fixture's window teardown"
-        )
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
