@@ -35,7 +35,7 @@ import type { BillingTeamSummary } from "@/services/billing/teamBillingView";
 import { localeHref } from "../../lib/locale-href";
 import { sessionQuery } from "../../lib/session";
 import { dashboardBillingQuery } from "../../queries/billing";
-import { AccountPlanBadge } from "./account-plan-badge";
+import { BillingPageFrame } from "./billing-frame";
 import { formatBillingDate, personalPriceCopy } from "./billing-format";
 import { TeamBillingPanel } from "./team-billing-panel";
 
@@ -57,15 +57,7 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
   const banner = billingBanner(search.billing);
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-        <div className="mt-2">
-          <AccountPlanBadge />
-        </div>
-      </div>
+    <BillingPageFrame>
 
       {banner ? (
         <div className="mb-3 border border-border bg-background p-3 text-sm">
@@ -84,9 +76,10 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
         teams={data.teams}
         selectedTeamId={data.selectedTeamId}
       />
-    </div>
+    </BillingPageFrame>
   );
 }
+
 
 /** The personal entry: Pro/Max, user-scoped. Team billing lives on each team. */
 function PersonalBilling({ t, data }: { t: Translator; data: PersonalBillingJson }) {

@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Seu plano pessoal",
         "free": "Grátis",
-        "pro": "Pro",
-        "loading": "Carregando…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Esta equipe não está disponível. Talvez você tenha saído dela ou ela tenha sido excluída.",
@@ -458,7 +457,6 @@
       "loading": "Carregando dispositivos…",
       "empty": "Não há dispositivos registrados para esta equipe.",
       "unavailable": "Não foi possível carregar seus dispositivos. Atualize a página e tente novamente.",
-      "retry": "Tentar novamente",
       "mutationError": "Não foi possível concluir a alteração do dispositivo.",
       "revoke": "Revogar acesso",
       "deviceId": "Dispositivo",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Revogar sessões",
         "revokeAllError": "Não foi possível revogar todas as sessões. A lista mostra as que restaram.",
         "revokeError": "Não foi possível revogar a sessão. Tente novamente.",
-        "loadError": "Não foi possível carregar as sessões. Recarregue a página para tentar novamente.",
         "empty": "Nenhuma sessão ativa encontrada.",
         "columns": {
           "session": "Sessão",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# equipe} other {# equipes}}",
         "selected": "Atual",
         "emptyTitle": "Nenhuma equipe ainda",
-        "emptyBody": "Crie uma equipe para convidar pessoas e compartilhar um único plano.",
-        "loadError": "Não foi possível carregar suas equipes.",
-        "retry": "Tentar novamente"
+        "emptyBody": "Crie uma equipe para convidar pessoas e compartilhar um único plano."
       },
       "new": {
         "title": "Criar uma equipe",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# uso} other {# usos}}",
         "revoke": "Revogar",
         "revokeTitle": "Revogar este link de convite?",
-        "revokeBody": "Quem tiver o link não poderá mais entrar. Quem já entrou continua como membro."
+        "revokeBody": "Quem tiver o link não poderá mais entrar. Quem já entrou continua como membro.",
+        "actionsFor": "Ações do link ({created})"
       },
       "shell": {
         "allTeams": "Todas as equipes",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Equipe não encontrada",
         "notFoundBody": "Esta equipe não existe ou você não é membro dela.",
-        "backToTeams": "Voltar às equipes",
-        "loadError": "Não foi possível carregar esta equipe.",
-        "retry": "Tentar novamente"
+        "backToTeams": "Voltar às equipes"
       },
       "general": {
         "imageTitle": "Imagem da equipe",
@@ -951,9 +945,6 @@
         "memberColumn": "Membro",
         "roleColumn": "Função",
         "actionsColumn": "Ações",
-        "roleFor": "Função de {name}",
-        "roleMember": "Membro",
-        "roleAdmin": "Administrador",
         "you": "Você",
         "unnamed": "Membro sem nome",
         "remove": "Remover",
@@ -972,7 +963,18 @@
         "linksTitle": "Links de convite",
         "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro.",
         "seatNudge": "{used} pessoas são membros ou foram convidadas, mas o plano tem {seats} assentos. Os convites continuam funcionando; adicione {over, plural, one {# assento} other {# assentos}} para cobrir todos.",
-        "seatNudgeAction": "Gerenciar assentos"
+        "seatNudgeAction": "Gerenciar assentos",
+        "actions": {
+          "makeAdmin": "Tornar administrador",
+          "makeMember": "Tornar membro",
+          "remove": "Remover da equipe",
+          "leave": "Sair da equipe"
+        },
+        "actionsFor": "Ações para {name}",
+        "lastAdminReason": "Uma equipe precisa de pelo menos um administrador. Promova outra pessoa primeiro.",
+        "demoteSelfTitle": "Deixar de ser administrador?",
+        "demoteSelfBody": "Você perde o acesso de administrador a esta equipe. Outro administrador pode devolvê-lo.",
+        "demoteSelfConfirm": "Tornar-me membro"
       },
       "apiKeys": {
         "title": "Chaves de API da equipe",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "Chaves de API",
       "apiKeysDescription": "Crie chaves de longa duração para scripts e agentes. O segredo é exibido uma vez.",
       "apiKeysCount": "{count, plural, one {# chave} other {# chaves}}",
-      "apiKeysLoading": "Carregando chaves de API…",
-      "apiKeysLoadError": "Não foi possível carregar as chaves de API. Tente novamente em breve.",
-      "apiKeysRetry": "Tentar novamente",
-      "apiKeysEmptyBody": "Ainda não há chaves de API. Crie uma para autenticar um cliente CodeRouter.",
       "apiKeyPrefixColumn": "Chave",
       "apiKeyStatusColumn": "Situação",
       "apiKeySecretTitle": "Copie esta chave agora",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
       "apiKeyUsageDetail": "últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
-      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
+      "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
+      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter."
     },
     "notFound": {
       "title": "Página não encontrada",
       "body": "Esta página do painel não existe ou foi movida.",
       "home": "Ir para o painel"
+    },
+    "states": {
+      "errorTitle": "Não foi possível carregar {section}",
+      "errorTitleGeneric": "Não foi possível carregar esta seção",
+      "reason": {
+        "network": "Verifique sua conexão e tente novamente.",
+        "unavailable": "O cmux está temporariamente indisponível. Tente novamente em instantes.",
+        "forbidden": "Você não tem acesso a isto.",
+        "notFound": "Isto não existe mais ou você não tem acesso.",
+        "rateLimited": "Solicitações demais. Aguarde um momento e tente novamente.",
+        "generic": "Algo deu errado. Tente novamente."
+      },
+      "retry": "Tentar novamente",
+      "retrying": "Tentando novamente…"
     }
   },
   "community": {

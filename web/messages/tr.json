@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Kişisel planınız",
         "free": "Ücretsiz",
-        "pro": "Pro",
-        "loading": "Yükleniyor…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
@@ -458,7 +457,6 @@
       "loading": "Cihazlar yükleniyor…",
       "empty": "Bu ekip için kayıtlı cihaz yok.",
       "unavailable": "Cihazlarınız yüklenemedi. Sayfayı yenileyip tekrar deneyin.",
-      "retry": "Tekrar dene",
       "mutationError": "Cihaz değişikliği tamamlanamadı.",
       "revoke": "Erişimi iptal et",
       "deviceId": "Cihaz",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Oturumları iptal et",
         "revokeAllError": "Oturumların tümü iptal edilemedi. Listede kalanlar gösteriliyor.",
         "revokeError": "Oturum iptal edilemedi. Tekrar deneyin.",
-        "loadError": "Oturumlar yüklenemedi. Tekrar denemek için sayfayı yenileyin.",
         "empty": "Etkin oturum bulunamadı.",
         "columns": {
           "session": "Oturum",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# ekip} other {# ekip}}",
         "selected": "Geçerli",
         "emptyTitle": "Henüz ekip yok",
-        "emptyBody": "Kişileri davet etmek ve tek bir planı paylaşmak için bir ekip oluşturun.",
-        "loadError": "Ekipleriniz yüklenemedi.",
-        "retry": "Tekrar dene"
+        "emptyBody": "Kişileri davet etmek ve tek bir planı paylaşmak için bir ekip oluşturun."
       },
       "new": {
         "title": "Ekip oluştur",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# kullanım} other {# kullanım}}",
         "revoke": "İptal et",
         "revokeTitle": "Bu davet bağlantısı iptal edilsin mi?",
-        "revokeBody": "Bağlantıya sahip olan kişiler artık katılamaz. Daha önce katılanlar üye olarak kalır."
+        "revokeBody": "Bağlantıya sahip olan kişiler artık katılamaz. Daha önce katılanlar üye olarak kalır.",
+        "actionsFor": "Bağlantı için işlemler ({created})"
       },
       "shell": {
         "allTeams": "Tüm ekipler",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Ekip bulunamadı",
         "notFoundBody": "Bu ekip mevcut değil veya bu ekibin üyesi değilsiniz.",
-        "backToTeams": "Ekiplere dön",
-        "loadError": "Bu ekip yüklenemedi.",
-        "retry": "Tekrar dene"
+        "backToTeams": "Ekiplere dön"
       },
       "general": {
         "imageTitle": "Ekip görseli",
@@ -951,9 +945,6 @@
         "memberColumn": "Üye",
         "roleColumn": "Rol",
         "actionsColumn": "İşlemler",
-        "roleFor": "Rol: {name}",
-        "roleMember": "Üye",
-        "roleAdmin": "Yönetici",
         "you": "Siz",
         "unnamed": "Adsız üye",
         "remove": "Kaldır",
@@ -972,7 +963,18 @@
         "linksTitle": "Davet bağlantıları",
         "linksDescription": "Herkesin üye olarak katılmak için kullanabileceği yeniden kullanılabilir bir bağlantı.",
         "seatNudge": "{used} kişi üye veya davetli, ancak planda {seats} koltuk var. Davetler çalışmaya devam eder; herkesi kapsamak için {over, plural, one {# koltuk} other {# koltuk}} ekleyin.",
-        "seatNudgeAction": "Koltukları yönet"
+        "seatNudgeAction": "Koltukları yönet",
+        "actions": {
+          "makeAdmin": "Yönetici yap",
+          "makeMember": "Üye yap",
+          "remove": "Ekipten çıkar",
+          "leave": "Ekipten ayrıl"
+        },
+        "actionsFor": "{name} için işlemler",
+        "lastAdminReason": "Bir ekipte en az bir yönetici olmalıdır. Önce başka birini yönetici yapın.",
+        "demoteSelfTitle": "Yöneticilikten çıkılsın mı?",
+        "demoteSelfBody": "Bu ekipteki yönetici erişiminizi kaybedersiniz. Başka bir yönetici geri verebilir.",
+        "demoteSelfConfirm": "Beni üye yap"
       },
       "apiKeys": {
         "title": "Ekip API anahtarları",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API anahtarları",
       "apiKeysDescription": "Komut dosyaları ve aracıların kullanması için uzun ömürlü anahtarlar oluşturun. Gizli değer yalnızca bir kez gösterilir.",
       "apiKeysCount": "{count, plural, one {# anahtar} other {# anahtar}}",
-      "apiKeysLoading": "API anahtarları yükleniyor…",
-      "apiKeysLoadError": "API anahtarları yüklenemedi. Biraz sonra tekrar deneyin.",
-      "apiKeysRetry": "Tekrar dene",
-      "apiKeysEmptyBody": "Henüz API anahtarı yok. CodeRouter istemcisini doğrulamak için bir anahtar oluşturun.",
       "apiKeyPrefixColumn": "Anahtar",
       "apiKeyStatusColumn": "Durum",
       "apiKeySecretTitle": "Bu anahtarı şimdi kopyalayın",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
       "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
-      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
+      "apiKeysEmptyTitle": "Henüz API anahtarı yok",
+      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun."
     },
     "notFound": {
       "title": "Sayfa bulunamadı",
       "body": "Bu panel sayfası mevcut değil veya taşındı.",
       "home": "Panele git"
+    },
+    "states": {
+      "errorTitle": "{section} yüklenemedi",
+      "errorTitleGeneric": "Bu bölüm yüklenemedi",
+      "reason": {
+        "network": "Bağlantınızı kontrol edip tekrar deneyin.",
+        "unavailable": "cmux geçici olarak kullanılamıyor. Birazdan tekrar deneyin.",
+        "forbidden": "Buna erişiminiz yok.",
+        "notFound": "Bu artık mevcut değil veya erişiminiz yok.",
+        "rateLimited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
+        "generic": "Bir sorun oluştu. Tekrar deneyin."
+      },
+      "retry": "Tekrar dene",
+      "retrying": "Tekrar deneniyor…"
     }
   },
   "community": {

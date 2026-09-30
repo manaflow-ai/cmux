@@ -4,6 +4,7 @@ import { useUser } from "@hexclave/next";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { EmptyState } from "@/dashboard-app/components/page-states";
 import { InlineError, SettingsPanel, SettingsSwitch } from "@/dashboard-app/components/settings-ui";
 import {
   type SettingsNotificationCategory,
@@ -19,7 +20,7 @@ export function NotificationSettings() {
   return (
     <SettingsPanel title={t("heading")}>
       {categories.length === 0 ? (
-        <p className="text-xs text-muted">{t("empty")}</p>
+        <EmptyState title={t("empty")} />
       ) : (
         <ul className="divide-y divide-border border border-border">
           {categories.map((category) => (

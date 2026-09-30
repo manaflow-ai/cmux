@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Modal } from "@/app/[locale]/components/modal";
+import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
+import { EmptyState, SectionError } from "../../components/page-states";
 import { CopyButton } from "../vault/copy-button";
 import type {
   ClaudeAccountDescription,
@@ -150,10 +152,7 @@ export function CoderouterAccountsSection({
 
       {total === 0 ? (
         partialFailure ? null : (
-          <div className="border border-border p-3">
-            <div className="text-sm font-medium">{t("emptyTitle")}</div>
-            <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-          </div>
+          <EmptyState title={t("emptyTitle")} body={t("emptyBody")} />
         )
       ) : (
         <div className="border border-border">
@@ -262,14 +261,11 @@ function CoderouterApiKeysSection({
         </div>
       ) : null}
 
-      {keysQuery.isPending ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {keysQuery.isPending ? <DashboardSectionSkeleton variant="table" columns={4} rows={2} /> : null}
       {keysQuery.isError ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
-          <span>{t("apiKeysLoadError")}</span>
-          <button type="button" className={buttonClass} onClick={() => void keysQuery.refetch()} disabled={keysQuery.isFetching}>{t("apiKeysRetry")}</button>
-        </div>
+        <SectionError error={keysQuery.error} section={t("apiKeysTitle")} onRetry={() => keysQuery.refetch()} />
       ) : null}
-      {visibleKeys && visibleKeys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
+      {visibleKeys && visibleKeys.length === 0 ? <EmptyState title={t("apiKeysEmptyTitle")} body={t("apiKeysEmptyHint")} /> : null}
       {visibleKeys && visibleKeys.length > 0 ? (
         <div className="border border-border">
           <div className="hidden grid-cols-[1.1fr_1fr_1.3fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">

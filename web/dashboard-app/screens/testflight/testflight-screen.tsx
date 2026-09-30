@@ -2,9 +2,9 @@
 
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
-import { Suspense } from "react";
 
 import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
+import { QuerySection } from "../../components/page-states";
 import { localeHref } from "../../lib/locale-href";
 import { testflightQuery } from "../../queries/testflight";
 
@@ -32,9 +32,9 @@ export function TestflightScreen({ testflight }: { testflight?: string }) {
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
-      <Suspense fallback={<DashboardSectionSkeleton />}>
+      <QuerySection name="dashboard-testflight" section={t("title")} skeleton={<DashboardSectionSkeleton variant="panel" />}>
         <TestflightContent testflight={testflight} />
-      </Suspense>
+      </QuerySection>
     </div>
   );
 }

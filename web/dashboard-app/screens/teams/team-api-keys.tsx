@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
-import { SettingsNotice } from "@/dashboard-app/components/settings-ui";
+import { EmptyState, SectionError } from "@/dashboard-app/components/page-states";
 import { SettingsPanel } from "@/dashboard-app/components/settings-ui/settings-section";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { dashboardRefusal } from "@/dashboard-app/lib/refusal";
@@ -14,7 +14,6 @@ import type { SettingsApiKey } from "@/dashboard-app/queries/settings";
 import { CreateApiKeyDialog, ShowApiKeyDialog } from "@/dashboard-app/screens/settings/components/api-keys/api-key-dialogs";
 import { type ApiKeyRow, ApiKeyTable } from "@/dashboard-app/screens/settings/components/api-keys/api-key-table";
 import { useTeamContext } from "./team-shell";
-import { useTeamErrorText } from "./team-ui";
 
 type TeamApiKeyFirstView = Awaited<ReturnType<StackTeam["createApiKey"]>>;
 
@@ -25,14 +24,14 @@ type TeamApiKeyFirstView = Awaited<ReturnType<StackTeam["createApiKey"]>>;
  */
 export function TeamApiKeys() {
   const t = useTranslations("dashboard.teams.apiKeys");
-  const errorText = useTeamErrorText();
   const detail = useTeamContext();
   const keys = useQuery(teamApiKeysQuery(detail.team.id));
-  if (keys.isPending) return <DashboardSectionSkeleton />;
+  if (keys.isPending) return <DashboardSectionSkeleton variant="table" columns={5} rows={3} />;
   if (keys.isError) {
-    return <SettingsNotice>{dashboardRefusal(keys.error)?.reason === "forbidden" ? t("forbidden") : errorText(keys.error)}</SettingsNotice>;
+    if (dashboardRefusal(keys.error)?.reason === "forbidden") return <EmptyState title={t("title")} body={t("forbidden")} />;
+    return <SectionError error={keys.error} section={t("title")} onRetry={() => keys.refetch()} />;
   }
-  if (!keys.data.enabled) return <SettingsNotice>{t("disabled")}</SettingsNotice>;
+  if (!keys.data.enabled) return <EmptyState title={t("title")} body={t("disabled")} />;
   return <TeamApiKeysPanel teamId={detail.team.id} keys={keys.data.keys} />;
 }
 

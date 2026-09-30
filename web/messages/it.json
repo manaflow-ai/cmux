@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Il tuo piano personale",
         "free": "Gratis",
-        "pro": "Pro",
-        "loading": "Caricamento…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Questo team non è disponibile. Potresti averlo lasciato, oppure è stato eliminato.",
@@ -458,7 +457,6 @@
       "loading": "Caricamento dei dispositivi…",
       "empty": "Non ci sono dispositivi registrati per questo team.",
       "unavailable": "Impossibile caricare i dispositivi. Aggiorna la pagina e riprova.",
-      "retry": "Riprova",
       "mutationError": "Non è stato possibile completare la modifica del dispositivo.",
       "revoke": "Revoca accesso",
       "deviceId": "Dispositivo",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Revoca sessioni",
         "revokeAllError": "Impossibile revocare tutte le sessioni. L’elenco mostra quelle rimaste.",
         "revokeError": "Impossibile revocare la sessione. Riprova.",
-        "loadError": "Impossibile caricare le sessioni. Ricarica la pagina per riprovare.",
         "empty": "Nessuna sessione attiva trovata.",
         "columns": {
           "session": "Sessione",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# team} other {# team}}",
         "selected": "Corrente",
         "emptyTitle": "Ancora nessun team",
-        "emptyBody": "Crea un team per invitare persone e condividere un unico piano.",
-        "loadError": "Impossibile caricare i tuoi team.",
-        "retry": "Riprova"
+        "emptyBody": "Crea un team per invitare persone e condividere un unico piano."
       },
       "new": {
         "title": "Crea un team",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# utilizzo} other {# utilizzi}}",
         "revoke": "Revoca",
         "revokeTitle": "Revocare questo link di invito?",
-        "revokeBody": "Chi ha il link non potrà più unirsi. Chi si è già unito resta membro."
+        "revokeBody": "Chi ha il link non potrà più unirsi. Chi si è già unito resta membro.",
+        "actionsFor": "Azioni per il link ({created})"
       },
       "shell": {
         "allTeams": "Tutti i team",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Team non trovato",
         "notFoundBody": "Questo team non esiste, oppure non ne sei membro.",
-        "backToTeams": "Torna ai team",
-        "loadError": "Impossibile caricare questo team.",
-        "retry": "Riprova"
+        "backToTeams": "Torna ai team"
       },
       "general": {
         "imageTitle": "Immagine del team",
@@ -951,9 +945,6 @@
         "memberColumn": "Membro",
         "roleColumn": "Ruolo",
         "actionsColumn": "Azioni",
-        "roleFor": "Ruolo di {name}",
-        "roleMember": "Membro",
-        "roleAdmin": "Admin",
         "you": "Tu",
         "unnamed": "Membro senza nome",
         "remove": "Rimuovi",
@@ -972,7 +963,18 @@
         "linksTitle": "Link di invito",
         "linksDescription": "Un link riutilizzabile con cui chiunque può unirsi come membro.",
         "seatNudge": "{used} persone sono membri o invitate, ma il piano ha {seats} posti. Gli inviti funzionano comunque; aggiungi {over, plural, one {# posto} other {# posti}} per coprire tutti.",
-        "seatNudgeAction": "Gestisci posti"
+        "seatNudgeAction": "Gestisci posti",
+        "actions": {
+          "makeAdmin": "Rendi admin",
+          "makeMember": "Rendi membro",
+          "remove": "Rimuovi dal team",
+          "leave": "Lascia il team"
+        },
+        "actionsFor": "Azioni per {name}",
+        "lastAdminReason": "Un team ha bisogno di almeno un admin. Prima promuovi un altro membro.",
+        "demoteSelfTitle": "Smettere di essere admin?",
+        "demoteSelfBody": "Perdi l’accesso admin a questo team. Un altro admin può restituirtelo.",
+        "demoteSelfConfirm": "Rendimi membro"
       },
       "apiKeys": {
         "title": "Chiavi API del team",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "Chiavi API",
       "apiKeysDescription": "Crea chiavi a lunga durata per script e agenti. Il segreto viene mostrato una sola volta.",
       "apiKeysCount": "{count, plural, one {# chiave} other {# chiavi}}",
-      "apiKeysLoading": "Caricamento delle chiavi API…",
-      "apiKeysLoadError": "Impossibile caricare le chiavi API. Riprova tra poco.",
-      "apiKeysRetry": "Riprova",
-      "apiKeysEmptyBody": "Nessuna chiave API. Creane una per autenticare un client CodeRouter.",
       "apiKeyPrefixColumn": "Chiave",
       "apiKeyStatusColumn": "Stato",
       "apiKeySecretTitle": "Copia subito questa chiave",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Revocare questa chiave API?",
       "apiKeyUsageDetail": "ultimi 30 giorni: {completions} completamenti · {tokens} token ({input} input / {output} output) · equivalente API {value}",
       "apiKeyUsageUnavailable": "Utilizzo non disponibile",
-      "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi."
+      "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi.",
+      "apiKeysEmptyTitle": "Ancora nessuna chiave API",
+      "apiKeysEmptyHint": "Creane una per autenticare un client CodeRouter."
     },
     "notFound": {
       "title": "Pagina non trovata",
       "body": "Questa pagina della dashboard non esiste o è stata spostata.",
       "home": "Vai alla dashboard"
+    },
+    "states": {
+      "errorTitle": "Impossibile caricare {section}",
+      "errorTitleGeneric": "Impossibile caricare questa sezione",
+      "reason": {
+        "network": "Controlla la connessione, poi riprova.",
+        "unavailable": "cmux non è disponibile al momento. Riprova tra poco.",
+        "forbidden": "Non hai accesso a questo contenuto.",
+        "notFound": "Non esiste più, oppure non hai accesso.",
+        "rateLimited": "Troppe richieste. Attendi un momento, poi riprova.",
+        "generic": "Qualcosa è andato storto. Riprova."
+      },
+      "retry": "Riprova",
+      "retrying": "Nuovo tentativo…"
     }
   },
   "community": {

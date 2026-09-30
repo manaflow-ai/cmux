@@ -413,8 +413,7 @@
       "plan": {
         "heading": "내 개인 플랜",
         "free": "무료",
-        "pro": "Pro",
-        "loading": "불러오는 중…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "이 팀을 사용할 수 없습니다. 팀에서 나갔거나 팀이 삭제되었을 수 있습니다.",
@@ -458,7 +457,6 @@
       "loading": "기기 로드 중…",
       "empty": "이 팀에 등록된 기기가 없습니다.",
       "unavailable": "기기를 불러올 수 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
-      "retry": "다시 시도",
       "mutationError": "기기 변경을 완료할 수 없습니다.",
       "revoke": "액세스 취소",
       "deviceId": "기기",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "세션 취소",
         "revokeAllError": "일부 세션을 취소하지 못했습니다. 남아 있는 세션이 목록에 표시됩니다.",
         "revokeError": "세션을 취소할 수 없습니다. 다시 시도하세요.",
-        "loadError": "세션을 불러올 수 없습니다. 페이지를 새로고침한 후 다시 시도하세요.",
         "empty": "활성 세션이 없습니다.",
         "columns": {
           "session": "세션",
@@ -815,9 +812,7 @@
         "count": "{count, plural, other {팀 #개}}",
         "selected": "현재",
         "emptyTitle": "아직 팀이 없습니다",
-        "emptyBody": "팀을 만들어 사람들을 초대하고 하나의 플랜을 공유하세요.",
-        "loadError": "팀을 불러올 수 없습니다.",
-        "retry": "다시 시도"
+        "emptyBody": "팀을 만들어 사람들을 초대하고 하나의 플랜을 공유하세요."
       },
       "new": {
         "title": "팀 만들기",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, other {#회 사용}}",
         "revoke": "취소",
         "revokeTitle": "이 초대 링크를 취소할까요?",
-        "revokeBody": "링크를 가진 사람은 더 이상 참여할 수 없습니다. 이미 참여한 사람은 멤버로 유지됩니다."
+        "revokeBody": "링크를 가진 사람은 더 이상 참여할 수 없습니다. 이미 참여한 사람은 멤버로 유지됩니다.",
+        "actionsFor": "링크 작업({created})"
       },
       "shell": {
         "allTeams": "모든 팀",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "팀을 찾을 수 없음",
         "notFoundBody": "이 팀이 존재하지 않거나 내가 멤버가 아닙니다.",
-        "backToTeams": "팀 목록으로 돌아가기",
-        "loadError": "이 팀을 불러올 수 없습니다.",
-        "retry": "다시 시도"
+        "backToTeams": "팀 목록으로 돌아가기"
       },
       "general": {
         "imageTitle": "팀 이미지",
@@ -951,9 +945,6 @@
         "memberColumn": "멤버",
         "roleColumn": "역할",
         "actionsColumn": "작업",
-        "roleFor": "{name}의 역할",
-        "roleMember": "멤버",
-        "roleAdmin": "관리자",
         "you": "나",
         "unnamed": "이름 없는 멤버",
         "remove": "제거",
@@ -972,7 +963,18 @@
         "linksTitle": "초대 링크",
         "linksDescription": "누구나 멤버로 참여할 수 있는 재사용 가능한 링크입니다.",
         "seatNudge": "멤버이거나 초대된 사람이 {used}명이지만 플랜의 시트는 {seats}개입니다. 초대는 계속 가능하며, 모두를 포함하려면 {over, plural, other {시트 #개}}를 추가하세요.",
-        "seatNudgeAction": "시트 관리"
+        "seatNudgeAction": "시트 관리",
+        "actions": {
+          "makeAdmin": "관리자로 지정",
+          "makeMember": "멤버로 변경",
+          "remove": "팀에서 제거",
+          "leave": "팀 나가기"
+        },
+        "actionsFor": "{name} 작업",
+        "lastAdminReason": "팀에는 관리자가 한 명 이상 있어야 합니다. 먼저 다른 멤버를 관리자로 지정하세요.",
+        "demoteSelfTitle": "관리자 권한을 내려놓을까요?",
+        "demoteSelfBody": "이 팀의 관리자 권한을 잃게 됩니다. 다른 관리자가 다시 부여할 수 있습니다.",
+        "demoteSelfConfirm": "멤버로 변경"
       },
       "apiKeys": {
         "title": "팀 API 키",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API 키",
       "apiKeysDescription": "스크립트와 에이전트용 장기 키를 만드세요. 비밀 값은 한 번만 표시됩니다.",
       "apiKeysCount": "{count, plural, one {키 #개} other {키 #개}}",
-      "apiKeysLoading": "API 키 로드 중…",
-      "apiKeysLoadError": "API 키를 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
-      "apiKeysRetry": "다시 시도",
-      "apiKeysEmptyBody": "API 키가 아직 없습니다. CodeRouter 클라이언트를 인증할 키를 만드세요.",
       "apiKeyPrefixColumn": "키",
       "apiKeyStatusColumn": "상태",
       "apiKeySecretTitle": "지금 이 키를 복사하세요",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "이 API 키를 폐기할까요?",
       "apiKeyUsageDetail": "최근 30일: 완료 {completions}회 · 토큰 {tokens}개 ({input} 입력 / {output} 출력) · API 환산 {value}",
       "apiKeyUsageUnavailable": "사용량을 사용할 수 없음",
-      "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다."
+      "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다.",
+      "apiKeysEmptyTitle": "아직 API 키가 없습니다",
+      "apiKeysEmptyHint": "CodeRouter 클라이언트를 인증할 키를 만드세요."
     },
     "notFound": {
       "title": "페이지를 찾을 수 없습니다",
       "body": "이 대시보드 페이지가 없거나 이동되었습니다.",
       "home": "대시보드로 이동"
+    },
+    "states": {
+      "errorTitle": "{section}을(를) 불러오지 못했습니다",
+      "errorTitleGeneric": "이 섹션을 불러오지 못했습니다",
+      "reason": {
+        "network": "연결을 확인한 다음 다시 시도하세요.",
+        "unavailable": "cmux를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
+        "forbidden": "이 항목에 액세스할 권한이 없습니다.",
+        "notFound": "더 이상 존재하지 않거나 액세스할 권한이 없습니다.",
+        "rateLimited": "요청이 너무 많습니다. 잠시 기다린 다음 다시 시도하세요.",
+        "generic": "문제가 발생했습니다. 다시 시도하세요."
+      },
+      "retry": "다시 시도",
+      "retrying": "다시 시도하는 중…"
     }
   },
   "community": {

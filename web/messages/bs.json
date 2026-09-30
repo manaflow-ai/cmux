@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Vaš lični plan",
         "free": "Besplatno",
-        "pro": "Pro",
-        "loading": "Učitavanje…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Ovaj tim nije dostupan. Možda ste ga napustili ili je izbrisan.",
@@ -458,7 +457,6 @@
       "loading": "Učitavanje uređaja…",
       "empty": "Nema registrovanih uređaja za ovaj tim.",
       "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",
-      "retry": "Pokušaj ponovo",
       "mutationError": "Promjena uređaja nije završena.",
       "revoke": "Opozovi pristup",
       "deviceId": "Uređaj",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Opozovi sesije",
         "revokeAllError": "Nije moguće opozvati sve sesije. Na listi su one koje su preostale.",
         "revokeError": "Sesiju nije moguće opozvati. Pokušajte ponovo.",
-        "loadError": "Sesije nije moguće učitati. Ponovo učitajte stranicu da pokušate ponovo.",
         "empty": "Nema aktivnih sesija.",
         "columns": {
           "session": "Sesija",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# tim} few {# tima} other {# timova}}",
         "selected": "Trenutni",
         "emptyTitle": "Još nema timova",
-        "emptyBody": "Kreirajte tim da pozovete ljude i dijelite jedan plan.",
-        "loadError": "Vaše timove nije moguće učitati.",
-        "retry": "Pokušaj ponovo"
+        "emptyBody": "Kreirajte tim da pozovete ljude i dijelite jedan plan."
       },
       "new": {
         "title": "Kreirajte tim",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# korištenje} few {# korištenja} other {# korištenja}}",
         "revoke": "Opozovi",
         "revokeTitle": "Opozvati ovaj link za pozivnicu?",
-        "revokeBody": "Niko s ovim linkom se više ne može pridružiti. Ljudi koji su se već pridružili ostaju članovi."
+        "revokeBody": "Niko s ovim linkom se više ne može pridružiti. Ljudi koji su se već pridružili ostaju članovi.",
+        "actionsFor": "Radnje za link ({created})"
       },
       "shell": {
         "allTeams": "Svi timovi",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Tim nije pronađen",
         "notFoundBody": "Ovaj tim ne postoji ili niste njegov član.",
-        "backToTeams": "Nazad na timove",
-        "loadError": "Ovaj tim nije moguće učitati.",
-        "retry": "Pokušaj ponovo"
+        "backToTeams": "Nazad na timove"
       },
       "general": {
         "imageTitle": "Slika tima",
@@ -951,9 +945,6 @@
         "memberColumn": "Član",
         "roleColumn": "Uloga",
         "actionsColumn": "Radnje",
-        "roleFor": "Uloga za {name}",
-        "roleMember": "Član",
-        "roleAdmin": "Administrator",
         "you": "Vi",
         "unnamed": "Član bez imena",
         "remove": "Ukloni",
@@ -972,7 +963,18 @@
         "linksTitle": "Linkovi za pozivnicu",
         "linksDescription": "Link za višekratnu upotrebu kojim se svako može pridružiti kao član.",
         "seatNudge": "Članova i pozvanih: {used}, a plan ima mjesta: {seats}. Pozivnice i dalje rade; dodajte {over, plural, one {# mjesto} few {# mjesta} other {# mjesta}} da pokrijete sve.",
-        "seatNudgeAction": "Upravljaj mjestima"
+        "seatNudgeAction": "Upravljaj mjestima",
+        "actions": {
+          "makeAdmin": "Postavi za administratora",
+          "makeMember": "Postavi za člana",
+          "remove": "Ukloni iz tima",
+          "leave": "Napusti tim"
+        },
+        "actionsFor": "Radnje za {name}",
+        "lastAdminReason": "Tim mora imati barem jednog administratora. Prvo unaprijedite nekog drugog.",
+        "demoteSelfTitle": "Prestati biti administrator?",
+        "demoteSelfBody": "Gubite administratorski pristup ovom timu. Drugi administrator vam ga može vratiti.",
+        "demoteSelfConfirm": "Postavi me za člana"
       },
       "apiKeys": {
         "title": "API ključevi tima",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API ključevi",
       "apiKeysDescription": "Kreirajte dugotrajne ključeve za skripte i agente. Tajna vrijednost prikazuje se jednom.",
       "apiKeysCount": "{count, plural, one {# ključ} other {# ključeva}}",
-      "apiKeysLoading": "Učitavanje API ključeva…",
-      "apiKeysLoadError": "API ključevi se ne mogu učitati. Pokušajte ponovo uskoro.",
-      "apiKeysRetry": "Pokušaj ponovo",
-      "apiKeysEmptyBody": "Još nema API ključeva. Kreirajte ga za autentifikaciju CodeRouter klijenta.",
       "apiKeyPrefixColumn": "Ključ",
       "apiKeyStatusColumn": "Stanje",
       "apiKeySecretTitle": "Kopirajte ovaj ključ sada",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
       "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
-      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
+      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
+      "apiKeysEmptyTitle": "Još nema API ključeva",
+      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta."
     },
     "notFound": {
       "title": "Stranica nije pronađena",
       "body": "Ova stranica kontrolne ploče ne postoji ili je premještena.",
       "home": "Idi na kontrolnu ploču"
+    },
+    "states": {
+      "errorTitle": "Nije moguće učitati: {section}",
+      "errorTitleGeneric": "Nije moguće učitati ovaj odjeljak",
+      "reason": {
+        "network": "Provjerite vezu, pa pokušajte ponovo.",
+        "unavailable": "cmux je privremeno nedostupan. Pokušajte ponovo za trenutak.",
+        "forbidden": "Nemate pristup ovome.",
+        "notFound": "Ovo više ne postoji ili nemate pristup.",
+        "rateLimited": "Previše zahtjeva. Sačekajte trenutak, pa pokušajte ponovo.",
+        "generic": "Nešto nije u redu. Pokušajte ponovo."
+      },
+      "retry": "Pokušaj ponovo",
+      "retrying": "Ponovni pokušaj…"
     }
   },
   "community": {

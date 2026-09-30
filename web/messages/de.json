@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Dein persönlicher Tarif",
         "free": "Kostenlos",
-        "pro": "Pro",
-        "loading": "Wird geladen…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Dieses Team ist nicht verfügbar. Möglicherweise hast du es verlassen, oder es wurde gelöscht.",
@@ -458,7 +457,6 @@
       "loading": "Geräte werden geladen…",
       "empty": "Für dieses Team sind keine Geräte registriert.",
       "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",
-      "retry": "Erneut versuchen",
       "mutationError": "Die Geräteänderung konnte nicht abgeschlossen werden.",
       "revoke": "Zugriff entziehen",
       "deviceId": "Gerät",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Sitzungen widerrufen",
         "revokeAllError": "Nicht alle Sitzungen konnten widerrufen werden. Die Liste zeigt die verbleibenden.",
         "revokeError": "Die Sitzung konnte nicht widerrufen werden. Versuche es erneut.",
-        "loadError": "Die Sitzungen konnten nicht geladen werden. Lade die Seite neu, um es erneut zu versuchen.",
         "empty": "Keine aktiven Sitzungen gefunden.",
         "columns": {
           "session": "Sitzung",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# Team} other {# Teams}}",
         "selected": "Aktuell",
         "emptyTitle": "Noch keine Teams",
-        "emptyBody": "Erstelle ein Team, um Personen einzuladen und einen Tarif zu teilen.",
-        "loadError": "Deine Teams konnten nicht geladen werden.",
-        "retry": "Erneut versuchen"
+        "emptyBody": "Erstelle ein Team, um Personen einzuladen und einen Tarif zu teilen."
       },
       "new": {
         "title": "Team erstellen",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# Nutzung} other {# Nutzungen}}",
         "revoke": "Widerrufen",
         "revokeTitle": "Diesen Einladungslink widerrufen?",
-        "revokeBody": "Niemand mit diesem Link kann mehr beitreten. Bereits beigetretene Personen bleiben Mitglieder."
+        "revokeBody": "Niemand mit diesem Link kann mehr beitreten. Bereits beigetretene Personen bleiben Mitglieder.",
+        "actionsFor": "Aktionen für den Link ({created})"
       },
       "shell": {
         "allTeams": "Alle Teams",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Team nicht gefunden",
         "notFoundBody": "Dieses Team existiert nicht, oder du bist kein Mitglied.",
-        "backToTeams": "Zurück zu den Teams",
-        "loadError": "Dieses Team konnte nicht geladen werden.",
-        "retry": "Erneut versuchen"
+        "backToTeams": "Zurück zu den Teams"
       },
       "general": {
         "imageTitle": "Teambild",
@@ -951,9 +945,6 @@
         "memberColumn": "Mitglied",
         "roleColumn": "Rolle",
         "actionsColumn": "Aktionen",
-        "roleFor": "Rolle für {name}",
-        "roleMember": "Mitglied",
-        "roleAdmin": "Admin",
         "you": "Du",
         "unnamed": "Unbenanntes Mitglied",
         "remove": "Entfernen",
@@ -972,7 +963,18 @@
         "linksTitle": "Einladungslinks",
         "linksDescription": "Ein wiederverwendbarer Link, über den jeder als Mitglied beitreten kann.",
         "seatNudge": "{used} Personen sind Mitglieder oder eingeladen, aber der Tarif hat {seats} Plätze. Einladungen funktionieren weiterhin; füge {over, plural, one {# Platz} other {# Plätze}} hinzu, um alle abzudecken.",
-        "seatNudgeAction": "Plätze verwalten"
+        "seatNudgeAction": "Plätze verwalten",
+        "actions": {
+          "makeAdmin": "Zum Admin machen",
+          "makeMember": "Zum Mitglied machen",
+          "remove": "Aus dem Team entfernen",
+          "leave": "Team verlassen"
+        },
+        "actionsFor": "Aktionen für {name}",
+        "lastAdminReason": "Ein Team braucht mindestens einen Admin. Befördere zuerst ein anderes Mitglied.",
+        "demoteSelfTitle": "Nicht mehr Admin sein?",
+        "demoteSelfBody": "Du verlierst die Admin-Rechte für dieses Team. Ein anderer Admin kann sie dir zurückgeben.",
+        "demoteSelfConfirm": "Mich zum Mitglied machen"
       },
       "apiKeys": {
         "title": "Team-API-Schlüssel",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API-Schlüssel",
       "apiKeysDescription": "Erstellen Sie langlebige Schlüssel für Skripte und Agenten. Das Geheimnis wird einmal angezeigt.",
       "apiKeysCount": "{count, plural, one {# Schlüssel} other {# Schlüssel}}",
-      "apiKeysLoading": "API-Schlüssel werden geladen…",
-      "apiKeysLoadError": "API-Schlüssel konnten nicht geladen werden. Versuchen Sie es bald erneut.",
-      "apiKeysRetry": "Erneut versuchen",
-      "apiKeysEmptyBody": "Noch keine API-Schlüssel. Erstellen Sie einen zur Authentifizierung eines CodeRouter-Clients.",
       "apiKeyPrefixColumn": "Schlüssel",
       "apiKeyStatusColumn": "Zustand",
       "apiKeySecretTitle": "Diesen Schlüssel jetzt kopieren",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
       "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
-      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
+      "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
+      "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren."
     },
     "notFound": {
       "title": "Seite nicht gefunden",
       "body": "Diese Dashboard-Seite existiert nicht oder wurde verschoben.",
       "home": "Zum Dashboard"
+    },
+    "states": {
+      "errorTitle": "{section} konnte nicht geladen werden",
+      "errorTitleGeneric": "Dieser Bereich konnte nicht geladen werden",
+      "reason": {
+        "network": "Prüfe deine Verbindung und versuche es dann erneut.",
+        "unavailable": "cmux ist vorübergehend nicht verfügbar. Versuche es gleich noch einmal.",
+        "forbidden": "Du hast keinen Zugriff darauf.",
+        "notFound": "Das existiert nicht mehr, oder du hast keinen Zugriff darauf.",
+        "rateLimited": "Zu viele Anfragen. Warte einen Moment und versuche es dann erneut.",
+        "generic": "Etwas ist schiefgelaufen. Versuche es erneut."
+      },
+      "retry": "Erneut versuchen",
+      "retrying": "Wird erneut versucht…"
     }
   },
   "community": {

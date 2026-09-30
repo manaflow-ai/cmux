@@ -1,6 +1,9 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
+import { RouteSectionError } from "../components/route-section-error";
 import { dashboardBillingQuery } from "../queries/billing";
+import { BillingPageFrame } from "../screens/billing/billing-frame";
 import { testflightQuery } from "../queries/testflight";
 import { shellRoute } from "./root";
 
@@ -15,6 +18,16 @@ export const billingRoute = createRoute({
   }),
   loaderDeps: ({ search }) => ({ team: search.team }),
   loader: ({ context, deps }) => context.queryClient.ensureQueryData(dashboardBillingQuery(deps.team)),
+  pendingComponent: () => (
+    <BillingPageFrame>
+      <DashboardSectionSkeleton variant="panel" />
+    </BillingPageFrame>
+  ),
+  errorComponent: (props) => (
+    <BillingPageFrame>
+      <RouteSectionError {...props} />
+    </BillingPageFrame>
+  ),
   component: lazyRouteComponent(() => import("../screens/billing/billing-route"), "BillingRouteComponent"),
 });
 

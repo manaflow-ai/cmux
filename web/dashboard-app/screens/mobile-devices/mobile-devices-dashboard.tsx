@@ -3,6 +3,8 @@
 import { useStackApp } from "@hexclave/next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { DashboardSectionSkeleton } from "../../components/dashboard-skeleton";
+import { EmptyState, SectionError } from "../../components/page-states";
 import { useDashboardTeamScope } from "../../shell/dashboard-team-scope";
 import { V2DashboardController, type DashboardDirectory } from "./v2-dashboard-controller";
 
@@ -18,9 +20,9 @@ export function MobileDevicesPage({ userId }: Props) {
   const t = useTranslations("dashboard.mobileDevices");
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-5 border-b border-border pb-4">
-        <h1 className="text-base font-medium">{t("title")}</h1>
-        <p className="mt-1 text-sm text-muted">{t("description")}</p>
+      <div className="mb-4 border-b border-border pb-3">
+        <h1 className="text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
       <MobileDevicesDashboard userId={userId} />
     </div>
@@ -33,8 +35,8 @@ export function MobileDevicesDashboard({ userId }: Props) {
   const scope = useDashboardTeamScope(userId);
 
   return <div className="space-y-5" data-testid="mobile-devices-dashboard">
-    {scope.status === "loading" ? <p className="text-muted">{t("loading")}</p> :
-      scope.status === "unavailable" ? <p role="alert" className="text-muted">{t("unavailable")}</p> :
+    {scope.status === "loading" ? <LoadingState label={t("loading")} /> :
+      scope.status === "unavailable" ? <SectionError error={null} section={t("title")} reason={t("unavailable")} /> :
         <>
           <p className="text-xs text-muted">{t("team")}: {scope.selected.name}</p>
           <ConnectedDevices key={`${userId}:${scope.selected.id}`} teamId={scope.selected.id} userId={userId} stack={stack} />
@@ -125,24 +127,18 @@ export function DeviceCard({ device, canRevoke, busy, failed, onRevoke }: {
 
 export function EmptyDevices() {
   const t = useTranslations("dashboard.mobileDevices");
-  return <div className="border-y border-border py-4">
-    <h2 className="font-medium">{t("emptyTitle")}</h2>
-    <p className="mt-1 text-sm text-muted">{t("emptyDescription")}</p>
-  </div>;
+  return <EmptyState title={t("emptyTitle")} body={t("emptyDescription")} />;
 }
 
 export function LoadingState({ label }: { readonly label: string }) {
-  return <div className="space-y-3" role="status" aria-label={label}>
-    <p className="text-sm text-muted">{label}</p>
+  return <div role="status" aria-label={label}>
+    <DashboardSectionSkeleton variant="devices" />
   </div>;
 }
 
 export function ConnectionError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) {
   const t = useTranslations("dashboard.mobileDevices");
-  return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm">
-    <p>{message}</p>
-    <button type="button" className="border border-border bg-background px-3 py-1.5 text-xs hover:bg-code-bg" onClick={onRetry}>{t("retry")}</button>
-  </div>;
+  return <SectionError error={null} section={t("title")} reason={message} onRetry={onRetry} />;
 }
 
 export function RelaySettings({ relayURLs, controllerRef }: {

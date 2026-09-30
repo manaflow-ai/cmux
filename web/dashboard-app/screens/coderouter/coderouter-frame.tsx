@@ -16,14 +16,3 @@ export function CoderouterPageFrame({ children }: { readonly children: ReactNode
     </div>
   );
 }
-
-/** The account service could not confirm the session or team grants. */
-export function CoderouterLoadError() {
-  const t = useTranslations("dashboard.coderouterAccounts");
-  return (
-    <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pageErrorTitle")}</h2>
-      <p className="mt-1 max-w-2xl text-xs text-muted">{t("pageErrorBody")}</p>
-    </section>
-  );
-}

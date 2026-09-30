@@ -413,8 +413,7 @@
       "plan": {
         "heading": "你的個人方案",
         "free": "免費",
-        "pro": "Pro",
-        "loading": "載入中…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "無法使用此團隊。你可能已退出該團隊，或該團隊已被刪除。",
@@ -458,7 +457,6 @@
       "loading": "正在載入裝置…",
       "empty": "此團隊沒有已註冊的裝置。",
       "unavailable": "無法載入你的裝置。重新整理頁面後再試一次。",
-      "retry": "重試",
       "mutationError": "無法完成裝置變更。",
       "revoke": "撤銷存取權",
       "deviceId": "裝置",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "撤銷工作階段",
         "revokeAllError": "無法撤銷所有工作階段。清單中顯示的是剩餘的工作階段。",
         "revokeError": "無法撤銷工作階段，請再試一次。",
-        "loadError": "無法載入工作階段。請重新整理頁面再試一次。",
         "empty": "找不到使用中的工作階段。",
         "columns": {
           "session": "工作階段",
@@ -815,9 +812,7 @@
         "count": "{count, plural, other {# 個團隊}}",
         "selected": "目前",
         "emptyTitle": "尚無團隊",
-        "emptyBody": "建立團隊以邀請他人並共用同一個方案。",
-        "loadError": "無法載入你的團隊。",
-        "retry": "重試"
+        "emptyBody": "建立團隊以邀請他人並共用同一個方案。"
       },
       "new": {
         "title": "建立團隊",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, other {已使用 # 次}}",
         "revoke": "撤銷",
         "revokeTitle": "要撤銷此邀請連結嗎？",
-        "revokeBody": "持有此連結的人將無法再加入。已加入的人仍是成員。"
+        "revokeBody": "持有此連結的人將無法再加入。已加入的人仍是成員。",
+        "actionsFor": "連結操作（{created}）"
       },
       "shell": {
         "allTeams": "所有團隊",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "找不到團隊",
         "notFoundBody": "此團隊不存在，或你不是其成員。",
-        "backToTeams": "返回團隊列表",
-        "loadError": "無法載入此團隊。",
-        "retry": "重試"
+        "backToTeams": "返回團隊列表"
       },
       "general": {
         "imageTitle": "團隊圖片",
@@ -951,9 +945,6 @@
         "memberColumn": "成員",
         "roleColumn": "角色",
         "actionsColumn": "操作",
-        "roleFor": "{name} 的角色",
-        "roleMember": "成員",
-        "roleAdmin": "管理員",
         "you": "你",
         "unnamed": "未命名的成員",
         "remove": "移除",
@@ -972,7 +963,18 @@
         "linksTitle": "邀請連結",
         "linksDescription": "任何人都能透過此可重複使用的連結以成員身分加入。",
         "seatNudge": "已有 {used} 人是成員或已受邀，但方案只有 {seats} 個席次。邀請仍然有效；請新增 {over, plural, other {# 個席次}}以涵蓋所有人。",
-        "seatNudgeAction": "管理席次"
+        "seatNudgeAction": "管理席次",
+        "actions": {
+          "makeAdmin": "設為管理員",
+          "makeMember": "設為成員",
+          "remove": "從團隊中移除",
+          "leave": "退出團隊"
+        },
+        "actionsFor": "{name} 的操作",
+        "lastAdminReason": "團隊至少需要一位管理員。請先將其他成員升為管理員。",
+        "demoteSelfTitle": "不再擔任管理員？",
+        "demoteSelfBody": "你將失去此團隊的管理員權限。其他管理員可以重新授予。",
+        "demoteSelfConfirm": "設為成員"
       },
       "apiKeys": {
         "title": "團隊 API 金鑰",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API 金鑰",
       "apiKeysDescription": "為腳本和代理程式建立長期金鑰。秘密只會顯示一次。",
       "apiKeysCount": "{count, plural, one {# 個金鑰} other {# 個金鑰}}",
-      "apiKeysLoading": "正在載入 API 金鑰…",
-      "apiKeysLoadError": "無法載入 API 金鑰，請稍後再試。",
-      "apiKeysRetry": "重試",
-      "apiKeysEmptyBody": "尚無 API 金鑰。建立金鑰以驗證 CodeRouter 用戶端。",
       "apiKeyPrefixColumn": "金鑰",
       "apiKeyStatusColumn": "狀態",
       "apiKeySecretTitle": "立即複製此金鑰",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "撤銷此 API 金鑰？",
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
-      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
+      "apiKeysEmptyTitle": "還沒有 API 金鑰",
+      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。"
     },
     "notFound": {
       "title": "找不到頁面",
       "body": "此儀表板頁面不存在或已移動。",
       "home": "前往儀表板"
+    },
+    "states": {
+      "errorTitle": "無法載入{section}",
+      "errorTitleGeneric": "無法載入此區段",
+      "reason": {
+        "network": "請檢查網路連線，然後再試一次。",
+        "unavailable": "cmux 暫時無法使用。請稍後再試。",
+        "forbidden": "你沒有存取此內容的權限。",
+        "notFound": "此內容已不存在，或你沒有存取權限。",
+        "rateLimited": "要求過多。請稍候再試。",
+        "generic": "發生問題。請再試一次。"
+      },
+      "retry": "再試一次",
+      "retrying": "正在重試…"
     }
   },
   "community": {

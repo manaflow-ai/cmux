@@ -413,8 +413,7 @@
       "plan": {
         "heading": "Din personlige plan",
         "free": "Gratis",
-        "pro": "Pro",
-        "loading": "Indlæser…"
+        "pro": "Pro"
       },
       "teamPanel": {
         "notFound": "Dette team er ikke tilgængeligt. Du har måske forladt det, eller det er blevet slettet.",
@@ -458,7 +457,6 @@
       "loading": "Indlæser enheder…",
       "empty": "Der er ingen registrerede enheder for dette team.",
       "unavailable": "Dine enheder kunne ikke indlæses. Opdater siden, og prøv igen.",
-      "retry": "Prøv igen",
       "mutationError": "Enhedsændringen kunne ikke gennemføres.",
       "revoke": "Tilbagekald adgang",
       "deviceId": "Enhed",
@@ -676,7 +674,6 @@
         "revokeAllConfirm": "Tilbagekald sessioner",
         "revokeAllError": "Ikke alle sessioner kunne tilbagekaldes. Listen viser, hvad der er tilbage.",
         "revokeError": "Sessionen kunne ikke tilbagekaldes. Prøv igen.",
-        "loadError": "Sessionerne kunne ikke indlæses. Genindlæs siden for at prøve igen.",
         "empty": "Ingen aktive sessioner fundet.",
         "columns": {
           "session": "Session",
@@ -815,9 +812,7 @@
         "count": "{count, plural, one {# team} other {# teams}}",
         "selected": "Aktuelt",
         "emptyTitle": "Ingen teams endnu",
-        "emptyBody": "Opret et team for at invitere personer og dele én plan.",
-        "loadError": "Dine teams kunne ikke indlæses.",
-        "retry": "Prøv igen"
+        "emptyBody": "Opret et team for at invitere personer og dele én plan."
       },
       "new": {
         "title": "Opret et team",
@@ -901,7 +896,8 @@
         "usesUnlimited": "{count, plural, one {# brug} other {# brug}}",
         "revoke": "Tilbagekald",
         "revokeTitle": "Vil du tilbagekalde dette invitationslink?",
-        "revokeBody": "Personer med linket kan ikke længere blive medlem. Personer, der allerede er medlem, forbliver medlemmer."
+        "revokeBody": "Personer med linket kan ikke længere blive medlem. Personer, der allerede er medlem, forbliver medlemmer.",
+        "actionsFor": "Handlinger for linket ({created})"
       },
       "shell": {
         "allTeams": "Alle teams",
@@ -914,9 +910,7 @@
         },
         "notFoundTitle": "Teamet blev ikke fundet",
         "notFoundBody": "Dette team findes ikke, eller du er ikke medlem af det.",
-        "backToTeams": "Tilbage til teams",
-        "loadError": "Teamet kunne ikke indlæses.",
-        "retry": "Prøv igen"
+        "backToTeams": "Tilbage til teams"
       },
       "general": {
         "imageTitle": "Teambillede",
@@ -951,9 +945,6 @@
         "memberColumn": "Medlem",
         "roleColumn": "Rolle",
         "actionsColumn": "Handlinger",
-        "roleFor": "Rolle for {name}",
-        "roleMember": "Medlem",
-        "roleAdmin": "Administrator",
         "you": "Dig",
         "unnamed": "Unavngivet medlem",
         "remove": "Fjern",
@@ -972,7 +963,18 @@
         "linksTitle": "Invitationslinks",
         "linksDescription": "Et genanvendeligt link, som alle kan bruge til at blive medlem.",
         "seatNudge": "{used} personer er medlemmer eller inviteret, men planen har {seats} pladser. Invitationer virker stadig; tilføj {over, plural, one {# plads} other {# pladser}}, så alle er dækket.",
-        "seatNudgeAction": "Administrer pladser"
+        "seatNudgeAction": "Administrer pladser",
+        "actions": {
+          "makeAdmin": "Gør til administrator",
+          "makeMember": "Gør til medlem",
+          "remove": "Fjern fra team",
+          "leave": "Forlad team"
+        },
+        "actionsFor": "Handlinger for {name}",
+        "lastAdminReason": "Et team skal have mindst én administrator. Forfrem en anden først.",
+        "demoteSelfTitle": "Stop med at være administrator?",
+        "demoteSelfBody": "Du mister administratoradgangen til dette team. En anden administrator kan give dig den igen.",
+        "demoteSelfConfirm": "Gør mig til medlem"
       },
       "apiKeys": {
         "title": "Teamets API-nøgler",
@@ -1007,10 +1009,6 @@
       "apiKeysTitle": "API-nøgler",
       "apiKeysDescription": "Opret langvarige nøgler til scripts og agenter. Hemmeligheden vises én gang.",
       "apiKeysCount": "{count, plural, one {# nøgle} other {# nøgler}}",
-      "apiKeysLoading": "Indlæser API-nøgler…",
-      "apiKeysLoadError": "API-nøgler kunne ikke indlæses. Prøv igen snart.",
-      "apiKeysRetry": "Prøv igen",
-      "apiKeysEmptyBody": "Ingen API-nøgler endnu. Opret en for at godkende en CodeRouter-klient.",
       "apiKeyPrefixColumn": "Nøgle",
       "apiKeyStatusColumn": "Tilstand",
       "apiKeySecretTitle": "Kopiér denne nøgle nu",
@@ -1030,12 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
       "apiKeyUsageDetail": "sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
-      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
+      "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
+      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient."
     },
     "notFound": {
       "title": "Siden blev ikke fundet",
       "body": "Denne dashboardside findes ikke eller er blevet flyttet.",
       "home": "Gå til dashboard"
+    },
+    "states": {
+      "errorTitle": "Kunne ikke indlæse {section}",
+      "errorTitleGeneric": "Kunne ikke indlæse denne sektion",
+      "reason": {
+        "network": "Tjek din forbindelse, og prøv igen.",
+        "unavailable": "cmux er midlertidigt utilgængelig. Prøv igen om lidt.",
+        "forbidden": "Du har ikke adgang til dette.",
+        "notFound": "Dette findes ikke længere, eller du har ikke adgang.",
+        "rateLimited": "For mange anmodninger. Vent et øjeblik, og prøv igen.",
+        "generic": "Noget gik galt. Prøv igen."
+      },
+      "retry": "Prøv igen",
+      "retrying": "Prøver igen…"
     }
   },
   "community": {

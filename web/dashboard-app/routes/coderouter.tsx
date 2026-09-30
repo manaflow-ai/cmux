@@ -1,18 +1,11 @@
-import {
-  createRoute,
-  lazyRouteComponent,
-  redirect,
-  useLocation,
-  type ErrorComponentProps,
-} from "@tanstack/react-router";
-import { DashboardAuthRecovery, SignInRedirect } from "../components/auth-recovery";
+import { createRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
+import { RouteSectionError } from "../components/route-section-error";
 import { isRefusal, refusalReason } from "../lib/refusal";
 import { cloudDevicesQuery } from "../queries/cloud";
 import { coderouterOverviewQuery } from "../queries/coderouter";
 import { CloudPageFrame } from "../screens/cloud/cloud-frame";
-import { CoderouterLoadError, CoderouterPageFrame } from "../screens/coderouter/coderouter-frame";
-import { DashboardRouteError } from "../shell/dashboard-frame";
+import { CoderouterPageFrame } from "../screens/coderouter/coderouter-frame";
 import { shellRoute } from "./root";
 
 /** `?team=` comes from the shell; absent, the server uses the Stack-selected team. */
@@ -34,10 +27,14 @@ const coderouterRoute = createRoute({
   },
   pendingComponent: () => (
     <CoderouterPageFrame>
-      <DashboardSectionSkeleton />
+      <DashboardSectionSkeleton variant="panel" />
     </CoderouterPageFrame>
   ),
-  errorComponent: CoderouterRouteError,
+  errorComponent: (props) => (
+    <CoderouterPageFrame>
+      <RouteSectionError {...props} />
+    </CoderouterPageFrame>
+  ),
   component: lazyRouteComponent(() => import("../screens/coderouter/coderouter-screen"), "CoderouterScreen"),
 });
 
@@ -47,10 +44,16 @@ const cloudRoute = createRoute({
   loader: ({ context }) => context.queryClient.ensureQueryData(cloudDevicesQuery),
   pendingComponent: () => (
     <CloudPageFrame>
-      <DashboardSectionSkeleton variant="rows" />
+      <DashboardSectionSkeleton variant="devices" />
     </CloudPageFrame>
   ),
-  errorComponent: CloudRouteError,
+  // A 503 here is the device list failing, not the session: it shows in the
+  // page like any other data failure, never as sign-in recovery.
+  errorComponent: (props) => (
+    <CloudPageFrame>
+      <RouteSectionError {...props} />
+    </CloudPageFrame>
+  ),
   component: lazyRouteComponent(() => import("../screens/cloud/cloud-screen"), "CloudScreen"),
 });
 
@@ -63,29 +66,5 @@ const mobileDevicesRoute = createRoute({
     "MobileDevicesScreen",
   ),
 });
-
-/** 401 goes to sign-in; an account-service outage keeps the header and explains it. */
-function CoderouterRouteError(props: ErrorComponentProps) {
-  const location = useLocation();
-  if (isRefusal(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isRefusal(props.error, 503)) {
-    return (
-      <CoderouterPageFrame>
-        <CoderouterLoadError />
-      </CoderouterPageFrame>
-    );
-  }
-  return <DashboardRouteError {...props} />;
-}
-
-/** 401 goes to sign-in; a Stack outage or throttle renders recovery in place. */
-function CloudRouteError(props: ErrorComponentProps) {
-  const location = useLocation();
-  if (isRefusal(props.error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isRefusal(props.error, 503) || isRefusal(props.error, 429)) {
-    return <DashboardAuthRecovery returnPath={location.href} />;
-  }
-  return <DashboardRouteError {...props} />;
-}
 
 export const coderouterRoutes = [coderouterRoute, cloudRoute, mobileDevicesRoute] as const;

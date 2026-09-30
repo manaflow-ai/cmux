@@ -403,7 +403,8 @@
       "renameError": "このMacの名前を変更できませんでした。",
       "revokeTitle": "{name}のアクセスを取り消しますか？",
       "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
-      "revokeError": "このMacのアクセスを取り消せませんでした。"
+      "revokeError": "このMacのアクセスを取り消せませんでした。",
+      "emptyBody": "Mac 上の cmux が初めて Cloud VM に接続すると、その Mac がここに表示されます。"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -464,8 +465,6 @@
       "migrationPendingBody": "共有 Codex アカウントは一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "一部のアカウントを読み込めませんでした",
       "loadErrorBody": "アカウント一覧の一部を読み取れませんでした。他のプロバイダーの表示は完全です。しばらくしてから再試行してください。",
-      "pageErrorTitle": "coderouter を読み込めませんでした",
-      "pageErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "providerColumn": "プロバイダー",
       "labelColumn": "ラベル",
       "statusColumn": "状態",
@@ -533,10 +532,6 @@
       "apiKeysTitle": "APIキー",
       "apiKeysDescription": "スクリプトやエージェント用の長期キーを作成できます。秘密鍵は一度だけ表示されます。",
       "apiKeysCount": "{count, plural, one {# 個のキー} other {# 個のキー}}",
-      "apiKeysLoading": "APIキーを読み込んでいます…",
-      "apiKeysLoadError": "APIキーを読み込めませんでした。しばらくしてから再試行してください。",
-      "apiKeysRetry": "再試行",
-      "apiKeysEmptyBody": "APIキーはまだありません。CodeRouterクライアント用に作成してください。",
       "apiKeyPrefixColumn": "キー",
       "apiKeyStatusColumn": "状態",
       "apiKeySecretTitle": "今すぐこのキーをコピー",
@@ -556,7 +551,9 @@
       "revokeApiKeyConfirmTitle": "このAPIキーを失効させますか？",
       "revokeApiKeyConfirmBody": "このキーを使うクライアントは直ちに認証できなくなります。",
       "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
-      "apiKeyUsageUnavailable": "使用状況を取得できません"
+      "apiKeyUsageUnavailable": "使用状況を取得できません",
+      "apiKeysEmptyTitle": "API キーはまだありません",
+      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。"
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -644,8 +641,7 @@
       "plan": {
         "heading": "個人プラン",
         "free": "無料",
-        "pro": "Pro",
-        "loading": "読み込み中…"
+        "pro": "Pro"
       },
       "max": {
         "name": "cmux Max",
@@ -731,7 +727,6 @@
       "loading": "デバイスを読み込んでいます…",
       "empty": "このチームには登録済みのデバイスがありません。",
       "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
-      "retry": "もう一度試す",
       "mutationError": "デバイスの変更を完了できませんでした。",
       "revoke": "アクセスを取り消す",
       "deviceId": "デバイス",
@@ -949,7 +944,6 @@
         "revokeAllConfirm": "セッションを取り消す",
         "revokeAllError": "一部のセッションを取り消せませんでした。残っているセッションが一覧に表示されています。",
         "revokeError": "セッションを取り消せませんでした。もう一度お試しください。",
-        "loadError": "セッションを読み込めませんでした。ページを再読み込みしてもう一度お試しください。",
         "empty": "アクティブなセッションはありません。",
         "columns": {
           "session": "セッション",
@@ -1088,9 +1082,7 @@
         "count": "{count, plural, other {# 件のチーム}}",
         "selected": "現在のチーム",
         "emptyTitle": "チームはまだありません",
-        "emptyBody": "チームを作成して、メンバーを招待し、1 つのプランを共有しましょう。",
-        "loadError": "チームを読み込めませんでした。",
-        "retry": "再試行"
+        "emptyBody": "チームを作成して、メンバーを招待し、1 つのプランを共有しましょう。"
       },
       "new": {
         "title": "チームを作成",
@@ -1174,7 +1166,8 @@
         "usesUnlimited": "{count, plural, other {# 回使用}}",
         "revoke": "取り消す",
         "revokeTitle": "この招待リンクを取り消しますか？",
-        "revokeBody": "リンクを持っている人は参加できなくなります。すでに参加した人はメンバーのままです。"
+        "revokeBody": "リンクを持っている人は参加できなくなります。すでに参加した人はメンバーのままです。",
+        "actionsFor": "招待リンクの操作（{created}）"
       },
       "shell": {
         "allTeams": "すべてのチーム",
@@ -1187,9 +1180,7 @@
         },
         "notFoundTitle": "チームが見つかりません",
         "notFoundBody": "このチームは存在しないか、あなたはメンバーではありません。",
-        "backToTeams": "チーム一覧に戻る",
-        "loadError": "このチームを読み込めませんでした。",
-        "retry": "再試行"
+        "backToTeams": "チーム一覧に戻る"
       },
       "general": {
         "imageTitle": "チーム画像",
@@ -1224,9 +1215,6 @@
         "memberColumn": "メンバー",
         "roleColumn": "ロール",
         "actionsColumn": "操作",
-        "roleFor": "{name} のロール",
-        "roleMember": "メンバー",
-        "roleAdmin": "管理者",
         "you": "あなた",
         "unnamed": "名前のないメンバー",
         "remove": "削除",
@@ -1245,7 +1233,18 @@
         "linksTitle": "招待リンク",
         "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。",
         "seatNudge": "メンバーまたは招待中の人が {used} 人いますが、プランのシートは {seats} です。招待は引き続き有効です。全員をカバーするには {over, plural, other {# シート}}を追加してください。",
-        "seatNudgeAction": "シートを管理"
+        "seatNudgeAction": "シートを管理",
+        "actions": {
+          "makeAdmin": "管理者にする",
+          "makeMember": "メンバーにする",
+          "remove": "チームから削除",
+          "leave": "チームを離れる"
+        },
+        "actionsFor": "{name} の操作",
+        "lastAdminReason": "チームには少なくとも 1 人の管理者が必要です。先に別のメンバーを管理者にしてください。",
+        "demoteSelfTitle": "管理者をやめますか？",
+        "demoteSelfBody": "このチームの管理者権限を失います。別の管理者が再び付与できます。",
+        "demoteSelfConfirm": "メンバーになる"
       },
       "apiKeys": {
         "title": "チームの API キー",
@@ -1259,6 +1258,20 @@
       "title": "ページが見つかりません",
       "body": "このダッシュボードページは存在しないか、移動されました。",
       "home": "ダッシュボードへ移動"
+    },
+    "states": {
+      "errorTitle": "{section}を読み込めませんでした",
+      "errorTitleGeneric": "このセクションを読み込めませんでした",
+      "reason": {
+        "network": "接続を確認してから、もう一度お試しください。",
+        "unavailable": "cmux は一時的に利用できません。しばらくしてからもう一度お試しください。",
+        "forbidden": "これにアクセスする権限がありません。",
+        "notFound": "これは存在しないか、アクセスする権限がありません。",
+        "rateLimited": "リクエストが多すぎます。少し待ってからもう一度お試しください。",
+        "generic": "問題が発生しました。もう一度お試しください。"
+      },
+      "retry": "再試行",
+      "retrying": "再試行中…"
     }
   },
   "vault": {

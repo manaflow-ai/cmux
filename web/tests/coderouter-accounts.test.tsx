@@ -358,7 +358,7 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("Claude Code OAuth");
   });
 
-  test("shows a loading line until the team's API keys arrive, then lists them", () => {
+  test("shows a table skeleton until the team's API keys arrive, then lists them", () => {
     const render = (queryClient: QueryClient) => renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
@@ -370,7 +370,9 @@ describe("coderouter accounts section", () => {
       />,
       queryClient,
     );
-    expect(render(new QueryClient())).toContain("Loading API keys");
+    const loading = render(new QueryClient());
+    expect(loading).toContain('data-testid="dashboard-section-skeleton"');
+    expect(loading).toContain('data-variant="table"');
 
     const seeded = new QueryClient();
     seeded.setQueryData(coderouterApiKeysQueryKey("team-1"), { keys: [{
