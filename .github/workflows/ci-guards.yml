@@ -363,7 +363,7 @@ jobs:
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
-          python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
+          python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"
 
       - name: Validate Python test execution registry blast radius
         if: ${{ matrix.group == 'preflight' }}
