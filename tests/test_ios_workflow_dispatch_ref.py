@@ -111,6 +111,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         self.assertIn("target_sha: ${{ steps.target.outputs.sha }}", detect)
         self.assertIn("ref: ${{ github.ref }}", detect)
         self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", detect)
+        # Full history must stay blobless: fetching every blob of every branch
+        # overran the job's five-minute timeout and cancelled routing.
+        self.assertIn("filter: blob:none", detect)
         self.assertIn("id: target", detect)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", detect)
         self.assertIn("REQUESTED_REF: ${{ inputs.ref }}", detect)

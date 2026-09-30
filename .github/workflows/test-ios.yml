@@ -303,6 +303,11 @@ jobs:
           # history automatically if pull_request routing is re-enabled later,
           # because that path computes a merge base below.
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          # Routing needs only commits and trees (merge-base, diff --name-only).
+          # A blobless full-history fetch fits the job timeout; fetching every
+          # blob of every branch did not, which cancelled the job and failed
+          # the required ios-tests aggregate.
+          filter: blob:none
           persist-credentials: false
           submodules: false
 
