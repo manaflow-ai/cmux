@@ -50,6 +50,71 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
+    func testDecodeFilePatternsOnCommandAction() throws {
+        let json = #"""
+        {
+          "actions": {
+            "excalidraw.preview": {
+              "type": "command",
+              "command": "cmux-excalidraw \"{file}\"",
+              "filePatterns": ["  *.excalidraw  ", "*.drawio"]
+            }
+          }
+        }
+        """#
+
+        let config = try decode(json)
+        let definition = try XCTUnwrap(config.actions["excalidraw.preview"])
+        XCTAssertEqual(definition.filePatterns, ["*.excalidraw", "*.drawio"])
+        let action = try XCTUnwrap(
+            CmuxResolvedConfigAction.fromDefinition(
+                id: "excalidraw.preview",
+                definition: definition,
+                sourcePath: "/tmp/cmux.json"
+            )
+        )
+        XCTAssertEqual(action.terminalCommand, "cmux-excalidraw \"{file}\"")
+        XCTAssertEqual(action.filePatterns, ["*.excalidraw", "*.drawio"])
+    }
+
+    func testFilePatternMatcherUsesBasenameAndIsCaseInsensitive() {
+        let matcher = CmuxFilePatternMatcher(patterns: ["*.excalidraw", "README.?d"])
+
+        XCTAssertTrue(matcher.matches(path: "/tmp/diagrams/BOARD.EXCALIDRAW"))
+        XCTAssertTrue(matcher.matches(path: "/tmp/README.md"))
+        XCTAssertFalse(matcher.matches(path: "/tmp/diagrams/BOARD.EXCALIDRAW.bak"))
+        XCTAssertFalse(matcher.matches(path: "/tmp/excalidraw/BOARD"))
+    }
+
+    func testFileActionCommandSubstitutionShellQuotesAbsolutePath() {
+        let command = CmuxFileActionCommand(
+            command: "cmux-excalidraw \"{file}\" --label {file}"
+        )
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
+            "cmux-excalidraw \"/tmp/diagram with 'quote'.excalidraw\" --label '/tmp/diagram with '\\''quote'\\''.excalidraw'"
+        )
+    }
+
+    func testFileActionCommandSubstitutionEscapesEmbeddedDoubleQuotedMetacharacters() {
+        let command = CmuxFileActionCommand(command: "preview \"before-{file}-after\"")
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/$(touch /tmp/pwned)-$HOME.txt"),
+            "preview \"before-/tmp/\\$(touch /tmp/pwned)-\\$HOME.txt-after\""
+        )
+    }
+
+    func testFileActionCommandSubstitutionEscapesEmbeddedSingleQuotedPaths() {
+        let command = CmuxFileActionCommand(command: "preview 'before-{file}-after'")
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
+            "preview 'before-''/tmp/diagram with '\\''quote'\\''.excalidraw''-after'"
+        )
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {
@@ -1754,6 +1819,57 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[0].id], configURL.path)
         XCTAssertEqual(store.commandSourcePaths[store.loadedCommands[1].id], packURL.path)
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testLocalFilePatternsKeepTheirSourceForGlobalAction() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-file-pattern-source-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("global.json")
+        let localConfigURL = root.appendingPathComponent("local.json")
+        try """
+        {
+          "actions": {
+            "diagram.preview": {
+              "type": "command",
+              "command": "open-preview {file}"
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "diagram.preview": {
+              "filePatterns": ["*.excalidraw"]
+            }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "diagram.preview"))
+        XCTAssertEqual(action.actionSourcePath, globalConfigURL.path)
+        XCTAssertEqual(action.filePatternsSourcePath, localConfigURL.path)
+        XCTAssertEqual(action.filePatterns, ["*.excalidraw"])
+
+        let regularFileURL = root.appendingPathComponent("drawing.excalidraw")
+        XCTAssertTrue(FileManager.default.createFile(atPath: regularFileURL.path, contents: Data()))
+        let matchingDirectoryURL = root.appendingPathComponent("directory.excalidraw", isDirectory: true)
+        try FileManager.default.createDirectory(at: matchingDirectoryURL, withIntermediateDirectories: false)
+        XCTAssertEqual(store.fileAction(for: regularFileURL.path)?.id, "diagram.preview")
+        XCTAssertNil(store.fileAction(for: matchingDirectoryURL.path))
     }
 
     @MainActor

@@ -73,6 +73,7 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
+        trustCommand: String? = nil,
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
@@ -129,6 +130,7 @@ struct CmuxConfigExecutor {
             displayTitle: action.title,
             icon: action.icon,
             iconSourcePath: action.iconSourcePath,
+            trustCommand: trustCommand,
             presentingWindow: presentingWindow
         ) { shellInput in
             switch target {
@@ -142,6 +144,40 @@ struct CmuxConfigExecutor {
         }
     }
 
+    /// Executes a file handler action after substituting the absolute file
+    /// path into its command. The normal action executor remains responsible
+    /// for target selection, project trust, confirmation, and input delivery.
+    @discardableResult
+    static func executeFileAction(
+        action: CmuxResolvedConfigAction,
+        filePath: String,
+        commands: [CmuxCommandDefinition],
+        commandSourcePaths: [String: String],
+        tabManager: TabManager,
+        baseCwd: String,
+        globalConfigPath: String,
+        presentingWindow: NSWindow? = nil
+    ) -> Bool {
+        guard let command = action.terminalCommand else { return false }
+        let expandedPath = NSString(string: filePath).expandingTildeInPath
+        let absolutePath = URL(fileURLWithPath: expandedPath).standardizedFileURL.path
+        var fileAction = action
+        fileAction.action = .command(
+            CmuxFileActionCommand(command: command).substituting(filePath: absolutePath)
+        )
+        fileAction.actionSourcePath = action.filePatternsSourcePath ?? action.actionSourcePath
+        return execute(
+            action: fileAction,
+            commands: commands,
+            commandSourcePaths: commandSourcePaths,
+            tabManager: tabManager,
+            baseCwd: baseCwd,
+            globalConfigPath: globalConfigPath,
+            trustCommand: command,
+            presentingWindow: presentingWindow
+        )
+    }
+
     @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
@@ -153,6 +189,7 @@ struct CmuxConfigExecutor {
         displayTitle: String? = nil,
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
+        trustCommand: String? = nil,
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
@@ -160,7 +197,7 @@ struct CmuxConfigExecutor {
         guard !shellCommand.isEmpty else { return false }
 
         let descriptor = terminalTrustDescriptor(
-            command: shellCommand,
+            command: sanitizeForDisplay(trustCommand ?? rawCommand),
             actionID: actionID,
             target: target,
             configSourcePath: configSourcePath,

@@ -1,4 +1,111 @@
+import Darwin
 import Foundation
+
+/// Matches configured file-handler patterns against a file's basename.
+struct CmuxFilePatternMatcher: Sendable, Hashable {
+    let patterns: [String]
+
+    init(patterns: [String]) {
+        self.patterns = patterns
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Returns whether any configured fnmatch-style pattern matches `path`.
+    func matches(path: String) -> Bool {
+        let basename = (path as NSString).lastPathComponent.lowercased()
+        guard !basename.isEmpty else { return false }
+        return patterns.contains { pattern in
+            pattern.withCString { patternPointer in
+                basename.withCString { basenamePointer in
+                    fnmatch(patternPointer, basenamePointer, 0) == 0
+                }
+            }
+        }
+    }
+}
+
+/// Substitutes a file path into a configured action command.
+struct CmuxFileActionCommand: Sendable, Hashable {
+    let command: String
+
+    /// Replaces `{file}` with a shell-safe value that respects the quote
+    /// context around the placeholder in the configured command.
+    func substituting(filePath: String) -> String {
+        enum QuoteContext {
+            case unquoted
+            case single
+            case double
+        }
+
+        let characters = Array(command)
+        var result = ""
+        var quoteContext = QuoteContext.unquoted
+        var escaped = false
+        var index = 0
+
+        while index < characters.count {
+            if !escaped,
+               index + 5 < characters.count,
+               characters[index] == "{",
+               characters[index + 1] == "f",
+               characters[index + 2] == "i",
+               characters[index + 3] == "l",
+               characters[index + 4] == "e",
+               characters[index + 5] == "}" {
+                switch quoteContext {
+                case .unquoted:
+                    result += Self.singleQuoted(filePath)
+                case .single:
+                    // Close and reopen the surrounding single-quoted text so
+                    // the path's own single quotes can be represented safely.
+                    result += "'" + Self.singleQuoted(filePath) + "'"
+                case .double:
+                    result += Self.doubleQuoted(filePath)
+                }
+                index += 6
+                continue
+            }
+
+            let character = characters[index]
+            result.append(character)
+            if escaped {
+                escaped = false
+            } else if character == "\\" && quoteContext != .single {
+                escaped = true
+            } else {
+                switch (quoteContext, character) {
+                case (.unquoted, "'"):
+                    quoteContext = .single
+                case (.single, "'"):
+                    quoteContext = .unquoted
+                case (.unquoted, "\""):
+                    quoteContext = .double
+                case (.double, "\""):
+                    quoteContext = .unquoted
+                default:
+                    break
+                }
+            }
+            index += 1
+        }
+
+        return result
+    }
+
+    private static func singleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func doubleQuoted(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "!", with: "\\!")
+    }
+}
 
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var action: CmuxSurfaceTabBarButtonAction?
@@ -11,6 +118,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var tooltip: String?
     var confirm: Bool?
     var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+    /// Filename globs claimed by this action for file-open routing.
+    var filePatterns: [String]?
     /// Whether this action is offered in the new-workspace plus-button menu.
     /// Defaults to true for `workspace` actions and false otherwise.
     var newWorkspaceMenu: Bool?
@@ -35,6 +144,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case tooltip
         case confirm
         case target
+        case filePatterns
         case newWorkspaceMenu
     }
 
@@ -49,6 +159,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         tooltip: String? = nil,
         confirm: Bool? = nil,
         terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil,
+        filePatterns: [String]? = nil,
         newWorkspaceMenu: Bool? = nil
     ) {
         self.action = action
@@ -61,6 +172,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         self.tooltip = tooltip
         self.confirm = confirm
         self.terminalCommandTarget = terminalCommandTarget
+        self.filePatterns = filePatterns
         self.newWorkspaceMenu = newWorkspaceMenu
     }
 
@@ -79,6 +191,9 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
         terminalCommandTarget = try container.decodeIfPresent(CmuxConfigTerminalCommandTarget.self, forKey: .target)
+        filePatterns = try container.decodeIfPresent([String].self, forKey: .filePatterns)?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         newWorkspaceMenu = try container.decodeIfPresent(Bool.self, forKey: .newWorkspaceMenu)
 
         let inferredType: String?
@@ -161,6 +276,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(confirm, forKey: .confirm)
         try container.encodeIfPresent(terminalCommandTarget, forKey: .target)
+        try container.encodeIfPresent(filePatterns, forKey: .filePatterns)
         try container.encodeIfPresent(newWorkspaceMenu, forKey: .newWorkspaceMenu)
         guard let action else { return }
         switch action {
