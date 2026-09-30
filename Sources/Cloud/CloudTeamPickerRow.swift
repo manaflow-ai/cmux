@@ -33,6 +33,8 @@ struct CloudTeamPickerRow: View {
         String(localized: "settings.account.activeTeam", defaultValue: "Active Team")
     }
 
+    @State private var isHovered = false
+
     var body: some View {
         Button {
             presentation.isPresented = true
@@ -46,19 +48,28 @@ struct CloudTeamPickerRow: View {
                     .layoutPriority(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 7)
+            // Same grey and hover rule as the tab bar's mode labels above.
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
+            // Flush with the tree's section chevrons below.
+            .padding(.leading, 1)
+            .padding(.trailing, 7)
             .frame(height: 22)
             .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .overlay {
             CloudTeamPickerMenuAnchor(
                 isPresented: $presentation.isPresented,
                 helpText: helpText,
                 makeMenu: makeMenu,
-                onWillPresent: { presentation.teamChangeError = nil }
+                onWillPresent: {
+                    presentation.teamChangeError = nil
+                    // The menu is built from the current list; a stale list
+                    // is refreshed for the next open.
+                    Task { await accountFlow.refreshReceivedInvitations(notify: false) }
+                }
             )
         }
         .layoutPriority(1)
@@ -90,6 +101,18 @@ struct CloudTeamPickerRow: View {
                 } else {
                     present()
                 }
+            },
+            onInvite: { [weak anchor, presentation] in
+                let present: @MainActor () -> Void = { presentation.isInvitePresented = true }
+                if let anchor { anchor.afterDismiss(present) } else { present() }
+            },
+            onMembers: { [weak anchor, accountFlow] in
+                let present: @MainActor () -> Void = { accountFlow.showTeamMembers(focusInvite: false) }
+                if let anchor { anchor.afterDismiss(present) } else { present() }
+            },
+            invitations: accountFlow.receivedInvitations.map { .init(id: $0.id, teamName: $0.teamName) },
+            onJoin: { [presentation, accountFlow] invitation in
+                presentation.joinInvitation(invitation.id, accountFlow: accountFlow)
             }
         )
     }
