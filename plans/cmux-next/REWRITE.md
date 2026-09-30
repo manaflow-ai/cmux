@@ -111,3 +111,18 @@ User: omnibar typing reversed (fixed 15796); sidebar more minimal + all colors f
 Decisions: Chromium is the default engine (`browser.defaultEngine`, WebKit fallback with notice when CEF is missing). Verification layer for input: spec (plans/cmux-next/input-spec.md) + input journal + continuous invariant monitor with desync reports (`debug.desync`) + deterministic replay + model-based fuzzing of the composed state machines + `debug.mouse`.
 Blocker: fleet/CI builds have no CEF until the user picks artifact access (recommended: mirror to files.cmux.com); with Chromium as default this now matters for every non-local build.
 Agents: spawn-throughput, omnibar-fsm, overlay-keys (+ child-window move sync), extensions (all features incl. popovers, fork patches allowed), pty-size, default-chromium, input-verification.
+
+## Round 3 feedback and decisions (2026-09-30, nxdog8)
+
+User: Rectangle still desynced CEF (fixed 5dd8f4741d1: the app reports the shell window as AX focused window); Ctrl-Tab dead in Chromium, DevTools changes the URL, inline DevTools broken; animations must be faster, Apple-style (motion tokens, `ui.animationSpeed`); pane padding + subtle rounded border, configurable to none; Chrome extensions verified end to end (API conformance matrix + top-100 store suite); no "No workspaces in this window" state (a window exists only while it has a workspace); omnibar selection = Chrome parity; no spin loops, and **no polling anywhere** (every wait is event-driven; the only timers are one-shot user-visible deadlines and animation frames); no crashes: a Chromium tab or process failure never takes down the app, sad tab + Reload recovers, out-of-process CEF evaluated.
+User granted broad autonomy ("you can do whatever u want"). Coordinator decisions taken under it (reversible; the user can override):
+- Cmd-[ / Cmd-] in a terminal stay cmux Focus Back/Forward; Ghostty `super+[` still works if the user unbinds them.
+- cmux-tui may answer a later request before an earlier `new-tab` on one connection (documented in cmux-tui/spec/events.md).
+- Page Info default shortcut Ctrl-Cmd-I.
+- Tabs opened into a hidden workspace load lazily when shown.
+- Dragging the last tab out of a pane closes that pane; dragging the last tab of the last pane out of a workspace moves the whole workspace with it (Chrome: dragging a window's only tab moves the window).
+- Cmd-D in a web page keeps the cmux split.
+- Closing a terminal tab keeps its terminal alive for 30 s so Reopen Closed Tab restores it; then the daemon reaps it.
+- Dogfood builds are Apple silicon only; Intel is revisited before a public release.
+- CEF fork: one trunk, cmux/8037-ext, one owner publishes private releases.
+Still the user's decision (outward-facing or product policy): CEF artifact access for fleet/CI (recommended: files.cmux.com mirror), the signed nightly build_only run, the macOS deployment target for release (now 26), translation review, kept legacy items.
