@@ -1,0 +1,42 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_078f38d1f17b77b9016abd9b2c6d9487d0a943e20231569027","object":"response","created_at":1790810924,"status":"in_progress","access_programs":{"cyber":"standard"},"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You can run JS with the run tool.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-6.1-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"redacted","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"redacted","service_tier":"auto","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Run JavaScript; returns the value of the last expression.","name":"run","output_schema":null,"parameters":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_078f38d1f17b77b9016abd9b2c6d9487d0a943e20231569027","object":"response","created_at":1790810924,"status":"in_progress","access_programs":{"cyber":"standard"},"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You can run JS with the run tool.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-6.1-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"redacted","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"redacted","service_tier":"auto","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Run JavaScript; returns the value of the last expression.","name":"run","output_schema":null,"parameters":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","type":"function_call","status":"in_progress","arguments":"","call_id":"call_wGI2DdpYFAE628uddjI42sz9","name":"run"},"output_index":0,"sequence_number":2}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"{\"","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"0XB0UZvahqKZWI","output_index":0,"sequence_number":3}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"code","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"VH6UxjfjE7iQ","output_index":0,"sequence_number":4}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"\":\"","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"IduoSjol0sbOQ","output_index":0,"sequence_number":5}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"17","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"QUeN1x7lusNarD","output_index":0,"sequence_number":6}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":" *","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"qIYIgtYukyebhC","output_index":0,"sequence_number":7}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":" ","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"EjWa2owPKHWLUKz","output_index":0,"sequence_number":8}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"23","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"YvDkgnEdobXvcD","output_index":0,"sequence_number":9}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"\"}","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","obfuscation":"oTBziHzsXXGkNI","output_index":0,"sequence_number":10}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","arguments":"{\"code\":\"17 * 23\"}","item_id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","output_index":0,"sequence_number":11}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb","type":"function_call","status":"completed","arguments":"{\"code\":\"17 * 23\"}","call_id":"call_wGI2DdpYFAE628uddjI42sz9","name":"run"},"output_index":0,"sequence_number":12}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_078f38d1f17b77b9016abd9b2c6d9487d0a943e20231569027","object":"response","created_at":1790810924,"status":"completed","access_programs":{"cyber":"standard"},"background":false,"completed_at":1790810926,"error":null,"frequency_penalty":0.0,"incomplete_details":null,"instructions":"You can run JS with the run tool.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-6.1-sol","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":"redacted","prompt_cache_retention":"24h","reasoning":{"context":"all_turns","effort":"low","mode":"standard","summary":null},"safety_identifier":"redacted","service_tier":"default","store":false,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Run JavaScript; returns the value of the last expression.","name":"run","output_schema":null,"parameters":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":0.98,"truncation":"disabled","usage":{"attribution":{"items":{"msg_078f38d1f17b77b9016abd9b2c796087d0bc1913c42da25fc4":{"cache_write_tokens":0,"cached_tokens":0,"content":[{"cache_write_tokens":0,"cached_tokens":0,"input_tokens":13,"output_tokens":0}],"input_tokens":13,"output_tokens":0},"fc_078f38d1f17b77b9016abd9b2dc2d887d091c62775b99249eb":{"cache_write_tokens":0,"cached_tokens":0,"input_tokens":2,"output_tokens":20}},"request_fields":{"tools":{"cache_write_tokens":0,"cached_tokens":0,"input_tokens":41,"output_tokens":0},"instructions":{"cache_write_tokens":0,"cached_tokens":0,"input_tokens":13,"output_tokens":0}}},"input_tokens":69,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":20,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":89},"user":null,"metadata":{}},"sequence_number":13}
+

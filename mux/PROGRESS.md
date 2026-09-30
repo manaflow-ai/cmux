@@ -16,4 +16,6 @@ Loop state for slice 1 (DESIGN.md "Slice 1"). Read first, update last.
 | 10  | Live end-to-end: sign in, chat, mux spawns an acpmux agent on this Mac and reports back; handoff                                     | todo  |
 
 ## Log
+
 - 2026-09-30: step 1 live under `cf dev` (port 8787). `cf dev` needs `cloudflare.config.ts` + `wrangler.config.ts` (experimental new config), not wrangler.jsonc. `bun cloud/worker/scripts/smoke.ts` passes. Dev identity: `?dev_user=` when `MUX_DEV_AUTH=1` (.dev.vars).
+- 2026-09-30: step 3 live: mux answers through coderouter. Coderouter requires `stream: true`; with `store: false` the completed event has empty output, so items come from `response.output_item.done`. Failed turns retry 3 times with backoff, then the mux posts the error and drops the message. Kill stray `cf-wrangler.js dev` children before restarting `cf dev` (port 8787 conflict).
