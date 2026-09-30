@@ -410,11 +410,12 @@ export class AcpmuxDirectClient {
         }
       }
       else if (event.kind === "turn_end" || event.kind === "turn_result") {
-        if (!this.turnOpen && this.turnStartedAt === undefined && !this.turnSummaryIds.has("__current")) return;
+        const resultTurnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        if (!this.turnOpen && this.turnStartedAt === undefined && !this.turnSummaryIds.has("__current") && !(resultTurnId && this.turnSummaryIds.has(resultTurnId))) return;
         this.turnOpen = false;
         if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) this.rows.set(row.id, { ...row, streaming: false, version: row.version + 1 }); }
         this.rows.delete("typing");
-        const turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        const turnId = resultTurnId;
         const summaryKey = turnId ?? "__current";
         let summaryId = this.turnSummaryIds.get(summaryKey);
         if (!summaryId && event.kind === "turn_result") {
