@@ -57,6 +57,30 @@ private func sizeState(
         #expect(surface.state?.cols == 118)
     }
 
+    /// A relaunched Mac (or a new sizing host after an account change)
+    /// restarts at generation 1 under the same `mobile:<client_id>` id. The
+    /// phone kept the old generation and dropped every new state until the
+    /// count passed it, so the bounds and chip stayed stale.
+    @Test func newConnectionResetsGenerationOrdering() {
+        var surface = MobileTerminalSizingSurface()
+        surface.applySizeState(sizeState(generation: 40), selfParticipantID: "mobile:phone", effectiveGrid: nil)
+        surface.connectionEnded()
+        #expect(surface.state == nil)
+        surface.applySizeState(sizeState(generation: 1, cols: 80), selfParticipantID: "mobile:phone", effectiveGrid: nil)
+        #expect(surface.state?.generation == 1)
+        #expect(surface.state?.cols == 80)
+    }
+
+    /// The host keeps a user-visible detach across the phone's reconnect, so
+    /// the phone keeps showing it too.
+    @Test func newConnectionKeepsAUserVisibleDetach() {
+        var surface = MobileTerminalSizingSurface()
+        surface.applyDetached(reason: TerminalDetachReason(wireValue: "host-shutdown", by: nil), at: nil)
+        let detached = surface.attachment
+        surface.connectionEnded()
+        #expect(surface.attachment == detached)
+    }
+
     @Test func newParticipantIDResetsGenerationOrdering() {
         var surface = MobileTerminalSizingSurface()
         surface.applySizeState(sizeState(generation: 9), selfParticipantID: "mobile:a", effectiveGrid: nil)
