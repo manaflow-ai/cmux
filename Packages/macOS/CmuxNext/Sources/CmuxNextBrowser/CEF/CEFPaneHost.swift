@@ -220,6 +220,8 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
+        // Opened by a page: past a new tab's first paint (PageBackground).
+        tab.reachedFirstRealPage()
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }

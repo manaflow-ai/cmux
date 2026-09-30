@@ -221,6 +221,15 @@ static void BindForkApi(const char* framework_binary) {
 // The app's NSApplication subclass (CmuxApplication) conforms statically and
 // maintains the sendEvent flag itself; the shim only checks.
 
+std::set<int>& own_background_browsers() {
+  static std::set<int> set;
+  return set;
+}
+
+void ForgetOwnBackground(int browser_id) {
+  own_background_browsers().erase(browser_id);
+}
+
 }  // namespace cmux_shim
 
 using namespace cmux_shim;
@@ -258,12 +267,21 @@ void cmux_shim_set_extension_developer_mode(int enabled) {
 void cmux_shim_set_background_color(unsigned int argb) {
   const bool changed = g_background_color != static_cast<cef_color_t>(argb);
   g_background_color = static_cast<cef_color_t>(argb);
-  // Fork API 12: live tabs follow a theme change too.
+  // Fork API 12: live tabs still on the theme color follow a theme change;
+  // tabs past their first real page keep their own (white) background.
   if (changed && argb && fork_api().browser_set_background_color) {
     for (auto& [id, browser] : browsers()) {
+      if (own_background_browsers().count(id)) continue;
       fork_api().browser_set_background_color(id, argb);
     }
   }
+}
+
+int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb) {
+  if (!fork_api().browser_set_background_color) return 0;
+  own_background_browsers().insert(browser_id);
+  fork_api().browser_set_background_color(browser_id, argb);
+  return 1;
 }
 
 int cmux_shim_fork_api_version(void) {

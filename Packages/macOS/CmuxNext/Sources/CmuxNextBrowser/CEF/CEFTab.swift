@@ -59,6 +59,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The renderer ended while the tab was hidden: reload when shown
     /// (Chrome reloads a crashed background tab when it is selected).
     @ObservationIgnored var reloadWhenShown = false
+    /// The tab showed a real page (or a page opened it): its page
+    /// background is Chrome's white from now on (`PageBackground`).
+    @ObservationIgnored private(set) var pastFirstRealPage = false
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -109,6 +112,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        if pastFirstRealPage { applyPageBackground() }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -134,6 +138,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
+    }
+
+    /// A real page committed, or a page opened this tab (a popup,
+    /// target=_blank): Chrome's white default from now on, kept across tab
+    /// moves and popups (fork API 12).
+    func reachedFirstRealPage() {
+        guard !pastFirstRealPage else { return }
+        pastFirstRealPage = true
+        applyPageBackground()
+    }
+
+    private func applyPageBackground() {
+        guard let browser = browserID, let shim = runtime.shim else { return }
+        _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
+                                                                                 theme: PageBackground.themeARGB))
     }
 
     func creationFailed() {

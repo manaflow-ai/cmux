@@ -162,6 +162,10 @@ CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
 // the call use it; call before cmux_shim_initialize so tabs the fork adds
 // (cmux_shim_tab_add) fall back to it too.
 CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
+// Fork API 12: browser_id's own page background (0xAARRGGBB), kept across
+// tab moves and popups; later theme changes (cmux_shim_set_background_color)
+// no longer repaint it. Returns 0 when the fork lacks the call.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a

@@ -30,6 +30,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let prepareApplication: @convention(c) () -> Int32
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
+    let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -173,6 +174,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setBackgroundColor = try r("cmux_shim_set_background_color")
+        browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

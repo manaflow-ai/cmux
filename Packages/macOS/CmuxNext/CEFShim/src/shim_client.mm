@@ -239,8 +239,9 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
-    // A popup page starts on the theme color like any new tab.
-    settings.background_color = BackgroundColor();
+    // A page opened by a page is past a new tab's first paint: Chrome's
+    // white default (PageBackground; cmux also sets it on adoption).
+    settings.background_color = 0xFFFFFFFF;
     RememberPopup(browser->GetIdentifier(), disposition, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
     return false;
@@ -269,6 +270,7 @@ class Client : public CefClient,
     ForgetNavigationGuard(id);
     registrations_.erase(id);
     browsers().erase(id);
+    ForgetOwnBackground(id);
     ForgetDevTools(id);
     ForgetPopups(id);
     Emit(CMUX_SHIM_BEFORE_CLOSE, id);

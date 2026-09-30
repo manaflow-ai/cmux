@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 
+#include <set>
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
@@ -99,6 +100,10 @@ CefRefPtr<CefUnresponsiveProcessCallback> TakeUnresponsiveCallback(int browser_i
 
 // cmux_shim_set_background_color; 0 = Chromium's default.
 cef_color_t BackgroundColor();
+// A closed browser's own page background is forgotten.
+void ForgetOwnBackground(int browser_id);
+// Browsers with a page background of their own (not the theme color).
+std::set<int>& own_background_browsers();
 
 // Request contexts per profile cache path.
 CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path);
