@@ -22,6 +22,8 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
+//   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
+//     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -69,6 +71,7 @@ let package = Package(
         .target(
             name: "CmuxNextApp",
             dependencies: [
+                "CmuxNextMallocZone",
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -91,6 +94,8 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Chromium's EarlyMallocZoneRegistration, run first thing in main.
+        .target(name: "CmuxNextMallocZone"),
         // Sparkle updates: channel/feed resolution, a read-only appcast probe
         // (dev builds and `updates.check`), and the update sheet.
         .target(
