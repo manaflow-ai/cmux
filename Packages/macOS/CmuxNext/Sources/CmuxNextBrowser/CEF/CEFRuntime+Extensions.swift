@@ -35,7 +35,7 @@ extension CEFRuntime {
             return
         }
         if hosts.values.contains(where: \.isCreatingWindow) {
-            adoptions.wait(Orphan(browser: browser, window: window))
+            adoptions.enqueue(Orphan(browser: browser, window: window))
             return
         }
         moveIntoShownPane(browser: browser)
@@ -49,7 +49,7 @@ extension CEFRuntime {
             if host.owns(window: orphan.window) {
                 host.adoptChromiumTab(browser: orphan.browser)
             } else if hosts.values.contains(where: \.isCreatingWindow) {
-                adoptions.wait(orphan)
+                adoptions.enqueue(orphan)
             } else {
                 moveIntoShownPane(browser: orphan.browser)
             }

@@ -7,8 +7,8 @@ import Testing
 @Suite struct AdoptionLedgerTests {
     @Test func aClosedWaitingBrowserLeavesTheQueue() {
         var ledger = CEFAdoptionLedger()
-        ledger.wait(Orphan(browser: 5, window: 1))
-        ledger.wait(Orphan(browser: 6, window: 1))
+        ledger.enqueue(Orphan(browser: 5, window: 1))
+        ledger.enqueue(Orphan(browser: 6, window: 1))
         ledger.closedUnregistered(5)
         #expect(ledger.takeWaiting() == [Orphan(browser: 6, window: 1)])
         #expect(ledger.isClosed(5))
@@ -17,7 +17,7 @@ import Testing
     @Test func aBrowserThatClosedFirstIsNeverQueued() {
         var ledger = CEFAdoptionLedger()
         ledger.closedUnregistered(9)
-        ledger.wait(Orphan(browser: 9, window: 2))
+        ledger.enqueue(Orphan(browser: 9, window: 2))
         #expect(ledger.takeWaiting().isEmpty)
         #expect(!ledger.isClosed(10))
     }

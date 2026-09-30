@@ -8,7 +8,7 @@ nonisolated struct CEFAdoptionLedger: Equatable, Sendable {
     /// Closed before registration. Chromium never reuses browser ids.
     private(set) var closed: Set<Int32> = []
 
-    mutating func wait(_ orphan: Orphan) {
+    mutating func enqueue(_ orphan: Orphan) {
         guard !closed.contains(orphan.browser) else { return }
         waiting.append(orphan)
     }
