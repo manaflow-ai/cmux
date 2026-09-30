@@ -17,11 +17,11 @@ The run goes where it expects to wait least (pick()):
       blacksmith-6vcpu-macos-15    macOS 15 Xcode (vars.CMUX_CI_XCODE_APP_MACOS_15),
                                    the pool and Xcode main's own CI runs on
 
-    expected wait = the shared Blacksmith account queue in rounds (queued jobs
-                    over the measured account concurrency), times a job's
-                    length there (JOB_MINUTES: 12vcpu jobs run about twice as fast), plus
-                    COLD_ROUNDS on the macOS 15 pool, which has no
-                    DerivedData seed for its Xcode and compiles cold
+    expected wait = that label's queued jobs over its Blacksmith plan capacity,
+                    times a job's length there (JOB_MINUTES: 12vcpu jobs run
+                    about twice as fast), plus COLD_ROUNDS on the macOS 15
+                    pool, which has no DerivedData seed for its Xcode and
+                    compiles cold
 
 Owned pools come first in the default order and take the run while the jobs
 they would hold start within vars.CI_PR_POOL_QUEUE_ROUNDS job lengths
@@ -449,12 +449,14 @@ QUEUE_ROUND_MINUTES = 15
 # 2026-09-24 the 6vcpu macOS 26 pool queued 45 jobs and 12vcpu 18 while
 # macOS 15 ran 1 to 5 of its 10.
 COLD_ROUNDS = 1
-# Blacksmith's macOS pools share the account concurrency budget. Fleet
-# observations on 2026-09-27 found queue-to-start remained low until about
-# 24 concurrent macOS jobs account-wide (#15569). Queue estimates use that
-# measured account threshold, rather than independent label capacities.
-BLACKSMITH_ACCOUNT_CAPACITY = 24
-POOL_CAPACITY = BLACKSMITH_ACCOUNT_CAPACITY
+# Blacksmith concurrency is per label under the manaflow-ai plan. Keep this
+# table as the single source for every picker that estimates Blacksmith wait.
+BLACKSMITH_CAPACITIES = {
+    "blacksmith-12vcpu-macos-26": 5,
+    "blacksmith-6vcpu-macos-26": 10,
+    "blacksmith-6vcpu-macos-15": 10,
+}
+POOL_CAPACITY = 10
 
 ARTIFACT_NAME = "macos-pool-load"
 SNAPSHOT_FILE = "macos-pool-load.json"
@@ -1010,9 +1012,8 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
 def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> Mapping[str, int]:
     """One pool's counts; a pool the janitor saw no job on is empty, not unknown.
 
-    `capacity` is the measured account-wide Blacksmith limit for a Blacksmith
-    label and the slot count for an owned pool (0 when CI_OWNED_POOL_SLOTS
-    gives it none). `committed` is
+    `capacity` is the Blacksmith plan capacity for that label and the slot
+    count for an owned pool (0 when CI_OWNED_POOL_SLOTS gives it none). `committed` is
     what the janitor counted the runs holding an owned pool to need at their
     peak, including jobs they have not created yet.
     """
@@ -1021,20 +1022,10 @@ def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int]
               for key in ("queued", "running", "reserved_queued", "oldest_queued_minutes", "committed")}
     if "future" in entry:
         counts["future"] = int(entry.get("future") or 0)
-    counts["capacity"] = int((owned_slots or {}).get(label) or 0) if persistent(label) else POOL_CAPACITY
+    counts["capacity"] = (int((owned_slots or {}).get(label) or 0) if persistent(label)
+                           else BLACKSMITH_CAPACITIES.get(label, POOL_CAPACITY))
     counts["cold"] = int(cold(label))
     return counts
-
-
-def blacksmith_load(load: Mapping[str, Mapping[str, int]]) -> dict[str, int]:
-    """The shared Blacksmith account queue across every observed macOS label."""
-    labels = [label for label in load if not persistent(label)]
-    return {
-        "queued": sum(max(0, int(load[label].get("queued", 0))) for label in labels),
-        "running": sum(max(0, int(load[label].get("running", 0))) for label in labels),
-        "capacity": BLACKSMITH_ACCOUNT_CAPACITY,
-        "cold": 0,
-    }
 
 
 def describe(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> str:
@@ -1049,16 +1040,14 @@ def describe(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, 
     return text
 
 
-def effective_queue(counts: Mapping[str, int], added: int,
-                   account: Mapping[str, int] | None = None) -> int:
+def effective_queue(counts: Mapping[str, int], added: int) -> int:
     """Queued jobs once `added` more arrive: they fill the pool's idle slots first.
 
     A pool with jobs queued is already full, so everything added queues. One
     with none queued has capacity - running idle slots to fill first.
     """
-    base = account or counts
-    idle = 0 if base["queued"] else max(0, base.get("capacity", POOL_CAPACITY) - base["running"])
-    return base["queued"] + max(0, added - idle)
+    idle = 0 if counts["queued"] else max(0, counts.get("capacity", POOL_CAPACITY) - counts["running"])
+    return counts["queued"] + max(0, added - idle)
 
 
 def cold(label: str) -> bool:
@@ -1078,13 +1067,12 @@ def job_minutes(label: str) -> int:
     return JOB_MINUTES.get(pool_label(label), DEFAULT_JOB_MINUTES)
 
 
-def expected_wait(label: str, counts: Mapping[str, int], arriving: int,
-                  account: Mapping[str, int] | None = None) -> float:
+def expected_wait(label: str, counts: Mapping[str, int], arriving: int) -> float:
     """Minutes the last of `arriving` more jobs waits on a pool: its queue in rounds, times a job's length.
 
     A cold pool (cold()) counts COLD_ROUNDS more, for the compile it runs cold.
     """
-    return rounds(counts, effective_queue(counts, arriving, account), account=account) * job_minutes(label)
+    return rounds(counts, effective_queue(counts, arriving)) * job_minutes(label)
 
 
 def young_charge(peak: int, age_minutes: float | None) -> int:
@@ -1443,16 +1431,14 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     root_taken = taken if root_taken is None else root_taken
     root_taken_now = taken_now if root_taken_now is None else root_taken_now
     blacksmith = [label for label in usable if not persistent(label)]
-    account = blacksmith_load(load) if blacksmith else None
-    account_added = sum(added.get(label, 0) for label in load if not persistent(label))
     # Which Blacksmith pool: by its wait for this run's admission, since the
     # shards may take another pool on the lane's Xcode (spread_shards()).
-    waits = {label: expected_wait(label, load[label], account_added + 1, account) for label in blacksmith}
+    waits = {label: expected_wait(label, load[label], added.get(label, 0) + 1) for label in blacksmith}
     best = min(blacksmith, key=lambda label: (waits[label], blacksmith.index(label))) if blacksmith else ""
     # Owned or Blacksmith: the wait of this run's last job on each side, so an
     # owned pool is measured against Blacksmith holding the same jobs.
     compared = max(1, jobs if compared_jobs is None else compared_jobs)
-    whole = min((expected_wait(label, load[label], account_added + compared, account) for label in blacksmith),
+    whole = min((expected_wait(label, load[label], added.get(label, 0) + compared) for label in blacksmith),
                 default=float("inf"))
     rooms: dict[str, Pick] = {}
     for label in usable:
@@ -1509,19 +1495,18 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         if label in fits:
             return rooms[label]
         if not queue_rounds and not persistent(label) and \
-                effective_queue(load[label], account_added + 1, account) <= max_queued:
+                effective_queue(load[label], added.get(label, 0) + 1) <= max_queued:
             return Pick(label, "free")
     if queue_rounds and best:
         return Pick(best, "wait", blacksmith_wait=waits[best])
     fallback = blacksmith or list(usable)
-    queued = {label: effective_queue(load[label], account_added + 1, account) for label in fallback}
-    return Pick(min(fallback, key=lambda label: rounds(load[label], queued[label], account)), "fallback")
+    queued = {label: effective_queue(load[label], added.get(label, 0) + 1) for label in fallback}
+    return Pick(min(fallback, key=lambda label: rounds(load[label], queued[label])), "fallback")
 
 
-def rounds(counts: Mapping[str, int], queued: int,
-           account: Mapping[str, int] | None = None) -> float:
+def rounds(counts: Mapping[str, int], queued: int) -> float:
     """How many job lengths a job queued there waits, a cold pool one more."""
-    return queued / max(1, (account or counts).get("capacity", POOL_CAPACITY)) + \
+    return queued / max(1, counts.get("capacity", POOL_CAPACITY)) + \
         (COLD_ROUNDS if counts.get("cold") else 0)
 
 
@@ -1686,9 +1671,7 @@ def decide(
         why = f"the only pool this run may take{replay}"
     else:
         why = f"every pool is full{replay}; shortest queue in rounds"
-        account = blacksmith_load(load)
-        account_added = sum(added.get(pool_label, 0) for pool_label in load if not persistent(pool_label))
-        waits = {pool_label: expected_wait(pool_label, load[pool_label], account_added + 1, account)
+        waits = {pool_label: expected_wait(pool_label, load[pool_label], added.get(pool_label, 0) + 1)
                  for pool_label in candidates}
         # Name the extra round only where it counted: the winner is cold, or
         # a cold pool had a shorter queue than the winner and lost for it.
@@ -1733,11 +1716,9 @@ def spread_shards(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int
     if label not in lane or len(lane) < 2:
         return ""
     after = {**added, label: added.get(label, 0) + 1}  # this run's admission
-    account = blacksmith_load(load)
-    account_added = sum(after.get(pool_label, 0) for pool_label in load if not persistent(pool_label))
 
     def wait(pool_label: str) -> tuple[float, int]:
-        return (expected_wait(pool_label, load[pool_label], account_added + shards, account),
+        return (expected_wait(pool_label, load[pool_label], after.get(pool_label, 0) + shards),
                 0 if pool_label == label else 1 + lane.index(pool_label))
 
     best = min(lane, key=wait)
