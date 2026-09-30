@@ -107,8 +107,7 @@ export function Chat() {
     const t = text.trim();
     if (!t) return;
     stickRef.current = true;
-    reply(t);
-    setText("");
+    if (reply(t)) setText("");
   };
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
