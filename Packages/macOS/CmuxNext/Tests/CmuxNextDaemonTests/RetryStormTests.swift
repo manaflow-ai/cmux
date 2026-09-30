@@ -82,9 +82,15 @@ func settle(_ rounds: Int = 20_000) async {
         try await connection.start()
         for _ in 0..<5 {
             while !(await connection.isReady) { await Task.yield() }
-            // The daemon accepts the handshake and drops the connection at once.
-            server.disconnectClient()
-            while await connection.isReady { await Task.yield() }
+            // The daemon accepts the handshake and drops the connection at
+            // once. Repeat until the drop is seen: on a loaded machine the
+            // server can publish the new client's descriptor after the
+            // connection already reports ready, and one disconnect then
+            // closed nothing (the test hung).
+            while await connection.isReady {
+                server.disconnectClient()
+                await Task.yield()
+            }
         }
         while !(await connection.isReady) { await Task.yield() }
         let spacing = clock.sleeps
