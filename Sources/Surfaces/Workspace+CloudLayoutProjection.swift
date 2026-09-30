@@ -48,11 +48,15 @@ extension Workspace {
             // External ratios suppress Bonsplit's geometry callback. Reconcile
             // AppKit and Ghostty even when the terminal membership is unchanged.
             if applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot()) {
+                SurfaceCatalog.shared.cloudWorkspaceLayoutSyncCoordinator.machineLayoutApplied(workspaceID: id)
                 scheduleTerminalGeometryReconcile()
             }
             return
         }
         let focused = focusedPanelId.flatMap { surfaceIdFromPanelId($0) }
+        // The codec regroups tabs by moving them, which changes each pane's selection.
+        // Every pane keeps the tab the user was looking at, not only the focused one.
+        let selected = Set(bonsplitController.allPaneIds.compactMap { bonsplitController.selectedTab(inPane: $0)?.id })
         // The existing remote-projection transaction preserves window/workspace
         // focus and suppresses activation while tabs move. It is shared with SSH.
         performRemoteTmuxMirrorMutation {
@@ -65,9 +69,15 @@ extension Workspace {
                     panelIDMap: [:],
                     tabIDForPanelID: surfaceIdFromPanelId
                 )
+                for pane in bonsplitController.allPaneIds {
+                    if let tab = bonsplitController.tabs(inPane: pane).first(where: { selected.contains($0.id) }) {
+                        bonsplitController.selectTab(tab.id)
+                    }
+                }
                 if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
             }
         }
+        SurfaceCatalog.shared.cloudWorkspaceLayoutSyncCoordinator.machineLayoutApplied(workspaceID: id)
         scheduleTerminalGeometryReconcile()
     }
 
