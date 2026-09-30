@@ -165,7 +165,6 @@ struct AgentInboxProjectionTests {
         #expect(store.messages() == [sent])
     }
 
-}
 
 @Test("agent inbox does not move selection while the reply field is focused")
 func agentInboxReplyFieldOwnsArrowNavigation() {
@@ -222,6 +221,7 @@ func agentInboxFinishedTurnReadStatePersists() throws {
     let suiteName = "AgentInboxProjectionTests.finished-turn-read-state"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
     let store = AgentInboxReadStateStore(defaults: defaults)
     store.markFinishedTurnRead("stop:finished-1")
 
@@ -233,6 +233,7 @@ func agentInboxFinishedTurnReadStateIsBounded() throws {
     let suiteName = "AgentInboxProjectionTests.finished-turn-read-state-cap"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
+    defer { defaults.removePersistentDomain(forName: suiteName) }
     let store = AgentInboxReadStateStore(defaults: defaults)
     let ids = (0..<(AgentInboxReadStateStore.maxFinishedTurnIDs + 10)).map { "stop:finished-\($0)" }
 
@@ -244,4 +245,54 @@ func agentInboxFinishedTurnReadStateIsBounded() throws {
     #expect(persisted.count == AgentInboxReadStateStore.maxFinishedTurnIDs)
     #expect(!persisted.contains(ids[0]))
     #expect(persisted.contains(ids.last!))
+}
+
+
+    @Test("legacy finished-turn read state is pruned when loaded")
+    func agentInboxFinishedTurnReadStatePrunesLegacyEntries() throws {
+        let suiteName = "AgentInboxProjectionTests.finished-turn-read-state-legacy"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let ids = (0..<(AgentInboxReadStateStore.maxFinishedTurnIDs + 10)).map { "stop:legacy-\($0)" }
+        defaults.set(try JSONEncoder().encode(ids), forKey: "agentInbox.finishedTurnIDs")
+
+        let loaded = AgentInboxReadStateStore(defaults: defaults).finishedTurnIDs
+        #expect(loaded.count == AgentInboxReadStateStore.maxFinishedTurnIDs)
+        #expect(!loaded.contains(ids[0]))
+        #expect(loaded.contains(ids.last!))
+    }
+
+    @Test("stale workstream resolution is ignored")
+    func agentInboxReplyResolutionOnlyAppliesToCurrentSelection() {
+        #expect(AgentInboxReplyResolutionPolicy.shouldApply(
+            resolvedWorkstreamID: "workstream-1",
+            selectedItemID: "workstream-1"
+        ))
+        #expect(!AgentInboxReplyResolutionPolicy.shouldApply(
+            resolvedWorkstreamID: "workstream-1",
+            selectedItemID: "workstream-2"
+        ))
+    }
+
+    @Test("decision IDs are absent for non-feed inbox items")
+    func agentInboxDecisionTargetOnlyReturnsFeedIDs() {
+        let target = AgentInboxReplyTarget.agentMessage(
+            surfaceId: "surface-1",
+            workspaceId: nil,
+            replyTo: nil
+        )
+        #expect(AgentInboxDecisionTarget.id(for: target) == nil)
+    }
+
+    @Test("command palette overlay state has one owner")
+    func commandPaletteOverlayStateDoesNotExposeInconsistentFlags() {
+        #expect(!CommandPaletteOverlayState.closed.isCommandPalettePresented)
+        #expect(!CommandPaletteOverlayState.closed.isAgentInboxPresented)
+        #expect(CommandPaletteOverlayState.palette.isCommandPalettePresented)
+        #expect(!CommandPaletteOverlayState.palette.isAgentInboxPresented)
+        #expect(CommandPaletteOverlayState.agentInbox.isCommandPalettePresented)
+        #expect(CommandPaletteOverlayState.agentInbox.isAgentInboxPresented)
+    }
+
 }
