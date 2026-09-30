@@ -29,8 +29,8 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.maximumNumberOfLines = 0
         messageLabel.lineBreakMode = .byWordWrapping
         messageLabel.textColor = .secondaryLabelColor
-        actionButton.bezelStyle = .rounded
         actionButton.controlSize = .small
+        actionButton.focusRingType = .none
         actionButton.target = self
         actionButton.action = #selector(performAction)
         actionButton.setAccessibilityRole(.button)
@@ -54,9 +54,19 @@ final class CloudPortsStatusContent: NSView {
         actionHandler = action
         titleLabel.stringValue = presentation.title
         messageLabel.stringValue = presentation.message
-        actionButton.title = presentation.actionTitle ?? ""
-        actionButton.isHidden = presentation.action == .none || presentation.actionTitle == nil
-        actionButton.setAccessibilityLabel(presentation.actionTitle ?? presentation.title)
+        let actionTitle = presentation.actionTitle
+        let usesRefreshIcon = presentation.action == .refresh && actionTitle != nil
+        actionButton.title = usesRefreshIcon ? "" : actionTitle ?? ""
+        actionButton.image = usesRefreshIcon
+            ? NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: actionTitle)
+            : nil
+        actionButton.imagePosition = usesRefreshIcon ? .imageOnly : .noImage
+        actionButton.isBordered = !usesRefreshIcon
+        actionButton.bezelStyle = usesRefreshIcon ? .inline : .rounded
+        actionButton.contentTintColor = usesRefreshIcon ? .secondaryLabelColor : nil
+        actionButton.toolTip = actionTitle
+        actionButton.isHidden = presentation.action == .none || actionTitle == nil
+        actionButton.setAccessibilityLabel(actionTitle ?? presentation.title)
         let fontSize = GlobalFontMagnification.scaledSize(max(10, style.detailSize))
         titleLabel.font = .systemFont(ofSize: fontSize, weight: .semibold)
         actionButton.font = .systemFont(ofSize: fontSize)
@@ -79,6 +89,14 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.frame = NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
         if actionButton.isHidden {
             actionButton.frame = .zero
+        } else if presentation?.action == .refresh {
+            let buttonSize: CGFloat = 22
+            actionButton.frame = NSRect(
+                x: max(inset, width - inset - buttonSize),
+                y: messageLabel.frame.maxY + 4,
+                width: buttonSize,
+                height: buttonSize
+            )
         } else {
             actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: min(width - inset * 2, actionButton.fittingSize.width), height: 22)
         }
