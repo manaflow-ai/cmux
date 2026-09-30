@@ -14,7 +14,7 @@ struct ClaudeHookWorkStateTests {
 
     /// Runs one PreToolUse hook for `toolName` and returns the commands the
     /// mock app saw.
-    private func runPreToolUse(name: String, toolName: String, pid: String) throws -> [String] {
+    private func runPreToolUse(name: String, toolName: String, pid: String, toolInput: [String: String] = [:]) throws -> [String] {
         let context = try Harness.makeContext(name: name)
         defer { context.cleanup() }
         let sessionId = "\(name)-session"
@@ -38,11 +38,19 @@ struct ClaudeHookWorkStateTests {
         environment["CMUX_SURFACE_ID"] = Self.surfaceId
         environment["CMUX_CLAUDE_PID"] = pid
 
+        let payload: [String: Any] = [
+            "session_id": sessionId,
+            "hook_event_name": "PreToolUse",
+            "tool_name": toolName,
+            "tool_input": toolInput,
+            "cwd": context.root.path
+        ]
+        let standardInput = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"\#(toolName)","cwd":"\#(context.root.path)"}"#
+            standardInput: standardInput
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -90,6 +98,36 @@ struct ClaudeHookWorkStateTests {
         #expect(status?.contains("--work=running") == true)
         #expect(status?.contains("--icon=bolt.fill") == true)
         #expect(status?.contains("subagents") == false)
+    }
+
+    @Test(arguments: ["Monitor", "TaskOutput"])
+    func blockingWaitToolReportsWaiting(toolName: String) throws {
+        let commands = try runPreToolUse(name: "wait-tool", toolName: toolName, pid: "43405")
+        let status = statusLine(commands)
+        #expect(status?.hasPrefix("set_status claude_code Waiting ") == true)
+        #expect(status?.contains("--work=waiting") == true)
+        #expect(status?.contains("--icon=hourglass") == true)
+    }
+
+    @Test(arguments: [
+        "glaeda-gh wait pr manaflow-ai/cmux#15887 --until green",
+        "gh run watch 123 --exit-status",
+        "gh pr checks 123 --watch",
+        "sleep 30",
+        "while ! curl -fsS localhost:8080; do sleep 2; done"
+    ])
+    func deterministicShellWaitReportsWaiting(command: String) throws {
+        let commands = try runPreToolUse(name: "wait-command", toolName: "Bash", pid: "43406", toolInput: ["command": command])
+        let status = statusLine(commands)
+        #expect(status?.hasPrefix("set_status claude_code Waiting ") == true)
+        #expect(status?.contains("--work=waiting") == true)
+        #expect(status?.contains("--icon=hourglass") == true)
+    }
+
+    @Test(arguments: ["echo 'sleep 30'", "rg polling Sources", "gh pr checks 123", "make build"])
+    func ordinaryCommandRemainsRunning(command: String) throws {
+        let commands = try runPreToolUse(name: "ordinary-command", toolName: "Bash", pid: "43407", toolInput: ["command": command])
+        #expect(statusLine(commands)?.contains("--work=running") == true)
     }
 
     /// The work option is appended after every option the command already
