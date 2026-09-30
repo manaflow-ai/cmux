@@ -261,6 +261,65 @@ struct CloudDisplayCatalogTests {
         #expect(resources.map(\.title) == ["Display 1", "Display 2"])
     }
 
+    @Test("Display creation publishes one pending row and reconciles success or failure", arguments: [false, true])
+    func pendingDisplayCreation(fails: Bool) async throws {
+        let machine = SurfaceMachineID.cloud("pending-display")
+        let started = CloudLinkFirstValue<Bool>()
+        let response = CloudLinkFirstValue<Bool>()
+        var createCount = 0
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            guard Self.isCreate(command) else { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            createCount += 1
+            started.resolve(true)
+            _ = await response.result
+            if fails { throw URLError(.networkConnectionLost) }
+            return .init(exitCode: 0, stdout: created, stderr: "")
+        }
+        var summary = VMSummary(id: "pending-display", provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            catalog: catalog, displayCoordinator: coordinator)
+        catalog.register(provider)
+        defer { response.resolve(true); catalog.unregister(machine: machine) }
+        let operation = Task { try await catalog.createDisplay(on: machine, into: nil) }
+        Task { _ = await operation.result; started.resolve(false) }
+        try #require(await started.result == true)
+        let pending = catalog.snapshot.resources(on: machine).filter { $0.lifecycle == .launching }
+        #expect(pending.count == 1)
+        #expect(pending.first?.title == CloudGuestDisplay.title(for: 2))
+        #expect(pending.first?.url == nil && pending.first?.port == nil)
+        #expect(catalog.authoritativeSnapshot.resources(on: machine).allSatisfy { $0.lifecycle != .launching })
+        #expect(catalog.snapshot.displayCreationMachines?.contains(machine) != true)
+        await #expect(throws: CancellationError.self) {
+            try await catalog.createDisplay(on: machine, into: nil)
+        }
+        #expect(createCount == 1)
+        response.resolve(true)
+        if fails {
+            await #expect(throws: URLError.self) { try await operation.value }
+        } else {
+            try await operation.value
+        }
+        #expect(catalog.snapshot.resources(on: machine).allSatisfy { $0.lifecycle != .launching })
+        #expect(catalog.snapshot.resources(on: machine).count == (fails ? 1 : 2))
+    }
+
+    @Test("Display discovery distinguishes unknown from known unavailable", arguments: [false, true])
+    func discoveryCapability(available: Bool) async {
+        let coordinator = CloudDisplayCoordinator { _, _ in
+            .init(exitCode: 0, stdout: "{\"version\":1,\"canCreate\":\(available),\"displays\":[]}", stderr: "")
+        }
+        #expect(!coordinator.hasAttemptedDiscovery)
+        await coordinator.refresh()
+        #expect(coordinator.hasAttemptedDiscovery)
+        #expect(coordinator.canCreate == available)
+        coordinator.invalidate()
+        #expect(!coordinator.hasAttemptedDiscovery)
+        #expect(!coordinator.canCreate)
+    }
+
     /// Waits until the fake guest exec starts creating, or answers false when
     /// `operation` finishes first. `create()` can fail before it reaches the
     /// exec (a fake that no longer recognizes the create command, for example),
