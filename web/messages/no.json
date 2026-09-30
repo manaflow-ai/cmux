@@ -2085,7 +2085,12 @@
           "compactAgentStatus": "Vis hvert arbeidsområde på én linje: ett farget ikon foran tittelen viser agent-, ulest- og pull request-status og erstatter agentstatuslinjene (for eksempel Kjører eller Trenger input), gren- og mappelinjen og pull request-linjene, der detaljene flyttes til ikonets verktøytips. Andre statusoppføringer beholder sine egne linjer.",
           "compactStatusIcons": "SF Symbol-navn som erstatter compactAgentStatus-glyfen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstander uten verdi beholder det innebygde symbolet, og et navn som ikke kan vises, faller tilbake til det.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
-          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisningen i sidefeltets velger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
@@ -2291,7 +2296,8 @@
         "wn-reload": "Last inn konfigurasjon på nytt",
         "wn-quit": "Avslutt"
       },
-      "metaTitle": "Tastatursnarveier"
+      "metaTitle": "Tastatursnarveier",
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z)."
     },
     "api": {
       "title": "CLI-referanse",
@@ -2729,7 +2735,8 @@
       "maxLinesSetting": "TextBox Max Lines begrenser høyden på TextBox før innholdet begynner å rulle.",
       "configTitle": "cmux.json",
       "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
+      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater.",
+      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",

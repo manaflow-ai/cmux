@@ -2085,7 +2085,12 @@
           "compactAgentStatus": "각 워크스페이스를 한 줄로 표시합니다. 제목 앞의 색상 아이콘 하나가 에이전트, 읽지 않음, 풀 리퀘스트 상태를 나타내며 에이전트 상태 행(예: 실행 중, 입력 필요), 브랜치 및 디렉터리 행, 풀 리퀘스트 행을 대신하고, 그 세부 정보는 아이콘의 도움말로 옮겨집니다. 다른 상태 항목은 자체 행을 유지합니다.",
           "compactStatusIcons": "상태별로 compactAgentStatus 글리프를 대체하는 SF Symbol 이름입니다(예: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}). 설정하지 않은 상태는 기본 기호를 사용하며, 표시할 수 없는 이름도 기본 기호로 돌아갑니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
-          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
+          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
+          "beta": {
+            "conversations": {
+              "enabled": "사이드바 선택기에 통합 대화 보기를 표시합니다."
+            }
+          }
         },
         "fileExplorer": {
           "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",
@@ -2291,7 +2296,8 @@
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
       },
-      "metaTitle": "키보드 단축키"
+      "metaTitle": "키보드 단축키",
+      "fileEditorWordWrap": "파일 편집기 자동 줄 바꿈 전환 (Option+Z)."
     },
     "api": {
       "title": "CLI 레퍼런스",
@@ -2729,7 +2735,8 @@
       "maxLinesSetting": "TextBox Max Lines는 내용이 스크롤되기 전 TextBox의 최대 높이를 제한합니다.",
       "configTitle": "cmux.json",
       "configDesc": "동일한 기본값을 ~/.config/cmux/cmux.json의 terminal 아래에 설정할 수 있습니다.",
-      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다."
+      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다.",
+      "betaCallout": "TextBox는 베타 기능입니다. 테스트 중에는 기본값과 동작이 변경될 수 있습니다."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux에서의 OpenCode 멀티 에이전트",
