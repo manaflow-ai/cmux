@@ -278,7 +278,6 @@ extension TerminalController {
         let panel = TerminalSizePanelView(
             store: terminalSharing,
             surfaceID: surfaceID,
-            separatorColor: Color(nsColor: TerminalSizingChromeColor.separator(surfaceID: surfaceID)),
             confirmDisconnectOthers: confirmDisconnectOthers
         )
         terminalSizePanelPresenter.present(panel, surfaceID: surfaceID, anchor: anchor.view, rect: anchor.rect)

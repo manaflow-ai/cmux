@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileTerminalKit
 import CmuxTerminalSizing
 import SwiftUI
 
@@ -190,8 +191,9 @@ struct TerminalSizeSheet: View {
         let title = TerminalSizingText.participantTitle(participant, isSelf: isSelf)
         let status = TerminalSizingText.rowStatus(presentation.rowStatus(for: row))
         return HStack(spacing: 12) {
+            // Full opacity when not counted, so the glyph keeps 4.5:1; the
+            // secondary title and status say it.
             TerminalSizingAvatar(participant: participant, isOwner: presentation.ownerIDs == [row.id])
-                .opacity(row.counts ? 1 : 0.55)
             Text(title)
                 .lineLimit(1)
                 .foregroundStyle(row.counts ? .primary : .secondary)
@@ -283,16 +285,25 @@ struct TerminalSizeSheet: View {
 }
 
 /// A participant's avatar: the initial of their name, or their device glyph,
-/// on the sizing grey: the app's separator token at half its opacity. The
-/// owner gets a thin ring in the separator token itself, matching the
-/// surface's grid border.
+/// on a neutral fill. The sheet is standard UI, so its colors derive from the
+/// inset-grouped row background and the label color through
+/// ``TerminalSizingPalette`` (4.5:1 glyph, 3:1 owner ring), resolved per
+/// trait environment.
 private struct TerminalSizingAvatar: View {
     let participant: TerminalSizingParticipant
     let isOwner: Bool
 
+    private static func color(_ role: TerminalSizingPalette.Role) -> Color {
+        Color(uiColor: TerminalSizingPalette.dynamicColor(
+            role,
+            background: .secondarySystemGroupedBackground,
+            foreground: .label
+        ))
+    }
+
     var body: some View {
         Circle()
-            .fill(PlatformPalette.separator.opacity(0.5))
+            .fill(Self.color(.fill))
             .frame(width: 28, height: 28)
             .overlay {
                 if let initial = MobileTerminalSizingPresentation.givenName(participant.displayName)?.first {
@@ -303,12 +314,12 @@ private struct TerminalSizingAvatar: View {
                         .font(.caption.weight(.semibold))
                 }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Self.color(.glyph))
             .overlay {
                 if isOwner {
                     Circle()
                         .inset(by: -2)
-                        .stroke(PlatformPalette.separator, lineWidth: 1)
+                        .stroke(Self.color(.line), lineWidth: 1)
                 }
             }
             .accessibilityHidden(true)

@@ -1,8 +1,10 @@
+import Bonsplit
 import CmuxTerminalSharing
 import CmuxTerminalSizing
 import SwiftUI
 
-/// One participant row of the size panel: an avatar in the separator grey, name, `sets size`
+/// One participant row of the size panel: a neutral avatar
+/// (``TerminalSizingChromeColor/panelColor(_:)``), name, `sets size`
 /// for the owner or `not counted` for an ignored row, and on hover a "…" menu
 /// with Counts toward size and Disconnect.
 /// In priority mode a leading drag handle shows the row can be reordered.
@@ -13,9 +15,6 @@ struct TerminalSizeParticipantRow: View {
     let isOwner: Bool
     let statusLabel: String?
     let showsDragHandle: Bool
-    /// The split divider / tab-bar separator grey; the owner ring draws in it
-    /// and the avatar fill derives from it.
-    let separatorColor: Color
     let onCountsChange: (Bool) -> Void
     let onDisconnect: (() -> Void)?
 
@@ -52,21 +51,22 @@ struct TerminalSizeParticipantRow: View {
 
     private var avatar: some View {
         Circle()
-            .fill(separatorColor.opacity(0.6))
+            .fill(TerminalSizingChromeColor.panelColor(.fill))
             .frame(width: 18, height: 18)
             .overlay(
                 Text(verbatim: initials)
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(TerminalSizingChromeColor.panelColor(.glyph))
             )
             .overlay {
                 if isOwner {
                     Circle()
                         .inset(by: -1.5)
-                        .stroke(separatorColor, lineWidth: 1)
+                        .stroke(TerminalSizingChromeColor.panelColor(.line), lineWidth: 1)
                 }
             }
-            .opacity(row.counts ? 1 : 0.55)
+            // Full opacity even when not counted: dimming would break the
+            // initials' 4.5:1 contrast; the row's status label says it.
             .accessibilityHidden(true)
     }
 

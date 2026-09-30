@@ -29,30 +29,18 @@ public struct TerminalSizingChipContent: Equatable, Sendable {
 /// outside the grid, a short fade on cut edges, and the size chip. Only the
 /// chip takes touches.
 ///
-/// Every grey is the app's separator token (`UIColor.separator`, the color of
-/// the workspace list dividers, the size sheet's dividers and the plain
-/// letterbox border): the border and the chip stroke use it as is, and the
-/// hatch, cut-edge fade and chip fill use half of its own opacity.
+/// Every color derives from the terminal theme the surface renders
+/// (``TerminalSizingPalette``: foreground mixed into background, nudged to
+/// 4.5:1 chip text and a 3:1 border), so the chrome reads on light, dark and
+/// custom themes. Cut edges fade the text into the theme background.
 @MainActor
 final class GhosttySurfaceSharedSizingLayers {
     /// Distance between hatch lines, in points.
     static let hatchSpacing: CGFloat = 8
-    /// Share of the separator's opacity used by the hatch lines.
-    static let hatchOpacity: CGFloat = 0.5
-    /// Share of the separator's opacity used by the chip fill.
-    static let chipFillOpacity: CGFloat = 0.5
+    /// Opacity of the theme background at a cut edge's outer end.
+    static let cutFadeOpacity: CGFloat = 0.85
     /// Distance between the chip and the grid or viewport edge, in points.
     static let chipInset: CGFloat = TerminalSizingChipPlacement.defaultInset
-
-    /// The single grey of the sizing UI.
-    static let grey = UIColor.separator
-
-    /// `color` with its own opacity multiplied by `opacity`.
-    static func derived(_ color: UIColor, opacity: CGFloat) -> UIColor {
-        var alpha: CGFloat = 0
-        color.getRed(nil, green: nil, blue: nil, alpha: &alpha)
-        return color.withAlphaComponent(alpha * opacity)
-    }
 
     let container = CALayer()
     let border = CAShapeLayer()
@@ -60,6 +48,7 @@ final class GhosttySurfaceSharedSizingLayers {
     let hatchMask = CAShapeLayer()
     var fades: [CAGradientLayer] = []
     private(set) var chip: UIButton?
+    private var chipPalette: TerminalSizingPalette?
 
     init(host: CALayer) {
         let noActions: [String: any CAAction] = [
@@ -95,6 +84,7 @@ final class GhosttySurfaceSharedSizingLayers {
         in hostView: UIView,
         gridRect: CGRect?,
         viewportRect: CGRect,
+        palette: TerminalSizingPalette,
         onTap: @escaping @MainActor () -> Void
     ) {
         guard let content, let gridRect else {
@@ -103,6 +93,10 @@ final class GhosttySurfaceSharedSizingLayers {
         }
         let button = chip ?? makeChip(in: hostView, onTap: onTap)
         chip = button
+        if chipPalette != palette {
+            chipPalette = palette
+            Self.applyChipColors(palette, to: button)
+        }
         button.accessibilityLabel = content.accessibilityLabel
         button.accessibilityHint = content.accessibilityHint
         button.isHidden = false
@@ -140,14 +134,6 @@ final class GhosttySurfaceSharedSizingLayers {
     private func makeChip(in hostView: UIView, onTap: @escaping @MainActor () -> Void) -> UIButton {
         var configuration = UIButton.Configuration.plain()
         configuration.cornerStyle = .capsule
-        configuration.baseForegroundColor = .secondaryLabel
-        // The blur keeps the chip legible over terminal text; the fill and
-        // stroke are the sizing grey.
-        configuration.background.visualEffect = UIBlurEffect(style: .systemThinMaterial)
-        configuration.background.backgroundColor = UIColor { traits in
-            Self.derived(Self.grey.resolvedColor(with: traits), opacity: Self.chipFillOpacity)
-        }
-        configuration.background.strokeColor = Self.grey
         configuration.background.strokeWidth = TerminalSizingBoundsGeometry.borderWidth
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
         configuration.titleLineBreakMode = .byTruncatingMiddle
@@ -166,9 +152,19 @@ final class GhosttySurfaceSharedSizingLayers {
         return button
     }
 
+    /// The chip's opaque fill (so its text keeps 4.5:1 over terminal
+    /// content), text and outline.
+    static func applyChipColors(_ palette: TerminalSizingPalette, to button: UIButton) {
+        guard var configuration = button.configuration else { return }
+        configuration.baseForegroundColor = palette.uiColor(.glyph)
+        configuration.background.backgroundColor = palette.uiColor(.fill)
+        configuration.background.strokeColor = palette.uiColor(.line)
+        button.configuration = configuration
+    }
+
     func apply(
         geometry: TerminalSizingBoundsGeometry,
-        grey: UIColor,
+        palette: TerminalSizingPalette,
         bounds: CGRect,
         scale: CGFloat
     ) {
@@ -188,7 +184,7 @@ final class GhosttySurfaceSharedSizingLayers {
         }
 
         let inset = TerminalSizingBoundsGeometry.borderWidth / 2
-        border.strokeColor = grey.cgColor
+        border.strokeColor = palette.uiColor(.line).cgColor
         border.path = Self.borderPath(edges: geometry.borderEdges, around: borderRect.insetBy(dx: inset, dy: inset))
 
         let maskPath = UIBezierPath()
@@ -196,7 +192,7 @@ final class GhosttySurfaceSharedSizingLayers {
             maskPath.append(UIBezierPath(rect: rect))
         }
         hatchMask.path = maskPath.cgPath
-        hatch.strokeColor = Self.derived(grey, opacity: Self.hatchOpacity).cgColor
+        hatch.strokeColor = palette.uiColor(.hatch).cgColor
         hatch.path = geometry.hatchRects.isEmpty ? nil : Self.hatchPath(in: bounds)
 
         fades.forEach { $0.removeFromSuperlayer() }
@@ -205,9 +201,10 @@ final class GhosttySurfaceSharedSizingLayers {
             layer.actions = ["bounds": NSNull(), "frame": NSNull(), "position": NSNull()]
             layer.frame = fade.rect
             layer.contentsScale = scale
+            let background = palette.background.uiColor
             layer.colors = [
-                grey.withAlphaComponent(0).cgColor,
-                Self.derived(grey, opacity: Self.hatchOpacity).cgColor,
+                background.withAlphaComponent(0).cgColor,
+                background.withAlphaComponent(Self.cutFadeOpacity).cgColor,
             ]
             switch fade.edge {
             case .trailing:
@@ -297,9 +294,10 @@ extension GhosttySurfaceView {
         // visible, so no border, hatch or chip draws under the keyboard.
         let chromeViewport = sizingChromeViewportRect(for: viewportRect)
         let geometry = decoration.geometry(viewportRect: chromeViewport, renderRect: lastRenderRect)
+        let palette = TerminalSizingPalette(theme: terminalTheme)
         layers.apply(
             geometry: geometry,
-            grey: GhosttySurfaceSharedSizingLayers.grey.resolvedColor(with: traitCollection),
+            palette: palette,
             bounds: layer.bounds,
             scale: max(layer.contentsScale, 1)
         )
@@ -308,6 +306,7 @@ extension GhosttySurfaceView {
             in: self,
             gridRect: geometry.borderRect,
             viewportRect: chromeViewport,
+            palette: palette,
             onTap: { [weak self] in self?.onSharedSizingChipTap?() }
         )
     }

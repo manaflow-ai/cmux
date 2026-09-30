@@ -5341,6 +5341,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         configBackgroundColor = themeBackground
         (bottomDockHostView as? GhosttySurfaceHostView)?.updateTerminalBackground(themeBackground)
         inputProxy.terminalTheme = terminalTheme
+        // The sizing chrome derives its colors from the theme.
+        if sharedSizingLayers != nil { refreshSharedSizingLayers() }
         needsDraw = true
     }
 

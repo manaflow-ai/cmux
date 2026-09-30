@@ -132,7 +132,7 @@ Every viewer whose viewport differs from the grid draws, from the size state
 (a viewer whose viewport equals the grid draws none of it, even while others
 are attached):
 
-- a 1 pt border in the separator grey (below) on each side of the grid that
+- a 1 pt neutral border (colors below) on each side of the grid that
   faces unused space. A side flush with the viewport edge gets no line, because
   the tab bar, navigation bar or pane edge already draws one there;
 - a faint hatch outside the grid, so empty space never reads as blank output;
@@ -152,17 +152,32 @@ are attached):
   other devices' grids;
 - on each change, the border animates to the new grid. There is no HUD.
 
-The sizing UI uses one grey, the one every other border in the app uses. On
-the Mac that is the workspace's split divider / tab-bar separator color
-(`BonsplitConfiguration.Appearance.separatorColor`, from `pane-border-color`,
-Ghostty `split-divider-color`, or the chrome background). The grid border, the
-chip outline and the owner ring draw in it; the hatch, cut-edge fade, chip tint
-and avatar fills derive from it with opacity. There are no per-participant
-colors; the owner is marked by a thin ring on its avatar.
+The sizing UI is neutral, with no per-participant colors; the owner is marked
+by a thin ring on its avatar. Every color derives from the surface it sits on
+by one pure function per platform (`BonsplitContrastPalette` in bonsplit on
+the Mac, `TerminalSizingPalette` in `CmuxMobileTerminalKit` on iOS): the
+surface's text color is mixed into its background in gamma-encoded sRGB at a
+fixed ratio per role (fill 14%, hatch 22%, line 40%, glyph and text 72%), then
+moved toward black or white until its WCAG 2 contrast floor holds. Glyphs,
+initials and chip text reach 4.5:1 on their fill; rings, the grid border and
+the chip outline 3:1 on the background; fills and hatch stay visible
+(1.2:1 and 1.3:1). Fills are opaque, never alpha over an unknown background.
+
+| Surface | Background / foreground |
+| --- | --- |
+| Mac tab accessory | the tab's fill (selected) or the tab bar, and the tab bar text color |
+| Mac pane border, hatch, cut fade, chip | the terminal theme background and foreground |
+| Mac size panel avatars | the popover's window background and label color |
+| iPhone border, hatch, cut fade, chip | the surface's terminal theme background and foreground |
+| iPhone size sheet avatars | the inset-grouped row background and label color |
+
+System colors resolve in the appearance that draws them, so a light terminal
+theme under dark macOS still gets dark glyphs. A cut edge fades the text into
+the terminal background.
 
 On the Mac, the tab shows only while someone else is attached, and never
-shows this view itself. It draws one grey initials circle per other person
-(grouped by `user_id`) and, for this user's own other devices, one grey device
+shows this view itself. It draws one neutral initials circle per other person
+(grouped by `user_id`) and, for this user's own other devices, one neutral device
 glyph per device kind (iPhone, iPad, laptop, terminal). Up to three items,
 owner first with the neutral ring, then `+N`. Its tooltip is `Size set by Maya's Mac · 118×38`, and clicking it
 toggles the size panel. The panel always hangs from the tab (the accessory, or
@@ -176,9 +191,8 @@ inline confirmation. "Size to My Window" lives in the tab context menu, the
 palette and the shortcut. The tab context menu adds Size to My Window, a
 Terminal Size submenu with the five modes, and Disconnect Others… while anyone
 else is attached.
-The iPhone size sheet uses the same grey avatars and marks rows "Sets size"
-or "Not counted" the same way. Its greys use the platform separator color
-(`UIColor.separator`); the Mac uses the separator token above.
+The iPhone size sheet uses the same neutral avatars and marks rows "Sets size"
+or "Not counted" the same way.
 
 On the iPhone, when the grid is larger than the phone, the phone renders the
 exact shared grid scaled to its width and pinned to the bottom. Pinch zooms
