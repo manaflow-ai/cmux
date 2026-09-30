@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { call, ORPCError } from "@orpc/server";
 
 let stackUser: Record<string, unknown> | null = null;
+let allowUserApiKeys = true;
 
 mock.module("@/services/billing/dashboardSessionRoute", () => ({
   resolveDashboardSessionUser: async () => ({ ok: true, user: { id: "user-1" } }),
@@ -17,7 +18,7 @@ mock.module("@/app/lib/stack", () => ({
         credentialEnabled: true,
         passkeyEnabled: false,
         magicLinkEnabled: true,
-        allowUserApiKeys: true,
+        allowUserApiKeys,
         clientUserDeletionEnabled: false,
         oauthProviders: [{ id: "github" }, { id: "google" }],
       },
@@ -30,6 +31,7 @@ const { settingsRouter } = await import("../orpc/server/dashboard/settings");
 const context = { request: new Request("https://cmux.test/dashboard/settings"), serverPrefetch: true };
 
 beforeEach(() => {
+  allowUserApiKeys = true;
   stackUser = {
     isAnonymous: false,
     listContactChannels: async () => [{
@@ -113,5 +115,14 @@ describe("dashboard.settings", () => {
       expect(error).toBeInstanceOf(ORPCError);
       expect([(error as ORPCError<string, unknown>).code, (error as ORPCError<string, unknown>).status]).toEqual(["UNAUTHORIZED", 401]);
     }
+  });
+
+  test("API keys on a project without user API keys is a declared FORBIDDEN, not a server error", async () => {
+    allowUserApiKeys = false;
+    stackUser = { ...stackUser, listApiKeys: async () => { throw new Error("user API keys are not enabled"); } };
+    const error = await call(settingsRouter.apiKeys, undefined, { context }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ORPCError);
+    const refusal = error as ORPCError<string, { reason: string }>;
+    expect([refusal.code, refusal.status, refusal.data.reason]).toEqual(["FORBIDDEN", 403, "api_keys_disabled"]);
   });
 });
