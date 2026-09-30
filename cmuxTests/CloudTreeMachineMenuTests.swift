@@ -581,6 +581,28 @@ struct CloudTreeMachineMenuTests {
         #expect(!(hit?.isDescendant(of: buttons) ?? false))
     }
 
+    @Test("Reused cells hide stale hover controls on buttonless rows")
+    func reusedCellHidesStaleHoverControls() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let actions = Self.machineActions(recording: recorder)
+        let nodeActions = Self.nodeActions(recording: recorder)
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 360, height: 32))
+        cell.configure(node: Self.machineNode(), machineActions: actions, nodeActions: nodeActions)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(!buttons.isHidden)
+
+        let buttonless = CloudTreeNode(
+            id: "resources",
+            kind: .resourcesPool(machine: .cloud(Self.machineID), count: 0)
+        )
+        cell.configure(node: buttonless, machineActions: actions, nodeActions: nodeActions)
+        #expect(buttons.isHidden)
+    }
+
     private static func machineNode(expired: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
