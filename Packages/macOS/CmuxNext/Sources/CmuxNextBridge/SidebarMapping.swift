@@ -39,7 +39,7 @@ public enum SidebarMapping {
             title: workspace.displayName,
             subtitle: subtitle(tabs),
             status: status.flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? .symbol(workspace.icon ?? "terminal"),
+            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map { WorkspaceIcon.symbol($0) },
             unread: unread > 0 ? .count(unread) : .none,
             activity: activity(tabs)
         )

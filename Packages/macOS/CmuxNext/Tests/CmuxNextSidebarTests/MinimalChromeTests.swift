@@ -84,8 +84,8 @@ import Testing
         let window: NSWindow
         let sidebar: SidebarView
 
-        init() {
-            sidebar = SidebarView(model: SidebarModel(sections: fixture(), activeWorkspaceID: id("a")))
+        init(sections: [SidebarSection] = fixture()) {
+            sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             sidebar.frame = window.contentView!.bounds

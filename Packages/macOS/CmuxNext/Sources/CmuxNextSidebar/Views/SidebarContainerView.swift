@@ -2,7 +2,8 @@ public import AppKit
 import CmuxNextDesign
 import Observation
 
-/// Glass sidebar panel that owns its width.
+/// The sidebar: a flat surface on the window background (the terminal
+/// theme's background), with no panel, border or seam. It owns its width.
 ///
 /// Pin leading, top, and bottom; the view animates its own width constraint
 /// for `SidebarModel.presentation` (expanded, icons only, hidden) and for
@@ -14,7 +15,8 @@ public final class SidebarContainerView: NSView {
     /// The width constraint this view drives. Do not add another.
     public private(set) var widthConstraint: NSLayoutConstraint!
 
-    private let panel: NSGlassEffectView
+    /// Plain holder; alpha fades the sidebar out when hidden.
+    private let panel = NSView()
     private let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
 
@@ -25,16 +27,22 @@ public final class SidebarContainerView: NSView {
     public init(model: SidebarModel) {
         self.model = model
         sidebarView = SidebarView(model: model)
-        panel = Glass.makePanel(content: sidebarView)
         handle = SidebarResizeHandle()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        sidebarView.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(sidebarView)
         addSubview(panel)
         addSubview(handle)
         handle.translatesAutoresizingMaskIntoConstraints = false
         widthConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
         NSLayoutConstraint.activate([
             widthConstraint,
+            sidebarView.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            sidebarView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+            sidebarView.topAnchor.constraint(equalTo: panel.topAnchor),
+            sidebarView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
             panel.leadingAnchor.constraint(equalTo: leadingAnchor),
             panel.topAnchor.constraint(equalTo: topAnchor),
             panel.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -130,7 +138,9 @@ public final class SidebarContainerView: NSView {
     }
 }
 
-/// Invisible strip on the sidebar's trailing edge that resizes it.
+/// Strip on the sidebar's trailing edge that resizes it. Invisible until
+/// the pointer is over it; then a hairline fades in (and stays while
+/// dragging), so the edge never shows as a seam at rest.
 final class SidebarResizeHandle: NSView {
     enum Phase {
         case began
@@ -140,11 +150,19 @@ final class SidebarResizeHandle: NSView {
     }
 
     var onDrag: ((Phase) -> Void)?
-    private(set) var isDragging = false
+    private(set) var isDragging = false { didSet { updateLine() } }
+    private(set) var isHovered = false { didSet { updateLine() } }
     private var startX: CGFloat = 0
+    private let line = CALayer()
+
+    /// The hairline shows only on hover or while dragging.
+    var isLineVisible: Bool { isHovered || isDragging }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
+        line.opacity = 0
+        layer?.addSublayer(line)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
@@ -155,6 +173,48 @@ final class SidebarResizeHandle: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .columnResize)
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        line.frame = CGRect(x: (bounds.width - Metrics.dividerThickness) / 2, y: 0, width: Metrics.dividerThickness, height: bounds.height)
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        line.backgroundColor = resolvedCGColor(Palette.separator)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        line.backgroundColor = resolvedCGColor(Palette.separator)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    func setHovered(_ hovered: Bool) { isHovered = hovered }
+
+    private func updateLine() {
+        let target: Float = isLineVisible ? 1 : 0
+        guard line.opacity != target else { return }
+        if !Motion.reduceMotion {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = line.presentation()?.opacity ?? line.opacity
+            fade.toValue = target
+            fade.duration = 0.14
+            line.add(fade, forKey: "opacity")
+        }
+        line.opacity = target
     }
 
     override func mouseDown(with event: NSEvent) {

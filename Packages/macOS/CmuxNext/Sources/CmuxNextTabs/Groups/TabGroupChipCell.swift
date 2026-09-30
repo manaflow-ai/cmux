@@ -18,7 +18,7 @@ final class TabGroupChipCell {
     var isLifted = false {
         didSet {
             guard oldValue != isLifted else { return }
-            pill.shadowColor = NSColor.black.cgColor
+            pill.shadowColor = Palette.shadow.cgColor
             pill.shadowRadius = Metrics.space3
             pill.shadowOffset = CGSize(width: 0, height: Metrics.space1)
             pill.shadowOpacity = isLifted ? 0.22 : 0

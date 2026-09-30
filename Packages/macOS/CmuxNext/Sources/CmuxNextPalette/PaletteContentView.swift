@@ -19,8 +19,8 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
-    private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, color: .secondaryLabelColor)
-    private let emptyHint = PaletteText.label(Typography.caption, color: .tertiaryLabelColor)
+    private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, color: Palette.textSecondary)
+    private let emptyHint = PaletteText.label(Typography.caption, color: Palette.textTertiary)
     private let footer = PaletteFooterView()
     private let actionsMenuView = PaletteActionsMenuView()
 
@@ -49,7 +49,7 @@ final class PaletteContentView: NSView {
         stage.wantsLayer = true
         stage.shadow = {
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
+            shadow.shadowColor = Palette.shadow.withAlphaComponent(0.22)
             shadow.shadowBlurRadius = PaletteLayout.shadowRadius
             shadow.shadowOffset = NSSize(width: 0, height: -PaletteLayout.shadowOffset)
             return shadow
@@ -67,7 +67,7 @@ final class PaletteContentView: NSView {
         if let editor = searchBar.field.currentEditor() as? NSTextView {
             // Gray selection and caret; the system accent never shows.
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
-            editor.insertionPointColor = .labelColor
+            editor.insertionPointColor = Palette.textPrimary
         }
         searchBar.field.currentEditor()?.selectedRange = NSRange(location: searchBar.field.stringValue.utf16.count, length: 0)
     }

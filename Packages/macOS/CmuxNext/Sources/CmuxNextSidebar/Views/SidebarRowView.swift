@@ -99,16 +99,11 @@ class SidebarRowView: NSView {
 // MARK: - Workspace
 
 final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
-    private let border = CAShapeLayer()
+    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textTertiary)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         label.alignment = .center
-        border.fillColor = nil
-        border.lineWidth = 1
-        border.lineDashPattern = [NSNumber(value: Metrics.space2), NSNumber(value: Metrics.space2)]
-        layer?.addSublayer(border)
         addSubview(label)
     }
 
@@ -120,24 +115,9 @@ final class EmptySectionRowView: SidebarRowView {
         needsLayout = true
     }
 
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        needsLayout = true
-    }
-
-    override func updateLayer() {
-        border.strokeColor = resolvedCGColor(Palette.separator.withAlphaComponent(0.25))
-    }
-
     override func layout() {
         super.layout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         let b = layoutBounds
-        border.contentsScale = window?.backingScaleFactor ?? 2
-        border.frame = b
-        border.path = CGPath(roundedRect: b.insetBy(dx: Metrics.dividerThickness, dy: Metrics.dividerThickness), cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
-        CATransaction.commit()
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (b.height - h) / 2, width: b.width - Metrics.space4, height: h)
         needsDisplay = true

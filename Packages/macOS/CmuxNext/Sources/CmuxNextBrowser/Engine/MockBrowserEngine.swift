@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import Foundation
 public import Observation
 
@@ -254,8 +255,8 @@ final class MockPageView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.08).cgColor
-        label.textColor = .secondaryLabelColor
+        layer?.backgroundColor = Palette.hoverFill.cgColor
+        label.textColor = Palette.textSecondary
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([

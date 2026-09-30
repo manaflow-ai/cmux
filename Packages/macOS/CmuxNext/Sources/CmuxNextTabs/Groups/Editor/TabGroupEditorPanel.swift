@@ -46,6 +46,7 @@ final class TabGroupEditorPanel: NSPanel, NSTextFieldDelegate {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true

@@ -129,6 +129,13 @@ import Testing
 
     @Test func setColorTintsSymbolsAndRecolorsSwatches() {
         var s = fixture()
+        // Rows have no icon by default; a color alone becomes a swatch.
+        #expect(SidebarEdits.workspace(id("a"), in: s)?.icon == nil)
+        SidebarEdits.apply(.setColor([id("a")], .red), to: &s)
+        #expect(SidebarEdits.workspace(id("a"), in: s)?.icon == .swatch(.red))
+        SidebarEdits.apply(.setColor([id("a")], nil), to: &s)
+        #expect(SidebarEdits.workspace(id("a"), in: s)?.icon == nil)
+        SidebarEdits.apply(.setIcon([id("a")], .symbol("terminal")), to: &s)
         SidebarEdits.apply(.setColor([id("a")], .red), to: &s)
         #expect(SidebarEdits.workspace(id("a"), in: s)?.icon == .symbol("terminal", tint: .red))
         SidebarEdits.apply(.setIcon([id("a")], .swatch(.blue)), to: &s)

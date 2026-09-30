@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Small agent-activity indicator: spinner (running), amber dot (needs
-/// input), red dot (error).
+/// Small agent-activity indicator: spinner (running), the theme's yellow
+/// dot (needs input) or red dot (error).
 final class ActivityIndicatorView: NSView {
     let shape = CAShapeLayer()
     private(set) var activity: AgentActivity = .idle
@@ -92,10 +92,10 @@ final class ActivityIndicatorView: NSView {
             shape.fillColor = nil
         case .needsInput:
             shape.strokeColor = nil
-            shape.fillColor = NSColor.systemOrange.cgColor
+            shape.fillColor = resolvedCGColor(Palette.attention)
         case .error:
             shape.strokeColor = nil
-            shape.fillColor = NSColor.systemRed.cgColor
+            shape.fillColor = resolvedCGColor(Palette.danger)
         case .idle:
             break
         }

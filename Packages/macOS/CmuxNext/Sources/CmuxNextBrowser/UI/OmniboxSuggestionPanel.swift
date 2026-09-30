@@ -92,6 +92,7 @@ final class OmniboxSuggestionPanel {
             backing: .buffered,
             defer: true
         )
+        ThemeStore.shared.adopt(window)
         window.isOpaque = false
         window.backgroundColor = .clear
         // The card draws its own shadow so none falls on the seam with the bar.

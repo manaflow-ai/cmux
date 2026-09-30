@@ -21,7 +21,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
         didSet { if oldValue != font { invalidate() } }
     }
 
-    public var foregroundColor: CGColor? = NSColor.labelColor.cgColor {
+    public var foregroundColor: CGColor? = ThemeSnapshot.tokens.textPrimary.cgColor {
         didSet { if oldValue != foregroundColor { setNeedsDisplay() } }
     }
 

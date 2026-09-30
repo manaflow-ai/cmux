@@ -51,7 +51,7 @@ final class UnreadBadgeView: NSView {
         case .dot:
             layer.backgroundColor = resolvedCGColor(Palette.textPrimary.withAlphaComponent(0.85))
         default:
-            layer.backgroundColor = resolvedCGColor(SidebarStyle.badgeFill)
+            layer.backgroundColor = resolvedCGColor(Palette.badgeFill)
         }
         layer.cornerRadius = bounds.height / 2
     }

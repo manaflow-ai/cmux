@@ -19,8 +19,7 @@ public enum SidebarMock {
                     id: WorkspaceID("ws-new-\(counter)"),
                     machineID: machineID,
                     title: "Workspace \(counter)",
-                    subtitle: "~",
-                    icon: .symbol("terminal")
+                    subtitle: "~"
                 )
                 insert(ws, into: model, group: group)
                 model.click(ws.id)
@@ -76,7 +75,7 @@ public enum SidebarMock {
         let cloud = cloudMachine
         func ws(
             _ id: String, _ machine: MachineID, _ title: String, _ subtitle: String?,
-            _ icon: WorkspaceIcon = .symbol("terminal"), unread: UnreadState = .none, activity: AgentActivity = .idle
+            _ icon: WorkspaceIcon? = nil, unread: UnreadState = .none, activity: AgentActivity = .idle
         ) -> SidebarWorkspace {
             // Agent lines are live status; everything else is passive detail.
             let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false

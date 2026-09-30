@@ -3,15 +3,15 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
 
-/// Window content: glass sidebar on the leading edge (traffic lights sit on
-/// its top), a compact titlebar across the content column, and the
-/// workspace layout below it. Terminal content is never under glass.
+/// Window content: the sidebar flush on the leading edge (traffic lights sit
+/// on its top), a compact titlebar across the content column, and the
+/// workspace layout below it. Every surface is the terminal background
+/// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
+/// terminal read as one sheet with no panel edges or seams.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
     private let contentHost = NSView()
     private let sidebar: SidebarContainerView
-    private var insetConstraints: [NSLayoutConstraint] = []
-    private var bottomInset: NSLayoutConstraint?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
@@ -20,38 +20,33 @@ final class WindowRootView: NSView {
         self.sidebar = sidebar
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
-        layer?.backgroundColor = Palette.windowBackground.cgColor
         for view in [contentHost, titlebar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         addSubview(sidebar)
         sidebar.sidebarView.titlebarHeightOverride = Metrics.titlebarHeight
-        let inset = Metrics.panelInset
-        let top = sidebar.topAnchor.constraint(equalTo: topAnchor, constant: inset)
-        let leading = sidebar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset)
-        let bottom = sidebar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: Metrics.titlebarHeight)
-        let contentLeading = contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: inset)
         NSLayoutConstraint.activate([
-            top, leading, bottom,
+            sidebar.topAnchor.constraint(equalTo: topAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             titlebar.topAnchor.constraint(equalTo: topAnchor),
             titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             titlebar.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleHeight,
             // Keep the title clear of the traffic lights when the sidebar hides.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
-            contentLeading,
+            contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
             contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        insetConstraints = [top, leading, contentLeading]
-        bottomInset = bottom
         self.titleHeight = titleHeight
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ (Metrics.panelInset, Metrics.titlebarHeight) }) { self?.applyTokens() }
+            for await _ in Observations({ Metrics.titlebarHeight }) { self?.applyTokens() }
         }
+        themeDidChange()
     }
 
     @available(*, unavailable)
@@ -62,8 +57,6 @@ final class WindowRootView: NSView {
     }
 
     private func applyTokens() {
-        for constraint in insetConstraints { constraint.constant = Metrics.panelInset }
-        bottomInset?.constant = -Metrics.panelInset
         titleHeight?.constant = Metrics.titlebarHeight
         sidebar.sidebarView.titlebarHeightOverride = Metrics.titlebarHeight
     }
@@ -78,10 +71,26 @@ final class WindowRootView: NSView {
         content = view
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        themeDidChange()
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        themeDidChange()
+    }
+
+    /// Surface color plus window opacity: a translucent Ghostty background
+    /// (`background-opacity`) makes the whole window translucent, like
+    /// Ghostty.app, instead of compositing over an opaque backing.
+    func themeDidChange() {
+        let opaque = ThemeStore.shared.tokens.backgroundOpacity >= 1
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = Palette.windowBackground.cgColor
         }
+        guard let window else { return }
+        window.isOpaque = opaque
+        window.backgroundColor = opaque ? Palette.windowBackground : .clear
     }
 }
