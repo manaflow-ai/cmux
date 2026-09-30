@@ -208,14 +208,16 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
             "rows": 40,
         }),
     );
-    let passive_inherited = socket_request(
+    // The attached view owns the grid under the default `latest` policy, so
+    // its report both resizes the terminal and seeds new surfaces.
+    let owner_inherited = socket_request(
         &mut writer,
         &mut reader,
         serde_json::json!({"id": 4, "cmd": "new-workspace"}),
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 5, passive_inherited, (80, 24));
+    assert_vt_state_size(&mut writer, &mut reader, 5, owner_inherited, (143, 40));
 
     socket_request(
         &mut writer,
@@ -281,25 +283,33 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
 }
 
 #[test]
-fn terminal_surface_uses_only_its_explicit_geometry_authority() {
+fn terminal_surface_follows_the_latest_view_and_never_freezes() {
     let mux = Mux::new("terminal-geometry-authority", SurfaceOptions::default());
     let surface = mux
         .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
         .unwrap()
         .surface;
+    // This test is about latest-activity ownership; the default is "Fit everyone".
+    use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
+    mux.set_terminal_size_policy(
+        surface,
+        Some(TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None)),
+    )
+    .unwrap();
 
-    assert!(!mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
-    assert!(!mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());
-    assert_eq!(mux.surface(surface).unwrap().size(), (80, 24));
-
-    assert_eq!(mux.claim_terminal_geometry(surface, 0), Some(true));
+    assert!(mux.resize_surface_for_client(surface, 1, 120, 40).unwrap());
+    assert!(mux.resize_surface_for_client(surface, 0, 100, 32).unwrap());
     assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
+
+    assert_eq!(mux.claim_terminal_geometry(surface, 0), Some(false));
     assert!(!mux.resize_surface_for_client(surface, 1, 70, 20).unwrap());
     assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
 
+    // The owner leaving elects the remaining view instead of freezing.
     mux.remove_surface_size_client(surface, 0);
-    assert!(!mux.resize_surface_for_client(surface, 1, 60, 18).unwrap());
-    assert_eq!(mux.surface(surface).unwrap().size(), (100, 32));
+    assert_eq!(mux.surface(surface).unwrap().size(), (70, 20));
+    assert!(mux.resize_surface_for_client(surface, 1, 60, 18).unwrap());
+    assert_eq!(mux.surface(surface).unwrap().size(), (60, 18));
 
     mux.shutdown();
 }
@@ -1261,22 +1271,31 @@ fn attach_and_resize_replays_restore_the_osc_title() {
             bytes: attach.replay.to_vec(),
             kitty_image_aliases: attach.kitty_image_aliases.clone(),
             kitty_state: attach.kitty_state,
+            pending_sequence: attach.pending_sequence.to_vec(),
         })
         .unwrap();
     assert_eq!(initial.title().as_deref(), Some("renamed tab"));
 
     mux.resize_surface(surface.id, 21, 4).unwrap();
-    let (cols, rows, replay, aliases, kitty_state) =
+    let (cols, rows, replay, aliases, kitty_state, pending_sequence) =
         match attach.stream.recv_timeout(Duration::from_secs(2)) {
-            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            Ok(AttachFrame::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            })
             | Ok(AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay,
                 kitty_image_aliases,
                 kitty_state,
+                pending_sequence,
                 ..
-            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state, pending_sequence),
             other => panic!("missing ordered resize replay: {other:?}"),
         };
     let mut resized =
@@ -1286,6 +1305,7 @@ fn attach_and_resize_replays_restore_the_osc_title() {
             bytes: replay.to_vec(),
             kitty_image_aliases: aliases,
             kitty_state,
+            pending_sequence: pending_sequence.to_vec(),
         })
         .unwrap();
     assert_eq!(resized.title().as_deref(), Some("renamed tab"));
@@ -1310,21 +1330,30 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
             bytes: attach.replay.to_vec(),
             kitty_image_aliases: attach.kitty_image_aliases.clone(),
             kitty_state: attach.kitty_state,
+            pending_sequence: attach.pending_sequence.to_vec(),
         })
         .unwrap();
 
     mux.resize_surface(surface.id, 21, 4).unwrap();
-    let (cols, rows, replay, aliases, kitty_state) =
+    let (cols, rows, replay, aliases, kitty_state, pending_sequence) =
         match attach.stream.recv_timeout(Duration::from_secs(2)) {
-            Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state })
+            Ok(AttachFrame::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            })
             | Ok(AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay,
                 kitty_image_aliases,
                 kitty_state,
+                pending_sequence,
                 ..
-            }) => (cols, rows, replay, kitty_image_aliases, kitty_state),
+            }) => (cols, rows, replay, kitty_image_aliases, kitty_state, pending_sequence),
             other => panic!("missing ordered resize replay: {other:?}"),
         };
     let mut resized =
@@ -1334,6 +1363,7 @@ fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
             bytes: replay.to_vec(),
             kitty_image_aliases: aliases,
             kitty_state,
+            pending_sequence: pending_sequence.to_vec(),
         })
         .unwrap();
 

@@ -172,8 +172,9 @@ class AwaitRequestTests(unittest.TestCase):
             ui.await_request(gh, "100", "1", sleep=self.fail)
 
 
-def dispatch_run(conclusion="success", status="completed", title=None, run_id=900, branch="main"):
-    return {"id": run_id, "status": status, "conclusion": conclusion, "created_at": "2026-09-28T10:00:05Z",
+def dispatch_run(conclusion="success", status="completed", title=None, run_id=900, branch="main",
+                 created_at="2026-09-28T10:00:05Z"):
+    return {"id": run_id, "status": status, "conclusion": conclusion, "created_at": created_at,
             "head_branch": branch,
             "display_title": title or ui.dispatch_title("100", "1"), "html_url": f"https://x/{run_id}"}
 
@@ -190,7 +191,8 @@ LIST = f"repos/{REPO}/actions/workflows/ci-ui-tests.yml/runs"
 class AwaitVerdictTests(unittest.TestCase):
     def verdict(self, routes) -> int:
         gh = FakeGitHub({RUN: [ci_run()], **routes})
-        return ui.await_verdict(gh, "100", "1", sleep=lambda _: None)
+        clock = iter(range(0, 10**6, 30))
+        return ui.await_verdict(gh, "100", "1", sleep=lambda _: None, now=lambda: next(clock))
 
     def test_mirrors_a_dispatch_that_ran_and_passed(self) -> None:
         other = dispatch_run(title=ui.dispatch_title("101", "1"), run_id=901)
@@ -212,6 +214,28 @@ class AwaitVerdictTests(unittest.TestCase):
             LIST: [{"workflow_runs": [dispatch_run()]}],
             f"repos/{REPO}/actions/runs/900/jobs": [jobs("skipped")],
             f"repos/{REPO}/actions/runs/900": [dispatch_run()],
+        }), 1)
+
+    def test_follows_a_dispatch_that_replaced_the_watched_one(self) -> None:
+        # The build controller's dispatch landed after this job found the
+        # bot's, and cancelled it through the shared concurrency group; the
+        # runs list shows the replacement one read late.
+        newer = dispatch_run(run_id=901, created_at="2026-09-28T10:00:30Z")
+        self.assertEqual(self.verdict({
+            LIST: [{"workflow_runs": [dispatch_run(status="in_progress")]},
+                   {"workflow_runs": [dispatch_run(conclusion="cancelled")]},
+                   {"workflow_runs": [newer, dispatch_run(conclusion="cancelled")]}],
+            f"repos/{REPO}/actions/runs/901/jobs": [jobs("success")],
+            f"repos/{REPO}/actions/runs/900": [dispatch_run(conclusion="cancelled")],
+            f"repos/{REPO}/actions/runs/901": [newer],
+        }), 0)
+
+    def test_a_cancel_with_no_newer_dispatch_fails(self) -> None:
+        cancelled = dispatch_run(conclusion="cancelled")
+        self.assertEqual(self.verdict({
+            LIST: [{"workflow_runs": [cancelled]}],
+            f"repos/{REPO}/actions/runs/900/jobs": [jobs("cancelled")],
+            f"repos/{REPO}/actions/runs/900": [cancelled],
         }), 1)
 
     ADMISSION_JOBS = f"repos/{REPO}/actions/runs/100/attempts/1/jobs"
@@ -532,12 +556,14 @@ class WorkflowTests(unittest.TestCase):
     def test_the_dispatching_workflow_runs_from_the_default_branch(self) -> None:
         document = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))
         on = document.get("on", document.get(True))
-        self.assertEqual(on["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        # The build controller dispatches it when a CI attempt's ui-tests job
+        # starts; a workflow_run trigger would start a waiter on every attempt.
+        self.assertEqual(set(on), {"workflow_dispatch"})
+        self.assertEqual(set(on["workflow_dispatch"]["inputs"]), {"run_id", "run_attempt"})
         self.assertEqual(document["permissions"], {})
         job = document["jobs"]["dispatch"]
         self.assertEqual(job["name"], ui.DISPATCH_JOB_NAME)
         self.assertEqual(job["permissions"]["actions"], "write")
-        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", job["if"])
         steps = job["steps"]
         checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
         self.assertTrue(checkouts)

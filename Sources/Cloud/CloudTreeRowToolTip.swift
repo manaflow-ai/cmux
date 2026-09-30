@@ -72,9 +72,10 @@ enum CloudTreeRowToolTip {
                 accessibilityLabel: title
             )
         case .port(let resource, let url, _):
+            let presentation = CloudTreePortPresentation(resource: resource, url: url)
             return .init(
-                toolTip: joined([url, resource.title, resource.detail], beyond: node.searchableTitle),
-                accessibilityLabel: node.searchableTitle
+                toolTip: presentation.toolTip,
+                accessibilityLabel: presentation.accessibilityLabel
             )
         case .resource(_, let row):
             return .init(
@@ -86,6 +87,16 @@ enum CloudTreeRowToolTip {
                 toolTip: joined([placeholder.text], beyond: node.searchableTitle),
                 accessibilityLabel: node.searchableTitle
             )
+        case .cloudMachinesSection(_, let usage?):
+            // The count's display host never hit-tests, so the plan's help rides
+            // on the row, and the row's label keeps VoiceOver from reading the
+            // visible "1/50" as "1 slash 50".
+            return .init(
+                toolTip: CloudTreeGroupCount(usage: usage).help,
+                accessibilityLabel: [node.searchableTitle, usage.countLabel].joined(separator: ", ")
+            )
+        case .createAction:
+            return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
              .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only

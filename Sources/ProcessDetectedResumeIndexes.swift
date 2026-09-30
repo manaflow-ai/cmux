@@ -200,3 +200,27 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
     }
 }
+
+/// Resume indexes captured fresh just before an update relaunch. The relaunch save runs
+/// synchronously in Sparkle's callback, where it can only use the cached indexes; those miss an
+/// agent session started since the last scan, which would then be saved as not running and
+/// would not resume after the update.
+struct UpdateRelaunchIndexCapture {
+    /// How long a capture stays usable. The relaunch follows it within a second or two; an
+    /// older capture belongs to a relaunch that did not happen.
+    static let lifetime: TimeInterval = 30
+
+    private var captured: (indexes: ProcessDetectedResumeIndexes, capturedAt: TimeInterval)?
+
+    mutating func store(_ indexes: ProcessDetectedResumeIndexes, capturedAt: TimeInterval) {
+        captured = (indexes, capturedAt)
+    }
+
+    /// Returns the capture if it is recent enough to describe the sessions being saved, and
+    /// clears it either way.
+    mutating func take(now: TimeInterval) -> ProcessDetectedResumeIndexes? {
+        defer { captured = nil }
+        guard let captured, now - captured.capturedAt <= Self.lifetime else { return nil }
+        return captured.indexes
+    }
+}

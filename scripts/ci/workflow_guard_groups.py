@@ -70,6 +70,8 @@ PATH_OWNERS = {
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
+    ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
+    "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
@@ -166,6 +168,8 @@ PATH_OWNERS = {
     "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     # test_ci_delta_since_green.py imports it; ci.yml runs the base copy.
     "scripts/ci/delta_since_green.py": frozenset(("ci",)),
+    # test_ci_package_interface_fingerprint.py imports it; the package lane runs it.
+    "scripts/ci/package_interface_fingerprint.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),

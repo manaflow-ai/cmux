@@ -96,6 +96,7 @@ struct SettingsRowAnchorResolutionTests {
         "fileEditor.tabWidth",
         "fileEditor.wordWrap",
         "mobile.artifactFolderAccess",
+        "mobile.browserTunnel.allowOtherHosts",
         "notifications.agentIdleReminder",
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
@@ -151,6 +152,8 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",
+        "terminal.textEditingCommandMovesByWord",
+        "terminal.textEditingGesturesInFullScreenApps",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",
@@ -170,7 +173,8 @@ struct SettingsRowAnchorResolutionTests {
     /// (no single cmux.json path): pickers and action buttons. Each must
     /// match the corresponding curated entry id verbatim.
     static let explicitlyAnchoredEntryIDs: Set<String> = [
-        "setting:app:appearance",
+        "setting:themes:appearance",
+        "setting:themes:terminal-theme",
         "setting:app:app-icon",
         "setting:app:file-drops",
         "setting:app:terminal-config",
@@ -187,7 +191,6 @@ struct SettingsRowAnchorResolutionTests {
         "setting:computers:incoming-access",
         "setting:computers:discovery",
         "setting:betaFeatures:feed",
-        "setting:betaFeatures:dock",
         "setting:betaFeatures:cloudMachines",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
