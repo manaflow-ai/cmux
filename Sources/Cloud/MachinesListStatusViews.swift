@@ -136,8 +136,8 @@ struct MachinesListStatusNotice: View {
             }
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         .background(presentation.isFailure ? Color.orange.opacity(0.08) : Color.secondary.opacity(0.06))
         .accessibilityIdentifier("CloudMachinesUnavailableNotice")
     }

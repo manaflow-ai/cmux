@@ -44,6 +44,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 GUARD_JOBS = (
+    "workflow-guard-submodule-forward-only",
     "workflow-guard-tests",
     "workflow-guard-history",
     "workflow-guard-cli-scripts",
@@ -196,11 +197,15 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
             context = {
                 "matrix.group": group or "",
                 "github.sha": head_sha,
+                "github.token": "",
+                "github.event.pull_request.head.sha": head_sha,
                 "github.event.pull_request.base.sha": base_sha,
                 # Outside Actions there is no PR base branch name. Fetch the
                 # explicit local comparison revision instead.
                 "github.event.pull_request.base.ref": base_sha,
+                "github.event.merge_group.base_ref": base_sha,
                 "github.event.merge_group.base_sha": base_sha,
+                "github.event.before": base_sha,
             }
             steps: list[Step] = []
             for raw in job["steps"]:
