@@ -69,16 +69,19 @@ struct EmptiedWorkspaceTests {
         withExtendedLifetime(services) {}
     }
 
-    /// A lost connection forgets what was seen: after a daemon restart an
-    /// empty workspace is one the restart emptied, and gets a terminal.
+    /// What was seen counts only on its own connection: after a daemon
+    /// restart an empty workspace is one the restart emptied, and gets a
+    /// terminal, even though the observer never saw a state in between.
     @Test func workspaceEmptyAfterAReconnectIsRepaired() async throws {
         let (services, recorder) = try Self.services()
         let workspace = try #require(services.daemon.store.workspaces.first)
         let state = WindowState(workspaceID: workspace.id)
         let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
         await Self.settle { false }
+        // The mirror keeps the old tree until the new connection's snapshot.
         services.daemon.store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .disconnected(reason: "daemon killed"))])
         await Self.settle { false }
+        services.daemon.store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .connected(DaemonIdentity(generation: "g2"), generationChanged: true))])
         services.daemon.store.apply(snapshot: Self.emptied())
         controller.applyCurrent()
         await Self.settle { !recorder.created.isEmpty }

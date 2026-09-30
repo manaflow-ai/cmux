@@ -23,6 +23,10 @@ public final class DaemonStore {
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
+    /// Counts connection changes (connected, disconnected, shut down), so a
+    /// reader can tell facts seen on an earlier connection from this one
+    /// even when it missed the states in between.
+    @ObservationIgnored public internal(set) var connectionEpoch = 0
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
