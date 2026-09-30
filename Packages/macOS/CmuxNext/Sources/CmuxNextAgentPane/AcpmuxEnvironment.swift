@@ -1,0 +1,90 @@
+public import Foundation
+
+/// Where this app's acpmux daemon lives and how to start it.
+///
+/// Release builds share the user's daemon (`ACPMUX_HOME` or `~/.acpmux`), so
+/// the pane sees the same sessions as the `acpmux` CLI. A tagged dev build
+/// gets a tag-private home and an ephemeral port, so it never shares a
+/// daemon, a socket or port 47811 with the user's release app.
+public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
+    public var executable: URL
+    public var home: URL
+    public var socketPath: String
+    /// Extra `acpmux daemon run` arguments.
+    public var daemonArguments: [String]
+    /// Variables the daemon and the status client must agree on.
+    public var childEnvironment: [String: String]
+
+    public var logPath: String { home.appendingPathComponent("daemon.log").path }
+
+    /// Resolves the environment, or nil when no `acpmux` executable exists.
+    /// `bundledBinDirectory` is the app's `Contents/Resources/bin`.
+    public static func resolve(
+        tag: String?,
+        bundledBinDirectory: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+        applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+        uid: UInt32 = getuid(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> AcpmuxEnvironment? {
+        guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
+            .first(where: { isExecutable($0.path) }) else { return nil }
+        let isolated = tag.map { !$0.isEmpty } ?? false
+        let home: URL
+        var child: [String: String] = [:]
+        if isolated, let tag, let support = applicationSupport {
+            home = support.appendingPathComponent("cmux-next/acpmux-\(sanitized(tag))", isDirectory: true)
+            child["ACPMUX_HOME"] = home.path
+        } else if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
+            home = URL(fileURLWithPath: custom, isDirectory: true)
+            child["ACPMUX_HOME"] = custom
+        } else {
+            home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        }
+        let socket = (!isolated ? environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 } : nil)
+            ?? defaultSocketPath(home: home, uid: uid)
+        child["ACPMUX_SOCKET"] = socket
+        return AcpmuxEnvironment(
+            executable: executable, home: home, socketPath: socket,
+            daemonArguments: isolated ? ["--listen", "127.0.0.1:0"] : [], childEnvironment: child
+        )
+    }
+
+    /// Search order: the bundled binary, then `PATH`, then the usual install
+    /// directories an app launched from Finder does not have on its `PATH`.
+    static func executableCandidates(bundledBinDirectory: URL?, environment: [String: String], userHome: URL) -> [URL] {
+        var directories: [String] = []
+        if let bundled = bundledBinDirectory { directories.append(bundled.path) }
+        directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        directories += [
+            userHome.appendingPathComponent(".local/bin").path, userHome.appendingPathComponent(".cargo/bin").path,
+            "/opt/homebrew/bin", "/usr/local/bin",
+        ]
+        var seen: Set<String> = []
+        return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
+    }
+
+    /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
+    /// `/tmp/acpmux-<uid>-<fnv1a64(home)>.sock` when that is too long for
+    /// `sun_path` (96 bytes or more).
+    static func defaultSocketPath(home: URL, uid: UInt32) -> String {
+        let preferred = home.appendingPathComponent("acpmux.sock").path
+        if preferred.utf8.count < 96 { return preferred }
+        return "/tmp/acpmux-\(uid)-\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
+    }
+
+    static func fnv1a64(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return hash
+    }
+
+    static func sanitized(_ tag: String) -> String {
+        String(tag.lowercased().map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" })
+    }
+}

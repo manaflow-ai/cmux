@@ -30,6 +30,8 @@ import PackageDescription
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
+//   CmuxNextAgentPane -> Design, Actions (WKWebView host for the React agent pane and the acpmux
+//     handshake; the page talks to acpmux itself; no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -100,10 +102,30 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextAgentPane",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
+        // from webviews/src/agent-session/acpmux, built into
+        // Resources/agent-pane by scripts/cmux-next/build-agent-pane-web.sh,
+        // and answers its versioned handshake (find or start acpmux, endpoint,
+        // token, session id). Everything above the handshake is TypeScript.
+        .target(
+            name: "CmuxNextAgentPane",
+            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-pane"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPaneTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection
