@@ -27,6 +27,10 @@ struct AgentNotificationRegressionTests {
         policyHookCommand: String? = nil,
         policyHookTimeoutSeconds: TimeInterval? = nil
     ) throws -> Fixture {
+        // Clear mutations can outlive the fixture that queued them. Drain the
+        // shared bus before installing a new store/workspace pair so a stale
+        // clear cannot erase the next test's first notification.
+        TerminalMutationBus.shared.drainForTesting()
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
