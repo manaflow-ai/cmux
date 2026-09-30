@@ -332,13 +332,11 @@ private func sizeState(
     private let identity = MobileTerminalDeviceIdentity(kind: .iphone, name: "Maya’s iPhone", model: "iPhone")
 
     private func report(_ change: MobileTerminalCountsOverrideChange) -> [String: Any] {
-        MobileTerminalViewportParameters.report(
+        MobileTerminalViewportParameters(clientID: "c", identity: identity).report(
             workspaceID: "w",
             surfaceID: "s",
-            clientID: "c",
             viewport: MobileTerminalViewportSize(columns: 50, rows: 30),
             generation: 4,
-            identity: identity,
             countsOverride: change
         )
     }
@@ -354,11 +352,9 @@ private func sizeState(
     }
 
     @Test func replayCarriesViewportAndIdentity() {
-        let params = MobileTerminalViewportParameters.replay(
-            clientID: "c",
+        let params = MobileTerminalViewportParameters(clientID: "c", identity: identity).replay(
             viewport: MobileTerminalViewportSize(columns: 54, rows: 44),
-            generation: 3,
-            identity: identity
+            generation: 3
         )
         #expect(params["client_id"] as? String == "c")
         #expect(params["viewport_columns"] as? Int == 54)
@@ -370,9 +366,8 @@ private func sizeState(
     }
 
     @Test func replayWithoutViewportSendsNoSizingFields() {
-        let params = MobileTerminalViewportParameters.replay(
-            clientID: "c", viewport: nil, generation: 3, identity: identity
-        )
+        let params = MobileTerminalViewportParameters(clientID: "c", identity: identity)
+            .replay(viewport: nil, generation: 3)
         #expect(params.isEmpty)
     }
 

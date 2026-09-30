@@ -8,7 +8,7 @@ import Testing
     private let cell = CGSize(width: 7.2, height: 13.6)
 
     private func mode(cols: Int, rows: Int) -> TerminalGridFitMode {
-        TerminalGridFit.mode(
+        TerminalGridFitMode(
             effectiveColumns: cols,
             effectiveRows: rows,
             measuredColumns: 54,
@@ -19,7 +19,7 @@ import Testing
     }
 
     @Test func noSharedGridFillsTheContainer() {
-        #expect(TerminalGridFit.mode(
+        #expect(TerminalGridFitMode(
             effectiveColumns: nil, effectiveRows: nil, measuredColumns: 54, measuredRows: 44,
             gridPointSize: .zero, container: container
         ) == .natural)
@@ -47,7 +47,7 @@ import Testing
     }
 
     @Test func unmeasuredSurfaceFillsTheContainer() {
-        #expect(TerminalGridFit.mode(
+        #expect(TerminalGridFitMode(
             effectiveColumns: 175, effectiveRows: 78, measuredColumns: 0, measuredRows: 0,
             gridPointSize: CGSize(width: 1260, height: 1060.8), container: container
         ) == .natural)
@@ -75,7 +75,7 @@ import Testing
     func oversizeGridLandsOnTheExactGrid(padding: Int) {
         let measured = natural(widthPx: 1206, heightPx: 1641, padding: padding, cell: (18, 35))
         for (cols, rows) in [(120, 40), (175, 78), (105, 45), (66, 46), (200, 60)] {
-            let size = TerminalGridFit.requestedPixelSize(columns: cols, rows: rows, natural: measured)
+            let size = measured.requestedPixelSize(columns: cols, rows: rows)
             let laidOut = ghosttyGrid(widthPx: size.width, heightPx: size.height, padding: padding, cell: (18, 35))
             #expect(laidOut.0 == cols, "\(cols)x\(rows) padding \(padding)")
             #expect(laidOut.1 == rows, "\(cols)x\(rows) padding \(padding)")
@@ -84,7 +84,7 @@ import Testing
 
     @Test func smallerGridLandsOnTheExactGrid() {
         let measured = natural(widthPx: 1206, heightPx: 1641, padding: 10, cell: (18, 35))
-        let size = TerminalGridFit.requestedPixelSize(columns: 40, rows: 20, natural: measured)
+        let size = measured.requestedPixelSize(columns: 40, rows: 20)
         let laidOut = ghosttyGrid(widthPx: size.width, heightPx: size.height, padding: 10, cell: (18, 35))
         #expect(laidOut.0 == 40)
         #expect(laidOut.1 == 20)

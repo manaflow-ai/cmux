@@ -5733,7 +5733,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // grid parsed a 175-column stream into 54 columns (garbled
                 // wraps and cursor moves) and failed every replay's fence.
                 // The oversized render is then displayed scaled to fit.
-                let mode = TerminalGridFit.mode(
+                let mode = TerminalGridFitMode(
                     effectiveColumns: eff.cols,
                     effectiveRows: eff.rows,
                     measuredColumns: Int(measured.columns),
@@ -6115,10 +6115,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         sharedSizingLayers?.hide()
-        guard TerminalSizingChromeGate.drawsPlainLetterboxBorder(
-            isLetterboxed: isLetterboxed,
-            viewportReportPending: viewportReportPending
-        ) else {
+        guard TerminalSizingChromeGate(viewportReportPending: viewportReportPending)
+            .drawsPlainLetterboxBorder(isLetterboxed: isLetterboxed) else {
             letterboxBorderLayer?.isHidden = true
             return
         }
@@ -6183,10 +6181,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         gridRenderRect: CGRect,
         viewportRect: CGRect
     ) {
-        guard let visible = TerminalScrollEdgeBandClip.visibleLayerRect(
-            layerSize: boundsSize,
+        guard let visible = TerminalScrollEdgeBandClip(
             topInset: appliedRenderTopInsetPts,
-            bottomInset: appliedRenderBottomInsetPts,
+            bottomInset: appliedRenderBottomInsetPts
+        ).visibleLayerRect(
+            layerSize: boundsSize,
             gridDisplayRect: gridRenderRect,
             viewportRect: viewportRect
         ) else {

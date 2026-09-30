@@ -15,34 +15,30 @@ import Testing
     }
 
     @Test func noSizeStateDrawsNothing() {
-        #expect(!TerminalSizingChromeGate.drawsChrome(decoration: nil, viewportReportPending: false))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: false).drawsChrome(decoration: nil))
     }
 
     @Test func settledMismatchDraws() {
-        #expect(TerminalSizingChromeGate.drawsChrome(decoration: decoration(), viewportReportPending: false))
+        #expect(TerminalSizingChromeGate(viewportReportPending: false).drawsChrome(decoration: decoration()))
     }
 
     @Test func matchingGridDrawsNothing() {
-        #expect(!TerminalSizingChromeGate.drawsChrome(
-            decoration: decoration(grid: (54, 44)), viewportReportPending: false
-        ))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: false).drawsChrome(decoration: decoration(grid: (54, 44))))
     }
 
     /// Connect: the first size state still lists the phone's old viewport.
     @Test func stateForAnOlderViewportDrawsNothing() {
-        #expect(!TerminalSizingChromeGate.drawsChrome(
-            decoration: decoration(confirmed: false), viewportReportPending: false
-        ))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: false).drawsChrome(decoration: decoration(confirmed: false)))
     }
 
     /// Keyboard or rotation: a report is queued or in flight.
     @Test func pendingReportDrawsNothing() {
-        #expect(!TerminalSizingChromeGate.drawsChrome(decoration: decoration(), viewportReportPending: true))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: true).drawsChrome(decoration: decoration()))
     }
 
     @Test func plainLetterboxWaitsForTheReport() {
-        #expect(TerminalSizingChromeGate.drawsPlainLetterboxBorder(isLetterboxed: true, viewportReportPending: false))
-        #expect(!TerminalSizingChromeGate.drawsPlainLetterboxBorder(isLetterboxed: true, viewportReportPending: true))
-        #expect(!TerminalSizingChromeGate.drawsPlainLetterboxBorder(isLetterboxed: false, viewportReportPending: false))
+        #expect(TerminalSizingChromeGate(viewportReportPending: false).drawsPlainLetterboxBorder(isLetterboxed: true))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: true).drawsPlainLetterboxBorder(isLetterboxed: true))
+        #expect(!TerminalSizingChromeGate(viewportReportPending: false).drawsPlainLetterboxBorder(isLetterboxed: false))
     }
 }

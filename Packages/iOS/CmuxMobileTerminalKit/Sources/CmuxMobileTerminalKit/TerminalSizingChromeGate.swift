@@ -8,20 +8,23 @@
 /// awaiting its acknowledgement (keyboard, rotation, zoom, connect). Each of
 /// those ends in a state or acknowledgement change, which re-evaluates the
 /// gate, so no timer is needed.
-public struct TerminalSizingChromeGate {
-    private init() {}
+public struct TerminalSizingChromeGate: Equatable, Sendable {
+    /// This surface has a viewport report queued or awaiting its
+    /// acknowledgement.
+    public let viewportReportPending: Bool
+
+    /// Creates a gate for the surface's current report state.
+    /// - Parameter viewportReportPending: This surface has a viewport report
+    ///   queued or awaiting its acknowledgement.
+    public init(viewportReportPending: Bool) {
+        self.viewportReportPending = viewportReportPending
+    }
 
     /// Whether the chrome draws.
-    /// - Parameters:
-    ///   - decoration: The published sizing facts, or `nil` before the host
-    ///     published a size state.
-    ///   - viewportReportPending: This surface has a viewport report queued
-    ///     or awaiting its acknowledgement.
+    /// - Parameter decoration: The published sizing facts, or `nil` before
+    ///   the host published a size state.
     /// - Returns: `true` only for a settled mismatch.
-    public static func drawsChrome(
-        decoration: TerminalSizingBoundsDecoration?,
-        viewportReportPending: Bool
-    ) -> Bool {
+    public func drawsChrome(decoration: TerminalSizingBoundsDecoration?) -> Bool {
         guard let decoration,
               decoration.viewportConfirmed,
               !viewportReportPending else {
@@ -31,15 +34,9 @@ public struct TerminalSizingChromeGate {
     }
 
     /// Whether the plain letterbox border (hosts without size states) draws.
-    /// - Parameters:
-    ///   - isLetterboxed: The render is smaller than the viewport.
-    ///   - viewportReportPending: This surface has a viewport report queued
-    ///     or awaiting its acknowledgement.
+    /// - Parameter isLetterboxed: The render is smaller than the viewport.
     /// - Returns: `true` only for a settled letterbox.
-    public static func drawsPlainLetterboxBorder(
-        isLetterboxed: Bool,
-        viewportReportPending: Bool
-    ) -> Bool {
+    public func drawsPlainLetterboxBorder(isLetterboxed: Bool) -> Bool {
         isLetterboxed && !viewportReportPending
     }
 }

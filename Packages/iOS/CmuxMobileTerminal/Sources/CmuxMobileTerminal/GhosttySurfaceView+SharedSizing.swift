@@ -274,10 +274,8 @@ extension GhosttySurfaceView {
     /// (`TerminalSizingChromeGate`).
     func refreshSharedSizingLayers() {
         guard let decoration = sharedSizingDecoration,
-              TerminalSizingChromeGate.drawsChrome(
-                  decoration: decoration,
-                  viewportReportPending: viewportReportPending
-              ),
+              TerminalSizingChromeGate(viewportReportPending: viewportReportPending)
+                  .drawsChrome(decoration: decoration),
               let viewportRect = lastLetterboxViewportRect,
               !lastRenderRect.isEmpty else {
             sharedSizingLayers?.hide()

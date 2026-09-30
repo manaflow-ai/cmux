@@ -12,18 +12,14 @@ extension GhosttySurfaceView {
         rows: Int,
         natural: ghostty_surface_size_s
     ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        let requested = TerminalGridFit.requestedPixelSize(
-            columns: cols,
-            rows: rows,
-            natural: TerminalNaturalGridMeasurement(
-                columns: Int(natural.columns),
-                rows: Int(natural.rows),
-                widthPx: Int(natural.width_px),
-                heightPx: Int(natural.height_px),
-                cellWidthPx: Int(natural.cell_width_px),
-                cellHeightPx: Int(natural.cell_height_px)
-            )
-        )
+        let requested = TerminalNaturalGridMeasurement(
+            columns: Int(natural.columns),
+            rows: Int(natural.rows),
+            widthPx: Int(natural.width_px),
+            heightPx: Int(natural.height_px),
+            cellWidthPx: Int(natural.cell_width_px),
+            cellHeightPx: Int(natural.cell_height_px)
+        ).requestedPixelSize(columns: cols, rows: rows)
         var requestedW = UInt32(requested.width)
         var requestedH = UInt32(requested.height)
 

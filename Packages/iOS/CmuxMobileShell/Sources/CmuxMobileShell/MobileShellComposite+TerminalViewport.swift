@@ -251,13 +251,14 @@ extension MobileShellComposite {
             let remoteWorkspaceID = remoteWorkspaceID(for: preparedWorkspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
-                params: MobileTerminalViewportParameters.report(
+                params: MobileTerminalViewportParameters(
+                    clientID: clientID,
+                    identity: terminalDeviceIdentity
+                ).report(
                     workspaceID: remoteWorkspaceID.rawValue,
                     surfaceID: surfaceID,
-                    clientID: clientID,
                     viewport: reportedGrid,
-                    generation: requestGeneration,
-                    identity: terminalDeviceIdentity
+                    generation: requestGeneration
                 )
             )
             let data = try await client.sendRequest(request)

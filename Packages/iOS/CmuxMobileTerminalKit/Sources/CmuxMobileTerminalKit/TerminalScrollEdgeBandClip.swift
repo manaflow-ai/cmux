@@ -10,21 +10,31 @@ public import CoreGraphics
 /// shorter than the phone, top-pinned with its slack below; or one scaled to
 /// fit), a band would render rows in the unused viewport area where the
 /// sizing chrome draws its hatch and chip. That band is hidden then.
-public enum TerminalScrollEdgeBandClip {
+public struct TerminalScrollEdgeBandClip: Equatable, Sendable {
+    /// The top band's height in unscaled points.
+    public let topInset: CGFloat
+    /// The bottom band's height in unscaled points.
+    public let bottomInset: CGFloat
+
+    /// Creates the clip for the renderer's applied scroll-edge bands.
+    /// - Parameters:
+    ///   - topInset: The top band's height in unscaled points.
+    ///   - bottomInset: The bottom band's height in unscaled points.
+    public init(topInset: CGFloat, bottomInset: CGFloat) {
+        self.topInset = topInset
+        self.bottomInset = bottomInset
+    }
+
     /// The layer-local rect of the renderer layer to show, or `nil` to show
     /// all of it.
     /// - Parameters:
     ///   - layerSize: The renderer layer's bounds size (unscaled points).
-    ///   - topInset: The top band's height in the same unscaled points.
-    ///   - bottomInset: The bottom band's height in the same unscaled points.
     ///   - gridDisplayRect: Where the grid displays, in view coordinates.
     ///   - viewportRect: The visible terminal area, in view coordinates.
     /// - Returns: The layer without each band whose grid edge sits inside
     ///   the viewport, or `nil` when both bands show.
-    public static func visibleLayerRect(
+    public func visibleLayerRect(
         layerSize: CGSize,
-        topInset: CGFloat,
-        bottomInset: CGFloat,
         gridDisplayRect: CGRect,
         viewportRect: CGRect
     ) -> CGRect? {

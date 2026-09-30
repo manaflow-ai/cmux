@@ -14,26 +14,34 @@ public enum MobileTerminalCountsOverrideChange: Equatable, Sendable {
 ///
 /// `counts_override` is omitted unless the user changed it, because `null`
 /// clears the override and would undo "Reattach as viewer" on every resize.
-public struct MobileTerminalViewportParameters {
-    private init() {}
+public struct MobileTerminalViewportParameters: Sendable {
+    /// This phone's client id.
+    public let clientID: String
+    /// `device_kind` and `device_name`.
+    public let identity: MobileTerminalDeviceIdentity
+
+    /// Creates a builder for one phone client.
+    /// - Parameters:
+    ///   - clientID: This phone's client id.
+    ///   - identity: `device_kind` and `device_name`.
+    public init(clientID: String, identity: MobileTerminalDeviceIdentity) {
+        self.clientID = clientID
+        self.identity = identity
+    }
 
     /// Parameters for a viewport report.
     /// - Parameters:
     ///   - workspaceID: The Mac-local workspace id.
     ///   - surfaceID: The terminal surface id.
-    ///   - clientID: This phone's client id.
     ///   - viewport: The phone's natural grid.
     ///   - generation: The monotonic viewport generation.
-    ///   - identity: `device_kind` and `device_name`.
     ///   - countsOverride: The counts override change, if any.
     /// - Returns: The JSON-ready parameter dictionary.
-    public static func report(
+    public func report(
         workspaceID: String,
         surfaceID: String,
-        clientID: String,
         viewport: MobileTerminalViewportSize,
         generation: UInt64,
-        identity: MobileTerminalDeviceIdentity,
         countsOverride: MobileTerminalCountsOverrideChange = .unchanged
     ) -> [String: Any] {
         var params: [String: Any] = [
@@ -65,16 +73,12 @@ public struct MobileTerminalViewportParameters {
     /// Empty without a viewport: `client_id` and the dimensions travel
     /// together or not at all.
     /// - Parameters:
-    ///   - clientID: This phone's client id.
     ///   - viewport: The phone's latest natural grid, if measured.
     ///   - generation: The viewport generation of that grid, if allocated.
-    ///   - identity: `device_kind` and `device_name`.
     /// - Returns: The JSON-ready fields to merge into the replay parameters.
-    public static func replay(
-        clientID: String,
+    public func replay(
         viewport: MobileTerminalViewportSize?,
-        generation: UInt64?,
-        identity: MobileTerminalDeviceIdentity
+        generation: UInt64?
     ) -> [String: Any] {
         guard let viewport, viewport.columns > 0, viewport.rows > 0 else { return [:] }
         var params: [String: Any] = [
@@ -90,4 +94,3 @@ public struct MobileTerminalViewportParameters {
         return params
     }
 }
-

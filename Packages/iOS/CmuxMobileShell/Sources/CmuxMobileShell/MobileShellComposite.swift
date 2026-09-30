@@ -15654,11 +15654,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The same fields carry `device_kind` and `device_name`, so the host
         // registers this phone as a sizing participant with the replay itself
         // and the first frame is sized to the settled shared grid.
-        let replayViewportParams = MobileTerminalViewportParameters.replay(
+        let replayViewportParams = MobileTerminalViewportParameters(
             clientID: clientID,
-            viewport: reportedViewportSizesByTerminalKey[viewportKey],
-            generation: terminalViewportGeneration(for: surfaceID),
             identity: terminalDeviceIdentity
+        ).replay(
+            viewport: reportedViewportSizesByTerminalKey[viewportKey],
+            generation: terminalViewportGeneration(for: surfaceID)
         )
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>

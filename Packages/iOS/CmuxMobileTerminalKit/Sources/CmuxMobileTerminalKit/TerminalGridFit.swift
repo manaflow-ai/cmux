@@ -21,10 +21,7 @@ public enum TerminalGridFitMode: Equatable, Sendable {
     case scaledToFit
 }
 
-/// Pure decision for ``TerminalGridFitMode``.
-public struct TerminalGridFit {
-    private init() {}
-
+extension TerminalGridFitMode {
     /// Chooses how to render the shared grid.
     ///
     /// - Parameters:
@@ -34,32 +31,31 @@ public struct TerminalGridFit {
     ///   - measuredRows: The phone's natural rows at the container size.
     ///   - gridPointSize: The shared grid's size in points at the live font.
     ///   - container: The drawable container size in points.
-    /// - Returns: The render mode.
-    public static func mode(
+    public init(
         effectiveColumns: Int?,
         effectiveRows: Int?,
         measuredColumns: Int,
         measuredRows: Int,
         gridPointSize: CGSize,
         container: CGSize
-    ) -> TerminalGridFitMode {
+    ) {
         guard let cols = effectiveColumns, let rows = effectiveRows,
               cols > 0, rows > 0, measuredColumns > 0, measuredRows > 0,
               gridPointSize.width > 0, gridPointSize.height > 0 else {
-            return .natural
+            self = .natural
+            return
         }
         if cols > measuredColumns || rows > measuredRows {
-            return .scaledToFit
+            self = .scaledToFit
+        } else if cols == measuredColumns && rows == measuredRows {
+            self = .natural
+        } else if gridPointSize.width + 0.5 < container.width || gridPointSize.height + 0.5 < container.height {
+            // The grid fits inside the natural grid. Pin it whenever the pinned
+            // box is meaningfully smaller than the container on either axis.
+            self = .letterbox
+        } else {
+            self = .natural
         }
-        if cols == measuredColumns && rows == measuredRows {
-            return .natural
-        }
-        // The grid fits inside the natural grid. Pin it whenever the pinned
-        // box is meaningfully smaller than the container on either axis.
-        if gridPointSize.width + 0.5 < container.width || gridPointSize.height + 0.5 < container.height {
-            return .letterbox
-        }
-        return .natural
     }
 }
 
@@ -89,23 +85,19 @@ public struct TerminalNaturalGridMeasurement: Equatable, Sendable {
     }
 }
 
-extension TerminalGridFit {
+extension TerminalNaturalGridMeasurement {
     /// The surface pixel size to request so libghostty lays out exactly
-    /// `columns` × `rows`.
+    /// `columns` × `rows`, given this natural measurement at the container
+    /// size.
     ///
     /// - Parameters:
     ///   - columns: The shared grid's columns.
     ///   - rows: The shared grid's rows.
-    ///   - natural: The surface's natural measurement at the container size.
     /// - Returns: The requested width and height in pixels.
-    public static func requestedPixelSize(
-        columns: Int,
-        rows: Int,
-        natural: TerminalNaturalGridMeasurement
-    ) -> (width: Int, height: Int) {
+    public func requestedPixelSize(columns: Int, rows: Int) -> (width: Int, height: Int) {
         (
-            requestedPixels(count: columns, naturalCount: natural.columns, naturalPx: natural.widthPx, cellPx: natural.cellWidthPx),
-            requestedPixels(count: rows, naturalCount: natural.rows, naturalPx: natural.heightPx, cellPx: natural.cellHeightPx)
+            Self.requestedPixels(count: columns, naturalCount: self.columns, naturalPx: widthPx, cellPx: cellWidthPx),
+            Self.requestedPixels(count: rows, naturalCount: self.rows, naturalPx: heightPx, cellPx: cellHeightPx)
         )
     }
 

@@ -29,10 +29,8 @@ import Testing
         #expect(layout.displayRect.minY == viewport.minY)
         #expect(layout.displayRect.maxY < viewport.maxY)
 
-        let visible = try #require(TerminalScrollEdgeBandClip.visibleLayerRect(
+        let visible = try #require(TerminalScrollEdgeBandClip(topInset: topInset, bottomInset: bottomInset).visibleLayerRect(
             layerSize: layerSize,
-            topInset: topInset,
-            bottomInset: bottomInset,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ))
@@ -64,10 +62,8 @@ import Testing
     @Test func letterboxedGridBelowTheViewportTopHidesTheTopBand() {
         let grid = CGRect(x: 0, y: 400, width: 300, height: 280)
         let size = CGSize(width: 300, height: 280 + topInset + bottomInset)
-        let visible = TerminalScrollEdgeBandClip.visibleLayerRect(
+        let visible = TerminalScrollEdgeBandClip(topInset: topInset, bottomInset: bottomInset).visibleLayerRect(
             layerSize: size,
-            topInset: topInset,
-            bottomInset: bottomInset,
             gridDisplayRect: grid,
             viewportRect: viewport
         )
@@ -78,10 +74,8 @@ import Testing
         // Natural grid, and the keyboard top-align path: the grid's top row
         // is the viewport top, so the band sits under the navigation bar.
         let grid = CGRect(x: 0, y: viewport.minY, width: 402, height: 482)
-        #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
+        #expect(TerminalScrollEdgeBandClip(topInset: topInset, bottomInset: bottomInset).visibleLayerRect(
             layerSize: CGSize(width: 402, height: 482 + topInset + bottomInset),
-            topInset: topInset,
-            bottomInset: bottomInset,
             gridDisplayRect: grid,
             viewportRect: viewport
         ) == nil)
@@ -97,10 +91,8 @@ import Testing
             offset: .zero
         )
         #expect(layout.displayRect.minY < viewport.minY)
-        #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
+        #expect(TerminalScrollEdgeBandClip(topInset: topInset, bottomInset: bottomInset).visibleLayerRect(
             layerSize: CGSize(width: tall.width, height: tall.height + topInset + bottomInset),
-            topInset: topInset,
-            bottomInset: bottomInset,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ) == nil)
@@ -108,10 +100,8 @@ import Testing
 
     @Test func noTopBandNeedsNoClip() {
         let layout = TerminalScaledGridLayout(gridSize: gridSize, viewport: viewport)
-        #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
+        #expect(TerminalScrollEdgeBandClip(topInset: 0, bottomInset: 0).visibleLayerRect(
             layerSize: gridSize,
-            topInset: 0,
-            bottomInset: 0,
             gridDisplayRect: layout.displayRect,
             viewportRect: viewport
         ) == nil)
@@ -122,10 +112,8 @@ import Testing
     @Test func topPinnedLetterboxHidesTheBottomBand() {
         let grid = CGRect(x: 0, y: viewport.minY, width: 300, height: 280)
         let size = CGSize(width: 300, height: 280 + topInset + bottomInset)
-        #expect(TerminalScrollEdgeBandClip.visibleLayerRect(
+        #expect(TerminalScrollEdgeBandClip(topInset: topInset, bottomInset: bottomInset).visibleLayerRect(
             layerSize: size,
-            topInset: topInset,
-            bottomInset: bottomInset,
             gridDisplayRect: grid,
             viewportRect: viewport
         ) == CGRect(x: 0, y: 0, width: 300, height: topInset + 280))

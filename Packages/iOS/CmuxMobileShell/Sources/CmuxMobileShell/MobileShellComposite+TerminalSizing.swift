@@ -235,13 +235,14 @@ extension MobileShellComposite {
         // Reuse the current generation: the grid is unchanged, so this report
         // must not supersede an in-flight geometry report.
         let generation = viewportReportGenerationsBySequenceKey[sequenceKey] ?? 0
-        let params = MobileTerminalViewportParameters.report(
+        let params = MobileTerminalViewportParameters(
+            clientID: clientID,
+            identity: terminalDeviceIdentity
+        ).report(
             workspaceID: remoteWorkspaceID(for: workspaceID).rawValue,
             surfaceID: surfaceID,
-            clientID: clientID,
             viewport: viewport,
             generation: generation,
-            identity: terminalDeviceIdentity,
             countsOverride: counts.map { .set($0) } ?? .clear
         )
         do {
