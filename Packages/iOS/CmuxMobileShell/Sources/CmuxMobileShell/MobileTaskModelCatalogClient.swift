@@ -65,15 +65,16 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
 
     /// Fetches one full backend catalog so a prefetch wave can distribute the
     /// same response to every provider and paired Mac.
-    func allResults() async -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
-        guard let data = try? await loader(endpoint) else { return [:] }
-        return Dictionary(uniqueKeysWithValues: MobileTaskAgentProvider.allCases.compactMap {
-            provider in
-            guard let result = try? Self.result(from: data, provider: provider) else {
-                return nil
+    func allResults() async throws -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
+        let data = try await loader(endpoint)
+        var results: [MobileTaskAgentProvider: MobileTaskModelListResult] = [:]
+        for provider in MobileTaskAgentProvider.allCases {
+            if let result = try? Self.result(from: data, provider: provider) {
+                results[provider] = result
             }
-            return (provider, result)
-        })
+        }
+        guard !results.isEmpty else { throw MobileTaskModelCatalogError.invalidCatalog }
+        return results
     }
 
     /// Parses one provider from the versioned backend payload.

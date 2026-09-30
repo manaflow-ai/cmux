@@ -76,6 +76,14 @@ extension MobileShellComposite {
         return catalog
     }
 
+    private func invalidateTaskModelPrefetchCatalog(
+        _ catalog: MobileTaskModelPrefetchCatalog
+    ) {
+        guard taskModelPrefetchCatalog?.id == catalog.id else { return }
+        taskModelPrefetchCatalog?.cancel()
+        taskModelPrefetchCatalog = nil
+    }
+
     func cancelTaskModelPrefetchTasks(keeping pairingIDs: Set<String>? = nil) {
         let keys = taskModelPrefetchDesiredTargets.keys.filter { key in
             pairingIDs?.contains(key.pairingID) != true
@@ -152,6 +160,15 @@ extension MobileShellComposite {
               taskModelConnectionIdentity(
                   macDeviceID: target.macDeviceID, instanceTag: target.instanceTag
               ) == target.connectionIdentity else { return }
+        guard await catalog.result(for: provider) != nil else {
+            invalidateTaskModelPrefetchCatalog(catalog)
+            guard !Task.isCancelled else { return }
+            _ = await refreshTaskModels(
+                provider: provider, macDeviceID: target.macDeviceID,
+                instanceTag: target.instanceTag, maximumCacheAge: 300
+            )
+            return
+        }
         _ = await refreshTaskModels(
             provider: provider, macDeviceID: target.macDeviceID,
             instanceTag: target.instanceTag, maximumCacheAge: 300,
