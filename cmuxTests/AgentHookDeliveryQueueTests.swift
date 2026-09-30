@@ -33,6 +33,36 @@ struct AgentHookDeliveryQueueTests {
         #expect(!event.payload.contains("transcript_path"))
     }
 
+    /// A relayed SessionStart's bounded resume fields reach the CLI delivery environment.
+    @Test("Relay SessionStart resume fields reach the delivery environment")
+    func relaySessionStartResumeFieldsReachDeliveryEnvironment() throws {
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
+            "agent": "claude",
+            "subcommand": "session-start",
+            "payload": #"{"session_id":"sess-1"}"#,
+            "relay_backed": true,
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "remote_cwd": "/home/leo/repo",
+            "ancestor_executables": [["env", "TOKEN=", "teamclaude"]],
+        ]))
+        let event = try #require(AgentHookDeliveryEvent(params: admitted, deliverySocketPath: "/tmp/cmux-test.sock"))
+        let environment = AgentHookDeliveryProcess(executableURLProvider: { nil }).deliveryEnvironment(
+            event: event,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(environment[RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey] == "/home/leo/repo")
+        let context = try #require(RelayAgentResumeContext(
+            kind: "claude",
+            sessionID: "sess-1",
+            environment: environment
+        ))
+        #expect(context.ancestorExecutables == [["env", "TOKEN=", "teamclaude"]])
+    }
+
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])

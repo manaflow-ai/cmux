@@ -141,6 +141,83 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(RemoteRelayAgentHookAdmission().portablePayload("not json") == "{}")
     }
 
+    /// SessionStart may carry a bounded remote cwd and ancestor words, which admission moves into the replay environment.
+    @Test("SessionStart may carry a bounded remote cwd and ancestor words")
+    func sessionStartResumeBindingIsAdmitted() throws {
+        let parameters = hookParameters(overrides: [
+            "remote_cwd": "/home/leo/repo",
+            "ancestor_executables": [["-zsh"], ["env", "ANTHROPIC_API_KEY=", "teamclaude"]],
+        ])
+        #expect(authorize(parameters) == .allowed)
+        #expect(try evaluate(parameters) == .allow)
+
+        var stamped = parameters
+        stamped[RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey] = owner.uuidString
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: stamped))
+        let environment = try #require(admitted["environment"] as? [String: String])
+        #expect(environment["CMUX_AGENT_HOOK_RELAY_REMOTE_CWD"] == "/home/leo/repo")
+        #expect(environment["CMUX_AGENT_HOOK_RELAY_ANCESTOR_EXECUTABLES"]
+            == #"[["-zsh"],["env","ANTHROPIC_API_KEY=","teamclaude"]]"#)
+        #expect(environment["CMUX_WORKSPACE_ID"] == owner.uuidString)
+        #expect(admitted["remote_cwd"] == nil)
+        #expect(admitted["ancestor_executables"] == nil)
+    }
+
+    /// Resume binding fields are refused on every event but SessionStart.
+    @Test("resume binding fields are refused outside SessionStart", arguments: ["stop", "prompt-submit", "session-end"])
+    func resumeBindingFieldsRequireSessionStart(subcommand: String) throws {
+        for (key, value) in [("remote_cwd", "/home/leo/repo" as Any), ("ancestor_executables", [["teamclaude"]] as Any)] {
+            let parameters = hookParameters(overrides: ["subcommand": subcommand, key: value])
+            #expect(authorize(parameters) != .allowed, "\(subcommand) \(key)")
+            #expect(try evaluate(parameters) != .allow, "\(subcommand) \(key)")
+        }
+    }
+
+    /// Out-of-bounds or mistyped resume binding fields are denied.
+    @Test("out-of-bounds resume binding fields are denied", arguments: [
+        "relative", "control", "long-cwd", "cwd-type", "cwd-shell-punctuation", "cwd-backslash", "cwd-single-quote", "cwd-substitution", "cwd-bidi", "word-c1",
+        "too-many-ancestors", "too-many-words", "long-word", "total-bytes", "empty-ancestor", "word-type", "flat",
+    ])
+    func outOfBoundsResumeBindingFieldsAreDenied(shape: String) throws {
+        let word = String(repeating: "w", count: 128)
+        let override: (String, Any) = switch shape {
+        case "relative": ("remote_cwd", "home/leo")
+        case "control": ("remote_cwd", "/home/leo\u{1B}[2J")
+        case "long-cwd": ("remote_cwd", "/" + String(repeating: "x", count: 1_024))
+        case "cwd-type": ("remote_cwd", 7)
+        // Typed into a remote shell of unknown dialect: fish reads \' inside single quotes.
+        case "cwd-shell-punctuation": ("remote_cwd", "/tmp/;id;#")
+        case "cwd-backslash": ("remote_cwd", "/tmp/a\\b")
+        case "cwd-single-quote": ("remote_cwd", "/tmp/a'b")
+        case "cwd-substitution": ("remote_cwd", "/tmp/$(id)")
+        case "cwd-bidi": ("remote_cwd", "/tmp/a\u{202E}b")
+        case "word-c1": ("ancestor_executables", [["env", "llm\u{85}gw"]])
+        case "too-many-ancestors": ("ancestor_executables", Array(repeating: ["a"], count: 9))
+        case "too-many-words": ("ancestor_executables", [Array(repeating: "a", count: 7)])
+        case "long-word": ("ancestor_executables", [[word + "w"]])
+        case "total-bytes": ("ancestor_executables", Array(repeating: [word, word, word], count: 8))
+        case "empty-ancestor": ("ancestor_executables", [[]] as [[String]])
+        case "word-type": ("ancestor_executables", [["ok", 7] as [Any]])
+        default: ("ancestor_executables", ["flat"])
+        }
+        let parameters = hookParameters(overrides: [override.0: override.1])
+        #expect(authorize(parameters) != .allowed, "\(shape)")
+        #expect(try evaluate(parameters) != .allow, "\(shape)")
+    }
+
+    /// A relayed hook cannot carry a command, argv, environment, or settings alongside the binding.
+    @Test("a relayed hook cannot carry a command, argv, environment, or settings", arguments: [
+        "command", "argv", "arguments", "launch_command", "environment", "settings", "executable_path",
+    ])
+    func commandBearingResumeFieldsAreDenied(key: String) throws {
+        let parameters = hookParameters(overrides: [
+            "remote_cwd": "/home/leo/repo",
+            key: key == "environment" ? ["CLAUDE_CONFIG_DIR": "/tmp"] as Any : ["claude", "--resume", "x"] as Any,
+        ])
+        #expect(authorize(parameters) != .allowed, "\(key)")
+        #expect(try evaluate(parameters) != .allow, "\(key)")
+    }
+
     /// The direct barrier stays unavailable through the relay.
     @Test("the direct barrier stays unavailable through the relay")
     func barrierIsDenied() {

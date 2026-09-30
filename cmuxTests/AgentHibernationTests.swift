@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import Darwin
 import Foundation
@@ -1237,6 +1238,53 @@ struct AgentHibernationTests {
         expectEqual(preparation, .resumed(queuedStartupInput: true))
         expectFalse(panel.isAgentHibernated)
         expectTrue(snapshot.resumeStartupInput()?.contains("restore manual-agent manual-agent-session") == true)
+    }
+
+    @MainActor
+    @Test
+    func testRelayOriginAgentIsNeverHibernated() throws {
+        // Waking types the local restore verb, which a relay-origin session
+        // never gets, so hibernating it would leave the pane with no resume.
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "0d15e2d1-ea11-4bcc-873e-e6167dc807ab",
+            workingDirectory: "/home/dev/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: nil,
+                arguments: [],
+                workingDirectory: "/home/dev/repo",
+                environment: nil,
+                capturedAt: 123,
+                source: RelayAgentResumeContext.launchCommandSource
+            )
+        )
+        try #require(agent.resumeCommand != nil)
+        try #require(agent.resumeStartupInput() == nil)
+
+        expectFalse(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        expectFalse(panel.isAgentHibernated)
+
+        // Session restore and process-termination hibernation call the panel
+        // directly, so the panel itself refuses a relay-origin agent.
+        expectFalse(panel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 1)
+        ))
+        expectFalse(panel.beginAgentHibernationTermination(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        expectFalse(panel.isAgentHibernated)
+        expectFalse(panel.isAgentHibernationTerminating)
     }
 
 }

@@ -266,6 +266,21 @@ func TestClaudeHookInstallRefusesNonObjectHooks(t *testing.T) {
 	}
 }
 
+func TestClaudeHookInstallRefusesNonArrayHookEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	original := `{"hooks": {"Stop": {"foo": 1}}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runClaudeHookInstall([]string{"install", "--settings-file", path}, &stdout, &stderr); code != 1 {
+		t.Fatalf("install exit = %d, want 1", code)
+	}
+	if data, _ := os.ReadFile(path); string(data) != original {
+		t.Fatalf("install changed the file: %s", data)
+	}
+}
+
 // mustReadFile reads a file or fails the test.
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()

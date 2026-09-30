@@ -530,6 +530,24 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.statusEntries["build"] != nil, "Non-agent status is not relay-owned")
     }
 
+    /// A local agent whose PID key is session-qualified (`codex.<session-id>`)
+    /// still owns its status key, so a dropped relay leaves its status alone.
+    @Test("Relay drop keeps status a session-qualified local agent PID owns")
+    func relayDropKeepsSessionQualifiedLocalAgentStatus() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let workspace = fixture.source
+        workspace.remoteConfiguration = deliveryTargetRemoteConfiguration(relayPort: 64_015)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+        workspace.setAgentLifecycle(key: "codex", panelId: fixture.panelId, lifecycle: .running)
+        workspace.agentPIDs["codex.session-1"] = 12_345
+        defer { workspace.agentPIDs.removeValue(forKey: "codex.session-1") }
+
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: nil, target: "example.invalid")
+        #expect(workspace.statusEntries["codex"] != nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .running)
+    }
+
     /// Agent status saved in a snapshot does not come back on restore, so a relay
     /// workspace starts without status until the next relayed hook.
     @Test("Restored relay workspaces drop agent status from the snapshot")

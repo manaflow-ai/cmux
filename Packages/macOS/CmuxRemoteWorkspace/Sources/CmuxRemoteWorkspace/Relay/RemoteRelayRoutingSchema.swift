@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
@@ -33,7 +34,10 @@ struct RemoteRelayRoutingSchema {
             return surface.union(["terminal_lifecycle_id", "relay_port", "session_id", "lifecycle_id", "lifecycle_only"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "agent.hook.enqueue":
-            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+            return surface.union([
+                "agent", "subcommand", "payload", "relay_backed", "caller_tty",
+                "remote_cwd", "ancestor_executables",
+            ])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body"])
         default: return nil
@@ -65,7 +69,34 @@ struct RemoteRelayRoutingSchema {
                   callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
                   !callerTTY.contains("\0") else { return "caller_tty" }
         }
+        // The resume binding fields ride only on SessionStart, where the Mac
+        // publishes the binding. They name data, never a command: the Mac
+        // builds the resume argv itself.
+        for key in ["remote_cwd", "ancestor_executables"] where parameters[key] != nil {
+            guard subcommand == "session-start" else { return key }
+        }
+        if let rawCwd = parameters["remote_cwd"] {
+            guard let cwd = rawCwd as? String,
+                  Self.isAdmissibleRelayRemoteWorkingDirectory(cwd) else { return "remote_cwd" }
+        }
+        if let rawAncestors = parameters["ancestor_executables"] {
+            guard Self.admissibleRelayAncestorExecutables(rawAncestors) != nil else {
+                return "ancestor_executables"
+            }
+        }
         return nil
+    }
+
+    /// An admissible relayed remote directory. The rule lives in
+    /// `RelayAgentResumeContext`, which the CLI applies again after admission,
+    /// so the relay gate and the binding builder cannot drift apart.
+    static func isAdmissibleRelayRemoteWorkingDirectory(_ value: String) -> Bool {
+        RelayAgentResumeContext.isAdmissibleWorkingDirectory(value)
+    }
+
+    /// Ancestor argv words within the shared relay bounds, or `nil`.
+    static func admissibleRelayAncestorExecutables(_ value: Any) -> [[String]]? {
+        RelayAgentResumeContext.admissibleAncestorExecutables(value)
     }
 
     /// Returns the first parameter outside the method's reviewed contract, or

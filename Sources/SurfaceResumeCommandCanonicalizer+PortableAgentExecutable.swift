@@ -53,6 +53,10 @@ extension SurfaceResumeBindingSnapshot {
     func restoreStartupInput(
         repairPortableAgentExecutable: Bool
     ) -> String? {
+        // Local shells never run a relay-origin binding; see remoteStartupInput().
+        guard !RelayAgentResumeContext.isRelayOrigin(source: launchCommand?.source) else {
+            return nil
+        }
         if usesLocalRestoreVerb {
             // Bare words (` cmux restore <kind> <id>`): parses identically in
             // POSIX shells and nushell, no dialect handling needed.

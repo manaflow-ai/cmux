@@ -14,6 +14,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CMUXAgentLaunch"),
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxCore"),
         .package(path: "../CmuxRemoteDaemon"),
@@ -23,6 +24,7 @@ let package = Package(
         .target(
             name: "CmuxRemoteWorkspace",
             dependencies: [
+                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),

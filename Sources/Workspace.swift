@@ -1619,7 +1619,19 @@ extension Workspace {
             // snapshot available for manual continuation, but never let the
             // ownership-deferred path synthesize an agent resume command on
             // top of that binding.
+            // A relay-origin session may be typed only into a fresh remote
+            // shell. A tmux profile reattaches the surviving tmux session and a
+            // Mosh terminal can outlive the app, so Claude may still be running
+            // at the prompt the resume command would be typed into. With no
+            // remote configuration (a relay session in a local workspace) the
+            // profile comparison is also true, so nothing is typed there either.
+            let relayResumeTargetMayBeLive =
+                (restorableAgent?.requiresRemoteHostExecution == true ||
+                    RelayAgentResumeContext.isRelayOrigin(source: resumeBinding?.launchCommand?.source)) &&
+                (remoteConfiguration?.terminalProfile.kind != .shell ||
+                    remoteConfiguration?.terminalTransport == .mosh)
             let restorableAgentCanAutoResume = restorableAgent != nil &&
+                !relayResumeTargetMayBeLive &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -1724,7 +1736,11 @@ extension Workspace {
                     let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
                         ? savedWorkingDirectory
                         : nil
-                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
+                    // A relay-origin launch cwd is the remote path relay
+                    // admission bounded, so it stays trusted without a
+                    // runtime report; Claude finds the session by it.
+                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory ||
+                        restorableAgent.requiresRemoteHostExecution
                         ? (restorableAgent.workingDirectory
                             ?? restorableAgent.launchCommand?.workingDirectory)
                         : nil
@@ -1837,7 +1853,7 @@ extension Workspace {
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
             let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
-                restoredHibernation == nil,
+                restoredHibernation == nil, !relayResumeTargetMayBeLive,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
@@ -6153,6 +6169,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
               let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,
               snapshot.resumeCommand != nil,
+              // Waking types the local restore verb, which a relay-origin
+              // session never gets, so hibernating it would strand the pane.
+              !snapshot.requiresRemoteHostExecution,
               snapshot.hibernationLaunchFidelityProblem == nil else {
             return nil
         }
@@ -6175,6 +6194,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return false
         }
         guard agent.resumeCommand != nil,
+              !agent.requiresRemoteHostExecution,
               agent.hibernationLaunchFidelityProblem == nil,
               terminalPanel.enterAgentHibernation(
                 agent: agent,

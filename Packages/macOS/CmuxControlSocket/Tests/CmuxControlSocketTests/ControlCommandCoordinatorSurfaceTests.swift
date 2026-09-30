@@ -395,12 +395,52 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(inputs.resumeEvidenceProvenance == "tui")
     }
 
+    /// The relay resume record (CLI `publishRelayAgentSurfaceResumeBinding`) has no argv: the
+    /// Mac builds the command, and its `relay` source is what local restore paths refuse.
+    @Test func surfaceResumeSetAcceptsArgvlessRelayLaunchRecord() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeResolution = .setFailed
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("cd -- '/home/leo/repo' && claude --resume 0d15e2d1"),
+                "kind": .string("claude"),
+                "source": .string("agent-hook"),
+                "launch_command": .object([
+                    "launcher": .string("claude"),
+                    "arguments": .array([]),
+                    "working_directory": .string("/home/leo/repo"),
+                    "captured_at": .double(42),
+                    "source": .string("relay"),
+                ]),
+            ]
+        ))
+
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.launchCommand == ControlAgentLaunchCommand(
+            launcher: "claude",
+            executablePath: nil,
+            arguments: [],
+            workingDirectory: "/home/leo/repo",
+            environment: nil,
+            capturedAt: 42,
+            source: "relay"
+        ))
+    }
+
     @Test(
         "surface resume set rejects malformed structured launch data",
         arguments: [
             JSONValue.string("codex"),
             .object([:]),
             .object(["arguments": .array([])]),
+            // A relay record never carries argv, an executable, or an environment.
+            .object(["arguments": .array([.string("claude")]), "source": .string("relay")]),
+            .object(["arguments": .array([]), "source": .string("relay"), "executable_path": .string("/bin/sh")]),
+            .object(["arguments": .array([]), "source": .string("relay"), "environment": .object(["A": .string("1")])]),
             .object(["arguments": .array([.string("codex"), .int(1)])]),
             .object([
                 "arguments": .array([.string("codex")]),
