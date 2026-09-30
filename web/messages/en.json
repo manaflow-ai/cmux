@@ -348,69 +348,69 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
-      "cloudGroup": "cloud",
+      "cloudGroup": "Cloud",
       "cloudDevices": "Mac access",
-      "vaultGroup": "vault",
-      "vaultOverview": "overview",
-      "vaultSessions": "sessions",
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "overview",
+      "vaultGroup": "Vault",
+      "vaultOverview": "Overview",
+      "vaultSessions": "Sessions",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Overview",
       "remoteControlGroup": "Remote control",
-      "accountGroup": "account",
-      "billing": "billing",
-      "team": "team",
+      "accountGroup": "Account",
+      "billing": "Billing",
+      "team": "Team",
       "testflight": "iOS TestFlight",
       "mobileDevices": "Mobile devices",
-      "settings": "settings",
-      "teams": "teams"
+      "settings": "Settings",
+      "teams": "Teams"
     },
     "home": {
-      "title": "dashboard",
-      "description": "choose a product dashboard.",
+      "title": "Dashboard",
+      "description": "Choose a product dashboard.",
       "cloudName": "Cloud Mac access",
-      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
-      "cloudLink": "manage Mac access",
-      "vaultName": "vault",
-      "vaultDescription": "browse synced agent sessions and manage cli access.",
-      "vaultLink": "open vault",
-      "coderouterName": "coderouter",
-      "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter",
+      "cloudDescription": "Review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "Manage Mac access",
+      "vaultName": "Vault",
+      "vaultDescription": "Browse synced agent sessions and manage CLI access.",
+      "vaultLink": "Open vault",
+      "coderouterName": "Coderouter",
+      "coderouterDescription": "Route LLM requests across provider accounts with failover and usage-aware scheduling.",
+      "coderouterLink": "Open coderouter",
       "iosAppName": "iOS app",
-      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
-      "iosLink": "open iOS app"
+      "iosAppDescription": "Install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "Open iOS app"
     },
     "cloud": {
       "title": "Cloud Mac access",
       "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
       "empty": "No Mac has enrolled for Cloud VM access.",
       "cmux": "cmux build",
-      "access": "network access",
-      "lastContact": "last control-plane contact",
-      "deviceId": "device ID",
-      "unknown": "unknown",
-      "none": "none",
+      "access": "Network access",
+      "lastContact": "Last control-plane contact",
+      "deviceId": "Device ID",
+      "unknown": "Unknown",
+      "none": "None",
       "purpose": {
         "terminal": "terminal",
         "browser": "browser VPN"
       },
-      "rename": "rename",
-      "revoke": "revoke",
+      "rename": "Rename",
+      "revoke": "Revoke",
       "renameTitle": "Rename this Mac",
       "nameLabel": "Name",
-      "cancel": "cancel",
-      "save": "save",
+      "cancel": "Cancel",
+      "save": "Save",
       "renameError": "Could not rename this Mac.",
       "revokeTitle": "Revoke {name}?",
       "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
       "revokeError": "Could not revoke this Mac.",
-      "emptyBody": "A Mac appears here the first time cmux on it connects to one of your Cloud VMs."
+      "emptyBody": "A Mac appears here the first time it connects to one of your Cloud VMs."
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
-      "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "title": "Coderouter",
+      "description": "Coderouter routes LLM requests across provider accounts with failover and usage-aware scheduling.",
       "machines": {
         "title": "Machines",
         "description": "Per-machine coderouter usage for {team} over the last {days} days.",
@@ -486,10 +486,10 @@
       "stateBroken": "Sign-in broken",
       "stateUnhealthy": "Needs attention",
       "coolingDown": "Cooling down until {until}",
-      "lastFailure": "last failure {code}",
-      "lastUsed": "last used {at}",
-      "neverUsed": "never used",
-      "createdAt": "added {at}",
+      "lastFailure": "Last failure {code}",
+      "lastUsed": "Last used {at}",
+      "neverUsed": "Never used",
+      "createdAt": "Added {at}",
       "activeSessions": "{count, plural, =0 {no active sessions} one {# active session} other {# active sessions}}",
       "addTitle": "Add account",
       "kindSelectorLabel": "Account kind",
@@ -538,8 +538,8 @@
       "apiKeySecretBody": "This secret will not be shown again.",
       "apiKeyCopy": "Copy API key",
       "apiKeyCopied": "Copied",
-      "apiKeyCreatedAt": "created {at}",
-      "apiKeyLastUsed": "last used {at}",
+      "apiKeyCreatedAt": "Created {at}",
+      "apiKeyLastUsed": "Last used {at}",
       "apiKeyRevoked": "Revoked",
       "apiKeyLabelPlaceholder": "For example, CI or production",
       "createApiKeyAction": "Create API key",
@@ -550,10 +550,12 @@
       "apiKeyRevokeError": "API key could not be revoked.",
       "revokeApiKeyConfirmTitle": "Revoke this API key?",
       "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately.",
-      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
+      "apiKeyUsageDetail": "Last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
       "apiKeyUsageUnavailable": "Usage unavailable",
       "apiKeysEmptyTitle": "No API keys yet",
-      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client."
+      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client.",
+      "unavailableTitle": "Shared accounts are unavailable",
+      "unavailableBody": "cmux cannot reach the shared account service right now. Accounts added with cr add, and Anthropic and Bedrock accounts, still work."
     },
     "accountMenu": {
       "label": "Account menu",
@@ -564,16 +566,17 @@
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",
-      "signIn": "Sign in"
+      "signIn": "Sign in",
+      "upgrade": "Upgrade"
     },
     "teamSwitcher": {
       "label": "Team",
       "personal": "Personal"
     },
     "billing": {
-      "eyebrow": "account",
-      "title": "billing",
-      "description": "review your cmux plan and manage subscription billing.",
+      "eyebrow": "Account",
+      "title": "Plan & billing",
+      "description": "Review your cmux plan and manage subscription billing.",
       "banners": {
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
@@ -673,12 +676,104 @@
           "max": "Max",
           "founders": "Founders"
         }
+      },
+      "picker": {
+        "current": "Current plan",
+        "upgradeTo": "Upgrade to {plan}",
+        "switchTo": "Switch to {plan}",
+        "cancelPlan": "Cancel plan",
+        "resume": "Resume {plan}",
+        "renewsOn": "Renews on {date}",
+        "endsOn": "Ends on {date}",
+        "perMonth": "per month",
+        "perSeatMonth": "per seat per month",
+        "paymentMethod": "Manage payment method",
+        "invoices": "Invoices",
+        "heading": "Plans",
+        "actionError": "Could not change the plan. Try again.",
+        "unavailable": {
+          "cancelScheduled": "Resume your plan to change it.",
+          "granted": "Granted by cmux. There is nothing to change.",
+          "adminOnly": "Only team admins can change the plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "The full cmux terminal for macOS",
+            "Any CLI agent with your own keys",
+            "Local session history"
+          ],
+          "go": [
+            "1 active Cloud VM",
+            "40 VM-hours each month",
+            "2 saved VMs"
+          ],
+          "pro": [
+            "Cloud agents on Cloud VMs",
+            "24 GB RAM and 6 vCPUs shared across VMs",
+            "The cmux iOS app"
+          ],
+          "max": [
+            "64 GB RAM and 16 vCPUs shared across VMs",
+            "Larger machine sizes",
+            "Everything in Pro"
+          ],
+          "team": [
+            "Everything in Pro for every member",
+            "One invoice for the whole team",
+            "Priority support"
+          ]
+        },
+        "billedAnnually": "billed annually"
+      },
+      "change": {
+        "title": "Switch to {plan}?",
+        "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
+        "confirm": "Switch to {plan}",
+        "keep": "Keep current plan",
+        "switching": "Switching…",
+        "previewError": "Could not calculate the price. Try again.",
+        "paymentFailed": "Your card was declined. Update your payment method, then try again.",
+        "error": "Could not switch the plan. Try again."
+      },
+      "cancelDialog": {
+        "title": "Cancel {plan}?",
+        "body": "You keep {plan} until {date}. After that, you lose:",
+        "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "reasonLabel": "Why are you canceling? (optional)",
+        "otherPlaceholder": "Tell us more (optional)",
+        "confirm": "Cancel plan",
+        "keep": "Keep {plan}",
+        "error": "Could not cancel the plan. Try again.",
+        "resumeError": "Could not resume the plan. Try again.",
+        "reasons": {
+          "too_expensive": "Too expensive",
+          "missing_feature": "Missing a feature I need",
+          "not_using": "Not using it enough",
+          "other": "Other"
+        }
+      },
+      "welcome": {
+        "title": "Welcome to {plan}",
+        "body": "Your plan is active. Things to try first:",
+        "ios": "Install the iOS app",
+        "cloud": "Open Cloud",
+        "team": "Create a team",
+        "banner": "You are on {plan} now.",
+        "bannerLink": "Plan & billing"
       }
     },
     "testflight": {
-      "eyebrow": "account",
+      "eyebrow": "Account",
       "title": "iOS TestFlight",
-      "description": "join the cmux iOS beta from your active subscription.",
+      "description": "Join the cmux iOS beta from your active subscription.",
       "banners": {
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
@@ -745,7 +840,7 @@
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
       "savingRelaySettings": "Saving…",
-      "eyebrow": "cloud / devices"
+      "eyebrow": "Cloud / devices"
     },
     "settings": {
       "nav": {
@@ -758,7 +853,10 @@
         "account": "Account",
         "billing": "Billing",
         "teamsGroup": "Teams",
-        "createTeam": "Create team"
+        "createTeam": "Create team",
+        "accountGroup": "Account",
+        "billingGroup": "Billing",
+        "planBilling": "Plan & billing"
       },
       "ui": {
         "save": "Save",
@@ -1272,6 +1370,14 @@
       },
       "retry": "Try again",
       "retrying": "Retrying…"
+    },
+    "upgrade": {
+      "title": "Requires Pro",
+      "cloud": "Cloud VMs and cloud agents are part of Pro.",
+      "testflight": "The cmux iOS app is part of Pro.",
+      "mobileDevices": "Connecting your phone and tablet is part of Pro.",
+      "action": "Upgrade to Pro",
+      "comparePlans": "Compare plans"
     }
   },
   "vault": {
@@ -3285,6 +3391,8 @@
       "customActionsDesc": "An <actions>actions</actions> entry is the reusable thing cmux runs. Use actions when the same behavior should be available from the Command Palette, surface tab bar, shortcuts, or the plus-button menu. Keep <commands>commands</commands> for reusable shell commands and workspace layouts. Set <palette>palette</palette> to false when an action should stay out of Command Palette.",
       "actionTypes": "Action types",
       "actionTypeBuiltin": "Alias a built-in cmux action such as cmux.newTerminal, cmux.newBrowser, cmux.splitRight, or cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Copy built-ins: cmux.copyWorkingDirectory copies the terminal's working directory, cmux.copyProjectRoot copies the root of its git repository (or the working directory outside one), and cmux.copyScreen copies the visible screen.",
+      "actionTypeBuiltinCopyRemote": "In an SSH, cloud, or remote tmux workspace, cmux.copyProjectRoot copies the remote working directory, because cmux can't look up the git repository on the other host.",
       "actionTypeCommand": "Run shell text in a terminal. Use target to choose the current terminal or a new tab in the current pane.",
       "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",

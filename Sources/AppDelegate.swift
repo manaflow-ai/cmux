@@ -6802,8 +6802,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow, warningDefaults: UserDefaults) -> Bool {
-        let dontAskAgain: CloseWarningKinds = .window
+    private func confirmCloseMainWindow(
+        _ window: NSWindow,
+        warningDefaults: UserDefaults,
+        dontAskAgain: CloseWarningKinds
+    ) -> Bool {
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
             let accepted = debugCloseMainWindowConfirmationHandler(window)
@@ -6850,12 +6853,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // preconfirmed, so the last-window quit policy still applies. Without a
         // context there is no way to tell, so only the setting decides.
         let shouldConfirm: Bool
+        var dontAskAgain: CloseWarningKinds = .window
         let warningDefaults: UserDefaults
         if let context = mainWindowContext(forExactWindowIdentity: window) {
             warningDefaults = context.tabManager.closeTabWarningDefaults
+            let windowDockNeedsConfirmation = context.existingWindowDock()?.needsConfirmClose() == true
             shouldConfirm = context.tabManager.shouldConfirmWindowClose(
-                windowDockNeedsConfirmation: context.existingWindowDock()?.needsConfirmClose() == true
+                windowDockNeedsConfirmation: windowDockNeedsConfirmation
             )
+            if windowDockNeedsConfirmation
+                || context.tabManager.tabs.contains(where: {
+                    context.tabManager.workspaceNeedsConfirmClose($0)
+                }) {
+                dontAskAgain.insert(.safety)
+            }
         } else {
             warningDefaults = .standard
             shouldConfirm = CloseTabWarningStore(defaults: warningDefaults).warnsBeforeClosingWindow
@@ -6864,7 +6875,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window, warningDefaults: warningDefaults) else { return true }
+        guard confirmCloseMainWindow(
+            window,
+            warningDefaults: warningDefaults,
+            dontAskAgain: dontAskAgain
+        ) else { return true }
         performPreconfirmedMainWindowClose(window)
         return true
     }
@@ -18011,6 +18026,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+                guard let copyAction = builtIn.terminalCopyAction else { return false }
+                let workspace = context.tabManager.selectedWorkspace
+                // With a browser, editor, or other non-terminal panel focused
+                // there is no copy target. Report the action unhandled without
+                // a beep: a bound shortcut's keystroke then reaches the focused
+                // panel, and the plus and group menus beep on their own.
+                guard workspace?.copyActionTerminal(panelId: workspace?.focusedPanelId) != nil else {
+                    return false
+                }
+                // With a terminal focused, the runner beeps when there is
+                // nothing to copy. Report the action handled and finish the
+                // caller's bookkeeping either way: a bound shortcut is consumed
+                // instead of also reaching the terminal after the beep, and the
+                // group menu restores its selection in `onExecuted`.
+                TerminalCopyActionRunner.run(
+                    copyAction,
+                    workspace: workspace,
+                    panelId: workspace?.focusedPanelId
+                )
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

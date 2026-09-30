@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "vista general",
-      "team": "equipo",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Vista general",
+      "team": "Equipo",
       "mobileDevices": "Dispositivos móviles",
-      "settings": "configuración",
-      "teams": "equipos"
+      "settings": "Configuración",
+      "teams": "Equipos"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
-      "coderouterLink": "abrir coderouter",
-      "iosAppName": "app de iOS",
+      "coderouterLink": "Abrir coderouter",
+      "iosAppName": "App de iOS",
       "iosAppDescription": "Instala la app de iOS de cmux a través de TestFlight (acceso beta).",
       "iosLink": "Abrir app de iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gestiona cuentas de IA compartidas y distribuye solicitudes con coderouter.",
-      "title": "coderouter",
-      "description": "coderouter distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
+      "title": "Coderouter",
+      "description": "Coderouter distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
       "machines": {
         "title": "Máquinas",
         "description": "Uso de coderouter por máquina para {team} en los últimos {days} días.",
@@ -407,7 +407,8 @@
       "signingOut": "Cerrando sesión…",
       "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
       "organizationSwitchError": "No se pudo cambiar de organización. Inténtalo de nuevo.",
-      "signIn": "Iniciar sesión"
+      "signIn": "Iniciar sesión",
+      "upgrade": "Mejorar"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Crear un equipo"
+      },
+      "title": "Plan y facturación",
+      "picker": {
+        "current": "Plan actual",
+        "upgradeTo": "Mejorar a {plan}",
+        "switchTo": "Cambiar a {plan}",
+        "cancelPlan": "Cancelar plan",
+        "resume": "Reanudar {plan}",
+        "renewsOn": "Se renueva el {date}",
+        "endsOn": "Termina el {date}",
+        "perMonth": "al mes",
+        "perSeatMonth": "por puesto al mes",
+        "paymentMethod": "Gestionar método de pago",
+        "invoices": "Facturas",
+        "heading": "Planes",
+        "actionError": "No se pudo cambiar el plan. Inténtalo de nuevo.",
+        "unavailable": {
+          "cancelScheduled": "Reanuda tu plan para cambiarlo.",
+          "granted": "Otorgado por cmux. No hay nada que cambiar.",
+          "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "La terminal cmux completa para macOS",
+            "Cualquier agente CLI con tus propias claves",
+            "Historial de sesiones local"
+          ],
+          "go": [
+            "1 Cloud VM activa",
+            "40 horas de VM al mes",
+            "2 VM guardadas"
+          ],
+          "pro": [
+            "Agentes en la nube en Cloud VMs",
+            "24 GB de RAM y 6 vCPU compartidos entre VM",
+            "La app cmux para iOS"
+          ],
+          "max": [
+            "64 GB de RAM y 16 vCPU compartidos entre VM",
+            "Máquinas más grandes",
+            "Todo lo de Pro"
+          ],
+          "team": [
+            "Todo lo de Pro para cada miembro",
+            "Una sola factura para todo el equipo",
+            "Soporte prioritario"
+          ]
+        },
+        "billedAnnually": "facturado anualmente"
+      },
+      "change": {
+        "title": "¿Cambiar a {plan}?",
+        "upgradeBody": "{plan} empieza ahora. Hoy pagas {amount} por el resto de este período de facturación. Desde el {date}, pagas {price} al mes.",
+        "downgradeBody": "{plan} empieza ahora. La parte no usada de tu plan actual, {credit}, se abona a tus próximas facturas. Tu próxima factura, el {date}, es de {amount}.",
+        "confirm": "Cambiar a {plan}",
+        "keep": "Mantener el plan actual",
+        "switching": "Cambiando…",
+        "previewError": "No se pudo calcular el precio. Inténtalo de nuevo.",
+        "paymentFailed": "Tu tarjeta fue rechazada. Actualiza tu método de pago e inténtalo de nuevo.",
+        "error": "No se pudo cambiar el plan. Inténtalo de nuevo."
+      },
+      "cancelDialog": {
+        "title": "¿Cancelar {plan}?",
+        "body": "Conservas {plan} hasta el {date}. Después, pierdes:",
+        "bodyNoDate": "Conservas {plan} hasta el final de este período de facturación. Después, pierdes:",
+        "reasonLabel": "¿Por qué cancelas? (opcional)",
+        "otherPlaceholder": "Cuéntanos más (opcional)",
+        "confirm": "Cancelar plan",
+        "keep": "Mantener {plan}",
+        "error": "No se pudo cancelar el plan. Inténtalo de nuevo.",
+        "resumeError": "No se pudo reanudar el plan. Inténtalo de nuevo.",
+        "reasons": {
+          "too_expensive": "Demasiado caro",
+          "missing_feature": "Falta una función que necesito",
+          "not_using": "No lo uso lo suficiente",
+          "other": "Otro"
+        }
+      },
+      "welcome": {
+        "title": "Te damos la bienvenida a {plan}",
+        "body": "Tu plan está activo. Prueba esto primero:",
+        "ios": "Instalar la app para iOS",
+        "cloud": "Abrir Cloud",
+        "team": "Crear un equipo",
+        "banner": "Ahora estás en {plan}.",
+        "bannerLink": "Plan y facturación"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Configuración de retransmisión",
       "relaySettingsDescription": "Elige los servidores de retransmisión que usa este equipo. Introduce una URL por línea.",
       "saveRelaySettings": "Guardar configuración de retransmisión",
-      "eyebrow": "nube / dispositivos",
+      "eyebrow": "Nube / dispositivos",
       "scopeActive": "Mostrando este equipo",
       "emptyTitle": "Aún no hay dispositivos conectados",
       "emptyDescription": "Cuando un dispositivo cmux se vincule con este equipo, aparecerá aquí con su plataforma, versión y controles de acceso.",
@@ -488,7 +582,10 @@
         "account": "Cuenta",
         "billing": "Facturación",
         "teamsGroup": "Equipos",
-        "createTeam": "Crear equipo"
+        "createTeam": "Crear equipo",
+        "accountGroup": "Cuenta",
+        "billingGroup": "Facturación",
+        "planBilling": "Plan y facturación"
       },
       "ui": {
         "save": "Guardar",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Este secreto no volverá a mostrarse.",
       "apiKeyCopy": "Copiar clave API",
       "apiKeyCopied": "Copiado",
-      "apiKeyCreatedAt": "creada {at}",
-      "apiKeyLastUsed": "último uso {at}",
+      "apiKeyCreatedAt": "Creada {at}",
+      "apiKeyLastUsed": "Último uso {at}",
       "apiKeyRevoked": "Revocada",
       "apiKeyLabelPlaceholder": "Por ejemplo, CI o producción",
       "createApiKeyAction": "Crear clave API",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Revocando",
       "apiKeyRevokeError": "No se pudo revocar la clave API.",
       "revokeApiKeyConfirmTitle": "¿Revocar esta clave API?",
-      "apiKeyUsageDetail": "últimos 30 días: {completions} finalizaciones · {tokens} tokens ({input} entrada / {output} salida) · equivalente API de {value}",
+      "apiKeyUsageDetail": "Últimos 30 días: {completions} finalizaciones · {tokens} tokens ({input} entrada / {output} salida) · equivalente API de {value}",
       "apiKeyUsageUnavailable": "Uso no disponible",
       "revokeApiKeyConfirmBody": "Los clientes que usen esta clave dejarán de autenticarse inmediatamente.",
       "apiKeysEmptyTitle": "Todavía no hay claves de API",
-      "apiKeysEmptyHint": "Crea una para autenticar un cliente de CodeRouter."
+      "apiKeysEmptyHint": "Crea una para autenticar un cliente de CodeRouter.",
+      "unavailableTitle": "Las cuentas compartidas no están disponibles",
+      "unavailableBody": "cmux no puede conectar ahora con el servicio de cuentas compartidas. Las cuentas añadidas con cr add y las de Anthropic y Bedrock siguen funcionando."
     },
     "notFound": {
       "title": "Página no encontrada",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Reintentar",
       "retrying": "Reintentando…"
+    },
+    "upgrade": {
+      "title": "Requiere Pro",
+      "cloud": "Las Cloud VMs y los agentes en la nube forman parte de Pro.",
+      "testflight": "La app cmux para iOS forma parte de Pro.",
+      "mobileDevices": "Conectar tu teléfono y tu tableta forma parte de Pro.",
+      "action": "Mejorar a Pro",
+      "comparePlans": "Comparar planes"
     }
   },
   "community": {
@@ -2042,6 +2149,8 @@
       "customActionsDesc": "Una entrada <actions>actions</actions> es lo reutilizable que ejecuta cmux. Usa acciones cuando el mismo comportamiento deba estar disponible desde Command Palette, la barra de pestañas de superficie, los atajos o el menú del botón más. Mantén <commands>commands</commands> para comandos de shell reutilizables y diseños de espacios de trabajo. Define <palette>palette</palette> como false cuando una acción no deba aparecer en Command Palette.",
       "actionTypes": "Tipos de acción",
       "actionTypeBuiltin": "Crea un alias para una acción integrada de cmux como cmux.newTerminal, cmux.newBrowser, cmux.splitRight o cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Acciones integradas de copia: cmux.copyWorkingDirectory copia el directorio de trabajo del terminal, cmux.copyProjectRoot copia la raíz de su repositorio git (o el directorio de trabajo fuera de uno) y cmux.copyScreen copia la pantalla visible.",
+      "actionTypeBuiltinCopyRemote": "En un espacio de trabajo SSH, en la nube o de tmux remoto, cmux.copyProjectRoot copia el directorio de trabajo remoto, porque cmux no puede consultar el repositorio git del otro host.",
       "actionTypeCommand": "Ejecuta texto de shell en una terminal. Usa target para elegir la terminal actual o una pestaña nueva en el panel actual.",
       "actionTypeAgent": "Inicia un agente de programación compatible. Hoy admite codex y claude, con argumentos opcionales.",
       "actionTypeWorkspaceCommand": "Ejecuta una definición de espacio de trabajo con nombre desde commands. Úsalo para diseños multipanel, directorios de trabajo personalizados y comandos de inicio.",

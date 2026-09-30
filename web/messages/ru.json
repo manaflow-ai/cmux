@@ -353,26 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "обзор",
-      "team": "команда",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Обзор",
+      "team": "Команда",
       "mobileDevices": "Мобильные устройства",
-      "settings": "настройки",
-      "teams": "команды"
+      "settings": "Настройки",
+      "teams": "Команды"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Распределяйте LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
-      "coderouterLink": "открыть coderouter",
-      "iosAppName": "приложение iOS",
+      "coderouterLink": "Открыть coderouter",
+      "iosAppName": "Приложение iOS",
       "iosAppDescription": "Установите приложение cmux для iOS через TestFlight (бета-доступ).",
       "iosLink": "Открыть приложение iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Управляйте общими ИИ-аккаунтами и распределяйте запросы с помощью coderouter.",
-      "title": "coderouter",
-      "description": "coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
+      "title": "Coderouter",
+      "description": "Coderouter распределяет LLM-запросы между аккаунтами провайдеров с отказоустойчивостью и планированием по нагрузке.",
       "machines": {
         "title": "Машины",
         "description": "Использование coderouter по машинам для {team} за последние {days} дней.",
@@ -407,7 +407,8 @@
       "signingOut": "Выход…",
       "signOutError": "Не удалось выйти. Повторите попытку.",
       "organizationSwitchError": "Не удалось сменить организацию. Повторите попытку.",
-      "signIn": "Войти"
+      "signIn": "Войти",
+      "upgrade": "Улучшить"
     },
     "billing": {
       "plan": {
@@ -447,6 +448,99 @@
       },
       "team": {
         "createCta": "Создать команду"
+      },
+      "title": "Тариф и оплата",
+      "picker": {
+        "current": "Текущий тариф",
+        "upgradeTo": "Перейти на {plan}",
+        "switchTo": "Сменить на {plan}",
+        "cancelPlan": "Отменить тариф",
+        "resume": "Возобновить {plan}",
+        "renewsOn": "Продлевается {date}",
+        "endsOn": "Заканчивается {date}",
+        "perMonth": "в месяц",
+        "perSeatMonth": "за место в месяц",
+        "paymentMethod": "Управлять способом оплаты",
+        "invoices": "Счета",
+        "heading": "Тарифы",
+        "actionError": "Не удалось изменить тариф. Попробуйте ещё раз.",
+        "unavailable": {
+          "cancelScheduled": "Чтобы изменить тариф, сначала возобновите его.",
+          "granted": "Предоставлен cmux. Менять нечего.",
+          "adminOnly": "Изменить тариф могут только администраторы команды."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Полный терминал cmux для macOS",
+            "Любой CLI-агент с вашими ключами",
+            "Локальная история сеансов"
+          ],
+          "go": [
+            "1 активная Cloud VM",
+            "40 часов VM в месяц",
+            "2 сохранённые VM"
+          ],
+          "pro": [
+            "Облачные агенты на Cloud VMs",
+            "24 ГБ RAM и 6 vCPU на все VM",
+            "Приложение cmux для iOS"
+          ],
+          "max": [
+            "64 ГБ RAM и 16 vCPU на все VM",
+            "Более крупные машины",
+            "Всё из Pro"
+          ],
+          "team": [
+            "Всё из Pro для каждого участника",
+            "Один счёт на всю команду",
+            "Приоритетная поддержка"
+          ]
+        },
+        "billedAnnually": "оплата за год"
+      },
+      "change": {
+        "title": "Сменить на {plan}?",
+        "upgradeBody": "{plan} начинает действовать сейчас. Сегодня вы платите {amount} за остаток этого расчётного периода. С {date} вы платите {price} в месяц.",
+        "downgradeBody": "{plan} начинает действовать сейчас. Неиспользованная часть текущего тарифа, {credit}, будет зачтена в следующие счета. Следующий счёт, {date}, составит {amount}.",
+        "confirm": "Сменить на {plan}",
+        "keep": "Оставить текущий тариф",
+        "switching": "Смена…",
+        "previewError": "Не удалось рассчитать цену. Попробуйте ещё раз.",
+        "paymentFailed": "Карта отклонена. Обновите способ оплаты и попробуйте ещё раз.",
+        "error": "Не удалось сменить тариф. Попробуйте ещё раз."
+      },
+      "cancelDialog": {
+        "title": "Отменить {plan}?",
+        "body": "{plan} останется у вас до {date}. После этого вы потеряете:",
+        "bodyNoDate": "{plan} останется у вас до конца этого расчётного периода. После этого вы потеряете:",
+        "reasonLabel": "Почему вы отменяете? (необязательно)",
+        "otherPlaceholder": "Расскажите подробнее (необязательно)",
+        "confirm": "Отменить тариф",
+        "keep": "Оставить {plan}",
+        "error": "Не удалось отменить тариф. Попробуйте ещё раз.",
+        "resumeError": "Не удалось возобновить тариф. Попробуйте ещё раз.",
+        "reasons": {
+          "too_expensive": "Слишком дорого",
+          "missing_feature": "Не хватает нужной функции",
+          "not_using": "Мало пользуюсь",
+          "other": "Другое"
+        }
+      },
+      "welcome": {
+        "title": "Добро пожаловать в {plan}",
+        "body": "Тариф активен. Что попробовать сначала:",
+        "ios": "Установить приложение для iOS",
+        "cloud": "Открыть Cloud",
+        "team": "Создать команду",
+        "banner": "Теперь у вас {plan}.",
+        "bannerLink": "Тариф и оплата"
       }
     },
     "mobileDevices": {
@@ -467,7 +561,7 @@
       "relaySettings": "Настройки ретрансляторов",
       "relaySettingsDescription": "Выберите серверы ретрансляции для этой команды. Введите по одному URL в строке.",
       "saveRelaySettings": "Сохранить настройки ретрансляторов",
-      "eyebrow": "облако / устройства",
+      "eyebrow": "Облако / устройства",
       "scopeActive": "Показаны данные этой команды",
       "emptyTitle": "Подключённых устройств пока нет",
       "emptyDescription": "После сопряжения устройства cmux с этой командой здесь появятся его платформа, версия и настройки доступа.",
@@ -488,7 +582,10 @@
         "account": "Аккаунт",
         "billing": "Оплата",
         "teamsGroup": "Команды",
-        "createTeam": "Создать команду"
+        "createTeam": "Создать команду",
+        "accountGroup": "Аккаунт",
+        "billingGroup": "Оплата",
+        "planBilling": "Тариф и оплата"
       },
       "ui": {
         "save": "Сохранить",
@@ -1015,8 +1112,8 @@
       "apiKeySecretBody": "Этот секрет больше не будет показан.",
       "apiKeyCopy": "Скопировать API-ключ",
       "apiKeyCopied": "Скопировано",
-      "apiKeyCreatedAt": "создан {at}",
-      "apiKeyLastUsed": "последнее использование {at}",
+      "apiKeyCreatedAt": "Создан {at}",
+      "apiKeyLastUsed": "Последнее использование {at}",
       "apiKeyRevoked": "Отозван",
       "apiKeyLabelPlaceholder": "Например, CI или продакшен",
       "createApiKeyAction": "Создать API-ключ",
@@ -1026,11 +1123,13 @@
       "revokingApiKeyAction": "Отзыв",
       "apiKeyRevokeError": "Не удалось отозвать API-ключ.",
       "revokeApiKeyConfirmTitle": "Отозвать этот API-ключ?",
-      "apiKeyUsageDetail": "последние 30 дней: {completions} завершений · {tokens} токенов ({input} вход / {output} выход) · API-эквивалент {value}",
+      "apiKeyUsageDetail": "Последние 30 дней: {completions} завершений · {tokens} токенов ({input} вход / {output} выход) · API-эквивалент {value}",
       "apiKeyUsageUnavailable": "Данные использования недоступны",
       "revokeApiKeyConfirmBody": "Клиенты, использующие этот ключ, сразу потеряют аутентификацию.",
       "apiKeysEmptyTitle": "API-ключей пока нет",
-      "apiKeysEmptyHint": "Создайте ключ, чтобы аутентифицировать клиент CodeRouter."
+      "apiKeysEmptyHint": "Создайте ключ, чтобы аутентифицировать клиент CodeRouter.",
+      "unavailableTitle": "Общие аккаунты недоступны",
+      "unavailableBody": "Сейчас cmux не может связаться со службой общих аккаунтов. Аккаунты, добавленные через cr add, а также аккаунты Anthropic и Bedrock продолжают работать."
     },
     "notFound": {
       "title": "Страница не найдена",
@@ -1050,6 +1149,14 @@
       },
       "retry": "Повторить",
       "retrying": "Повторная попытка…"
+    },
+    "upgrade": {
+      "title": "Нужен Pro",
+      "cloud": "Cloud VMs и облачные агенты входят в Pro.",
+      "testflight": "Приложение cmux для iOS входит в Pro.",
+      "mobileDevices": "Подключение телефона и планшета входит в Pro.",
+      "action": "Перейти на Pro",
+      "comparePlans": "Сравнить тарифы"
     }
   },
   "community": {
@@ -2042,6 +2149,8 @@
       "customActionsDesc": "Запись <actions>actions</actions> описывает переиспользуемое действие, которое запускает cmux. Используйте действия, когда одно и то же поведение должно быть доступно из Command Palette, панели вкладок поверхности, сочетаний клавиш или меню кнопки плюс. Оставьте <commands>commands</commands> для переиспользуемых shell-команд и раскладок рабочих областей. Установите <palette>palette</palette> в false, если действие не должно отображаться в Command Palette.",
       "actionTypes": "Типы действий",
       "actionTypeBuiltin": "Псевдоним встроенного действия cmux, например cmux.newTerminal, cmux.newBrowser, cmux.splitRight или cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Встроенные действия копирования: cmux.copyWorkingDirectory копирует рабочий каталог терминала, cmux.copyProjectRoot — корень его git-репозитория (или рабочий каталог вне репозитория), а cmux.copyScreen — видимый экран.",
+      "actionTypeBuiltinCopyRemote": "В рабочем пространстве SSH, облака или удалённого tmux cmux.copyProjectRoot копирует удалённый рабочий каталог, потому что cmux не может найти git-репозиторий на другом хосте.",
       "actionTypeCommand": "Запускает shell-текст в терминале. Используйте target, чтобы выбрать текущий терминал или новую вкладку в текущей панели.",
       "actionTypeAgent": "Запускает поддерживаемого кодового агента. Сейчас поддерживаются codex и claude с необязательными аргументами.",
       "actionTypeWorkspaceCommand": "Запускает именованное определение рабочей области из commands. Используйте для многопанельных раскладок, пользовательских рабочих каталогов и стартовых команд.",
