@@ -994,6 +994,20 @@ extension FeedCoordinator {
         await sessionStoreLookup.resolve(workstreamId) != nil
     }
 
+
+    nonisolated func resolveTarget(_ workstreamId: String) async -> FeedJumpResolver.Target? {
+        await sessionStoreLookup.resolve(workstreamId)
+    }
+
+    nonisolated func resolveTargets(for workstreamIDs: [String]) async -> [String: FeedJumpResolver.Target] {
+        var targets: [String: FeedJumpResolver.Target] = [:]
+        for workstreamID in workstreamIDs {
+            guard let target = await sessionStoreLookup.resolve(workstreamID) else { continue }
+            targets[workstreamID] = target
+        }
+        return targets
+    }
+
     /// Fires a best-effort focus for the given `workstreamId`. Returns
     /// `true` if a target was found and the focus commands were
     /// dispatched. Runs on the main actor because the focus commands

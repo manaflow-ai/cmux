@@ -16,6 +16,57 @@ enum AgentInboxReplyTarget: Equatable, Sendable {
     case workstream(String)
 }
 
+
+enum AgentInboxReplyError: Error, Equatable, Sendable {
+    case emptyBody
+    case missingRecipient
+    case unresolvedWorkstream
+    case unsupportedTarget
+}
+
+enum AgentInboxReplySender {
+    static func send(
+        body: String,
+        senderName: String,
+        target: AgentInboxReplyTarget,
+        workstreamTarget: FeedJumpResolver.Target?,
+        store: AgentMessageStore
+    ) throws -> AgentMessage {
+        let body = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { throw AgentInboxReplyError.emptyBody }
+
+        let recipient: (surfaceId: String, workspaceId: String?, replyTo: String?)
+        switch target {
+        case let .agentMessage(surfaceId, workspaceId, replyTo):
+            guard !surfaceId.isEmpty else { throw AgentInboxReplyError.missingRecipient }
+            recipient = (surfaceId, workspaceId, replyTo)
+        case .workstream:
+            guard let workstreamTarget else {
+                throw AgentInboxReplyError.unresolvedWorkstream
+            }
+            guard !workstreamTarget.surfaceId.isEmpty else {
+                throw AgentInboxReplyError.missingRecipient
+            }
+            recipient = (workstreamTarget.surfaceId, workstreamTarget.workspaceId, nil)
+        case .feed:
+            throw AgentInboxReplyError.unsupportedTarget
+        }
+
+        return try store.append(
+            AgentMessageDraft(
+                senderName: senderName,
+                senderSurfaceId: nil,
+                senderWorkspaceId: nil,
+                recipientSurfaceId: recipient.surfaceId,
+                recipientWorkspaceId: recipient.workspaceId,
+                body: body,
+                threadId: nil,
+                inReplyTo: recipient.replyTo
+            )
+        )
+    }
+}
+
 struct AgentInboxItem: Identifiable, Equatable, Sendable {
     let id: String
     let kind: AgentInboxItemKind
@@ -24,7 +75,7 @@ struct AgentInboxItem: Identifiable, Equatable, Sendable {
     let workspaceTitle: String
     let agentName: String
     let state: AgentMessageDeliveryState?
-    let isUnread: Bool
+    var isUnread: Bool
     let title: String
     let preview: String
     let promptText: String?
@@ -61,6 +112,13 @@ enum AgentInboxProjection {
         return projected.sorted {
             if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
             return $0.id > $1.id
+        }
+    }
+
+    static func uniqueWorkstreamIDs(from items: [WorkstreamItem]) -> [String] {
+        var seen = Set<String>()
+        return items.compactMap { item in
+            seen.insert(item.workstreamId).inserted ? item.workstreamId : nil
         }
     }
 
@@ -173,13 +231,13 @@ enum AgentInboxProjection {
             permissionModes = WorkstreamPermissionMode.allCases
             planModes = []
         case .exitPlan(_, let plan, _):
-            title = "Plan approval"
+            title = String(localized: "agentInbox.plan.title", defaultValue: "Plan approval")
             preview = WorkstreamExitPlanPreview(rawPlan: plan).planText
             questionOptions = []
             permissionModes = []
             planModes = WorkstreamExitPlanMode.allCases
         case .question(_, let questions):
-            title = questions.first?.prompt ?? "Question"
+            title = questions.first?.prompt ?? String(localized: "agentInbox.question.title", defaultValue: "Choose an answer")
             preview = questions.map(\.prompt).joined(separator: "\n")
             questionOptions = questions.first?.options ?? []
             permissionModes = []

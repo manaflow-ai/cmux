@@ -13,9 +13,18 @@ struct AgentInboxView: View {
     @State private var selectedID: String?
     @State private var replyText = ""
     @State private var questionSelection: String?
+    @State private var readFinishedTurnIDs = Set<String>()
+    @State private var replyError: String?
+    @FocusState private var isReplyFieldFocused: Bool
 
     private var visibleItems: [AgentInboxItem] {
-        AgentInboxProjection.filtered(items, query: query)
+        AgentInboxProjection.filtered(items, query: query).map { item in
+            var item = item
+            if item.kind == .finishedTurn, readFinishedTurnIDs.contains(item.id) {
+                item.isUnread = false
+            }
+            return item
+        }
     }
 
     private var selectedItem: AgentInboxItem? {
@@ -55,6 +64,7 @@ struct AgentInboxView: View {
         }
         .onChange(of: selectedID) { _, _ in
             replyText = ""
+            replyError = nil
             questionSelection = nil
             markSelectedMessageRead()
         }
@@ -62,18 +72,20 @@ struct AgentInboxView: View {
             moveSelection(by: newValue - oldValue)
         }
         .onChange(of: submitRequest) { _, _ in
-            activateSelectedItem()
+            if isReplyFieldFocused {
+                sendReplyForSelectedItem()
+            } else {
+                activateSelectedItem()
+            }
         }
         .onExitCommand(perform: onDismiss)
         .onMoveCommand { direction in
+            guard !isReplyFieldFocused else { return }
             switch direction {
             case .up: moveSelection(by: -1)
             case .down: moveSelection(by: 1)
             default: break
             }
-        }
-        .onSubmit {
-            activateSelectedItem()
         }
     }
 
@@ -234,6 +246,7 @@ struct AgentInboxView: View {
             decisionButtons(
                 title: String(localized: "agentInbox.question.title", defaultValue: "Choose an answer"),
                 labels: item.questionOptions.enumerated().map { "\($0.offset + 1). \($0.element.label)" },
+                allowDigitShortcut: true,
                 action: { index in
                     questionSelection = item.questionOptions[index].id
                     actions.replyQuestion(itemID(for: item), [item.questionOptions[index].label])
@@ -243,7 +256,12 @@ struct AgentInboxView: View {
         }
     }
 
-    private func decisionButtons(title: String, labels: [String], action: @escaping (Int) -> Void) -> some View {
+    private func decisionButtons(
+        title: String,
+        labels: [String],
+        allowDigitShortcut: Bool = false,
+        action: @escaping (Int) -> Void
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: title)
                 .font(.subheadline.weight(.semibold))
@@ -251,26 +269,42 @@ struct AgentInboxView: View {
                 ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
                     Button(label) { action(index) }
                         .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(index < 9 ? KeyEquivalent(Character(String(index + 1))) : KeyEquivalent("\0"), modifiers: [])
+                        .keyboardShortcut(
+                            allowDigitShortcut && index < 9
+                                ? KeyEquivalent(Character(String(index + 1)))
+                                : KeyEquivalent("\0"),
+                            modifiers: allowDigitShortcut ? [.command] : []
+                        )
                 }
             }
         }
     }
 
     private func replyComposer(for item: AgentInboxItem) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(
-                String(localized: "agentInbox.reply.placeholder", defaultValue: "Reply to this agent"),
-                text: $replyText,
-                axis: .vertical
-            )
-            .lineLimit(1...5)
-            .textFieldStyle(.roundedBorder)
-            Button(String(localized: "agentInbox.send", defaultValue: "Send")) {
-                sendReply(for: item)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(
+                    String(localized: "agentInbox.reply.placeholder", defaultValue: "Reply to this agent"),
+                    text: $replyText,
+                    axis: .vertical
+                )
+                .lineLimit(1...5)
+                .textFieldStyle(.roundedBorder)
+                .focused($isReplyFieldFocused)
+                .onSubmit {
+                    sendReply(for: item)
+                }
+                Button(String(localized: "agentInbox.send", defaultValue: "Send")) {
+                    sendReply(for: item)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if let replyError {
+                Text(replyError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
         .padding(12)
     }
@@ -285,48 +319,56 @@ struct AgentInboxView: View {
     private func sendReply(for item: AgentInboxItem) {
         let body = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
-        switch item.replyTarget {
-        case let .agentMessage(surfaceId, workspaceId, replyTo):
-            appendAgentMessage(
-                body: body,
-                recipientSurfaceId: surfaceId,
-                recipientWorkspaceId: workspaceId,
-                inReplyTo: replyTo
-            )
-        case let .workstream(workstreamID):
-            guard let target = FeedJumpResolver.resolve(workstreamID) else { return }
-            appendAgentMessage(
-                body: body,
-                recipientSurfaceId: target.surfaceId,
-                recipientWorkspaceId: target.workspaceId,
-                inReplyTo: nil
-            )
-        case .feed, nil:
-            return
-        }
-        replyText = ""
-    }
+        replyError = nil
 
-    private func appendAgentMessage(
-        body: String,
-        recipientSurfaceId: String,
-        recipientWorkspaceId: String?,
-        inReplyTo: String?
-    ) {
         let senderName = NSFullUserName().isEmpty
             ? String(localized: "agentInbox.you.senderName", defaultValue: "you")
             : NSFullUserName()
-        let draft = AgentMessageDraft(
-            senderName: senderName,
-            senderSurfaceId: nil,
-            senderWorkspaceId: nil,
-            recipientSurfaceId: recipientSurfaceId,
-            recipientWorkspaceId: recipientWorkspaceId,
-            body: body,
-            threadId: nil,
-            inReplyTo: inReplyTo
-        )
-        _ = try? AgentMessageCenter.store.append(draft)
+        switch item.replyTarget {
+        case let .agentMessage(surfaceId, workspaceId, replyTo):
+            finishReply(
+                body: body,
+                senderName: senderName,
+                target: .agentMessage(surfaceId: surfaceId, workspaceId: workspaceId, replyTo: replyTo),
+                workstreamTarget: nil
+            )
+        case let .workstream(workstreamID):
+            Task { @MainActor in
+                guard let target = await FeedCoordinator.shared.resolveTarget(workstreamID) else {
+                    replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+                    return
+                }
+                finishReply(
+                    body: body,
+                    senderName: senderName,
+                    target: .workstream(workstreamID),
+                    workstreamTarget: target
+                )
+            }
+        case .feed, nil:
+            replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+        }
+    }
+
+    private func finishReply(
+        body: String,
+        senderName: String,
+        target: AgentInboxReplyTarget,
+        workstreamTarget: FeedJumpResolver.Target?
+    ) {
+        do {
+            _ = try AgentInboxReplySender.send(
+                body: body,
+                senderName: senderName,
+                target: target,
+                workstreamTarget: workstreamTarget,
+                store: AgentMessageCenter.store
+            )
+            replyText = ""
+            replyError = nil
+        } catch {
+            replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+        }
     }
 
     private func itemID(for item: AgentInboxItem) -> UUID {
@@ -356,6 +398,11 @@ struct AgentInboxView: View {
         activate(item)
     }
 
+    private func sendReplyForSelectedItem() {
+        guard let item = selectedItem, canSendFreeText(item) else { return }
+        sendReply(for: item)
+    }
+
     private func activate(_ item: AgentInboxItem) {
         if item.permissionModes.isEmpty && item.planModes.isEmpty && item.questionOptions.isEmpty,
            let workstreamID = item.workstreamId {
@@ -365,7 +412,12 @@ struct AgentInboxView: View {
     }
 
     private func markSelectedMessageRead() {
-        guard let item = selectedItem, item.kind == .agentMessage else { return }
+        guard let item = selectedItem else { return }
+        if item.kind == .finishedTurn {
+            readFinishedTurnIDs.insert(item.id)
+            return
+        }
+        guard item.kind == .agentMessage else { return }
         let prefix = "message:"
         guard item.id.hasPrefix(prefix) else { return }
         _ = AgentMessageCenter.store.markRead(ids: [String(item.id.dropFirst(prefix.count))])

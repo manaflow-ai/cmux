@@ -10084,20 +10084,28 @@ struct ContentView: View {
     private func openAgentInbox() {
         guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
         let workspaces = (AppDelegate.shared?.mainWindowContexts.values.flatMap { $0.tabManager.tabs } ?? tabManager.tabs)
-        let workspaceTitles = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id.uuidString, $0.title) })
-        let feedItems = FeedCoordinator.shared.snapshot(pendingOnly: false)
-        let workstreamWorkspaceIds = Dictionary(uniqueKeysWithValues: feedItems.compactMap { item in
-            guard let target = FeedJumpResolver.resolve(item.workstreamId) else { return nil }
-            return (item.workstreamId, target.workspaceId)
-        })
-        agentInboxItems = AgentInboxProjection.project(
-            messages: AgentMessageCenter.store.messages(limit: AgentMessageStore.retainedMessageCount),
-            workstreamItems: feedItems,
-            workspaceTitles: workspaceTitles,
-            workstreamWorkspaceIds: workstreamWorkspaceIds
+        let workspaceTitles = Dictionary(
+            workspaces.map { ($0.id.uuidString, $0.title) },
+            uniquingKeysWith: { first, _ in first }
         )
-        isCommandPalettePresented = true
-        isAgentInboxPresented = true
+        let feedItems = FeedCoordinator.shared.snapshot(pendingOnly: false)
+        let workstreamIDs = AgentInboxProjection.uniqueWorkstreamIDs(from: feedItems)
+        let messages = AgentMessageCenter.store.messages(limit: AgentMessageStore.retainedMessageCount)
+
+        Task { @MainActor in
+            let targets = await FeedCoordinator.shared.resolveTargets(for: workstreamIDs)
+            guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+            agentInboxItems = AgentInboxProjection.project(
+                messages: messages,
+                workstreamItems: feedItems,
+                workspaceTitles: workspaceTitles,
+                workstreamWorkspaceIds: targets.reduce(into: [:]) { result, entry in
+                    result[entry.key] = entry.value.workspaceId
+                }
+            )
+            isCommandPalettePresented = true
+            isAgentInboxPresented = true
+        }
     }
 
     private func dismissAgentInbox() {
