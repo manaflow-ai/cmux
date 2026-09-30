@@ -40,7 +40,7 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
             TerminalManagedGhosttySettings.ghosttyConfigContents(
                 defaults: defaults,
                 emitsCopyOnSelectFalse: false
-            ) == "term = \(TerminalSurface.managedTerminalType)"
+            ) == "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny"
         )
 
         for ghosttyValue in ["true", "false", "clipboard"] {
@@ -66,7 +66,7 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
 
         #expect(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults)
-                == "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
+                == "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny\ncopy-on-select = clipboard"
         )
 
         let effectiveValue = Self.effectiveGhosttyValues(afterLoading: [

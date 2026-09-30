@@ -802,7 +802,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "term = \(TerminalSurface.managedTerminalType)"
+            "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny"
         )
 
         let notificationCenter = NotificationCenter()
@@ -828,7 +828,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
+            "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny\ncopy-on-select = clipboard"
         )
         XCTAssertEqual(notificationCount, 1)
 
@@ -844,7 +844,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = false"
+            "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny\ncopy-on-select = false"
         )
         XCTAssertEqual(notificationCount, 2)
 
@@ -856,7 +856,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "term = \(TerminalSurface.managedTerminalType)"
+            "term = \(TerminalSurface.managedTerminalType)\nclipboard-read = deny"
         )
         XCTAssertEqual(notificationCount, 2)
     }
