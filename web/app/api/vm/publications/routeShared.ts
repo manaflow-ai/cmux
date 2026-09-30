@@ -273,6 +273,11 @@ function inputErrorCopy(error: PublicationInputError, language?: string | null):
         message: "port must be an integer between 1 and 65535.",
         action: "Pass the HTTP port listening inside the Cloud VM.",
       };
+    case "reserved_port":
+      return {
+        message: "Port 1337 is the Cloud VM's cmux control daemon and cannot be published.",
+        action: "Publish the port your own server listens on instead.",
+      };
     case "team_required":
       return {
         message: "Team access requires a team id.",
