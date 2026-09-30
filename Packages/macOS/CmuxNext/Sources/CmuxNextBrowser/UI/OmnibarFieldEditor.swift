@@ -7,8 +7,11 @@ import AppKit
     func fieldEditorDidChange(kind: OmnibarState.EditKind?)
     /// A key the state machine may take first. Returns true when handled.
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool
-    func fieldEditorMouseDown(clickCount: Int)
+    /// `word`: the word under the press in the text shown now.
+    func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?)
     func fieldEditorMouseUp()
+    /// Copy and Cut text for the selection (Chrome's copy adjustments).
+    var copyContent: OmnibarCopy? { get }
     var canUndo: Bool { get }
     var canRedo: Bool { get }
 }
@@ -104,14 +107,70 @@ final class OmnibarFieldEditor: NSTextView {
            sink?.fieldEditorKey(.enter(.init(event.modifierFlags))) == true {
             return
         }
+        // Shift-Delete (forward delete) removes the highlighted history row
+        // (Chrome `VKEY_DELETE` with Shift); otherwise it deletes forward.
+        if event.keyCode == 117, event.modifierFlags.contains(.shift), !hasMarkedText(),
+           sink?.fieldEditorKey(.deleteSuggestion) == true {
+            return
+        }
         super.keyDown(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {
-        sink?.fieldEditorMouseDown(clickCount: event.clickCount)
+        sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: word(at: event))
         // Tracks the click or drag until mouse-up.
         super.mouseDown(with: event)
         sink?.fieldEditorMouseUp()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .right, word: nil)
+        if suppressesContextMenu {
+            // Builds the menu (which selects the word under the pointer) but
+            // does not run it.
+            _ = menu(for: event)
+        } else {
+            // Selects the word under the pointer (outside the selection) and
+            // runs the context menu.
+            super.rightMouseDown(with: event)
+        }
+        sink?.fieldEditorMouseUp()
+    }
+
+    /// Automation (`debug.mouse`): skip the context menu, which would run a
+    /// modal tracking loop.
+    var suppressesContextMenu = false
+
+    private func word(at event: NSEvent) -> NSRange? {
+        guard !string.isEmpty else { return nil }
+        let index = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
+        guard index != NSNotFound else { return nil }
+        return selectionRange(forProposedRange: NSRange(location: min(index, (string as NSString).length), length: 0), granularity: .selectByWord)
+    }
+
+    // MARK: Copy
+
+    /// Chrome copies the page URL for the whole untouched URL, elided or
+    /// not, and completes a same-host URL with the page's scheme
+    /// (`OmniboxViewViews::OnBeforeCutOrCopy`).
+    override func copy(_ sender: Any?) {
+        guard let content = sink?.copyContent else { return super.copy(sender) }
+        write(content)
+    }
+
+    override func cut(_ sender: Any?) {
+        guard isEditable, let content = sink?.copyContent else { return super.cut(sender) }
+        write(content)
+        delete(sender)
+    }
+
+    /// Where Copy and Cut write (tests use a private pasteboard).
+    var pasteboard: NSPasteboard = .general
+
+    private func write(_ content: OmnibarCopy) {
+        pasteboard.clearContents()
+        if let url = content.url { pasteboard.writeObjects([url as NSURL]) }
+        pasteboard.setString(content.text, forType: .string)
     }
 
     @objc func undo(_ sender: Any?) {

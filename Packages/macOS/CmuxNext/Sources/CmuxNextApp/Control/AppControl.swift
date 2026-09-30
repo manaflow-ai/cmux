@@ -41,6 +41,11 @@ final class AppControl {
                 guard let services, let windows = services.windows else { return .value(.null) }
                 return .value(WindowInvariants.report(windows))
             },
+            // Omnibar state machine vs its field editor (focus.md section 7).
+            .mainActor("debug.omnibar") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.report(call.params, services: services))
+            },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -72,6 +77,10 @@ final class AppControl {
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
+            },
+            .mainActor("debug.mouse") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.mouse(call.params, services: services))
             },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }

@@ -57,9 +57,46 @@ public nonisolated struct OmnibarCopy: Equatable, Sendable {
 }
 
 nonisolated extension OmnibarReducer {
-    /// Copy of the field's selection, adjusted as Chrome does; nil when
-    /// nothing is selected.
+    /// Copy of the field's selection, adjusted as Chrome does
+    /// (`omnibox::AdjustTextForCopy` in components/omnibox/browser/
+    /// omnibox_text_util.cc); nil when nothing is selected.
+    ///
+    /// - A selection that does not start at the beginning is copied as is.
+    /// - The whole untouched URL, elided or full, copies the page URL.
+    /// - Otherwise text that reads as a URL on the same host as the page (or
+    ///   the arrowed row) gets that page's scheme and is copied as a URL.
     public static func copyContent(of state: OmnibarState, resolver: OmniboxResolver) -> OmnibarCopy? {
-        nil
+        guard state.hasFocus else { return nil }
+        let text = state.fieldText as NSString
+        let selection = OmnibarRules.clamped(state.edit.selection, length: text.length)
+        guard selection.length > 0 else { return nil }
+        let selected = text.substring(with: selection)
+        guard selection.location == 0 else { return OmnibarCopy(text: selected, url: nil) }
+        let modified = state.phase != .focused || (selected != state.displayText && selected != state.permanentText)
+        if !modified, let page = state.pageURL {
+            return OmnibarCopy(text: page.absoluteString, url: page)
+        }
+        guard case .url(var url)? = resolver.destination(for: selected) else {
+            return OmnibarCopy(text: selected, url: nil)
+        }
+        var current = state.pageURL
+        if state.isPopupOpen, let row = state.popup.selected, state.popup.rows.indices.contains(row),
+           state.popup.rows[row].kind != .search {
+            current = state.popup.rows[row].url
+        }
+        guard let current, isHTTP(current), isHTTP(url), current.host() == url.host() else {
+            return OmnibarCopy(text: selected, url: nil)
+        }
+        let lowered = selected.lowercased()
+        if !lowered.hasPrefix("http://"), !lowered.hasPrefix("https://"),
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.scheme = current.scheme
+            if let rewritten = components.url { url = rewritten }
+        }
+        return OmnibarCopy(text: url.absoluteString, url: url)
+    }
+
+    private static func isHTTP(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
     }
 }

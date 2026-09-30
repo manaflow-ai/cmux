@@ -38,6 +38,14 @@ public final class OmniboxSuggestionEngine {
         return rows
     }
 
+    /// Shift-Delete on a history row: every provider that can forget `url`
+    /// does (Chrome `AutocompleteController::DeleteMatch`).
+    public func deleteSuggestion(_ url: URL) {
+        for case let provider as any BrowserSuggestionDeleting in providers {
+            provider.deleteSuggestion(url)
+        }
+    }
+
     /// The row Enter picks when nothing is selected.
     public func primarySuggestion(for text: String) -> BrowserSuggestion? {
         switch resolver.destination(for: text) {

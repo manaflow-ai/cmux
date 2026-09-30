@@ -20,6 +20,8 @@ public nonisolated struct BrowserHistoryEntry: Hashable, Sendable, Codable {
 public protocol BrowserHistoryStore: AnyObject {
     func recordVisit(url: URL, title: String?, at date: Date)
     func updateTitle(_ title: String, for url: URL)
+    /// Forgets the page (Shift-Delete on its omnibar row).
+    func removeEntry(for url: URL)
     var entries: [BrowserHistoryEntry] { get }
 }
 
@@ -54,6 +56,10 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
     public func updateTitle(_ title: String, for url: URL) {
         let key = BrowserHistoryRanker.dedupeKey(for: url)
         byKey[key]?.title = title
+    }
+
+    public func removeEntry(for url: URL) {
+        byKey[BrowserHistoryRanker.dedupeKey(for: url)] = nil
     }
 
     /// Only web pages and local files go into history.

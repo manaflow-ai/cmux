@@ -32,12 +32,11 @@ nonisolated struct OmnibarStep {
 
     mutating func handle(_ input: OmnibarInput) {
         switch input {
-        case .focusGained: focusGained()
+        case .focusGained(let source): focusGained(source)
         case .focusLost: focusLost()
         case .fieldChanged(let field, let kind): fieldChanged(field, kind)
         case .key(let pressed): key(pressed)
-        case .fieldMouseDown(let clicks, _, _):
-            if !state.hasFocus { state.mouse = .init(pressed: true, clickCount: clicks, button: .left, selectAllOnRelease: clicks == 1) }
+        case .fieldMouseDown(let clicks, let button, let word): fieldMouseDown(clicks, button, word: word)
         case .fieldMouseUp: fieldMouseUp()
         case .rowHover(let row, let pointer): rowHover(row, pointer: pointer)
         case .rowClick(let row, let disposition): rowClick(row, disposition)
@@ -51,28 +50,39 @@ nonisolated struct OmnibarStep {
 
     // MARK: Focus
 
-    mutating func focusGained() {
+    mutating func focusGained(_ source: OmnibarInput.FocusSource) {
         switch state.phase {
-        case .idle, .committing: beginFocus()
+        case .idle, .committing: beginFocus(source)
         case .focused, .editing: break
         }
     }
 
-    /// Focus arrived: the full URL all selected, or the text left behind
-    /// when focus last moved away (Chrome keeps it), all selected.
-    mutating func beginFocus() {
+    /// Focus arrived: the URL all selected, or the text left behind when
+    /// focus last moved away (Chrome keeps it), all selected. Keyboard focus
+    /// (Cmd-L) shows the full URL (Chrome `OmniboxViewViews::SetFocus` calls
+    /// `OmniboxEditModel::Unelide`); a click or a programmatic focus keeps
+    /// the steady-state text until the selection changes.
+    mutating func beginFocus(_ source: OmnibarInput.FocusSource) {
         let retained = state.retainedText ?? ""
         state.retainedText = nil
         state.popup = .init()
         state.undo = []
         state.redo = []
         state.lastEditKind = nil
+        state.doubleClickWord = nil
         if retained.isEmpty {
             state.phase = .focused
-            state.edit = .init(selection: Self.all(state.permanentText))
+            state.elided = source != .keyboard && state.canElide
+            state.edit = .init(selection: Self.all(state.fieldText))
         } else {
             state.phase = .editing
+            state.elided = false
             state.edit = .init(userText: retained, selection: Self.all(retained), suppressCompletion: true)
+        }
+        // AppKit makes the field first responder before it forwards the
+        // press: remember that this focus belongs to a click.
+        if source == .mouse, state.mouse == nil {
+            state.mouse = .init(pressed: false, clickCount: 0, button: .left, selectAllOnRelease: true)
         }
         effects.append(.began)
     }
@@ -80,8 +90,10 @@ nonisolated struct OmnibarStep {
     mutating func focusLost() {
         let wasFocused = state.hasFocus
         if state.phase == .editing {
+            // Chrome `OmniboxViewViews::OnBlur`: typed text that equals the
+            // permanent display text reverts to it.
             let text = state.visibleUserText
-            state.retainedText = text.isEmpty || text == state.permanentText ? nil : text
+            state.retainedText = text.isEmpty || text == state.displayText ? nil : text
         }
         state.phase = .idle
         endSession()
@@ -92,7 +104,9 @@ nonisolated struct OmnibarStep {
     mutating func endSession() {
         state.edit = .init()
         closePopup()
+        state.elided = false
         state.mouse = nil
+        state.doubleClickWord = nil
         state.undo = []
         state.redo = []
         state.lastEditKind = nil
@@ -102,15 +116,17 @@ nonisolated struct OmnibarStep {
 
     mutating func pageURLChanged(_ url: URL?) {
         guard url != state.pageURL else { return }
-        let wasAllSelected = state.edit.selection == Self.all(state.permanentText)
         state.pageURL = url
         switch state.phase {
         case .idle:
             // A navigation supersedes text left behind by an earlier blur.
             state.retainedText = nil
         case .focused:
-            let text = state.permanentText
-            state.edit.selection = wasAllSelected ? Self.all(text) : OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(text))
+            // Chrome `OmniboxViewViews::Update`: new permanent text while the
+            // user has not typed reverts to the display text, all selected.
+            state.elided = state.canElide
+            state.edit = .init(selection: Self.all(state.fieldText))
+            state.doubleClickWord = nil
         case .editing:
             break // never overwrite what the user typed; Escape reverts to the new URL
         case .committing:

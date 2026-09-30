@@ -3,6 +3,8 @@ import Foundation
 /// Keys, the suggestion rows (keyboard and mouse), and async results.
 nonisolated extension OmnibarStep {
     mutating func key(_ key: OmnibarInput.Key) {
+        // A focus from a click whose press never came: keys end it.
+        if state.mouse?.pressed == false { state.mouse = nil }
         switch key {
         case .up: move(-1, clamp: true)
         case .down: move(1, clamp: true)
@@ -11,8 +13,9 @@ nonisolated extension OmnibarStep {
         case .enter(let disposition): enter(disposition)
         case .escape: escape()
         case .selectAll: selectAll()
-        case .focusLocation: selectAll()
-        case .home, .deleteSuggestion: handled = false
+        case .focusLocation: focusLocation()
+        case .home(let extend): home(extend: extend)
+        case .deleteSuggestion: deleteSuggestion()
         case .undo: undo(redo: false)
         case .redo: undo(redo: true)
         }
@@ -35,7 +38,7 @@ nonisolated extension OmnibarStep {
     }
 
     /// The keyboard highlight moves to `row`; the field shows its text.
-    private mutating func select(_ row: Int) {
+    mutating func select(_ row: Int) {
         state.popup.selected = row
         state.popup.hover = nil
         state.popup.source = .keyboard
@@ -63,25 +66,64 @@ nonisolated extension OmnibarStep {
         commit(destination, disposition)
     }
 
-    /// First Escape reverts to the page URL (all selected, Cmd-Z brings the
-    /// text back); with nothing to revert it cancels editing.
+    /// Chrome `OmniboxEditModel::OnEscapeKeyPressed`, one step per press:
+    /// an arrowed row reverts to the typed text; else an open card closes;
+    /// else the text reverts to the page URL (display text, all selected;
+    /// Cmd-Z brings typed text back), and when the user had not typed,
+    /// focus returns to the page in the same press.
     private mutating func escape() {
         guard state.hasFocus, !state.isComposing else {
             handled = false
             return
         }
-        if state.phase == .editing {
-            pushUndo()
-            state.phase = .focused
-            state.edit = .init(selection: Self.all(state.permanentText))
-            state.lastEditKind = nil
+        if state.phase == .editing, let selected = state.popup.selected, selected > 0, state.popup.rows.indices.contains(selected) {
+            // RevertTemporaryTextAndPopup: back to the default row.
+            select(0)
+            return
+        }
+        if state.isPopupOpen {
             closePopup()
+            // Results of the query in flight must not reopen the card.
+            state.generation &+= 1
             effects.append(.cancelQuery)
-        } else {
+            return
+        }
+        let wasEditing = state.phase == .editing
+        if wasEditing { pushUndo() }
+        state.phase = .focused
+        state.elided = state.canElide
+        state.edit = .init(selection: Self.all(state.fieldText))
+        state.lastEditKind = nil
+        closePopup()
+        effects.append(.cancelQuery)
+        if !wasEditing {
             state.phase = .idle
             endSession()
             effects.append(.ended(.cancel))
         }
+    }
+
+    /// Shift-Delete: `TryDeletingPopupLine` on the keyboard-selected row.
+    /// Only history rows can be deleted; otherwise the field deletes forward.
+    private mutating func deleteSuggestion() {
+        guard state.isPopupOpen, !state.isComposing, let line = state.popup.selected,
+              state.popup.rows.indices.contains(line), state.popup.rows[line].kind == .history else {
+            handled = false
+            return
+        }
+        let url = state.popup.rows[line].url
+        state.popup.rows.remove(at: line)
+        // The query in flight may still return the deleted row.
+        state.generation &+= 1
+        effects.append(.cancelQuery)
+        effects.append(.deleteSuggestion(url))
+        if line == 0 { state.edit.inlineCompletion = "" }
+        guard !state.popup.rows.isEmpty else {
+            closePopup()
+            state.edit.selection = Self.caretAtEnd(state.edit.userText)
+            return
+        }
+        select(min(line, state.popup.rows.count - 1))
     }
 
     // MARK: Results

@@ -31,11 +31,13 @@ public final class AddressBarView: NSView {
     private let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
     private let chip = PageInfoChipButton()
-    private let field = AddressField()
+    let field = AddressField()
     private let panel = OmniboxSuggestionPanel()
     private let density = DensityBinding()
 
     private var reportedURL: URL?
+    /// Set by `focus()` for the responder change it causes.
+    var pendingFocusSource: OmnibarInput.FocusSource?
     private var security: BrowserSecurityState = .none
     private(set) var controller: OmnibarController!
 
@@ -140,15 +142,17 @@ public final class AddressBarView: NSView {
     }
 
     /// The focus coordinator's way in (Cmd-L, a new browser tab): focuses
-    /// the field with the full URL selected. Focusing again while focused
-    /// selects everything again, as in Chrome. This is the only place the
-    /// omnibar moves the first responder, and only on the coordinator's
-    /// behalf (`FocusEffectApplier`).
+    /// the field with the full URL selected (Chrome `SetFocus(true)`).
+    /// Focusing again while focused selects everything again. This is the
+    /// only place the omnibar moves the first responder, and only on the
+    /// coordinator's behalf (`FocusEffectApplier`).
     public func focus() {
         guard field.currentEditor() == nil else {
-            controller.send(controller.state.hasFocus ? .key(.selectAll) : .focusGained(.keyboard))
+            controller.send(controller.state.hasFocus ? .key(.focusLocation) : .focusGained(.keyboard))
             return
         }
+        pendingFocusSource = .keyboard
+        defer { pendingFocusSource = nil }
         window?.makeFirstResponder(field)
     }
 
@@ -174,8 +178,14 @@ public final class AddressBarView: NSView {
     // MARK: Events in
 
     private func fieldDidFocus() {
-        let mouse = NSApp.currentEvent.map { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) } ?? false
-        controller.send(.focusGained(mouse ? .mouse : .programmatic))
+        controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
+    }
+
+    /// A press in the field itself focused it (not a click elsewhere, such
+    /// as a new-tab button, that moved focus here).
+    private func isMouseDownInField(_ event: NSEvent?) -> Bool {
+        guard let event, [.leftMouseDown, .rightMouseDown].contains(event.type), event.window === window else { return false }
+        return field.bounds.contains(field.convert(event.locationInWindow, from: nil))
     }
 
     /// Reports what the field editor holds now. The applier's own writes
@@ -201,7 +211,8 @@ public final class AddressBarView: NSView {
         case .began: onEvent?(.didBeginEditing)
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
-        case .query, .cancelQuery, .deleteSuggestion: break
+        case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
+        case .query, .cancelQuery: break
         }
     }
 
@@ -263,9 +274,13 @@ extension AddressBarView: OmnibarFieldEditorSink {
 
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool { controller.send(.key(key)) }
 
-    func fieldEditorMouseDown(clickCount: Int) { controller.send(.fieldMouseDown(clickCount: clickCount)) }
+    func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?) {
+        controller.send(.fieldMouseDown(clickCount: clickCount, button: button, word: word))
+    }
 
     func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
+
+    var copyContent: OmnibarCopy? { OmnibarReducer.copyContent(of: controller.state, resolver: resolver) }
 
     var canUndo: Bool { controller.state.hasFocus && !controller.state.undo.isEmpty }
     var canRedo: Bool { controller.state.hasFocus && !controller.state.redo.isEmpty }
@@ -290,6 +305,9 @@ extension AddressBarView: NSTextFieldDelegate {
             controller.send(.key(.enter(.init(NSApp.currentEvent?.modifierFlags ?? []))))
         case #selector(NSResponder.cancelOperation(_:)): controller.send(.key(.escape))
         case #selector(NSResponder.selectAll(_:)): controller.send(.key(.selectAll))
+        // The Home key (Shift-Home extends); Cmd-Left is a caret move.
+        case #selector(NSResponder.scrollToBeginningOfDocument(_:)): controller.send(.key(.home(extend: false)))
+        case #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:)): controller.send(.key(.home(extend: true)))
         default: false
         }
     }

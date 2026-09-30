@@ -1,7 +1,7 @@
 public import Foundation
 
 /// History matches for the typed text.
-public final class HistorySuggestionProvider: BrowserSuggestionProvider {
+public final class HistorySuggestionProvider: BrowserSuggestionProvider, BrowserSuggestionDeleting {
     private let store: any BrowserHistoryStore
     private let limit: Int
     private let now: () -> Date
@@ -10,6 +10,10 @@ public final class HistorySuggestionProvider: BrowserSuggestionProvider {
         self.store = store
         self.limit = limit
         self.now = now
+    }
+
+    public func deleteSuggestion(_ url: URL) {
+        store.removeEntry(for: url)
     }
 
     public func suggestions(for text: String) async -> [BrowserSuggestion] {

@@ -38,4 +38,9 @@ public protocol BrowserSuggestionProvider: AnyObject {
     func suggestions(for text: String) async -> [BrowserSuggestion]
 }
 
+/// A provider whose rows the user can delete (Shift-Delete).
+public protocol BrowserSuggestionDeleting: AnyObject {
+    func deleteSuggestion(_ url: URL)
+}
+
 // MARK: - History

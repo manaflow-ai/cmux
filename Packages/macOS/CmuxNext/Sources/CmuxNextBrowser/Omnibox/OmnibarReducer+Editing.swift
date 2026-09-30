@@ -11,7 +11,7 @@ nonisolated extension OmnibarStep {
             // The field editor outlived editing (commit or cancel, focus on
             // its way to the page): only a real edit starts editing again.
             guard textChanged else { return }
-            beginFocus()
+            beginFocus(.programmatic)
         }
         if field.text != state.fieldText || kind != nil || field.marked != state.edit.marked && field.marked != nil {
             edit(field, kind ?? .insert)
@@ -24,6 +24,10 @@ nonisolated extension OmnibarStep {
 
     private mutating func edit(_ field: OmnibarInput.Field, _ kind: OmnibarState.EditKind) {
         let wasComposing = state.isComposing
+        // An edit is user input: nothing left to unelide or remember.
+        if state.mouse?.pressed == false { state.mouse = nil }
+        state.doubleClickWord = nil
+        defer { state.elided = false }
         if let marked = field.marked {
             // IME composition: record it, never complete, never write.
             if !wasComposing { pushUndo() }
@@ -71,7 +75,7 @@ nonisolated extension OmnibarStep {
     }
 
     private var currentUndoEntry: OmnibarState.UndoEntry {
-        let text = state.phase == .focused ? state.permanentText : state.visibleUserText
+        let text = state.phase == .focused ? state.fieldText : state.visibleUserText
         return .init(
             text: text,
             selection: OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(text)),
@@ -85,8 +89,11 @@ nonisolated extension OmnibarStep {
         guard field.selection != state.edit.selection || field.marked != state.edit.marked else { return }
         state.lastEditKind = nil
         if state.phase == .focused {
-            state.edit.selection = OmnibarRules.clamped(field.selection, length: OmnibarRules.length(state.permanentText))
+            state.edit.selection = OmnibarRules.clamped(field.selection, length: OmnibarRules.length(state.fieldText))
             state.edit.marked = nil
+            // Chrome `OnAfterPossibleChange`: a keystroke or caret move
+            // unelides; a press defers it to the release.
+            if state.mouse == nil { unelide(.other) }
             return
         }
         let compositionEnded = state.isComposing && field.marked == nil
@@ -110,41 +117,6 @@ nonisolated extension OmnibarStep {
         if requery { refreshSuggestions() }
     }
 
-    /// Chrome: the single click that focuses the field selects everything,
-    /// unless it dragged a selection of its own.
-    mutating func fieldMouseUp() {
-        defer { state.mouse = nil }
-        guard state.mouse?.selectAllOnRelease == true, state.hasFocus, state.edit.selection.length == 0, !state.isComposing else { return }
-        acceptShownText()
-        state.edit.selection = Self.all(state.fieldText)
-    }
-
-    /// Cmd-L again, or select-all by the focusing click.
-    mutating func selectAll() {
-        guard state.hasFocus, !state.isComposing else {
-            handled = false
-            return
-        }
-        acceptShownText()
-        state.edit.selection = Self.all(state.fieldText)
-        state.lastEditKind = nil
-    }
-
-    /// Turns an inline completion or an arrowed row's text into typed text.
-    private mutating func acceptShownText() {
-        guard state.phase == .editing else { return }
-        if let selected = state.popup.selected, selected > 0, state.popup.rows.indices.contains(selected) {
-            state.edit.userText = state.fieldText
-            state.edit.inlineCompletion = ""
-            state.edit.suppressCompletion = true
-            refreshSuggestions()
-        } else if !state.edit.inlineCompletion.isEmpty {
-            state.edit.userText += state.edit.inlineCompletion
-            state.edit.inlineCompletion = ""
-            state.edit.suppressCompletion = true
-        }
-    }
-
     // MARK: Undo
 
     mutating func undo(redo isRedo: Bool) {
@@ -158,7 +130,8 @@ nonisolated extension OmnibarStep {
         state.lastEditKind = nil
         if entry.untouched {
             state.phase = .focused
-            state.edit = .init(selection: OmnibarRules.clamped(entry.selection, length: OmnibarRules.length(state.permanentText)))
+            state.elided = state.canElide && entry.text == state.displayText
+            state.edit = .init(selection: OmnibarRules.clamped(entry.selection, length: OmnibarRules.length(state.fieldText)))
             closePopup()
             effects.append(.cancelQuery)
         } else {

@@ -17,6 +17,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     }
 
     var editor: OmnibarFieldEditor? { currentEditor() as? OmnibarFieldEditor }
+    private var isForwardingRightMouse = false
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
@@ -32,8 +33,27 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // editor (which reports the up); the focus coordinator sees the
         // responder change. Chrome's select-all on the focusing click is a
         // state machine rule.
-        sink?.fieldEditorMouseDown(clickCount: event.clickCount)
+        sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
+        sink?.fieldEditorMouseUp()
+    }
+
+    /// Chrome for Mac: a right-click on the unfocused omnibar focuses it and
+    /// selects all before the context menu opens. The field editor then
+    /// runs its own menu (with Paste and Go).
+    override func rightMouseDown(with event: NSEvent) {
+        // The field editor passes an unhandled right-click to its next
+        // responder, this field: never forward it back.
+        guard !isForwardingRightMouse else { return }
+        isForwardingRightMouse = true
+        defer { isForwardingRightMouse = false }
+        sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .right, word: nil)
+        if currentEditor() == nil { window?.makeFirstResponder(self) }
+        if let editor = currentEditor() as? NSTextView {
+            editor.rightMouseDown(with: event)
+        } else {
+            super.rightMouseDown(with: event)
+        }
         sink?.fieldEditorMouseUp()
     }
 

@@ -348,16 +348,17 @@ decides what the field shows and what each key and click means.
 | Phase | Field shows | Entered by |
 | --- | --- | --- |
 | `idle` | compact page URL (host at full strength), or `retainedText` (plain) | start, focus lost, second Escape |
-| `focused` | full page URL, all selected on entry; page URL changes replace it | focus gained, first Escape, undo to the untouched text |
+| `focused` | page URL, all selected on entry: elided (steady state) after a click, programmatic focus or Escape, full after Cmd-L or any other selection; page URL changes replace it | focus gained, the revert Escape, undo to the untouched text |
 | `editing` | `userText + inlineCompletion`, or the arrowed row's text | any edit, focus gained with retained text |
 | `committing(display)` | compact URL of `display` while focus returns to the page | Enter, row click, Paste and Go |
 
 `editing` data: `userText` (marked IME text included), `inlineCompletion` (the selected suffix),
 `selection` (UTF-16, as `NSTextView` reports it), `marked` (the IME composition range),
-`suppressCompletion`. Popup data: `rows`, `selected` (keyboard highlight: this row drives the field text and
+`suppressCompletion`. `focused` data: `elided` (the field shows `BrowserURLDisplay.displayText`
+instead of the full URL). Mouse data: `mouse` (the press being tracked: click count, button,
+`selectAllOnRelease`, the word under a click on the elided URL) and `doubleClickWord`. Popup data: `rows`, `selected` (keyboard highlight: this row drives the field text and
 Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location over the rows),
-`stale` (rows belong to older text). There is one query `generation`, a focusing-click
-count, and an undo and a redo stack owned by the machine. The field editor's AppKit undo is off.
+`stale` (rows belong to older text). There is one query `generation`, and an undo and a redo stack owned by the machine. The field editor's AppKit undo is off.
 
 ### Events (`OmnibarInput`)
 
@@ -371,18 +372,16 @@ count, and an undo and a redo stack owned by the machine. The field editor's App
   character of a selected inline completion, the text does not change, but the event is still an edit and re-queries.
 - Keys taken before the field editor's default: `up`, `down`, `tab`, `backTab`,
   `enter(currentTab | newBackgroundTab (Cmd) | newForegroundTab (Shift-Cmd, Option) | newWindow (Shift))`,
-  `escape`, `selectAll` (Cmd-L when the field already has focus), `undo`, `redo`.
-- Mouse: `fieldMouseDown(clickCount)`, `fieldMouseUp`, `rowHover(row?, pointer)`,
+  `escape`, `selectAll` (Cmd-A), `focusLocation` (Cmd-L when the field already has focus),
+  `home(extend)` (Home, Shift-Home), `deleteSuggestion` (Shift-Delete), `undo`, `redo`.
+- Mouse: `fieldMouseDown(clickCount, button, word)`, `fieldMouseUp`, `rowHover(row?, pointer)`,
   `rowClick(row, disposition)`, `popupScroll`.
 - Async and page: `suggestions(generation, rows)`, `pageURLChanged`, `searchEngineChanged`,
   `pasteAndGo(text)`.
 
 ### Rules
 
-- Focus shows the full URL, all selected. A single click that focuses the field selects
-  everything on mouse-up, unless the click dragged its own selection. Later clicks place the caret.
-  A double-click selects a word and a triple-click selects all (the field editor does this; the
-  machine records the selection). Cmd-L while focused selects all again.
+- Selection and focus follow Chrome for Mac; see the table below.
 - Focus lost (a click outside, Tab, another pane) never commits. It closes the card and keeps
   the typed text in the idle field (Chrome). The next focus restores it, all selected. A page
   navigation replaces the retained text.
@@ -403,13 +402,13 @@ count, and an undo and a redo stack owned by the machine. The field editor's App
   click's modifiers. The card has at most 8 rows and never scrolls; the wheel over it is swallowed.
 - If results arrive while the user arrows through rows, the chosen row stays selected. If the chosen
   row is not in the new results, the machine keeps the old rows.
-- Escape once reverts to the page URL (`focused`, all selected; Cmd-Z brings the text back).
-  Escape with nothing to revert ends editing (`.cancel`) and the chrome returns focus to the
-  page through the coordinator (`onReturnFocusToPage`).
+- Escape does one step per press (table below). The revert step goes to `focused`, all
+  selected, and Cmd-Z brings the text back. Escape on untouched text ends editing (`.cancel`) and
+  the chrome returns focus to the page through the coordinator (`onReturnFocusToPage`).
 - IME: while marked text is pending, suggestions still update, but nothing completes. Arrows, Tab,
   Enter and Escape go to the input method, and the applier never writes the field. A row
   click or Paste and Go first commits the marked text (`unmarkText`).
-- Page URL changes: `focused` follows them (all-selected stays all-selected), `editing` never
+- Page URL changes: `focused` follows them (elided, all selected), `editing` never
   changes the typed text (Escape reverts to the new URL), and `committing` shows the new page.
 - Undo: consecutive edits of one kind share an entry, paste and IME composition each start one,
   and the first entry is the untouched URL. Undo and redo re-query.
@@ -418,11 +417,49 @@ count, and an undo and a redo stack owned by the machine. The field editor's App
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
 
+### Selection and focus (Chrome for Mac)
+
+Reference: Chromium `main`, fetched 2026-09-30. `OVV` is
+chrome/browser/ui/views/omnibox/omnibox_view_views.cc, `OEM` is
+chrome/browser/ui/omnibox/omnibox_edit_model.cc, `SC` is ui/views/selection_controller.cc,
+`OTU` is components/omnibox/browser/omnibox_text_util.cc. Tests: `OmnibarSelectionTests`
+(reducer) and `OmnibarSelectionViewTests` (real field editor).
+
+| Rule | Chromium source |
+| --- | --- |
+| A left or right press on the unfocused field arms select-all-on-release. The release selects all, unless the press dragged a selection of its own. | `OVV` `OnMousePressed`, `OnMouseDragged`, `OnMouseReleased` (`select_all_on_mouse_release_`) |
+| A focusing click keeps the steady-state (elided) URL: select-all never unelides. | `OVV` `UnapplySteadyStateElisions` ("If everything is selected ...") |
+| Any other selection shows the full URL and maps the selection by the elided text's offset. Keys and caret moves unelide at once; mouse selections unelide on release. | `OVV` `OnAfterPossibleChange` (`!is_mouse_pressed_`), `OnMouseReleased` (`kMouseRelease`) |
+| A drag that starts at the start of a URL-like selection keeps the scheme: `google.com/maps` becomes `https://www.google.com/maps`. A selection that reads as a search only shifts. | `OVV` `UnapplySteadyStateElisions` (`kMouseRelease`, `selection_classifes_as_search`) |
+| A click in the focused field places the caret; a double-click selects a word; a triple-click selects all (field editor granularity). | `SC` `OnMousePressed` (`aggregated_clicks_` 0, 1, 2) |
+| A double-click whose first click unelided selects the word under the first click, not the word now under the pointer. | `OVV` `OnMousePressed` (`next_double_click_selection_*`, crbug.com/40693090) |
+| A right-click on the unfocused field focuses it and selects all at the press, before the menu. On a focused field the field editor selects the word under the pointer unless the click is in the selection or all is selected. | `SC` `OnMousePressed`, `PlatformStyle::kSelectAllOnRightClickWhenUnfocused` and `kSelectWordOnRightClick` (both Mac only) |
+| Cmd-L focuses, shows the full URL and selects all, also while focused (then typed text is all selected). A programmatic focus selects all and stays elided. | `OVV` `SetFocus` (`OEM` `Unelide`, `select_all`) |
+| Cmd-A selects all and keeps the elided URL. | `OVV` `IsSelectAll`, `UnapplySteadyStateElisions` |
+| Home unelides even from select-all and puts the caret at 0 (Shift-Home selects to 0). | `OVV` `HandleKeyEvent` `VKEY_HOME` (`kHomeKeyPressed`) |
+| Typing replaces the selection. An inline completion is a selected suffix; Backspace removes it; Right arrow or any caret move accepts it. Tab moves to the next row (it does not accept). | `OEM` `OnAfterPossibleChange`, `OnTabPressed` |
+| Shift-Delete removes the keyboard-selected history row and moves the selection to the next row; on other rows the field deletes forward. | `OVV` `HandleKeyEvent` `VKEY_DELETE`, `OEM` `TryDeletingPopupLine` |
+| Escape: (1) an arrowed row reverts to the typed text, the card stays; (2) an open card closes, the text stays; (3) revert to the display text, all selected; if the user had not typed, focus also returns to the page in the same press. | `OEM` `OnEscapeKeyPressed` |
+| Blur clears the selection and shows the elided URL from its start. Typed text stays, unless it equals the display text. | `OVV` `OnBlur` |
+| A navigation while focused and untyped shows the new display text, all selected. Typed text never changes. | `OVV` `Update`, `OEM` `ResetDisplayTexts` |
+| Copy of the whole untouched URL, elided or full, copies the full page URL (also as a URL). Other text from the start that reads as a URL on the page's host gets the page's scheme; anything else copies as is. | `OEM` `AdjustTextForCopy`, `OTU` `AdjustTextForCopy`, `OVV` `OnBeforeCutOrCopy` |
+
+Differences: Chrome's Opt-Cmd-F (`IDC_FOCUS_SEARCH`, `LocationBarView::FocusSearch`) enters
+keyword mode for the default search engine; cmux has no keyword mode and binds nothing to it.
+Focus by Tab traversal does not restore the selection saved at blur (`OVV` `OnFocus`); it
+selects all. A drag that exceeds Chrome's drag threshold but ends with an empty selection
+still selects all (AppKit reports no threshold). Selection color is `Palette.textSelection` and
+the caret `Palette.textPrimary`, both derived from the Ghostty theme (`ThemeTokens`); both
+engines use this one omnibar (`BrowserChromeView` for every `BrowserTab`).
+
+Debug: `debug.omnibar` reports the machine next to the field editor (`consistent`), and
+`debug.mouse` (DEBUG builds) presses, drags and releases over a character index of the text.
+
 ### Effects and the applier
 
 `OmnibarReducer.reduce(state, input, resolver) -> (state, effects, handled)` is pure. `handled`
 false lets the field editor run its default. The effects are `query(generation, text)`, `cancelQuery`,
-`beep`, `began` and `ended(commit | open | cancel | blur)`. `OmnibarController` reduces inputs
+`beep`, `began`, `ended(commit | open | cancel | blur)` and `deleteSuggestion(url)`. `OmnibarController` reduces inputs
 first in, first out (inputs raised while a step runs are queued). It then applies
 `OmnibarPresentation(state)` through `OmnibarEffectApplier` and runs the effects. The applier is the only
 writer of the field and the card. It writes text, style and selection only when they differ from
