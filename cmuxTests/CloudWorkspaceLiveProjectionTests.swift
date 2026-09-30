@@ -459,4 +459,31 @@ struct CloudWorkspaceLiveProjectionTests {
         )
         #expect(plan.obsolete.isEmpty, "A local preview with its bound workspace is not obsolete")
     }
+
+    @Test("A membership-less preview does not block a second bound workspace", arguments: [false, true])
+    func membershiplessPreviewDoesNotBlockSecondWorkspace(isPort: Bool) async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let first = live.id()
+        let second = live.id()
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        let bindings = [first: binding, second: binding]
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { bindings }))
+        let placement = CloudPlacementCoordinator(binding: { bindings[$0] })
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: placement, cloudWorkspaceProjectionCoordinator: coordinator)
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let preview = isPort
+            ? CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
+            : CmuxTuiSnapshotParser.display(machine: machine)
+
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [preview])
+        catalog.record(SurfaceProjection(
+            resource: preview.id, workspaceID: first, panelID: UUID(), remoteWorkspaceID: "a"
+        ))
+        coordinator.request(machine: machine, catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(coordinator.failures[second] == nil)
+        #expect(catalog.projections.contains { $0.resource == preview.id && $0.workspaceID == second })
+    }
 }

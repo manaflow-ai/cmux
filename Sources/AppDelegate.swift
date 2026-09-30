@@ -2650,6 +2650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
+        TeamsClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
         MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations, readRequests: cloudReads)
@@ -10543,9 +10544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
-        let sidebarWidth = sessionWindowSnapshot?.sidebar.width
-            .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
-            ?? SessionPersistencePolicy.defaultSidebarWidth
+        let sidebarWidth = SessionPersistencePolicy.sanitizedSidebarWidth(
+            sessionWindowSnapshot?.sidebar.width
+        )
 #if DEBUG
         let shouldStartWithHiddenSidebarForTerminalViewportUITest =
             ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
