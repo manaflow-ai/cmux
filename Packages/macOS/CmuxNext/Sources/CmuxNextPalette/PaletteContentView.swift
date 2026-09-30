@@ -249,7 +249,13 @@ final class PaletteContentView: NSView {
         layer?.removeAnimation(forKey: "sublayerTransform")
     }
 
-    private func scaleAboutTopCenter(_ scale: CGFloat) -> CATransform3D {
+    /// Center of the glass panel in this view's coordinates.
+    var panelCenter: CGPoint {
+        let margin = PaletteLayout.shadowMargin
+        return CGPoint(x: margin + PaletteLayout.width / 2, y: bounds.height - margin - PaletteLayout.height / 2)
+    }
+
+    func scaleAboutTopCenter(_ scale: CGFloat) -> CATransform3D {
         // sublayerTransform pivots on the layer's center; shift the pivot to
         // the glass panel's top edge (maxY in the unflipped layer).
         let pivot = CGPoint(x: bounds.midX, y: bounds.height - PaletteLayout.shadowMargin)
