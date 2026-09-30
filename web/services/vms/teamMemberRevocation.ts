@@ -1,4 +1,5 @@
 import { deleteIdentitySnapshot } from "../auth/identitySnapshot";
+import { revokeRouteTokensForTeam, revokeRouteTokensForTeamMember } from "../coderouter/repository";
 import { invalidateNativeAuthCacheForUser } from "./auth";
 import { revokeTeamNetworkAccess, type TeamNetworkRevocationResult } from "./teamNetworkAccess";
 import { runVmWorkflow } from "./workflows";
@@ -12,6 +13,8 @@ import { runVmWorkflow } from "./workflows";
  * - Their identity snapshot is deleted, so every snapshot-backed check asks
  *   Stack again instead of reusing a team list up to ten minutes old.
  * - This instance's native verification cache drops their entries.
+ * - Their CodeRouter CLI sessions for the team end (revoked_at), instead of
+ *   living out their 30-day lifetime.
  *
  * Endpoint lease rows are not touched: on Freestyle their tokens are ledger
  * entries only (the network is the credential), and the provider's lease
@@ -22,12 +25,15 @@ export type TeamRevocationDependencies = {
   readonly revokeNetworkAccess: (input: { readonly teamId: string; readonly userId?: string }) => Promise<TeamNetworkRevocationResult>;
   readonly deleteIdentitySnapshot: (userId: string) => Promise<void>;
   readonly invalidateAuthCache: (userId: string) => void;
+  readonly revokeCoderouterSessions: (input: { readonly teamId: string; readonly userId?: string }) => Promise<void>;
 };
 
 const defaultDependencies: TeamRevocationDependencies = {
   revokeNetworkAccess: (input) => runVmWorkflow(revokeTeamNetworkAccess(input)),
   deleteIdentitySnapshot: (userId) => deleteIdentitySnapshot(userId, undefined, { throwOnError: true }),
   invalidateAuthCache: invalidateNativeAuthCacheForUser,
+  revokeCoderouterSessions: ({ teamId, userId }) =>
+    userId === undefined ? revokeRouteTokensForTeam(teamId) : revokeRouteTokensForTeamMember({ teamId, userId }),
 };
 
 /**
@@ -39,12 +45,14 @@ export async function revokeTeamMemberAccess(
   dependencies: TeamRevocationDependencies = defaultDependencies,
 ): Promise<TeamNetworkRevocationResult> {
   dependencies.invalidateAuthCache(input.userId);
-  const [network, snapshot] = await Promise.allSettled([
+  const [network, snapshot, sessions] = await Promise.allSettled([
     dependencies.revokeNetworkAccess({ teamId: input.teamId, userId: input.userId }),
     dependencies.deleteIdentitySnapshot(input.userId),
+    dependencies.revokeCoderouterSessions({ teamId: input.teamId, userId: input.userId }),
   ]);
   if (network.status === "rejected") throw network.reason;
   if (snapshot.status === "rejected") throw snapshot.reason;
+  if (sessions.status === "rejected") throw sessions.reason;
   return network.value;
 }
 
@@ -57,5 +65,11 @@ export async function revokeTeamAccess(
   input: { readonly teamId: string },
   dependencies: TeamRevocationDependencies = defaultDependencies,
 ): Promise<TeamNetworkRevocationResult> {
-  return await dependencies.revokeNetworkAccess({ teamId: input.teamId });
+  const [network, sessions] = await Promise.allSettled([
+    dependencies.revokeNetworkAccess({ teamId: input.teamId }),
+    dependencies.revokeCoderouterSessions({ teamId: input.teamId }),
+  ]);
+  if (network.status === "rejected") throw network.reason;
+  if (sessions.status === "rejected") throw sessions.reason;
+  return network.value;
 }
