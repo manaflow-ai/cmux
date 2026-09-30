@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
+import { dashboardClient } from "../lib/rpc";
 import { useDashboardUrl } from "../lib/url";
 import {
   clearCoderouterOrganizationScope,
@@ -120,21 +121,10 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     url.replaceSearch(optimisticSearch);
 
     const persistRequest = async () => {
-      const cancellation = new AbortController();
-      const timeout = setTimeout(
-        () => cancellation.abort(new Error("Team switch timed out")),
-        CATALOG_TIMEOUT_MS,
-      );
       try {
-        const response = await fetch("/api/subrouter/teams", {
-          method: "PATCH",
-          headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ teamId: team.id }),
-          signal: cancellation.signal,
-        });
-        if (!response.ok) throw new Error("Could not switch dashboard team");
-      } finally {
-        clearTimeout(timeout);
+        await dashboardClient.teams.select({ teamId: team.id }, { context: { timeoutMs: CATALOG_TIMEOUT_MS } });
+      } catch (cause) {
+        throw new Error("Could not switch dashboard team", { cause });
       }
 
       const confirmed = confirmedSwitchState.current;
@@ -226,13 +216,9 @@ export function selectedTeam(
   return teams.find((team) => team.personal) ?? teams[0];
 }
 
-async function loadTeamCatalog(cancellationSignal: AbortSignal): Promise<DashboardTeamCatalog> {
-  const response = await fetch("/api/subrouter/teams", {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.any([cancellationSignal, AbortSignal.timeout(CATALOG_TIMEOUT_MS)]),
-  });
-  if (!response.ok) throw new Error("Could not load dashboard teams");
-  const parsed = parseTeamCatalog(await response.json());
+async function loadTeamCatalog(signal: AbortSignal): Promise<DashboardTeamCatalog> {
+  const catalog = await dashboardClient.teams.catalog(undefined, { signal, context: { timeoutMs: CATALOG_TIMEOUT_MS } });
+  const parsed = parseTeamCatalog(catalog);
   if (!parsed) throw new Error("Invalid dashboard team response");
   return parsed;
 }

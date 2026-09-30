@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Badge } from "@/dashboard-app/components/settings-ui/feedback";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
-import { TeamApiError, type TeamRole, teamErrorCode } from "@/dashboard-app/queries/teams";
+import { type TeamRole, teamErrorCode, teamErrorMessage } from "@/dashboard-app/queries/teams";
 import { initialsFor, planLabelKey } from "./team-logic";
 
 export function TeamAvatar({
@@ -99,7 +99,8 @@ export function useTeamErrorText(): (error: unknown) => string {
   return (error) => {
     const code = teamErrorCode(error);
     if (t.has(code)) return t(code);
-    if (error instanceof TeamApiError && error.message) return error.message;
+    const message = teamErrorMessage(error);
+    if (message) return message;
     return t("generic");
   };
 }

@@ -1,16 +1,20 @@
 "use client";
 
-import { useUser, type CurrentUser } from "@hexclave/next";
+import { useUser } from "@hexclave/next";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { InlineError, SettingsPanel, SettingsSwitch } from "@/dashboard-app/components/settings-ui";
-
-type NotificationCategory = ReturnType<CurrentUser["useNotificationCategories"]>[number];
+import {
+  type SettingsNotificationCategory,
+  settingsNotificationsQuery,
+  useRefreshSettings,
+} from "@/dashboard-app/queries/settings";
 
 /** `/dashboard/settings/notifications`: email category switches. */
 export function NotificationSettings() {
   const t = useTranslations("dashboard.settings.notifications");
-  const categories = useUser({ or: "redirect" }).useNotificationCategories();
+  const categories = useSuspenseQuery(settingsNotificationsQuery).data;
 
   return (
     <SettingsPanel title={t("heading")}>
@@ -27,8 +31,10 @@ export function NotificationSettings() {
   );
 }
 
-function NotificationRow({ category }: { readonly category: NotificationCategory }) {
+function NotificationRow({ category }: { readonly category: SettingsNotificationCategory }) {
   const t = useTranslations("dashboard.settings.notifications");
+  const user = useUser({ or: "redirect" });
+  const refresh = useRefreshSettings();
   // The switch reflects the requested value while the update is in flight.
   const [optimistic, setOptimistic] = useState<boolean | null>(null);
   const [failed, setFailed] = useState(false);
@@ -38,7 +44,11 @@ function NotificationRow({ category }: { readonly category: NotificationCategory
     setOptimistic(enabled);
     setFailed(false);
     try {
-      await category.setEnabled(enabled);
+      // The SDK category, so the write runs with the user's own session.
+      const sdk = (await user.listNotificationCategories()).find((candidate) => candidate.id === category.id);
+      if (!sdk) throw new Error("notification_category_not_found");
+      await sdk.setEnabled(enabled);
+      await refresh();
     } catch {
       setFailed(true);
     } finally {

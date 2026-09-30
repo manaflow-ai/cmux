@@ -812,7 +812,6 @@
         "description": "Timovi dijele članove, naplatu i coderouter račune. Otvorite tim da njime upravljate.",
         "create": "Kreiraj tim",
         "count": "{count, plural, one {# tim} few {# tima} other {# timova}}",
-        "members": "{count, plural, one {# član} few {# člana} other {# članova}}",
         "selected": "Trenutni",
         "emptyTitle": "Još nema timova",
         "emptyBody": "Kreirajte tim da pozovete ljude i dijelite jedan plan.",

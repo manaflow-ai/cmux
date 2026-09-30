@@ -3,6 +3,7 @@ import { isRedirect } from "@tanstack/react-router";
 import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 import { loadMessages } from "../i18n/messages";
 import { createScreenQueryClient, renderDashboardScreen } from "./helpers/dashboard-spa-render";
+import { fakeDashboardRpcFetch, refuse } from "./helpers/fake-dashboard-rpc";
 
 const catalogs = { en: await loadMessages("en"), ja: await loadMessages("ja") };
 let locale: keyof typeof catalogs = "en";
@@ -138,8 +139,11 @@ describe("coderouter screen", () => {
   });
 
   test("sends a viewer with no coderouter team to the dashboard home", async () => {
-    globalThis.fetch = (async () =>
-      Response.json({ error: { code: "no_teams" } }, { status: 409 })) as unknown as typeof fetch;
+    globalThis.fetch = fakeDashboardRpcFetch({
+      "coderouter.overview": () => {
+        throw refuse(409, "no_teams");
+      },
+    });
     const route = coderouterRoutes[0];
     const loader = route.options.loader as (input: unknown) => Promise<unknown>;
     const thrown = await loader({

@@ -1,6 +1,12 @@
 "use client";
 
 import type { CurrentUser, OAuthProvider } from "@hexclave/next";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import {
+  type SettingsOAuthProvider,
+  settingsOAuthProvidersQuery,
+  useRefreshSettings,
+} from "@/dashboard-app/queries/settings";
 import { KnownErrors } from "@hexclave/shared";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -42,8 +48,16 @@ export function providerDisplayName(type: string): string {
  */
 export function ConnectedAccountsSection({ user }: { readonly user: CurrentUser }) {
   const t = useTranslations("dashboard.settings.auth.connected");
-  const providers = user.useOAuthProviders();
-  const [removing, setRemoving] = useState<OAuthProvider | null>(null);
+  const providers = useSuspenseQuery(settingsOAuthProvidersQuery).data.linked;
+  const refresh = useRefreshSettings();
+  const [removing, setRemoving] = useState<SettingsOAuthProvider | null>(null);
+  /** The SDK provider `id`, so a write runs with Hexclave's user-level rules. */
+  const withProvider = async (id: string, write: (provider: OAuthProvider) => Promise<void>) => {
+    const provider = (await user.listOAuthProviders()).find((candidate) => candidate.id === id);
+    if (!provider) throw new Error("oauth_provider_not_found");
+    await write(provider);
+    await refresh();
+  };
   const [run, state] = useAsyncAction(t("actionError"), (error) =>
     KnownErrors.OAuthProviderAccountIdAlreadyUsedForSignIn.isInstance(error) ? t("usedBySomeoneElse") : null,
   );
@@ -52,11 +66,13 @@ export function ConnectedAccountsSection({ user }: { readonly user: CurrentUser 
   const signInCount = providers.filter((provider) => provider.allowSignIn).length;
   const onlyMethod = isOnlySignInMethod("oauth", signInFacts(user, signInCount));
 
-  const setSignIn = (provider: OAuthProvider, allowSignIn: boolean) =>
-    run(async () => {
-      const result = await provider.update({ allowSignIn });
-      if (result.status === "error") throw result.error;
-    });
+  const setSignIn = (provider: SettingsOAuthProvider, allowSignIn: boolean) =>
+    run(() =>
+      withProvider(provider.id, async (sdk) => {
+        const result = await sdk.update({ allowSignIn });
+        if (result.status === "error") throw result.error;
+      })
+    );
 
   return (
     <SettingsPanel title={t("title")} description={t("description")}>
@@ -108,7 +124,7 @@ export function ConnectedAccountsSection({ user }: { readonly user: CurrentUser 
         confirmLabel={t("remove")}
         errorMessage={t("actionError")}
         onConfirm={async () => {
-          await removing?.delete();
+          if (removing) await withProvider(removing.id, (sdk) => sdk.delete());
         }}
       />
     </SettingsPanel>

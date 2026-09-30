@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { withDashboardRouter } from "./helpers/dashboard-router";
+import { fakeDashboardRpcFetch, type RecordedCall, refuse } from "./helpers/fake-dashboard-rpc";
 import { teamsNextIntlMock } from "./helpers/teams-ui-intl";
 
 
@@ -14,7 +15,7 @@ const { AcceptInvite, acceptAndOpenTeam, acceptInviteState, acceptReturnPath, in
   "../dashboard-app/screens/teams/accept-invite"
 );
 const { InviteResponseCard } = await import("../dashboard-app/screens/teams/invite-response");
-const { TeamApiError } = await import("../dashboard-app/queries/teams");
+const { teamErrorCode } = await import("../dashboard-app/queries/teams");
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -83,11 +84,8 @@ describe("accept invitation page", () => {
   });
 
   test("joining posts the code and opens the team", async () => {
-    const requests: Request[] = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      requests.push(new Request(new URL(String(input), "https://cmux.test"), init));
-      return new Response(JSON.stringify({ teamId: "team 9" }), { status: 200 });
-    }) as typeof fetch;
+    const calls: RecordedCall[] = [];
+    globalThis.fetch = fakeDashboardRpcFetch({ "teams.accept": () => ({ teamId: "team 9" }) }, { calls });
     const { teamApi } = await import("../dashboard-app/queries/teams");
     const visited: string[] = [];
     let refreshed = false;
@@ -101,15 +99,17 @@ describe("accept invitation page", () => {
     });
 
     expect(error).toBeNull();
-    expect(new URL(requests[0].url).pathname).toBe("/api/teams/accept");
-    expect(await requests[0].json()).toEqual({ code: "abc" });
+    expect(calls).toEqual([{ path: "teams.accept", input: { code: "abc" } }]);
     expect(refreshed).toBe(true);
     expect(visited).toEqual(["team 9"]);
   });
 
   test("a refused join reports the error code and does not navigate", async () => {
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: { code: "email_mismatch", message: "x" } }), { status: 409 })) as typeof fetch;
+    globalThis.fetch = fakeDashboardRpcFetch({
+      "teams.accept": () => {
+        throw refuse(409, "email_mismatch", "x");
+      },
+    });
     const { teamApi } = await import("../dashboard-app/queries/teams");
     const visited: string[] = [];
     const error = await acceptAndOpenTeam("abc", {
@@ -117,8 +117,7 @@ describe("accept invitation page", () => {
       afterJoin: async () => undefined,
       openTeam: (teamId) => visited.push(teamId),
     });
-    expect(error).toBeInstanceOf(TeamApiError);
-    expect((error as InstanceType<typeof TeamApiError>).code).toBe("email_mismatch");
+    expect(teamErrorCode(error)).toBe("email_mismatch");
     expect(visited).toEqual([]);
   });
 });

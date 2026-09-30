@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { procedureResponse } from "./helpers/dashboard-procedure";
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
 let stackConfigured = true;
@@ -153,6 +154,7 @@ mock.module("../services/coderouter/vmMetrics", () => ({
 mock.module("../services/coderouter/teamMachines", () => ({
   listTeamMachines: async () => [{
     vmId: "0f4b1c2e-1111-4222-8333-444455556666",
+    providerVmId: null,
     displayName: "builder-01",
     destroyed: false,
     createdAt: "2026-08-01T00:00:00.000Z",
@@ -169,7 +171,9 @@ mock.module("../services/coderouter/repository", () => ({
   listAccounts: async () => [],
 }));
 
-const { GET } = await import("../app/api/dashboard/coderouter/route");
+const { overview } = await import("../orpc/server/dashboard/coderouter-overview");
+const GET = (request: Request) =>
+  procedureResponse(overview, { team: new URL(request.url).searchParams.get("team") }, request);
 
 async function get(team?: string) {
   const url = new URL("https://cmux.test/api/dashboard/coderouter");
@@ -184,7 +188,7 @@ const twoTeams = () => [
   { teamId: "team-2", teamName: "Team Two", use: true, manageAccounts: true },
 ];
 
-describe("GET /api/dashboard/coderouter", () => {
+describe("dashboard.coderouter.overview", () => {
   beforeEach(() => {
     stackConfigured = true;
     authorizationAvailable = true;
@@ -206,7 +210,6 @@ describe("GET /api/dashboard/coderouter", () => {
     const { response, text, body } = await get("team-1");
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(verifyOptions).toEqual([{ allowCookie: true, listAllTeams: true }]);
     expect(body.selectedTeam).toEqual({
       id: "team-1",

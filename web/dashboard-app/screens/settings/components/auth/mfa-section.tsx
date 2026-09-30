@@ -1,6 +1,6 @@
 "use client";
 
-import { useStackApp, type CurrentUser } from "@hexclave/next";
+import type { CurrentUser } from "@hexclave/next";
 import { createTOTPKeyURI, verifyTOTP } from "@oslojs/otp";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -30,9 +30,8 @@ export async function totpQrCode(
 }
 
 /** TOTP multi-factor authentication: enroll with a QR code, or disable. */
-export function MfaSection({ user }: { readonly user: CurrentUser }) {
+export function MfaSection({ user, projectName }: { readonly user: CurrentUser; readonly projectName: string }) {
   const t = useTranslations("dashboard.settings.auth.mfa");
-  const project = useStackApp().useProject();
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
   const [run, state] = useAsyncAction(t("startError"));
@@ -41,7 +40,7 @@ export function MfaSection({ user }: { readonly user: CurrentUser }) {
   const start = () =>
     run(async () => {
       const secret = crypto.getRandomValues(new Uint8Array(20));
-      const qrCodeUrl = await totpQrCode(project.displayName, user.primaryEmail ?? user.id, secret);
+      const qrCodeUrl = await totpQrCode(projectName, user.primaryEmail ?? user.id, secret);
       setEnrollment({ secret, qrCodeUrl });
     });
 

@@ -34,15 +34,16 @@ describe("isOnlySignInMethod", () => {
 
 type FakeUser = Parameters<typeof PasskeySection>[0]["user"];
 
-function fakeUser(overrides: Record<string, unknown>, verifiedSignInEmail = true): FakeUser {
+function signInEmails(verified = true) {
+  return [{ id: "c1", value: "me@example.com", type: "email" as const, isPrimary: true, isVerified: verified, usedForAuth: true }];
+}
+
+function fakeUser(overrides: Record<string, unknown>): FakeUser {
   return {
     hasPassword: false,
     otpAuthEnabled: false,
     passkeyAuthEnabled: false,
     oauthProviders: [],
-    useContactChannels: () => [
-      { id: "c1", value: "me@example.com", type: "email", isPrimary: true, isVerified: verifiedSignInEmail, usedForAuth: true },
-    ],
     update: async () => undefined,
     registerPasskey: async () => ({ status: "ok", data: undefined }),
     ...overrides,
@@ -51,29 +52,29 @@ function fakeUser(overrides: Record<string, unknown>, verifiedSignInEmail = true
 
 describe("sign-in method sections", () => {
   test("passkey cannot be disabled when it is the only sign-in method", () => {
-    const html = renderToStaticMarkup(<PasskeySection user={fakeUser({ passkeyAuthEnabled: true })} />);
+    const html = renderToStaticMarkup(<PasskeySection user={fakeUser({ passkeyAuthEnabled: true })} channels={signInEmails()} />);
     expect(html).toContain("onlyMethod");
     expect(html).not.toContain(">delete<");
   });
 
   test("passkey can be disabled when a password also exists", () => {
     const html = renderToStaticMarkup(
-      <PasskeySection user={fakeUser({ passkeyAuthEnabled: true, hasPassword: true })} />,
+      <PasskeySection user={fakeUser({ passkeyAuthEnabled: true, hasPassword: true })} channels={signInEmails()} />,
     );
     expect(html).toContain(">delete<");
     expect(html).not.toContain("onlyMethod");
   });
 
   test("passkey registration needs a verified sign-in email", () => {
-    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({}, false)} />)).toContain("needsVerifiedEmail");
-    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({})} />)).toContain(">add<");
+    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({})} channels={signInEmails(false)} />)).toContain("needsVerifiedEmail");
+    expect(renderToStaticMarkup(<PasskeySection user={fakeUser({})} channels={signInEmails()} />)).toContain(">add<");
   });
 
   test("OTP cannot be disabled when it is the only sign-in method", () => {
-    const html = renderToStaticMarkup(<OtpSection user={fakeUser({ otpAuthEnabled: true })} />);
+    const html = renderToStaticMarkup(<OtpSection user={fakeUser({ otpAuthEnabled: true })} channels={signInEmails()} />);
     expect(html).toContain("onlyMethod");
     const withOAuth = renderToStaticMarkup(
-      <OtpSection user={fakeUser({ otpAuthEnabled: true, oauthProviders: [{ id: "github" }] })} />,
+      <OtpSection user={fakeUser({ otpAuthEnabled: true, oauthProviders: [{ id: "github" }] })} channels={signInEmails()} />,
     );
     expect(withOAuth).toContain(">disable<");
   });

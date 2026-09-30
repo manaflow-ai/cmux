@@ -812,7 +812,6 @@
         "description": "Teams deler medlemmer, fakturering og coderouter-konti. Åbn et team for at administrere det.",
         "create": "Opret team",
         "count": "{count, plural, one {# team} other {# teams}}",
-        "members": "{count, plural, one {# medlem} other {# medlemmer}}",
         "selected": "Aktuelt",
         "emptyTitle": "Ingen teams endnu",
         "emptyBody": "Opret et team for at invitere personer og dele én plan.",

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ContactChannel, CurrentUser } from "@hexclave/next";
+import { type SettingsEmail, useRefreshSettings } from "@/dashboard-app/queries/settings";
 import { KnownErrors } from "@hexclave/shared";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -25,14 +26,31 @@ import {
 
 type RowActionRunner = (action: () => Promise<void>) => Promise<boolean>;
 
+/** The SDK contact channel `id`, so a write runs with Hexclave's user-level rules. */
+async function contactChannel(user: CurrentUser, id: string): Promise<ContactChannel> {
+  const channel = (await user.listContactChannels()).find((candidate) => candidate.id === id);
+  if (!channel) throw new Error("contact_channel_not_found");
+  return channel;
+}
+
 /** Emails table with add, verify, primary, sign-in and remove actions. */
-export function EmailsSection({ user }: { readonly user: CurrentUser }) {
+export function EmailsSection({
+  user,
+  channels,
+}: {
+  readonly user: CurrentUser;
+  readonly channels: readonly SettingsEmail[];
+}) {
   const t = useTranslations("dashboard.settings.auth.emails");
-  const channels = user.useContactChannels();
+  const refresh = useRefreshSettings();
+  const onChannel = (id: string, write: (channel: ContactChannel) => Promise<void>) => async () => {
+    await write(await contactChannel(user, id));
+    await refresh();
+  };
   const emails = sortEmailChannels(channels);
   const lastSignInEmail = isLastSignInEmail(channels);
   const [adding, setAdding] = useState(channels.length === 0);
-  const [removing, setRemoving] = useState<ContactChannel | null>(null);
+  const [removing, setRemoving] = useState<SettingsEmail | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [runRowAction, rowState] = useAsyncAction(t("actionError"), (error) =>
     KnownErrors.ContactChannelAlreadyUsedForAuthBySomeoneElse.isInstance(error)
@@ -59,6 +77,7 @@ export function EmailsSection({ user }: { readonly user: CurrentUser }) {
           onDone={(message) => {
             setAdding(false);
             setNotice(message);
+            void refresh();
           }}
           onCancel={() => setAdding(false)}
         />
@@ -72,6 +91,7 @@ export function EmailsSection({ user }: { readonly user: CurrentUser }) {
               actions={emailRowActions(channel, lastSignInEmail)}
               pending={rowState.pending}
               run={runRowAction}
+              onChannel={onChannel}
               onNotice={setNotice}
               onRemove={() => setRemoving(channel)}
             />
@@ -90,7 +110,7 @@ export function EmailsSection({ user }: { readonly user: CurrentUser }) {
         confirmLabel={t("remove")}
         errorMessage={t("actionError")}
         onConfirm={async () => {
-          await removing?.delete();
+          if (removing) await onChannel(removing.id, (channel) => channel.delete())();
         }}
       />
     </SettingsPanel>
@@ -104,7 +124,7 @@ function AddEmailForm({
   onCancel,
 }: {
   readonly user: CurrentUser;
-  readonly channels: readonly ContactChannel[];
+  readonly channels: readonly SettingsEmail[];
   readonly onDone: (notice: string) => void;
   readonly onCancel: () => void;
 }) {
@@ -174,13 +194,15 @@ function EmailRow({
   actions,
   pending,
   run,
+  onChannel,
   onNotice,
   onRemove,
 }: {
-  readonly channel: ContactChannel;
+  readonly channel: SettingsEmail;
   readonly actions: readonly EmailRowAction[];
   readonly pending: boolean;
   readonly run: RowActionRunner;
+  readonly onChannel: (id: string, write: (channel: ContactChannel) => Promise<void>) => () => Promise<void>;
   readonly onNotice: (notice: string | null) => void;
   readonly onRemove: () => void;
 }) {
@@ -188,13 +210,13 @@ function EmailRow({
   const handlers: Record<EmailRowAction["kind"], () => void> = {
     sendVerification: () => {
       onNotice(null);
-      void run(() => channel.sendVerificationEmail()).then((ok) => {
+      void run(onChannel(channel.id, (sdk) => sdk.sendVerificationEmail())).then((ok) => {
         if (ok) onNotice(t("verificationSent", { email: channel.value }));
       });
     },
-    setPrimary: () => void run(() => channel.update({ isPrimary: true })),
-    useForSignIn: () => void run(() => channel.update({ usedForAuth: true })),
-    stopUsingForSignIn: () => void run(() => channel.update({ usedForAuth: false })),
+    setPrimary: () => void run(onChannel(channel.id, (sdk) => sdk.update({ isPrimary: true }))),
+    useForSignIn: () => void run(onChannel(channel.id, (sdk) => sdk.update({ usedForAuth: true }))),
+    stopUsingForSignIn: () => void run(onChannel(channel.id, (sdk) => sdk.update({ usedForAuth: false }))),
     remove: onRemove,
   };
   const items: ActionMenuItem[] = actions.map((action) => ({

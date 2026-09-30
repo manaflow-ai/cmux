@@ -812,7 +812,6 @@
         "description": "團隊共用成員、帳單和 coderouter 帳號。開啟團隊即可管理。",
         "create": "建立團隊",
         "count": "{count, plural, other {# 個團隊}}",
-        "members": "{count, plural, other {# 位成員}}",
         "selected": "目前",
         "emptyTitle": "尚無團隊",
         "emptyBody": "建立團隊以邀請他人並共用同一個方案。",

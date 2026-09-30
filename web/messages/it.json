@@ -812,7 +812,6 @@
         "description": "I team condividono membri, fatturazione e account coderouter. Apri un team per gestirlo.",
         "create": "Crea team",
         "count": "{count, plural, one {# team} other {# team}}",
-        "members": "{count, plural, one {# membro} other {# membri}}",
         "selected": "Corrente",
         "emptyTitle": "Ancora nessun team",
         "emptyBody": "Crea un team per invitare persone e condividere un unico piano.",

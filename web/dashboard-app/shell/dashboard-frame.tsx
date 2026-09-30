@@ -3,7 +3,7 @@
 import { Outlet, useLocation, type ErrorComponentProps } from "@tanstack/react-router";
 import { IsolatedErrorBoundary, RouteErrorView } from "@/app/components/error-boundary";
 import { DashboardAuthRecovery, SignInRedirect } from "../components/auth-recovery";
-import { isDashboardApiError } from "../lib/api";
+import { isRefusal } from "../lib/refusal";
 import { shellRoute } from "../routes/root";
 import { DashboardAccountMenu, DashboardAccountMenuFallback } from "./dashboard-account-menu";
 import { DashboardShell } from "./dashboard-shell";
@@ -31,8 +31,8 @@ export function DashboardFrame() {
 /** Session failures: 401 goes to sign-in, a Stack outage renders recovery. */
 export function DashboardFrameError({ error, reset }: ErrorComponentProps) {
   const location = useLocation();
-  if (isDashboardApiError(error, 401)) return <SignInRedirect returnPath={location.href} />;
-  if (isDashboardApiError(error, 503)) return <DashboardAuthRecovery returnPath={location.href} />;
+  if (isRefusal(error, 401)) return <SignInRedirect returnPath={location.href} />;
+  if (isRefusal(error, 503)) return <DashboardAuthRecovery returnPath={location.href} />;
   return <RouteErrorView boundary="dashboard-session" error={error} retry={reset} />;
 }
 

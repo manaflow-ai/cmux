@@ -1,6 +1,6 @@
 import type { QueryClient, UseMutationOptions } from "@tanstack/react-query";
-import { z } from "zod";
-import { dashboardFetch, isDashboardApiError } from "../lib/api";
+import { dashboardRefusal } from "../lib/refusal";
+import { dashboardClient } from "../lib/rpc";
 import {
   CODEROUTER_REQUEST_TIMEOUT_MS,
   coderouterApiKeysQueryKey,
@@ -14,33 +14,7 @@ import {
  * drive them with a bare QueryClient.
  */
 
-const anyBody = z.unknown();
-
-/** A write whose body the screen never reads (204, `{ ok: true }`, echoes). */
-async function send(url: string, init: RequestInit & { readonly json?: unknown }): Promise<void> {
-  await dashboardFetch(url, anyBody, init);
-}
-
-/** DELETE where 404 means the row is already gone, which is what the viewer wanted. */
-async function sendDelete(url: string, init: RequestInit = {}): Promise<void> {
-  try {
-    await send(url, { ...init, method: "DELETE" });
-  } catch (error) {
-    if (!isDashboardApiError(error, 404)) throw error;
-  }
-}
-
-function teamHeader(teamId: string): Record<string, string> {
-  return { "x-cmux-team-id": teamId };
-}
-
-function teamQuery(teamId: string): string {
-  return `teamId=${encodeURIComponent(teamId)}`;
-}
-
-function timeout(): AbortSignal {
-  return AbortSignal.timeout(CODEROUTER_REQUEST_TIMEOUT_MS);
-}
+const withTimeout = { context: { timeoutMs: CODEROUTER_REQUEST_TIMEOUT_MS } } as const;
 
 /** Options for a write that refreshes `queryKey` (default: every coderouter query) on success. */
 function coderouterWrite<Variables, Result = void>(
@@ -58,43 +32,26 @@ function coderouterWrite<Variables, Result = void>(
 
 // API keys
 
-const issuedApiKeySchema = z.object({
-  id: z.string().min(1),
-  key: z.string().min(1),
-  keyPrefix: z.string(),
-  label: z.string(),
-  createdAt: z.string(),
-});
-
-export type IssuedCoderouterApiKey = z.output<typeof issuedApiKeySchema>;
+export type { IssuedCoderouterApiKey } from "@/orpc/server/dashboard/schemas/coderouter";
 
 export function createApiKeyMutation(queryClient: QueryClient, teamId: string) {
   return coderouterWrite(
     queryClient,
-    (label: string) =>
-      dashboardFetch("/api/coderouter/api-keys", issuedApiKeySchema, {
-        method: "POST",
-        headers: teamHeader(teamId),
-        json: { label },
-        signal: timeout(),
-      }),
+    (label: string) => dashboardClient.coderouter.createApiKey({ teamId, label }, withTimeout),
     coderouterApiKeysQueryKey(teamId),
   );
 }
 
 export function apiKeyCreateErrorKey(error: unknown): "teamAccessError" | "apiKeyCreateError" {
-  return isDashboardApiError(error, 403) ? "teamAccessError" : "apiKeyCreateError";
+  return dashboardRefusal(error)?.status === 403 ? "teamAccessError" : "apiKeyCreateError";
 }
 
 export function revokeApiKeyMutation(queryClient: QueryClient, teamId: string) {
   return coderouterWrite(
     queryClient,
-    (keyId: string) =>
-      send(`/api/coderouter/api-keys/${encodeURIComponent(keyId)}`, {
-        method: "DELETE",
-        headers: teamHeader(teamId),
-        signal: timeout(),
-      }),
+    async (keyId: string) => {
+      await dashboardClient.coderouter.revokeApiKey({ teamId, keyId }, withTimeout);
+    },
     coderouterApiKeysQueryKey(teamId),
   );
 }
@@ -109,17 +66,15 @@ export type AccountSharingVariables = {
 };
 
 export function accountSharingMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, ({ accountId, family, visibility }: AccountSharingVariables) =>
-    send(`/api/coderouter/accounts/${encodeURIComponent(accountId)}/sharing`, {
-      method: "PATCH",
-      headers: teamHeader(teamId),
-      json: { family, visibility },
-    }));
+  return coderouterWrite(queryClient, async ({ accountId, family, visibility }: AccountSharingVariables) => {
+    await dashboardClient.coderouter.setAccountVisibility({ teamId, accountId, family, visibility });
+  });
 }
 
 export function removeNativeAccountMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, (accountId: string) =>
-    sendDelete(`/api/coderouter/accounts/${encodeURIComponent(accountId)}`, { headers: teamHeader(teamId) }));
+  return coderouterWrite(queryClient, async (accountId: string) => {
+    await dashboardClient.coderouter.removeNativeAccount({ teamId, accountId });
+  });
 }
 
 export type NativeAccountTransferVariables = {
@@ -129,13 +84,9 @@ export type NativeAccountTransferVariables = {
 
 /** Moves one native account from `teamId` to `destinationTeamId`. */
 export function transferNativeAccountMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, ({ accountId, destinationTeamId }: NativeAccountTransferVariables) =>
-    send(`/api/coderouter/accounts/${encodeURIComponent(accountId)}/transfer`, {
-      method: "POST",
-      headers: teamHeader(teamId),
-      json: { destinationTeamId },
-      signal: timeout(),
-    }));
+  return coderouterWrite(queryClient, async ({ accountId, destinationTeamId }: NativeAccountTransferVariables) => {
+    await dashboardClient.coderouter.transferNativeAccount({ teamId, accountId, destinationTeamId }, withTimeout);
+  });
 }
 
 const TRANSFER_ERROR_KEYS = {
@@ -162,28 +113,35 @@ export function transferErrorKey(status: number | null, error: string | null): T
 
 /** `transferErrorKey` for a rejected transfer mutation; a network failure has no status. */
 export function transferErrorKeyFor(error: unknown): TransferErrorKey {
-  if (!isDashboardApiError(error) || error.status === 0) return transferErrorKey(null, null);
-  return transferErrorKey(error.status, error.code);
+  const refusal = dashboardRefusal(error);
+  if (!refusal) return transferErrorKey(null, null);
+  return transferErrorKey(refusal.status, refusal.reason);
 }
 
 export type ClaudeAccountVariables =
   | { readonly accountId: string; readonly action: "setState"; readonly state: "active" | "disabled" }
   | { readonly accountId: string; readonly action: "remove" };
 
-/** Enables, disables, or removes a Claude upstream account. The route reads the team from `?teamId=`. */
+/** Enables, disables, or removes a Claude upstream account. */
 export function claudeAccountMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, (variables: ClaudeAccountVariables) => {
-    const url = `/api/coderouter/claude-upstream/${encodeURIComponent(variables.accountId)}?${teamQuery(teamId)}`;
-    return variables.action === "remove"
-      ? sendDelete(url)
-      : send(url, { method: "PATCH", json: { state: variables.state } });
+  return coderouterWrite(queryClient, async (variables: ClaudeAccountVariables) => {
+    if (variables.action === "remove") {
+      await dashboardClient.coderouter.removeClaudeAccount({ teamId, accountId: variables.accountId });
+    } else {
+      await dashboardClient.coderouter.setClaudeAccountState({
+        teamId,
+        accountId: variables.accountId,
+        state: variables.state,
+      });
+    }
   });
 }
 
 /** Removes an account held by the hosted subrouter. 404 is a failure here: the subrouter owns the list. */
 export function removeSharedAccountMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, (accountId: string) =>
-    send(`/api/subrouter/accounts/${encodeURIComponent(accountId)}?${teamQuery(teamId)}`, { method: "DELETE" }));
+  return coderouterWrite(queryClient, async (accountId: string) => {
+    await dashboardClient.coderouter.removeSharedAccount({ teamId, accountId });
+  });
 }
 
 export type ApiKeyAccountVariables = {
@@ -193,20 +151,18 @@ export type ApiKeyAccountVariables = {
 };
 
 export function addApiKeyAccountMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, ({ provider, apiKey, label }: ApiKeyAccountVariables) =>
-    send("/api/coderouter/accounts", {
-      method: "POST",
-      headers: teamHeader(teamId),
-      json: { provider, apiKey, ...(label ? { label } : {}) },
-    }));
+  return coderouterWrite(queryClient, async ({ provider, apiKey, label }: ApiKeyAccountVariables) => {
+    await dashboardClient.coderouter.addApiKeyAccount({ teamId, provider, apiKey, label });
+  });
 }
 
 /** The add-account body for one Claude upstream kind (`kind` plus that kind's credential fields). */
 export type ClaudeUpstreamBody = Readonly<Record<string, string>>;
 
 export function addClaudeUpstreamMutation(queryClient: QueryClient, teamId: string) {
-  return coderouterWrite(queryClient, (body: ClaudeUpstreamBody) =>
-    send(`/api/coderouter/claude-upstream?${teamQuery(teamId)}`, { method: "POST", json: body }));
+  return coderouterWrite(queryClient, async (body: ClaudeUpstreamBody) => {
+    await dashboardClient.coderouter.addClaudeUpstream({ teamId, body });
+  });
 }
 
 /**
@@ -218,7 +174,7 @@ export function accountWriteErrorKey<Fallback extends string, Unavailable extend
   fallback: Fallback,
   unavailable?: Unavailable,
 ): "validationError" | "teamAccessError" | Fallback | Unavailable {
-  const status = isDashboardApiError(error) ? error.status : 0;
+  const status = dashboardRefusal(error)?.status ?? 0;
   if (status === 400) return "validationError";
   if (status === 403) return "teamAccessError";
   if (status === 503) return unavailable ?? fallback;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useStackApp, useUser } from "@hexclave/next";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -14,12 +15,13 @@ import {
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
 import { localeHomeHref } from "@/dashboard-app/lib/locale-href";
+import { settingsOverviewQuery } from "@/dashboard-app/queries/settings";
 
 /** `/dashboard/settings/account`: billing link, sign out, delete account. */
 export function AccountActions() {
   const t = useTranslations("dashboard.settings.account");
   const app = useStackApp();
-  const project = app.useProject();
+  const { project } = useSuspenseQuery(settingsOverviewQuery).data;
   const user = useUser({ or: "redirect" });
   const locale = useLocale();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -53,7 +55,7 @@ export function AccountActions() {
         </button>
         <InlineError message={signOutState.error} />
       </SettingsSection>
-      {project.config.clientUserDeletionEnabled ? (
+      {project.clientUserDeletionEnabled ? (
         <SettingsSection tone="danger" title={t("deleteTitle")} description={t("deleteDescription")}>
           <button type="button" onClick={() => setConfirmingDelete(true)} className={settingsButtonClass("danger", "sm")}>
             {t("delete")}

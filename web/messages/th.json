@@ -812,7 +812,6 @@
         "description": "ทีมใช้สมาชิก การเรียกเก็บเงิน และบัญชี coderouter ร่วมกัน เปิดทีมเพื่อจัดการ",
         "create": "สร้างทีม",
         "count": "{count, plural, other {# ทีม}}",
-        "members": "{count, plural, other {สมาชิก # คน}}",
         "selected": "ปัจจุบัน",
         "emptyTitle": "ยังไม่มีทีม",
         "emptyBody": "สร้างทีมเพื่อเชิญผู้คนและใช้แผนเดียวกัน",

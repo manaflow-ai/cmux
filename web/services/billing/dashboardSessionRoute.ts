@@ -4,26 +4,22 @@ import {
   verifyBrowserSessionRequest,
   withSubrouterAuthorizationDeadline,
 } from "@/services/vms/auth";
-import { jsonResponse } from "@/services/vms/routeHelpers";
 
 export type DashboardSessionRouteUser = NonNullable<
   Awaited<ReturnType<typeof verifyBrowserSessionRequest>>
 >;
 
-const PRIVATE_NO_STORE = { "cache-control": "private, no-store" } as const;
+export type DashboardSessionResolution =
+  | { readonly ok: true; readonly user: DashboardSessionRouteUser }
+  | { readonly ok: false; readonly status: 401 | 404 | 503; readonly reason: string };
 
 /**
- * Runs `handler` for the signed-in browser user of a dashboard read route.
- * Signed out is 401 so the SPA goes to sign-in; a Stack outage is 503 so it
- * renders recovery instead of treating the visitor as signed out.
+ * The signed-in browser user of a dashboard request. Signed out is 401 so the
+ * SPA goes to sign-in; a Stack outage is 503 so it renders recovery instead
+ * of treating the visitor as signed out.
  */
-export async function withDashboardSessionUser(
-  request: Request,
-  handler: (user: DashboardSessionRouteUser) => Promise<unknown>,
-): Promise<Response> {
-  if (!isStackConfigured()) {
-    return jsonResponse({ error: { code: "not_configured" } }, 404, PRIVATE_NO_STORE);
-  }
+export async function resolveDashboardSessionUser(request: Request): Promise<DashboardSessionResolution> {
+  if (!isStackConfigured()) return { ok: false, status: 404, reason: "not_configured" };
   let user: Awaited<ReturnType<typeof verifyBrowserSessionRequest>>;
   try {
     user = await withSubrouterAuthorizationDeadline((signal) =>
@@ -31,10 +27,10 @@ export async function withDashboardSessionUser(
     );
   } catch (error) {
     if (isSubrouterAuthorizationError(error)) {
-      return jsonResponse({ error: { code: "authorization_unavailable" } }, 503, PRIVATE_NO_STORE);
+      return { ok: false, status: 503, reason: "authorization_unavailable" };
     }
     throw error;
   }
-  if (!user) return jsonResponse({ error: { code: "unauthorized" } }, 401, PRIVATE_NO_STORE);
-  return jsonResponse(await handler(user), 200, PRIVATE_NO_STORE);
+  if (!user) return { ok: false, status: 401, reason: "unauthorized" };
+  return { ok: true, user };
 }

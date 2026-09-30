@@ -55,16 +55,15 @@ describe("dashboard Next shell", () => {
     expect(redirectedTo).toBe("/");
   });
 
-  test("every dashboard URL serves the same static document", () => {
+  test("every dashboard URL shares one static shell", () => {
     // No instant validation: the SPA owns navigation inside /dashboard.
     expect("instant" in layoutModule).toBe(false);
     expect("instant" in pageModule).toBe(false);
-    // The catch-all page takes no params: the SPA reads the URL on the client.
-    expect(DashboardPage.length).toBe(0);
   });
 
-  test("the page server-renders the skeleton and mounts the router only on the client", () => {
-    const html = renderToStaticMarkup(<DashboardPage />);
+  test("the static shell is the skeleton; the request-time prefetch streams in behind Suspense", () => {
+    const pending = new Promise<never>(() => undefined);
+    const html = renderToStaticMarkup(<DashboardPage params={pending} searchParams={pending} />);
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('data-testid="dashboard-section-skeleton"');
     expect(html).not.toContain("dashboard-shell");

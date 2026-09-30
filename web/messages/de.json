@@ -812,7 +812,6 @@
         "description": "Teams teilen Mitglieder, Abrechnung und coderouter-Konten. Öffne ein Team, um es zu verwalten.",
         "create": "Team erstellen",
         "count": "{count, plural, one {# Team} other {# Teams}}",
-        "members": "{count, plural, one {# Mitglied} other {# Mitglieder}}",
         "selected": "Aktuell",
         "emptyTitle": "Noch keine Teams",
         "emptyBody": "Erstelle ein Team, um Personen einzuladen und einen Tarif zu teilen.",

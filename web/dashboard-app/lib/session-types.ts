@@ -1,14 +1,5 @@
-/** Wire shape of `GET /api/dashboard/session`. Shared by the route and the SPA. */
-export type DashboardSessionUser = {
-  readonly id: string;
-  readonly displayName: string | null;
-  readonly primaryEmail: string | null;
-  readonly primaryEmailVerified: boolean;
-  readonly profileImageUrl: string | null;
-  readonly selectedTeamId: string | null;
-};
+import type { DashboardSession } from "@/orpc/server/dashboard/account";
 
-export type DashboardSessionResponse = {
-  readonly user: DashboardSessionUser;
-  readonly flags: { readonly vaultEnabled: boolean };
-};
+/** Output of `dashboard.account.session`, inferred from the procedure's schema. */
+export type DashboardSessionResponse = DashboardSession;
+export type DashboardSessionUser = DashboardSession["user"];

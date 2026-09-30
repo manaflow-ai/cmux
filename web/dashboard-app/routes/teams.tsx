@@ -1,5 +1,6 @@
 import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 import { z } from "zod";
+import { DashboardSectionSkeleton, DashboardSkeleton } from "../components/dashboard-skeleton";
 import { teamBillingQuery } from "../queries/billing";
 import { teamCatalogQuery, teamDetailQuery } from "../queries/teams";
 import { shellRoute } from "./root";
@@ -11,6 +12,7 @@ const teamsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/teams",
   loader: ({ context }) => context.queryClient.ensureQueryData(teamCatalogQuery),
+  pendingComponent: () => <DashboardSkeleton variant="rows" />,
   component: lazyRouteComponent(teamsList, "TeamsPage"),
   errorComponent: lazyRouteComponent(teamsList, "TeamsPageError"),
 });
@@ -26,6 +28,7 @@ const teamRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/dashboard/teams/$teamId",
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamDetailQuery(params.teamId)),
+  pendingComponent: () => <DashboardSkeleton variant="rows" />,
   component: lazyRouteComponent(teamShell, "TeamShell"),
   errorComponent: lazyRouteComponent(teamShell, "TeamShellError"),
 });
@@ -53,6 +56,8 @@ const teamBillingRoute = createRoute({
   path: "/billing",
   validateSearch: z.object({ welcome: z.string().optional() }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData(teamBillingQuery(params.teamId)),
+  // The team header and tabs stay; only the billing panel waits.
+  pendingComponent: () => <DashboardSectionSkeleton />,
   component: lazyRouteComponent(() => import("../screens/teams/team-billing"), "TeamBillingTab"),
 });
 

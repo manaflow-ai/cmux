@@ -812,7 +812,6 @@
         "description": "As equipes compartilham membros, cobrança e contas do coderouter. Abra uma equipe para gerenciá-la.",
         "create": "Criar equipe",
         "count": "{count, plural, one {# equipe} other {# equipes}}",
-        "members": "{count, plural, one {# membro} other {# membros}}",
         "selected": "Atual",
         "emptyTitle": "Nenhuma equipe ainda",
         "emptyBody": "Crie uma equipe para convidar pessoas e compartilhar um único plano.",

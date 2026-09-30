@@ -14,11 +14,17 @@ import {
 import { hasVerifiedSignInEmail } from "../../lib/contact-channels";
 import { isOnlySignInMethod } from "../../lib/sign-in-methods";
 import { signInFacts } from "./sign-in-facts";
+import type { SettingsEmail } from "@/dashboard-app/queries/settings";
 
 /** Magic link / OTP sign-in toggle. Rendered when magic links are enabled. */
-export function OtpSection({ user }: { readonly user: CurrentUser }) {
+export function OtpSection({
+  user,
+  channels,
+}: {
+  readonly user: CurrentUser;
+  readonly channels: readonly SettingsEmail[];
+}) {
   const t = useTranslations("dashboard.settings.auth.otp");
-  const channels = user.useContactChannels();
   const [confirming, setConfirming] = useState(false);
   const [run, state] = useAsyncAction(t("enableError"));
   const enabled = user.otpAuthEnabled;

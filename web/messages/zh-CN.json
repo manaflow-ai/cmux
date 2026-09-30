@@ -812,7 +812,6 @@
         "description": "团队共享成员、账单和 coderouter 账户。打开团队即可进行管理。",
         "create": "创建团队",
         "count": "{count, plural, other {# 个团队}}",
-        "members": "{count, plural, other {# 名成员}}",
         "selected": "当前",
         "emptyTitle": "还没有团队",
         "emptyBody": "创建团队以邀请他人并共享同一个方案。",

@@ -1,6 +1,7 @@
 import { createRoute, lazyRouteComponent, notFound } from "@tanstack/react-router";
 import { z } from "zod";
-import { isDashboardApiError } from "../lib/api";
+import { DashboardSkeleton } from "../components/dashboard-skeleton";
+import { isRefusal } from "../lib/refusal";
 import type { DashboardSessionResponse } from "../lib/session-types";
 import {
   normalizeCliUserCode,
@@ -21,7 +22,7 @@ function requireVault({ context }: { context: { session: DashboardSessionRespons
 
 /** A 404 from the API is a missing page, not a crashed one. */
 function notFoundOn404(error: unknown): never {
-  if (isDashboardApiError(error, 404)) throw notFound();
+  if (isRefusal(error, 404)) throw notFound();
   throw error;
 }
 
@@ -47,6 +48,7 @@ export const vaultSessionsRoute = createRoute({
   beforeLoad: requireVault,
   // Only the first visit waits on the list: the screen owns later filter
   // changes so typing never suspends the search box.
+  pendingComponent: () => <DashboardSkeleton variant="rows" />,
   loader: ({ context, location }) => {
     const search = sessionsSearch.parse(location.search);
     return context.queryClient

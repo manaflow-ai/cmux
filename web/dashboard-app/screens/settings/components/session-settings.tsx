@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser, type CurrentUser } from "@hexclave/next";
+import { useUser } from "@hexclave/next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useNow, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -14,18 +14,27 @@ import {
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
 import { DashboardSectionSkeleton } from "@/dashboard-app/components/dashboard-skeleton";
+import { type SettingsSession, settingsSessionsQuery } from "@/dashboard-app/queries/settings";
 
-export type ActiveSession = Awaited<ReturnType<CurrentUser["getActiveSessions"]>>[number];
+/** A session with its timestamps as dates, for formatting. */
+export type ActiveSession = Omit<SettingsSession, "createdAt" | "lastUsedAt"> & {
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date | null;
+};
 
-export function sessionsQueryKey(userId: string) {
-  return ["dashboard-settings", "sessions", userId] as const;
+function withDates(session: SettingsSession): ActiveSession {
+  return {
+    ...session,
+    createdAt: new Date(session.createdAt),
+    lastUsedAt: session.lastUsedAt ? new Date(session.lastUsedAt) : null,
+  };
 }
 
 /** Remove one session from a list (optimistic revoke). */
-export function withoutSession(
-  sessions: readonly ActiveSession[] | undefined,
+export function withoutSession<Session extends { readonly id: string }>(
+  sessions: readonly Session[] | undefined,
   sessionId: string,
-): ActiveSession[] {
+): Session[] {
   return (sessions ?? []).filter((session) => session.id !== sessionId);
 }
 
@@ -34,17 +43,16 @@ export function SessionSettings() {
   const t = useTranslations("dashboard.settings.sessions");
   const user = useUser({ or: "redirect" });
   const queryClient = useQueryClient();
-  const queryKey = sessionsQueryKey(user.id);
-  // Fetched on the client only, like Hexclave, so SSR never races the list.
-  const sessions = useQuery({ queryKey, queryFn: () => user.getActiveSessions() });
+  const queryKey = settingsSessionsQuery.queryKey;
+  const sessions = useQuery({ ...settingsSessionsQuery, select: (list) => list.map(withDates) });
   const [confirmingAll, setConfirmingAll] = useState(false);
   const [runRevoke, revokeState] = useAsyncAction(t("revokeError"));
   const others = (sessions.data ?? []).filter((session) => !session.isCurrentSession);
 
   const revoke = (sessionId: string) =>
     runRevoke(async () => {
-      const previous = queryClient.getQueryData<ActiveSession[]>(queryKey);
-      queryClient.setQueryData<ActiveSession[]>(queryKey, (current) => withoutSession(current, sessionId));
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (current) => withoutSession(current, sessionId));
       try {
         await user.revokeSession(sessionId);
       } catch (error) {

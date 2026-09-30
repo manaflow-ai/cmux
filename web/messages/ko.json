@@ -812,7 +812,6 @@
         "description": "팀은 멤버, 결제, coderouter 계정을 공유합니다. 팀을 열어 관리하세요.",
         "create": "팀 만들기",
         "count": "{count, plural, other {팀 #개}}",
-        "members": "{count, plural, other {멤버 #명}}",
         "selected": "현재",
         "emptyTitle": "아직 팀이 없습니다",
         "emptyBody": "팀을 만들어 사람들을 초대하고 하나의 플랜을 공유하세요.",

@@ -1085,7 +1085,6 @@
         "description": "Teams share members, billing, and coderouter accounts. Open a team to manage it.",
         "create": "Create team",
         "count": "{count, plural, one {# team} other {# teams}}",
-        "members": "{count, plural, one {# member} other {# members}}",
         "selected": "Current",
         "emptyTitle": "No teams yet",
         "emptyBody": "Create a team to invite people and share one plan.",

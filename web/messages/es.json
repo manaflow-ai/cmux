@@ -812,7 +812,6 @@
         "description": "Los equipos comparten miembros, facturación y cuentas de coderouter. Abre un equipo para gestionarlo.",
         "create": "Crear equipo",
         "count": "{count, plural, one {# equipo} other {# equipos}}",
-        "members": "{count, plural, one {# miembro} other {# miembros}}",
         "selected": "Actual",
         "emptyTitle": "Aún no hay equipos",
         "emptyBody": "Crea un equipo para invitar a personas y compartir un mismo plan.",
