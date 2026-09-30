@@ -3227,7 +3227,30 @@ class TabManager: ObservableObject {
     /// never removes the protection a user asked for by pinning.
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
-            && shouldConfirmClose(requiresConfirmation: requiresConfirmation, source: source)
+            && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// Applies the user-configured warning toggles without turning the
+    /// `requiresConfirmation` argument into a safety warning. Workspace and
+    /// batch gates use this seam before they have established whether any
+    /// panel contains a live process; the actual close path uses
+    /// `shouldConfirmClose`, which also includes the non-suppressible safety
+    /// gate.
+    private func shouldConfirmConfiguredClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
+        switch source {
+        case .workspace:
+            return requiresConfirmation
+        case .tabClose:
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .shortcut
+            )
+        case .tabCloseButton:
+            return CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            )
+        }
     }
 
     /// Whether the Close Window command should ask before closing this
