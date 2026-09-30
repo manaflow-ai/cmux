@@ -24,7 +24,8 @@ export function normalize(value, origins) {
 
 function normalizeString(s, origins) {
   let out = s;
-  for (const [name, origin] of [["PRIMARY", origins.primary], ["PEER", origins.peer]]) {
+  for (const [name, origin] of [["PRIMARY", origins.primary], ["PEER", origins.peer], ["INSECURE", origins.insecure]]) {
+    if (!origin) continue;
     out = out.split(origin).join(name);
     out = out.split(encodeURIComponent(origin)).join(name);
     const port = new URL(origin).port;

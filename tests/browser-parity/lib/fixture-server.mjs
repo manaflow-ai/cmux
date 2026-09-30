@@ -4,6 +4,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import dns from "node:dns/promises";
 import { fileURLToPath } from "node:url";
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures");
@@ -64,17 +65,22 @@ function handler(origins) {
 
 export async function startFixtureServers({ primaryPort = 0, peerPort = 0 } = {}) {
   const origins = {};
-  const listen = (port) =>
+  const listen = (port, host = "127.0.0.1") =>
     new Promise((resolve) => {
       const server = http.createServer(handler(origins));
-      server.listen(port, "127.0.0.1", () => resolve(server));
+      server.listen(port, host, () => resolve(server));
     });
   const primary = await listen(primaryPort);
   const peer = await listen(peerPort);
+  // A plain-http origin with a public hostname that resolves to loopback
+  // (lvh.me). cmux prompts before loading http from hosts outside its
+  // localhost and private-network allowlist, so this origin exercises that gate.
+  const insecureHost = await dns.lookup("lvh.me").then((r) => (r.address === "127.0.0.1" ? "lvh.me" : null), () => null);
   // Two distinct hostnames make the peer a different site, not just a
   // different port, so cookies and frame isolation behave as they do on the web.
   origins.primary = `http://localhost:${primary.address().port}`;
   origins.peer = `http://127.0.0.1:${peer.address().port}`;
+  origins.insecure = insecureHost ? `http://${insecureHost}:${primary.address().port}` : null;
   return {
     origins,
     close: () => Promise.all([primary, peer].map((s) => new Promise((r) => s.close(r)))),

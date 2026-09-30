@@ -67,6 +67,7 @@ function prelude(origins) {
   return [
     `const PRIMARY = ${JSON.stringify(origins.primary)};`,
     `const PEER = ${JSON.stringify(origins.peer)};`,
+    `const INSECURE = ${JSON.stringify(origins.insecure)};`,
     `const emit = (k, v) => console.log(${line("")});`,
     `const emitCmux = (k, v) => console.log(${line(", c: 1")});`,
   ].join("\n");
