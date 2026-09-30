@@ -7,7 +7,7 @@ url: http://localhost:18765/?peer=http%3A%2F%2F127.0.0.1%3A18766
   - heading "Sign up" [level=1]
   - textbox "Email" [ref=e4] [placeholder="you@x.com"]
   - checkbox "Accept terms" [ref=e5]
-  - combobox "Plan" [ref=e6]: "Pro"
+  - combobox "Plan" [ref=e6] [options: Free, Pro, Team]: "Pro"
   - textbox "Bio" [ref=e7]: "hi"
   - button "Create account" [ref=e8]
   - button "Disabled" [ref=e9] [disabled]

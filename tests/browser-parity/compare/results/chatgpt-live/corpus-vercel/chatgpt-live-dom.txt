@@ -1,0 +1,11 @@
+<a node_id=1 aria-label="Vercel" href="https://vercel.com/home" />
+<button node_id=2 type="button">Products</button>
+<button node_id=3 type="button">Resources</button>
+<a node_id=4 href="https://vercel.com/enterprise">Enterprise</a>
+<a node_id=5 href="https://vercel.com/pricing">Pricing</a>
+<a node_id=6 href="https://vercel.com/contact/sales" role="link" type="submit">Get a Demo</a>
+<a node_id=7 href="https://vercel.com/login" role="link" type="submit">Log In</a>
+<a node_id=8 href="https://vercel.com/signup" role="link" type="submit">Sign Up</a>
+<a node_id=9 href="https://vercel.com/ship?utm_campaign=ship-sf2026&amp;utm_source=site&amp;utm_medium=homepage" role="link" type="submit">Get your ticket</a>
+<a node_id=10 href="https://vercel.com/new" role="link" type="submit">Deploy now</a>
+<a node_id=11 href="https://vercel.com/contact/sales" role="link" type="submit">Talk to sales</a>

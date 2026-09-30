@@ -1,0 +1,4 @@
+<button node_id=1>Top button</button>
+<input node_id=2 aria-label="L1 field" />
+<button node_id=3>Deep button</button>
+<button node_id=4>Srcdoc button</button>

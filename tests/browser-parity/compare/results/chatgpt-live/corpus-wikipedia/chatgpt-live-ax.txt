@@ -1,0 +1,2304 @@
+Browser tab: 370922480, Title: "WebKit - Wikipedia", URL: "http://127.0.0.1:18911/corpus/wikipedia.html".
+1 AXWebArea WebKit - Wikipedia, URL: 127.0.0.1:18911/cor…
+	2 link Description: Jump to content, Value: en.wikipedia.org/wi…
+	3 container
+		4 container Site
+			5 pop up button Description: Main menu, ID: vector-main-menu-dropdown-checkbox
+		6 link Description: Wikipedia The Free Encyclopedia, Value: en.wikipedia.org/wi…
+		7 container searchform
+			8 search text field (settable) Description: Search Wikipedia, Help: Search Wikipedia [ctrl-option-f], ID: searchInput
+			9 button Search
+		10 container Personal tools
+			11 content list
+				12 link Description: Donate, Value: donate.wikimedia.or…
+				13 link Description: Create account, Help: You are encouraged to create an account and log in; however, it is not mandatory, Value: en.wikipedia.org/w/…
+				14 link Description: Log in, Help: You're encouraged to log in; however, it's not mandatory. [ctrl-option-o], Value: en.wikipedia.org/w/…
+	15 container
+		16 container Description: Contents, ID: mw-panel-toc
+			17 container vector-toc
+				18 container
+					19 heading Contents, Value: 2
+						20 text Contents
+					21 button Hide Contents
+				22 content list mw-panel-toc-list
+					23 link Description: (Top), Value: en.wikipedia.org/wi…
+					24 container toc-Origins
+						25 link Description: Origins, Value: en.wikipedia.org/wi…
+						26 button (expanded) Toggle Origins subsection, Secondary Actions: Collapse
+							27 text Toggle Origins subsection
+						28 content list toc-Origins-sublist
+							29 container toc-Split_development
+								30 link Description: Split development, Value: en.wikipedia.org/wi…
+							31 container toc-Open-sourcing
+								32 link Description: Open-sourcing, Value: en.wikipedia.org/wi…
+							33 container toc-Further_development
+								34 link Description: Further development, Value: en.wikipedia.org/wi…
+							35 container toc-WebKit2
+								36 link Description: WebKit2, Value: en.wikipedia.org/wi…
+					37 container toc-Use
+						38 link Description: Use, Value: en.wikipedia.org/wi…
+						39 button (expanded) Toggle Use subsection, Secondary Actions: Collapse
+							40 text Toggle Use subsection
+						41 content list toc-Use-sublist
+							42 container toc-Installed_base
+								43 link Description: Installed base, Value: en.wikipedia.org/wi…
+							44 container toc-Ports
+								45 link Description: Ports, Value: en.wikipedia.org/wi…
+								46 content list toc-Ports-sublist
+									47 container toc-Web_Platform_for_Embedded
+										48 link Description: Web Platform for Embedded, Value: en.wikipedia.org/wi…
+							49 container toc-Forking_by_Google
+								50 link Description: Forking by Google, Value: en.wikipedia.org/wi…
+					51 container toc-Components
+						52 link Description: Components, Value: en.wikipedia.org/wi…
+						53 button (expanded) Toggle Components subsection, Secondary Actions: Collapse
+							54 text Toggle Components subsection
+						55 content list toc-Components-sublist
+							56 container toc-WebCore
+								57 link Description: WebCore, Value: en.wikipedia.org/wi…
+							58 container toc-JavaScriptCore
+								59 link Description: JavaScriptCore, Value: en.wikipedia.org/wi…
+					60 container toc-See_also
+						61 link Description: See also, Value: en.wikipedia.org/wi…
+					62 container toc-References
+						63 link Description: References, Value: en.wikipedia.org/wi…
+					64 container toc-External_links
+						65 link Description: External links, Value: en.wikipedia.org/wi…
+		66 container content
+			67 container
+				68 heading WebKit, Value: 1, ID: firstHeading
+					69 text WebKit
+				70 pop up button Description: 37 languages, ID: p-lang-btn-checkbox
+			71 container Namespaces
+				72 content list
+					73 link Description: Article, Help: View the content page [ctrl-option-c], Value: en.wikipedia.org/wi…
+					74 link Description: Talk, Help: Discuss improvements to the content page [ctrl-option-t], Value: en.wikipedia.org/wi…
+			75 container right-navigation
+				76 container Views
+					77 content list
+						78 link Description: Read, Value: en.wikipedia.org/wi…
+						79 link Description: Edit, Help: Edit this page [ctrl-option-e], Value: en.wikipedia.org/w/…
+						80 link Description: View history, Help: Past revisions of this page [ctrl-option-h], Value: en.wikipedia.org/w/…
+				81 container Page tools
+					82 pop up button Description: Tools, ID: vector-page-tools-dropdown-checkbox
+			83 container Appearance
+				84 container vector-appearance
+					85 container
+						86 text Appearance
+						87 button Hide Appearance
+					88 container skin-client-prefs-vector-feature-custom-font-size
+						89 text Text
+						90 content list
+							91 container
+								92 radio button (settable, integer) Description: Small, Value: 0, ID: skin-client-pref-vector-feature-custom-font-size-value-0
+								93 text Small
+								94 radio button (settable, integer) Description: Standard, Value: 1, ID: skin-client-pref-vector-feature-custom-font-size-value-1
+								95 text Standard
+								96 radio button (settable, integer) Description: Large, Value: 0, ID: skin-client-pref-vector-feature-custom-font-size-value-2
+								97 text Large
+					98 container skin-client-prefs-vector-feature-limited-width
+						99 text Width
+						100 content list
+							101 container
+								102 radio button (settable, integer) Description: Standard, Value: 1, ID: skin-client-pref-vector-feature-limited-width-value-1
+								103 text Standard
+								104 radio button (settable, integer) Description: Wide, Value: 0, ID: skin-client-pref-vector-feature-limited-width-value-0
+								105 text Wide
+					106 container skin-client-prefs-skin-theme
+						107 text Color
+						108 content list
+							109 container
+								110 radio button (settable, integer) Description: Automatic, Value: 0, ID: skin-client-pref-skin-theme-value-os
+								111 text Automatic
+								112 radio button (settable, integer) Description: Light, Value: 1, ID: skin-client-pref-skin-theme-value-day
+								113 text Light
+								114 radio button (settable, integer) Description: Dark, Value: 0, ID: skin-client-pref-skin-theme-value-night
+								115 text Dark
+			116 container Description: WebKit, ID: bodyContent
+				117 text From Wikipedia, the free encyclopedia
+				118 container mw-content-text
+					119 container mwAQ
+						120 container mwCQ
+							121 text "web core" redirects here. For core web fonts, see 
+							122 link Description: TrueType core fonts for the Web, Value: en.wikipedia.org/wi…
+							123 text . For the subgenre of online imagery, see 
+							124 link Description: Internet aesthetic § 2020s, Help: Internet aesthetic, Value: en.wikipedia.org/wi…
+							125 text .
+						126 table
+							127 row
+								128 cell
+									129 text WebKit
+							130 row
+								131 cell
+									132 link en.wikipedia.org/wi…
+							133 row
+								134 cell
+									135 link Description: Original author, Help: Programmer, Value: en.wikipedia.org/wi…
+								136 cell
+									137 link Description: Apple Inc., Value: en.wikipedia.org/wi…
+									138 link Description: [1], Value: en.wikipedia.org/wi…, ID: mwCw
+									139 link Description: [2], Value: en.wikipedia.org/wi…, ID: mwDw
+							140 row
+								141 cell
+									142 link Description: Developers, Help: Programmer, Value: en.wikipedia.org/wi…
+								143 cell
+									144 text Apple Inc., 
+									145 link Description: Adobe Systems, Value: en.wikipedia.org/wi…
+									146 text , 
+									147 link Description: Sony, Value: en.wikipedia.org/wi…
+									148 text , 
+									149 link Description: KDE, Value: en.wikipedia.org/wi…
+									150 text , 
+									151 link Description: Igalia, Value: en.wikipedia.org/wi…
+									152 text , and others
+							153 row
+								154 cell
+									155 text Release
+								156 cell
+									157 content list
+										158 container
+											159 text November 4, 1998 ; 27 years ago  (KHTML released)
+										160 container
+											161 text June 7, 2005 ; 21 years ago  (WebKit sourced)
+							162 row
+								163 cell
+									164 link Description: Preview release, Help: Software release life cycle, Value: en.wikipedia.org/wi…
+								165 cell
+									166 container
+										167 text Nightly
+										168 link Description: [3], Value: en.wikipedia.org/wi…, ID: mwEw
+							169 row
+								170 cell
+									171 text Written in
+								172 cell
+									173 link Description: C++, Value: en.wikipedia.org/wi…
+									174 link Description: [4], Value: en.wikipedia.org/wi…, ID: mwFw
+							175 row
+								176 cell
+									177 link Description: Operating system, Value: en.wikipedia.org/wi…
+								178 cell
+									179 link Description: macOS, Help: MacOS, Value: en.wikipedia.org/wi…
+									180 text , 
+									181 link Description: iOS, Help: IOS, Value: en.wikipedia.org/wi…
+									182 text  or 
+									183 link Description: iPadOS, Help: IPadOS, Value: en.wikipedia.org/wi…
+									184 text  for iPad, 
+									185 link Description: Linux, Value: en.wikipedia.org/wi…
+									186 text ,
+									187 link Description: [5], Value: en.wikipedia.org/wi…, ID: mwGw
+									188 link Description: Microsoft Windows, Value: en.wikipedia.org/wi…
+									189 link Description: [6], Value: en.wikipedia.org/wi…, ID: mwHw
+									190 link Description: [7], Value: en.wikipedia.org/wi…, ID: mwIw
+							191 row
+								192 cell
+									193 link Description: Type, Help: Software categories, Value: en.wikipedia.org/wi…
+								194 cell
+									195 link Description: Browser engine, Value: en.wikipedia.org/wi…
+							196 row
+								197 cell
+									198 link Description: License, Help: Software license, Value: en.wikipedia.org/wi…
+								199 cell
+									200 link Description: LGPL, Help: GNU Lesser General Public License, Value: en.wikipedia.org/wi…
+									201 text  (rendering engine, JavaScript engine), 
+									202 link Description: BSD 2-Clause, Help: BSD licenses, Value: en.wikipedia.org/wi…
+									203 text  (additional contributions from Apple)
+									204 link Description: [8], Value: en.wikipedia.org/wi…, ID: mwJw
+							205 row
+								206 cell
+									207 text Website
+								208 cell
+									209 link Description: webkit .org, Value: webkit.org/
+							210 row
+								211 cell
+									212 link Description: Repository, Help: Repository (version control), Value: en.wikipedia.org/wi…
+								213 cell
+									214 link Description: github .com /WebKit /WebKit, Value: github.com/WebKit/W…
+						215 container mwKw
+							216 text WebKit
+							217 text  is a 
+							218 link Description: browser engine, Help: Browser engine, Value: en.wikipedia.org/wi…, ID: mwLg
+							219 text  primarily used in Apple's 
+							220 link Description: Safari, Help: Safari (web browser), Value: en.wikipedia.org/wi…, ID: mwLw
+							221 link Description: web browser, Help: Web browser, Value: en.wikipedia.org/wi…, ID: mwMA
+							222 text , as well as almost all web browsers on 
+							223 link Description: iOS, Help: IOS, Value: en.wikipedia.org/wi…, ID: mwMQ
+							224 text  and 
+							225 link Description: iPadOS, Help: IPadOS, Value: en.wikipedia.org/wi…, ID: mwMg
+							226 text . WebKit is also used by the 
+							227 link Description: PlayStation, Value: en.wikipedia.org/wi…, ID: mwMw
+							228 text  consoles starting with the PS3, the 
+							229 link Description: Tizen, Value: en.wikipedia.org/wi…, ID: mwNA
+							230 text  mobile operating systems, the Amazon Kindle 
+							231 link Description: e-book, Help: E-book, Value: en.wikipedia.org/wi…, ID: mwNQ
+							232 text  reader, 
+							233 link Description: Nintendo consoles, Help: Nintendo video game consoles, Value: en.wikipedia.org/wi…, ID: mwNg
+							234 text  starting with the 3DS Internet Browser, 
+							235 link Description: GNOME Web, Value: en.wikipedia.org/wi…, ID: mwNw
+							236 text , and the discontinued BlackBerry Browser.
+						237 container mwOA
+							238 text WebKit started as a 
+							239 link Description: fork, Help: Fork (software development), Value: en.wikipedia.org/wi…, ID: mwOQ
+							240 text  of the 
+							241 link Description: KHTML, Value: en.wikipedia.org/wi…, ID: mwOg
+							242 text  and 
+							243 link Description: KJS, Help: KJS (software), Value: en.wikipedia.org/wi…, ID: mwOw
+							244 text  libraries from 
+							245 link Description: KDE, Value: en.wikipedia.org/wi…, ID: mwPA
+							246 text ,
+							247 link Description: [1], Value: en.wikipedia.org/wi…, ID: mwPQ
+							248 link Description: [9], Value: en.wikipedia.org/wi…, ID: mwQQ
+							249 text  and has since been further developed by 
+							250 link Description: KDE, Value: en.wikipedia.org/wi…, ID: mwRQ
+							251 text  contributors, 
+							252 link Description: Apple, Help: Apple Inc., Value: en.wikipedia.org/wi…, ID: mwRg
+							253 text , 
+							254 link Description: Google, Value: en.wikipedia.org/wi…, ID: mwRw
+							255 text , 
+							256 link Description: Nokia, Value: en.wikipedia.org/wi…, ID: mwSA
+							257 text ,
+							258 link Description: [9], Value: en.wikipedia.org/wi…, ID: mwSQ
+							259 link Description: Bitstream, Help: Bitstream Inc., Value: en.wikipedia.org/wi…, ID: mwTQ
+							260 text , BlackBerry, 
+							261 link Description: Sony, Value: en.wikipedia.org/wi…, ID: mwTg
+							262 text , 
+							263 link Description: Igalia, Value: en.wikipedia.org/wi…, ID: mwTw
+							264 text , and others.
+							265 link Description: [10], Value: en.wikipedia.org/wi…, ID: mwUA
+							266 text  WebKit supports 
+							267 link Description: macOS, Help: MacOS, Value: en.wikipedia.org/wi…, ID: mwVA
+							268 text , Windows, 
+							269 link Description: Linux, Value: en.wikipedia.org/wi…, ID: mwVQ
+							270 text , and various other 
+							271 link Description: Unix-like, Value: en.wikipedia.org/wi…, ID: mwVg
+							272 text  operating systems.
+							273 link Description: [11], Value: en.wikipedia.org/wi…, ID: mwVw
+							274 text  On April 3, 2013, Google announced that it had forked WebCore, a component of WebKit, to be used in versions of 
+							275 link Description: Google Chrome, Value: en.wikipedia.org/wi…, ID: mwWw
+							276 text  under the name 
+							277 link Description: Blink, Help: Blink (browser engine), Value: en.wikipedia.org/wi…, ID: mwXA
+							278 text .
+							279 link Description: [12], Value: en.wikipedia.org/wi…, ID: mwXQ
+							280 link Description: [13], Value: en.wikipedia.org/wi…, ID: mwYQ
+							281 text  Since version 15 in May 2013, 
+							282 link Description: Opera web browser, Help: Opera (web browser), Value: en.wikipedia.org/wi…, ID: mwZQ
+							283 text  dropped its own Presto layout engine in favor of WebKit as implemented by Google in the Chromium project.
+						284 container mwZg
+							285 text Its 
+							286 link Description: JavaScript, Value: en.wikipedia.org/wi…, ID: mwZw
+							287 text  engine, JavaScriptCore, also powers the 
+							288 link Description: Bun, Help: Bun (software), Value: en.wikipedia.org/wi…, ID: mwaA
+							289 text  server-side JS runtime,
+							290 link Description: [14], Value: en.wikipedia.org/wi…, ID: mwaQ
+							291 text  as opposed to 
+							292 link Description: V8, Help: V8 (JavaScript engine), Value: en.wikipedia.org/wi…, ID: mwbQ
+							293 text  used by 
+							294 link Description: Node.js, Value: en.wikipedia.org/wi…, ID: mwbg
+							295 text , 
+							296 link Description: Deno, Help: Deno (software), Value: en.wikipedia.org/wi…, ID: mwbw
+							297 text , and 
+							298 link Description: Blink, Help: Blink (engine), Value: en.wikipedia.org/wi…, ID: mwcA
+							299 text . WebKit's 
+							300 link Description: C++, Value: en.wikipedia.org/wi…, ID: mwcQ
+							301 link Description: application programming interface, Help: Application programming interface, Value: en.wikipedia.org/wi…, ID: mwcg
+							302 text  (API) provides a set of 
+							303 link Description: classes, Help: Class (programming), Value: en.wikipedia.org/wi…, ID: mwcw
+							304 text  to display 
+							305 link Description: Web, Help: World Wide Web, Value: en.wikipedia.org/wi…, ID: mwdA
+							306 text  content in windows, and implements browser features such as following links when clicked by the user, managing a back-forward list, and managing a history of pages recently visited.
+						307 container mwdQ
+							308 text WebKit is 
+							309 link Description: open source, Help: Open source, Value: en.wikipedia.org/wi…, ID: mwdg
+							310 text  and available under the 
+							311 link Description: BSD 2-Clause, Help: BSD licenses, Value: en.wikipedia.org/wi…, ID: mwdw
+							312 text  license
+							313 link Description: [15], Value: en.wikipedia.org/wi…, ID: mweA
+							314 link Description: [8], Value: en.wikipedia.org/wi…, ID: mwfA
+							315 text  with the exception of the 
+							316 link Description: WebCore, Value: en.wikipedia.org/wi…, ID: mwgA
+							317 text  and 
+							318 link Description: JavaScriptCore, Value: en.wikipedia.org/wi…, ID: mwgQ
+							319 text  components, which are available under the 
+							320 link Description: GNU Lesser General Public License, Value: en.wikipedia.org/wi…, ID: mwgg
+							321 text . As of March 7, 2013, WebKit is a trademark of Apple, registered with the 
+							322 link Description: United States Patent and Trademark Office, Value: en.wikipedia.org/wi…, ID: mwgw
+							323 text .
+							324 link Description: [16], Value: en.wikipedia.org/wi…, ID: mwhA
+					325 container Origins, ID: mwiQ
+						326 container
+							327 heading Origins, Value: 2
+								328 text Origins
+							329 link Description: edit, Help: Edit section: Origins, Value: en.wikipedia.org/w/…
+						330 container mwig
+							331 text The code that would become WebKit began in 1998 as the 
+							332 text KDE HTML
+							333 text  (
+							334 link Description: KHTML, Value: en.wikipedia.org/wi…, ID: mwjA
+							335 text ) layout engine and 
+							336 text KDE JavaScript
+							337 text  (
+							338 link Description: KJS, Help: KJS (software), Value: en.wikipedia.org/wi…, ID: mwjg
+							339 text ) engine. The WebKit project was started within Apple by Lisa Melton
+							340 link Description: [17], Value: en.wikipedia.org/wi…, ID: mwjw
+							341 text  on June 25, 2001,
+							342 link Description: [18], Value: en.wikipedia.org/wi…, ID: mwkw
+							343 link Description: [19], Value: en.wikipedia.org/wi…, ID: mwlw
+							344 text  as a 
+							345 link Description: fork, Help: Software fork, Value: en.wikipedia.org/wi…, ID: mwmw
+							346 text  of 
+							347 link Description: KHTML, Value: en.wikipedia.org/wi…, ID: mwnA
+							348 text  and 
+							349 link Description: KJS, Help: KJS (software), Value: en.wikipedia.org/wi…, ID: mwnQ
+							350 text . Melton explained in an e-mail to KDE developers
+							351 link Description: [1], Value: en.wikipedia.org/wi…, ID: mwng
+							352 text  that 
+							353 link Description: KHTML, Value: en.wikipedia.org/wi…, ID: mwog
+							354 text  and 
+							355 link Description: KJS, Help: KJS (software), Value: en.wikipedia.org/wi…, ID: mwow
+							356 text  allowed easier development than other available technologies by virtue of being small (fewer than 140,000 
+							357 link Description: lines of code, Help: Lines of code, Value: en.wikipedia.org/wi…, ID: mwpA
+							358 text ), cleanly designed, and standards-compliant. KHTML and KJS were ported to 
+							359 link Description: macOS, Help: MacOS, Value: en.wikipedia.org/wi…, ID: mwpQ
+							360 text  with the help of an adapter 
+							361 link Description: library, Help: Library (computing), Value: en.wikipedia.org/wi…, ID: mwpg
+							362 text  and renamed to WebCore and JavaScriptCore.
+							363 link Description: [1], Value: en.wikipedia.org/wi…, ID: mwpw
+							364 text  JavaScriptCore was announced in an e-mail to a KDE 
+							365 link Description: mailing list, Help: Mailing list, Value: en.wikipedia.org/wi…, ID: mwqw
+							366 text  in June 2002, alongside the first release of Apple's changes.
+							367 link Description: [20], Value: en.wikipedia.org/wi…, ID: mwrA
+						368 container mwsA
+							369 text According to Apple, some changes that called for different development tactics involved macOS-specific features which are absent in KDE's KHTML, such as 
+							370 link Description: Objective-C, Value: en.wikipedia.org/wi…, ID: mwsQ
+							371 text ; KWQ (pronounced "quack"), an implementation of the subset of Qt required to make KHTML work on macOS, written in Objective C++; and macOS calls.
+							372 link Description: [21], Value: en.wikipedia.org/wi…, ID: mwsg
+						373 container Split development, ID: mwtg
+							374 container
+								375 heading Split development, Value: 3, ID: Split_development
+									376 text Split development
+								377 link Description: edit, Help: Edit section: Split development, Value: en.wikipedia.org/w/…
+							378 container mwtw
+								379 text The exchange of code between WebCore and KHTML became increasingly difficult as the code bases diverged, because both projects used different coding approaches and had different approaches to code sharing.
+								380 link Description: [22], Value: en.wikipedia.org/wi…, ID: mwuA
+								381 text  At one point KHTML developers said they were unlikely to accept Apple's changes and claimed the relationship between the two groups was a "bitter failure".
+								382 link Description: [23], Value: en.wikipedia.org/wi…, ID: mwvA
+								383 text  They claimed Apple submitted their changes in large patches containing multiple changes with inadequate documentation, often in relation to future additions to the codebase. Thus, these patches were difficult for the 
+								384 link Description: KDE, Value: en.wikipedia.org/wi…, ID: mwwA
+								385 text  developers to integrate back into KHTML.
+								386 link Description: [24], Value: en.wikipedia.org/wi…, ID: mwwQ
+								387 text  Also, Apple had demanded that developers sign non-disclosure agreements before looking at Apple's source code, and even then, they were unable to access Apple's bug database.
+								388 link Description: [25], Value: en.wikipedia.org/wi…, ID: mwxQ
+							389 container mwyQ
+								390 text During the publicized "divorce" period, KDE developer Kurt Pfeifle (
+								391 text pipitas
+								392 text ) posted an article claiming KHTML developers had managed to 
+								393 link Description: backport, Help: Backporting, Value: en.wikipedia.org/wi…, ID: mwyw
+								394 text  many (but not all) Safari improvements from WebCore to KHTML, and they always appreciated the improvements coming from Apple and still do so. The article also noted that Apple had begun contacting KHTML developers to discuss improving the relationship and future cooperation.
+								395 link Description: [26], Value: en.wikipedia.org/wi…, ID: mwzA
+								396 text  In fact, the KDE project was able to incorporate some of these changes to improve KHTML's rendering speed and add features, including compliance with the 
+								397 link Description: Acid2, Value: en.wikipedia.org/wi…, ID: mw0A
+								398 text  rendering test.
+								399 link Description: [27], Value: en.wikipedia.org/wi…, ID: mw0Q
+							400 container mw1Q
+								401 text Following the appearance of a story of the fork in the news, Apple released the source code of the WebKit fork in a public 
+								402 link Description: revision-control, Help: Revision control, Value: en.wikipedia.org/wi…, ID: mw1g
+								403 text  repository.
+								404 link Description: [28], Value: en.wikipedia.org/wi…, ID: mw1w
+							405 container mw2w
+								406 text The WebKit team also reversed many Apple-specific changes in the original WebKit codebase and implemented platform-specific abstraction layers, making it significantly easier to commit the core rendering code to other platforms.
+								407 link Description: [29], Value: en.wikipedia.org/wi…, ID: mw3A
+							408 container mw4A
+								409 text In July 2007, 
+								410 link Description: Ars Technica, Value: en.wikipedia.org/wi…, ID: mw4g
+								411 text  reported that the KDE team would move from KHTML to WebKit.
+								412 link Description: [30], Value: en.wikipedia.org/wi…, ID: mw4w
+								413 text  Instead, after several years of integration, KDE Development Platform version 4.5.0 was released in August 2010 with support for both WebKit and KHTML, and development of KHTML continued until 2016 before it was officially discontinued in 2023.
+								414 link Description: [31], Value: en.wikipedia.org/wi…, ID: mw5w
+								415 link Description: [32], Value: en.wikipedia.org/wi…, ID: mw6w
+						416 container Open-sourcing, ID: mw7w
+							417 container
+								418 heading Open-sourcing, Value: 3
+									419 text Open-sourcing
+								420 link Description: edit, Help: Edit section: Open-sourcing, Value: en.wikipedia.org/w/…
+							421 container mw8A
+								422 text On June 7, 2005, Safari developer 
+								423 link Description: Dave Hyatt, Value: en.wikipedia.org/wi…, ID: mw8Q
+								424 text  announced on his 
+								425 link Description: weblog, Help: Weblog, Value: en.wikipedia.org/wi…, ID: mw8g
+								426 text  that Apple was open-sourcing WebKit (formerly, only WebCore and JavaScriptCore were open source) and opening up access to WebKit's 
+								427 link Description: revision control, Help: Revision control, Value: en.wikipedia.org/wi…, ID: mw8w
+								428 text  tree and the issue tracker.
+								429 link Description: [28], Value: en.wikipedia.org/wi…, ID: mw9A
+							430 container mw-A
+								431 text In mid-December 2005, support for 
+								432 link Description: Scalable Vector Graphics, Value: en.wikipedia.org/wi…, ID: mw-Q
+								433 text  (SVG) was merged into the standard build.
+								434 link Description: [33], Value: en.wikipedia.org/wi…, ID: mw-g
+							435 container mw_g
+								436 text WebKit's JavaScriptCore and WebCore components are available under the GNU Lesser General Public License, while the rest of WebKit is available under the BSD 2-Clause license.
+								437 link Description: [8], Value: en.wikipedia.org/wi…, ID: mw_w
+						438 container Further development, ID: mwAQM
+							439 container
+								440 heading Further development, Value: 3, ID: Further_development
+									441 text Further development
+								442 link Description: edit, Help: Edit section: Further development, Value: en.wikipedia.org/w/…
+							443 container
+								444 text This section needs to be  updated .  Please help update this article to reflect recent events or newly available information. ( July 2015 )
+							445 container mwAQU
+								446 text Beginning in early 2007, the development team began to implement 
+								447 link Description: Cascading Style Sheets, Value: en.wikipedia.org/wi…, ID: mwAQY
+								448 text  (CSS) extensions, including 
+								449 link Description: animation, Help: CSS Animations, Value: en.wikipedia.org/wi…, ID: mwAQc
+								450 text , transitions and both 2D and 3D transforms;
+								451 link Description: [34], Value: en.wikipedia.org/wi…, ID: mwAQg
+								452 text  such extensions were released as working drafts to the 
+								453 link Description: World Wide Web Consortium, Value: en.wikipedia.org/wi…, ID: mwAQw
+								454 text  (W3C) in 2009 for standardization.
+								455 link Description: [35], Value: en.wikipedia.org/wi…, ID: mwAQ0
+							456 container mwARE
+								457 text In November 2007, the project announced that it had added support for media features of the 
+								458 link Description: HTML5, Value: en.wikipedia.org/wi…, ID: mwARI
+								459 text  draft specification, allowing embedded video to be natively rendered and script-controlled in WebKit.
+								460 link Description: [36], Value: en.wikipedia.org/wi…, ID: mwARM
+							461 container mwARc
+								462 text On June 2, 2008, the WebKit project announced that they had rewritten JavaScriptCore as "SquirrelFish", a 
+								463 link Description: bytecode interpreter, Help: Interpreter (computing), Value: en.wikipedia.org/wi…, ID: mwARg
+								464 text .
+								465 link Description: [37], Value: en.wikipedia.org/wi…, ID: mwARk
+								466 link Description: [38], Value: en.wikipedia.org/wi…, ID: mwAR0
+								467 text  The project evolved into SquirrelFish Extreme (abbreviated SFX), announced on September 18, 2008, which 
+								468 link Description: compiles, Help: Compiler, Value: en.wikipedia.org/wi…, ID: mwASE
+								469 text  JavaScript into native 
+								470 link Description: machine code, Help: Machine code, Value: en.wikipedia.org/wi…, ID: mwASI
+								471 text , eliminating the need for a bytecode interpreter and thus speeding up JavaScript execution.
+								472 link Description: [39], Value: en.wikipedia.org/wi…, ID: mwASM
+								473 text  Initially, the only supported processor architecture for SFX was the 
+								474 link Description: x86, Help: X86, Value: en.wikipedia.org/wi…, ID: mwASc
+								475 text , but at the end of January 2009, SFX was enabled for macOS on 
+								476 link Description: x86-64, Help: X86-64, Value: en.wikipedia.org/wi…, ID: mwASg
+								477 text  as it passes all tests on that platform.
+								478 link Description: [40], Value: en.wikipedia.org/wi…, ID: mwASk
+						479 container WebKit2, ID: mwAS0
+							480 container
+								481 heading WebKit2, Value: 3
+									482 text WebKit2
+								483 link Description: edit, Help: Edit section: WebKit2, Value: en.wikipedia.org/w/…
+							484 container mwAS4
+								485 text On April 8, 2010, a project named WebKit2 was announced to redesign WebKit. Its goal was to abstract the components that provide 
+								486 link Description: page layout, Help: Page layout, Value: en.wikipedia.org/wi…, ID: mwAS8
+								487 text  and 
+								488 link Description: rendering, Help: Rendering (computer graphics), Value: en.wikipedia.org/wi…, ID: mwATA
+								489 text  cleanly from their surrounding interface or application shell, creating a situation where "web content (JavaScript, HTML, layout, etc) lives in a separate process from the application UI". This abstraction was intended to make reuse in WebKit2 simpler than in WebKit. WebKit2 had "an incompatible API change from the original WebKit", which motivated its name change.
+								490 link Description: [41], Value: en.wikipedia.org/wi…, ID: mwATE
+							491 container mwATU
+								492 text The WebKit2 targets were set to Linux, macOS, Windows, 
+								493 link Description: GTK, Value: en.wikipedia.org/wi…, ID: mwATY
+								494 text , and 
+								495 link Description: MeeGo, Value: en.wikipedia.org/wi…, ID: mwATc
+								496 text -Harmattan.
+								497 link Description: [42], Value: en.wikipedia.org/wi…, ID: mwATg
+								498 link Description: [43], Value: en.wikipedia.org/wi…, ID: mwATw
+								499 text  Safari for macOS switched to the new API with version 5.1.
+								500 link Description: [44], Value: en.wikipedia.org/wi…, ID: mwAUA
+								501 text  Safari for iOS switched to WebKit2 with iOS 8.
+								502 link Description: [45], Value: en.wikipedia.org/wi…, ID: mwAUQ
+							503 container mwAUg
+								504 text The original WebKit API has been renamed WebKitLegacy API.
+								505 link Description: [46], Value: en.wikipedia.org/wi…, ID: mwAUk
+								506 text  WebKit2 API has been renamed just plain WebKit API.
+								507 link Description: [47], Value: en.wikipedia.org/wi…, ID: mwAU0
+					508 container Use, ID: mwAVE
+						509 container
+							510 heading Use, Value: 2
+								511 text Use
+							512 link Description: edit, Help: Edit section: Use, Value: en.wikipedia.org/w/…
+						513 container mwAVI
+							514 link Value: en.wikipedia.org/wi…, ID: mwAVM
+							515 container mwAVU
+								516 link Description: Usage share of web browsers, Value: en.wikipedia.org/wi…, ID: mwAVY
+								517 text  according to 
+								518 link Description: StatCounter, Value: en.wikipedia.org/wi…, ID: mwAVc
+								519 text , 2009–2025
+						520 container mwAVg
+							521 text WebKit is used as the rendering engine within 
+							522 link Description: Safari, Help: Safari (web browser), Value: en.wikipedia.org/wi…, ID: mwAVk
+							523 text  and was used by 
+							524 link Description: Google, Value: en.wikipedia.org/wi…, ID: mwAVo
+							525 text 's 
+							526 link Description: Chrome, Help: Google Chrome, Value: en.wikipedia.org/wi…, ID: mwAVs
+							527 text  web browser on Windows, macOS, and 
+							528 link Description: Android, Help: Android (operating system), Value: en.wikipedia.org/wi…, ID: mwAVw
+							529 text  (before version 4.4 KitKat). Chrome used only WebCore, and included its own 
+							530 link Description: JavaScript engine, Value: en.wikipedia.org/wi…, ID: mwAV0
+							531 text  named 
+							532 link Description: V8, Help: Chrome V8, Value: …, ID: mwAV4
+							533 text  and a multiprocess system.
+							534 link Description: [48], Value: …, ID: mwAV8
+							535 text  Chrome for 
+							536 link Description: iOS, Help: IOS, Value: …, ID: mwAWM
+							537 text  continues to use WebKit because Apple requires that web browsers on that platform must do so.
+							538 link Description: [49], Value: …, ID: mwAWQ
+							539 text  Other applications on macOS and iOS make use of WebKit, such as Apple's e-mail client 
+							540 link Description: Mail, Help: Mail (Apple), Value: …, ID: mwAWg
+							541 text , App Store, and the 2008 version of Microsoft's 
+							542 link Description: Entourage, Help: Microsoft Entourage, Value: …, ID: mwAWk
+							543 link Description: personal information manager, Help: Personal information manager, Value: …, ID: mwAWo
+							544 text , both of which make use of WebKit to render HTML content.
+						545 container Installed base, ID: mwAWs
+							546 container
+								547 heading Installed base, Value: 3, ID: Installed_base
+									548 text Installed base
+								549 link Description: edit, Help: Edit section: Installed base, Value: …
+							550 container mwAWw
+								551 text New web browsers have been built around WebKit such as the 
+								552 link Description: S60, Help: S60 (software platform), Value: …, ID: mwAW0
+								553 text  browser
+								554 link Description: [50], Value: …, ID: mwAW4
+								555 text  on 
+								556 link Description: Symbian, Value: …, ID: mwAXI
+								557 text  mobile phones, 
+								558 link Description: BlackBerry, Help: BlackBerry OS, Value: …, ID: mwAXM
+								559 text  Browser (ver 6.0+), 
+								560 link Description: Midori, Help: Midori (web browser), Value: …, ID: mwAXQ
+								561 text , 
+								562 link Description: Chrome, Help: Google Chrome, Value: …, ID: mwAXU
+								563 text  browser,
+								564 link Description: [51], Value: …, ID: mwAXY
+								565 link Description: [52], Value: …, ID: mwAXo
+								566 text  the 
+								567 link Description: Android, Help: Android (operating system), Value: …, ID: mwAX4
+								568 text  Web browsers before version 4.4 KitKat, and the browser used in 
+								569 link Description: PlayStation 3 system software, Value: …, ID: mwAX8
+								570 text  from version 4.10.
+								571 link Description: [53], Value: …, ID: mwAYA
+								572 container mwAYU
+									573 text [
+									574 link Description: unreliable source?, Help: Wikipedia:Reliable sources, Value: …
+									575 text ]
+								576 text  KDE's Rekonq web browser and 
+								577 link Description: Plasma Workspaces, Value: …, ID: mwAYY
+								578 text  also use it as the native web rendering engine. WebKit has been adopted as the rendering engine in 
+								579 link Description: OmniWeb, Value: …, ID: mwAYc
+								580 text , 
+								581 link Description: iCab, Help: ICab, Value: …, ID: mwAYg
+								582 text , 
+								583 link Description: Web, Help: Web (web browser), Value: …, ID: mwAYk
+								584 text  (formerly named Epiphany), and 
+								585 link Description: Sleipnir, Help: Sleipnir (web browser), Value: …, ID: mwAYo
+								586 text , replacing their original rendering engines. GNOME's Web supported both 
+								587 link Description: Gecko, Help: Gecko (layout engine), Value: …, ID: mwAYs
+								588 text  and WebKit for some time. Still, the team decided that Gecko's release cycle and future development plans would make it too cumbersome to continue supporting it.
+								589 link Description: [54], Value: …, ID: mwAYw
+								590 link Description: webOS, Help: WebOS, Value: …, ID: mwAZA
+								591 text  uses WebKit as the basis of its application runtime.
+								592 link Description: [55], Value: …, ID: mwAZE
+								593 text  WebKit is used to render HTML and run JavaScript in the 
+								594 link Description: Adobe Integrated Runtime, Value: …, ID: mwAZU
+								595 text  application platform. In 
+								596 link Description: Adobe Creative Suite, Value: …, ID: mwAZY
+								597 text  CS5, WebKit is used to render some parts of the user interface. By the first half of 2010, an analyst estimated that 350 million mobile handsets had shipped with a WebKit-based browser.
+								598 link Description: [56], Value: …, ID: mwAZc
+								599 text  By mid-April 2015, WebKit 
+								600 link Description: browser market share, Help: Usage share of web browsers, Value: …, ID: mwAZs
+								601 text  was 50.3%.
+								602 link Description: [57], Value: …, ID: mwAZw
+						603 container Ports, ID: mwAaA
+							604 container
+								605 heading Ports, Value: 3
+									606 text Ports
+								607 link Description: edit, Help: Edit section: Ports, Value: …
+							608 container mwAaE
+								609 text The week after Hyatt announced WebKit's open sourcing, Nokia announced that it had ported WebKit to 
+								610 link Description: Symbian, Value: …, ID: mwAaI
+								611 text  and was developing a WebKit-based browser for mobile phones running S60. Named 
+								612 link Description: Web Browser for S60, Value: …, ID: mwAaM
+								613 text , it was used on Nokia, Samsung, LG, and other Symbian S60 mobile phones. Apple has also ported WebKit to 
+								614 link Description: iOS, Help: IOS, Value: …, ID: mwAaQ
+								615 text  for the 
+								616 link Description: iPhone, Help: IPhone, Value: …, ID: mwAaU
+								617 text , 
+								618 link Description: iPod Touch, Help: IPod Touch, Value: …, ID: mwAaY
+								619 text , and 
+								620 link Description: iPad, Help: IPad, Value: …, ID: mwAac
+								621 text , where it is used to render content in the device's web browser and e-mail software.
+								622 link Description: [58], Value: …, ID: mwAag
+								623 text  The 
+								624 link Description: Android, Help: Android (operating system), Value: …, ID: mwAaw
+								625 text  mobile phone platform used WebKit (and later versions its 
+								626 link Description: Blink fork, Help: Blink (browser engine), Value: …, ID: mwAa0
+								627 text ) as the basis of its web browser
+								628 link Description: [59], Value: …, ID: mwAa4
+								629 link Description: [60], Value: …, ID: mwAbI
+								630 link Description: [61], Value: …, ID: mwAbY
+								631 text  and the 
+								632 link Description: Palm Pre, Value: …, ID: mwAbo
+								633 text , announced January 2009, has an interface based on WebKit.
+								634 link Description: [62], Value: …, ID: mwAbs
+								635 text  The 
+								636 link Description: Amazon Kindle, Value: …, ID: mwAb8
+								637 text  3 includes an experimental WebKit based browser.
+								638 link Description: [63], Value: …, ID: mwAcA
+							639 container mwAcQ
+								640 text In June 2007, Apple announced that WebKit had been ported to 
+								641 link Description: Microsoft Windows, Value: …, ID: mwAcU
+								642 text  as part of Safari. Although the company silently discontinued Safari for Windows,
+								643 link Description: [64], Value: …, ID: mwAcY
+								644 text  WebKit's ports to Microsoft's operating system are still actively maintained.
+								645 link Description: [65], Value: …, ID: mwAco
+								646 link Description: [66], Value: …, ID: mwAc4
+								647 text  The Windows port uses Apple's proprietary libraries to function and is used for iCloud
+								648 link Description: [67], Value: …, ID: mwAdI
+								649 text  and iTunes
+								650 link Description: [68], Value: …, ID: mwAdY
+								651 text  for Windows, whereas the "WinCairo" port is a fully open-source and redistributable port.
+								652 link Description: [69], Value: …, ID: mwAdo
+								653 link Description: [70], Value: …, ID: mwAd4
+							654 container mwAeI
+								655 link Value: …, ID: mwAeM
+								656 container mwAeU
+									657 link Description: GNOME Web, Value: …, ID: mwAeY
+									658 text  is a web browser on Linux that uses WebKitGTK.
+							659 container mwAec
+								660 text WebKit has also been ported to several toolkits that support multiple platforms, such as the 
+								661 link Description: GTK, Value: …, ID: mwAeg
+								662 text  toolkit for 
+								663 link Description: Linux, Value: …, ID: mwAek
+								664 text , under the name 
+								665 text WebKitGTK
+								666 text  which is used by Eolie,
+								667 link Description: [71], Value: …, ID: mwAes
+								668 container mwAfA
+									669 text [
+									670 link Description: full citation needed, Help: Wikipedia:Citing sources, Value: …
+									671 text ]
+								672 link Description: GNOME Web, Value: …, ID: mwAfE
+								673 text ,
+								674 link Description: [72], Value: …, ID: mwAfI
+								675 link Description: [73], Value: …, ID: mwAfY
+								676 link Description: Adobe Integrated Runtime, Value: …, ID: mwAfo
+								677 text , 
+								678 link Description: Enlightenment Foundation Libraries, Value: …, ID: mwAfs
+								679 text  (EFL), and the Clutter toolkit.
+								680 link Description: [74], Value: …, ID: mwAfw
+								681 link Description: Qt Software, Value: …, ID: mwAgA
+								682 text  included a WebKit port in the Qt 4.4 release as a module called QtWebKit
+								683 link Description: [75], Value: …, ID: mwAgE
+								684 text  (since superseded by 
+								685 link Description: Qt WebEngine, Value: …, ID: mwAgU
+								686 text , which uses Blink instead). The 
+								687 link Description: Iris Browser, Value: …, ID: mwAgY
+								688 text  on Qt also used WebKit. The Enlightenment Foundation Libraries (EFL) port – EWebKit – was developed (by 
+								689 link Description: Samsung, Value: …, ID: mwAgc
+								690 text  and ProFusion
+								691 link Description: [76], Value: …, ID: mwAgg
+								692 text ) focusing the embedded and mobile systems, for use as stand alone browser, widgets-gadgets, rich text viewer and composer.
+								693 container mwAg0
+									694 text [
+									695 link Description: citation needed, Help: Wikipedia:Citation needed, Value: …
+									696 text ]
+								697 text  The Clutter port is developed by 
+								698 link Description: Collabora, Value: …, ID: mwAg4
+								699 text  and sponsored by 
+								700 link Description: Robert Bosch GmbH, Value: …, ID: mwAg8
+								701 text .
+							702 container mwAhA
+								703 text There was also a project synchronized with WebKit (sponsored by Pleyo)
+								704 link Description: [77], Value: …, ID: mwAhE
+								705 container mwAhY
+									706 text [
+									707 link Description: not specific enough to verify, Help: Wikipedia:Verifiability, Value: …
+									708 text ]
+								709 text  called 
+								710 link Description: Origyn Web Browser, Value: …, ID: mwAhg
+								711 text , which provided a meta-port to an abstract platform to make porting to embedded or lightweight systems quicker and easier.
+								712 link Description: [78], Value: …, ID: mwAhk
+								713 text  This port is used for embedded devices such as 
+								714 link Description: set-top boxes, Help: Set-top box, Value: …, ID: mwAh0
+								715 text  and PMP
+								716 container mwAh8
+									717 text [
+									718 link Description: further explanation needed, Help: Wikipedia:Please clarify, Value: …
+									719 text ]
+								720 text  and it has been ported into 
+								721 link Description: AmigaOS, Value: …, ID: mwAiA
+								722 text ,
+								723 link Description: [79], Value: …, ID: mwAiE
+								724 link Description: AROS, Value: …, ID: mwAiU
+								725 text ,
+								726 link Description: [80], Value: …, ID: mwAiY
+								727 text  and 
+								728 link Description: MorphOS, Value: …, ID: mwAio
+								729 text . MorphOS version 1.7 is the first version of 
+								730 link Description: Origyn Web Browser, Value: …, ID: mwAis
+								731 text  (OWB) supporting 
+								732 link Description: HTML5, Value: …, ID: mwAiw
+								733 text  media tags.
+								734 link Description: [81], Value: …, ID: mwAi0
+								735 link Description: [82], Value: …, ID: mwAjE
+							736 container Web Platform for Embedded, ID: mwAjU
+								737 container
+									738 heading Web Platform for Embedded, Value: 4, ID: Web_Platform_for_Embedded
+										739 text Web Platform for Embedded
+									740 link Description: edit, Help: Edit section: Web Platform for Embedded, Value: …
+								741 container mwAjY
+									742 text Web Platform for Embedded
+									743 text  (
+									744 text WPE
+									745 text ) is a WebKit port designed for embedded applications; it further improves the architecture by splitting the basic rendering functionality into a general-purpose routines library (libwpe), platform backends, and the engine itself (called WPE WebKit). The GTK port, albeit self-contained, can be built to use these base libraries instead of its internal platform-specific implementation. The WPE port is currently maintained by 
+									746 link Description: Igalia, Value: …, ID: mwAjk
+									747 text .
+						748 container Forking by Google, ID: mwAjo
+							749 container
+								750 heading Forking by Google, Value: 3, ID: Forking_by_Google
+									751 text Forking by Google
+								752 link Description: edit, Help: Edit section: Forking by Google, Value: …
+							753 container mwAjs
+								754 text On April 3, 2013, Google announced that it would produce a fork of WebKit's WebCore component, to be named 
+								755 link Description: Blink, Help: Blink (layout engine), Value: …, ID: mwAjw
+								756 text . Chrome's developers decided to fork WebCore to allow greater freedom in implementing its features in the browser without causing conflicts upstream, and to simplify its codebase by removing code for WebCore components unused by Chrome. In relation to 
+								757 link Description: Opera Software, Value: …, ID: mwAj0
+								758 text 's announcement earlier in the year that it would switch to WebKit by means of the 
+								759 link Description: Chromium, Help: Chromium (web browser), Value: …, ID: mwAj4
+								760 text  codebase, it was confirmed that the 
+								761 link Description: Opera web browser, Help: Opera (web browser), Value: …, ID: mwAj8
+								762 text  would also switch to Blink.
+								763 link Description: [48], Value: …, ID: mwAkA
+								764 text  Following the announcement, WebKit developers began discussions on removing Chrome-specific code from the engine to streamline its codebase.
+								765 link Description: [83], Value: …, ID: mwAkQ
+								766 text  WebKit no longer has any Chrome specific code (e.g., buildsystem, V8 JavaScript engine hooks, platform code, etc.).
+								767 container mwAkk
+									768 text [
+									769 link Description: citation needed, Help: Wikipedia:Citation needed, Value: …
+									770 text ]
+					771 container Components, ID: mwAko
+						772 container
+							773 heading Components, Value: 2
+								774 text Components
+							775 link Description: edit, Help: Edit section: Components, Value: …
+						776 container WebCore, ID: mwAks
+							777 container
+								778 heading WebCore, Value: 3
+									779 text WebCore
+								780 link Description: edit, Help: Edit section: WebCore, Value: …
+							781 container mwAkw
+								782 text WebCore is a layout, rendering, and 
+								783 link Description: Document Object Model, Value: …, ID: mwAk0
+								784 text  (DOM) 
+								785 link Description: library, Help: Library (computing), Value: …, ID: mwAk4
+								786 text  for HTML and 
+								787 link Description: Scalable Vector Graphics, Value: …, ID: mwAk8
+								788 text  (SVG), developed by the WebKit project. Its full source code is licensed under the 
+								789 link Description: GNU Lesser General Public License, Value: …, ID: mwAlA
+								790 text  (LGPL). The WebKit framework wraps WebCore and JavaScriptCore, providing an Objective-C 
+								791 link Description: application programming interface, Help: Application programming interface, Value: …, ID: mwAlE
+								792 text  to the 
+								793 link Description: C++, Value: …, ID: mwAlI
+								794 text -based WebCore rendering engine and JavaScriptCore script engine, allowing it to be easily referenced by applications based on the 
+								795 link Description: Cocoa API, Value: …, ID: mwAlM
+								796 text ; later versions also include a 
+								797 link Description: cross-platform, Help: Cross-platform, Value: …, ID: mwAlQ
+								798 text  C++ platform abstraction, and various ports provide more APIs.
+								799 container mwAlY
+									800 text [
+									801 link Description: citation needed, Help: Wikipedia:Citation needed, Value: …
+									802 text ]
+							803 container mwAlc
+								804 text WebKit passes the 
+								805 link Description: Acid2, Value: …, ID: mwAlg
+								806 text  and 
+								807 link Description: Acid3, Value: …, ID: mwAlk
+								808 text  tests, with pixel-perfect rendering and no timing or smoothness issues on reference hardware.
+								809 link Description: [84], Value: …, ID: mwAlo
+						810 container JavaScriptCore, ID: mwAl4
+							811 container
+								812 heading JavaScriptCore, Value: 3
+									813 text JavaScriptCore
+								814 link Description: edit, Help: Edit section: JavaScriptCore, Value: …
+							815 container mwAl8
+								816 text JavaScriptCore is a framework that provides a 
+								817 link Description: JavaScript engine, Value: …, ID: mwAmA
+								818 text  for WebKit implementations, and provides this type of scripting in other contexts within macOS.
+								819 link Description: [20], Value: …, ID: mwAmE
+								820 link Description: [85], Value: …, ID: mwAmU
+								821 text  JavaScriptCore is originally derived from 
+								822 link Description: KDE, Value: …, ID: mwAmk
+								823 text 's JavaScript library 
+								824 link Description: KJS, Help: KJS (JavaScript engine), Value: …, ID: mwAmo
+								825 text  (which is part of the KDE project) and the 
+								826 link Description: PCRE, Value: …, ID: mwAms
+								827 link Description: regular expression, Help: Regular expression, Value: …, ID: mwAmw
+								828 text  library. Since forking from KJS and PCRE, JavaScriptCore has added many new features
+								829 container mwAm4
+									830 text [
+									831 link Description: example needed, Help: Wikipedia:AUDIENCE, Value: …
+									832 text ]
+								833 text  and greatly improved performance.
+								834 link Description: [86], Value: …, ID: mwAm8
+							835 container mwAnM
+								836 text On June 2, 2008, the WebKit project announced they rewrote JavaScriptCore as "SquirrelFish",
+								837 link Description: [37], Value: …, ID: mwAnQ
+								838 link Description: [38], Value: …, ID: mwAng
+								839 text  a 
+								840 link Description: register, Help: Register machine, Value: …, ID: mwAnw
+								841 text -based 
+								842 link Description: bytecode interpreter, Help: Interpreter (computing), Value: …, ID: mwAn0
+								843 text  replacing the original AST-walking interpreter. The project later evolved into SquirrelFish Extreme (abbreviated SFX, marketed as Nitro), announced on September 18, 2008, further speeding up JavaScript execution by introducing 
+								844 link Description: Just-in-time compilation, Value: …, ID: mwAn4
+								845 text .
+								846 link Description: [39], Value: …, ID: mwAn8
+							847 container mwAoM
+								848 text An optimizing 
+								849 link Description: just-in-time, Help: Just-in-time compilation, Value: …, ID: mwAoQ
+								850 text  (JIT) compiler named 
+								851 text FTL
+								852 text  was announced on May 13, 2014.
+								853 link Description: [87], Value: …, ID: mwAoY
+								854 text  It uses 
+								855 link Description: LLVM, Value: …, ID: mwAoo
+								856 text  to generate optimized machine code. "FTL" stands for "Fourth-Tier-LLVM", and unofficially for 
+								857 link Description: faster-than-light, Help: Faster-than-light, Value: …, ID: mwAos
+								858 text , alluding to its speed.
+								859 link Description: [88], Value: …, ID: mwAow
+								860 text  As of February 15, 2016, the backend of FTL JIT is replaced by "Bare Bones Backend" (or B3 for short).
+								861 link Description: [89], Value: …, ID: mwApA
+					862 container See also, ID: mwApQ
+						863 container
+							864 heading See also, Value: 2, ID: See_also
+								865 text See also
+							866 link Description: edit, Help: Edit section: See also, Value: …
+						867 container Description: Portals, ID: mwApY
+							868 link Description: Free and open-source software portal, Help: Portal:Free and open-source software, Value: …
+						869 content list mwApc
+							870 container mwApg
+								871 AXListMarker • 
+								872 link Description: Comparison of browser engines, Value: …, ID: mwApk
+							873 container mwApo
+								874 AXListMarker • 
+								875 link Description: List of WebKit-based browsers, Help: List of web browsers, Value: …, ID: mwAps
+					876 container References, ID: mwApw
+						877 container
+							878 heading References, Value: 2
+								879 text References
+							880 link Description: edit, Help: Edit section: References, Value: …
+						881 content list mwAp8
+							882 container cite_note-macport-1
+								883 AXListMarker 1. 
+								884 container mwAqA
+									885 link Description: Jump up to:, Value: …, ID: mwAqE
+									886 link Value: …, ID: mwAqM
+									887 link Value: …, ID: mwAqU
+									888 link Value: …, ID: mwAqc
+								889 container mw-reference-text-cite_note-macport-1
+									890 container CITEREFMueller2003
+										891 text Mueller, Dirk (January 7, 2003). 
+										892 link Description: "(fwd) Greetings from the Safari team at Apple Computer", Value: …, ID: mwAqo
+										893 text . 
+										894 text kfm-devel
+										895 text  (Mailing list). KDE Project. 
+										896 link Description: Archived, Value: …, ID: mwAqw
+										897 text  from the original on February 9, 2015
+										898 container mwAq0
+											899 text . Retrieved 
+											900 text October 28,
+											901 text  2025
+										902 text –
+										903 text  via MARC.
+							904 container cite_note-2
+								905 AXListMarker 2. 
+								906 link Description: Jump up, Value: …, ID: mwArI
+								907 container mw-reference-text-cite_note-2
+									908 container CITEREFMelton
+										909 text Melton, Don. 
+										910 link Description: "Safari is released to the world", Value: …, ID: mwArU
+										911 text . Donmelton.com. 
+										912 link Description: Archived, Value: …, ID: mwArY
+										913 text  from the original on June 4, 2021
+										914 container mwArc
+											915 text . Retrieved 
+											916 text January 13,
+											917 text  2013
+										918 text .
+							919 container cite_note-3
+								920 AXListMarker 3. 
+								921 link Description: Jump up, Value: …, ID: mwArs
+								922 container mw-reference-text-cite_note-3
+									923 container mwAr4
+										924 link Description: "WebKit Nightly Builds", Value: …, ID: mwAr8
+										925 text . 
+										926 text WebKit.org
+										927 text . 
+										928 link Description: Archived, Value: …, ID: mwAsE
+										929 text  from the original on April 3, 2016
+										930 container mwAsI
+											931 text . Retrieved 
+											932 text May 27,
+											933 text  2014
+										934 text .
+							935 container cite_note-4
+								936 AXListMarker 4. 
+								937 link Description: Jump up, Value: …, ID: mwAsY
+								938 container mw-reference-text-cite_note-4
+									939 container mwAsk
+										940 link Description: "Code Style Guidelines", Value: …, ID: mwAso
+										941 text . 
+										942 text WebKit.org
+										943 text . Apple, Inc. November 7, 2015. 
+										944 link Description: Archived, Value: …, ID: mwAsw
+										945 text  from the original on May 1, 2017
+										946 container mwAs0
+											947 text . Retrieved 
+											948 text May 2,
+											949 text  2017
+										950 text .
+							951 container cite_note-5
+								952 AXListMarker 5. 
+								953 link Description: Jump up, Value: …, ID: mwAtE
+								954 container mw-reference-text-cite_note-5
+									955 container mwAtQ
+										956 link Description: "WebKit Download", Value: …, ID: mwAtU
+										957 text . 
+										958 text WebKit.org
+										959 text . March 30, 2016. 
+										960 link Description: Archived, Value: …, ID: mwAtc
+										961 text  from the original on April 3, 2016
+										962 container mwAtg
+											963 text . Retrieved 
+											964 text August 14,
+											965 text  2018
+										966 text .
+							967 container cite_note-6
+								968 AXListMarker 6. 
+								969 link Description: Jump up, Value: …, ID: mwAtw
+								970 container mw-reference-text-cite_note-6
+									971 container mwAt8
+										972 link Description: "WebKit on Windows", Value: …, ID: mwAuA
+										973 text . 
+										974 text WebKit.org
+										975 text . Apple, Inc. November 7, 2015. 
+										976 link Description: Archived, Value: …, ID: mwAuI
+										977 text  from the original on August 8, 2021
+										978 container mwAuM
+											979 text . Retrieved 
+											980 text August 8,
+											981 text  2021
+										982 text .
+							983 container cite_note-7
+								984 AXListMarker 7. 
+								985 link Description: Jump up, Value: …, ID: mwAuc
+								986 container mw-reference-text-cite_note-7
+									987 container mwAuo
+										988 link Description: "BuildingCairoOnWindows – WebKit", Value: …, ID: mwAus
+										989 text . 
+										990 text trac.webkit.org
+										991 text . Apple, Inc. June 8, 2021. 
+										992 link Description: Archived, Value: …, ID: mwAu0
+										993 text  from the original on August 8, 2021
+										994 container mwAu4
+											995 text . Retrieved 
+											996 text August 8,
+											997 text  2021
+										998 text .
+							999 container cite_note-licensing-8
+								1000 AXListMarker 8. 
+								1001 container mwAvE
+									1002 link Description: Jump up to:, Value: …, ID: mwAvI
+									1003 link Value: …, ID: mwAvQ
+									1004 link Value: …, ID: mwAvY
+								1005 container mw-reference-text-cite_note-licensing-8
+									1006 container mwAvk
+										1007 link Description: "Licensing WebKit | WebKit", Value: …, ID: mwAvo
+										1008 text . November 9, 2015. 
+										1009 link Description: Archived, Value: …, ID: mwAvs
+										1010 text  from the original on March 16, 2022
+										1011 container mwAvw
+											1012 text . Retrieved 
+											1013 text March 12,
+											1014 text  2022
+										1015 text .
+							1016 container cite_note-:0-9
+								1017 AXListMarker 9. 
+								1018 container mwAv8
+									1019 link Description: Jump up to:, Value: …, ID: mwAwA
+									1020 link Value: …, ID: mwAwI
+								1021 container mw-reference-text-cite_note-:0-9
+									1022 container mwAwU
+										1023 link Description: "The WebKit Open Source Project", Value: …, ID: mwAwY
+										1024 text . 
+										1025 text WebKit.org
+										1026 text . 
+										1027 link Description: Archived, Value: …, ID: mwAwg
+										1028 text  from the original on April 10, 2012
+										1029 container mwAwk
+											1030 text . Retrieved 
+											1031 text April 7,
+											1032 text  2012
+										1033 text .
+							1034 container cite_note-10
+								1035 AXListMarker 10. 
+								1036 link Description: Jump up, Value: …, ID: mwAw0
+								1037 container mw-reference-text-cite_note-10
+									1038 container CITEREFStachowiak2008
+										1039 text Stachowiak, Maciej (November 9, 2008). 
+										1040 link Description: "Companies and Organizations that have contributed to WebKit", Value: …, ID: mwAxA
+										1041 text . 
+										1042 text WebKit Wiki
+										1043 text . 
+										1044 link Description: Archived, Value: …, ID: mwAxI
+										1045 text  from the original on May 17, 2019
+										1046 container mwAxM
+											1047 text . Retrieved 
+											1048 text November 17,
+											1049 text  2008
+										1050 text .
+							1051 container cite_note-webkitsite-11
+								1052 AXListMarker 11. 
+								1053 link Description: Jump up, Value: …, ID: mwAxc
+								1054 container mw-reference-text-cite_note-webkitsite-11
+									1055 container mwAxo
+										1056 link Description: "The WebKit Open Source Project – Getting the Code", Value: …, ID: mwAxs
+										1057 text . 
+										1058 text Webkit.org
+										1059 text . 
+										1060 link Description: Archived, Value: …, ID: mwAx0
+										1061 text  from the original on March 6, 2016
+										1062 container mwAx4
+											1063 text . Retrieved 
+											1064 text December 27,
+											1065 text  2010
+										1066 text .
+							1067 container cite_note-12
+								1068 AXListMarker 12. 
+								1069 link Description: Jump up, Value: …, ID: mwAyI
+								1070 container mw-reference-text-cite_note-12
+									1071 container CITEREFBarth2013
+										1072 text Barth, Adam (April 3, 2013). 
+										1073 link Description: "Blink: A rendering engine for the Chromium project", Value: …, ID: mwAyU
+										1074 text . 
+										1075 text Chromium Blog
+										1076 text . 
+										1077 link Description: Archived, Value: …, ID: mwAyc
+										1078 text  from the original on April 4, 2013
+										1079 container mwAyg
+											1080 text . Retrieved 
+											1081 text June 14,
+											1082 text  2013
+										1083 text .
+							1084 container cite_note-13
+								1085 AXListMarker 13. 
+								1086 link Description: Jump up, Value: …, ID: mwAyw
+								1087 container mw-reference-text-cite_note-13
+									1088 container CITEREFLawson2013
+										1089 text Lawson, Bruce (April 3, 2013). 
+										1090 link Description: "Hello Blink", Value: …, ID: mwAy8
+										1091 text . 
+										1092 text Brucelawson.co.uk
+										1093 text . 
+										1094 link Description: Archived, Value: …, ID: mwAzE
+										1095 text  from the original on April 4, 2013
+										1096 container mwAzI
+											1097 text . Retrieved 
+											1098 text June 14,
+											1099 text  2013
+										1100 text .
+							1101 container cite_note-14
+								1102 AXListMarker 14. 
+								1103 link Description: Jump up, Value: …, ID: mwAzY
+								1104 container mw-reference-text-cite_note-14
+									1105 container CITEREFOmolana2022
+										1106 text Omolana, Timilehin (August 2, 2022). 
+										1107 link Description: "What Is Bun.js and Why Is the JavaScript Community Excited About It?", Value: …, ID: mwAzk
+										1108 text . 
+										1109 text MakeUseOf
+										1110 text . 
+										1111 link Description: Archived, Value: …, ID: mwAzs
+										1112 text  from the original on May 30, 2023
+										1113 container mwAzw
+											1114 text . Retrieved 
+											1115 text May 30,
+											1116 text  2023
+										1117 text .
+							1118 container cite_note-15
+								1119 AXListMarker 15. 
+								1120 link Description: Jump up, Value: …, ID: mwA0A
+								1121 container mw-reference-text-cite_note-15
+									1122 container mwA0M
+										1123 link Description: "Open Source – WebKit", Value: …, ID: mwA0Q
+										1124 text . Apple. Archived from 
+										1125 link Description: the original, Value: …, ID: mwA0U
+										1126 text  on March 11, 2009
+										1127 container mwA0Y
+											1128 text . Retrieved 
+											1129 text March 5,
+											1130 text  2009
+										1131 text .
+							1132 container cite_note-16
+								1133 AXListMarker 16. 
+								1134 link Description: Jump up, Value: …, ID: mwA0o
+								1135 container mw-reference-text-cite_note-16
+									1136 container CITEREFPurcher2013
+										1137 text Purcher, Jack (March 7, 2013). 
+										1138 link Description: "Apple's 'WebKit' is now a Registered Trademark in the US", Value: …, ID: mwA00
+										1139 text . 
+										1140 text Patently Apple
+										1141 text . 
+										1142 link Description: Archived, Value: …, ID: mwA08
+										1143 text  from the original on March 9, 2013
+										1144 container mwA1A
+											1145 text . Retrieved 
+											1146 text March 7,
+											1147 text  2013
+										1148 text .
+							1149 container cite_note-17
+								1150 AXListMarker 17. 
+								1151 link Description: Jump up, Value: …, ID: mwA1Q
+								1152 container mw-reference-text-cite_note-17
+									1153 container mwA1c
+										1154 text Melton, Lisa. 
+										1155 link Description: "Introduction", Value: …, ID: mwA1g
+										1156 text . 
+										1157 text Mastodon.social
+										1158 container mwA1o
+											1159 text . Retrieved 
+											1160 text June 26,
+											1161 text  2026
+										1162 text .
+							1163 container cite_note-18
+								1164 AXListMarker 18. 
+								1165 link Description: Jump up, Value: …, ID: mwA14
+								1166 container mw-reference-text-cite_note-18
+									1167 container mwA2E
+										1168 text Melton. 
+										1169 link Description: "Sweet sixteen for Safari and WebKit", Value: …, ID: mwA2I
+										1170 text . 
+										1171 text Don Melton
+										1172 text .
+							1173 container cite_note-start_date-19
+								1174 AXListMarker 19. 
+								1175 link Description: Jump up, Value: …, ID: mwA2Y
+								1176 container mw-reference-text-cite_note-start_date-19
+									1177 container CITEREFHenry2021
+										1178 text Henry, Charlotte (June 25, 2021). 
+										1179 link Description: "Happy 20th Birthday, Safari and Webkit!", Value: …, ID: mwA2k
+										1180 text . 
+										1181 text The Mac Observer
+										1182 text . 
+										1183 link Description: Archived, Value: …, ID: mwA2s
+										1184 text  from the original on August 12, 2023
+										1185 container mwA2w
+											1186 text . Retrieved 
+											1187 text August 12,
+											1188 text  2023
+										1189 text .
+							1190 container cite_note-annjavascript-20
+								1191 AXListMarker 20. 
+								1192 container mwA28
+									1193 link Description: Jump up to:, Value: …, ID: mwA3A
+									1194 link Value: …, ID: mwA3I
+								1195 container mw-reference-text-cite_note-annjavascript-20
+									1196 container CITEREFStachowiak2002
+										1197 link Description: Stachowiak, Maciej, Help: Maciej Stachowiak, Value: …, ID: mwA3U
+										1198 text  (June 13, 2002). 
+										1199 link Description: "JavaScriptCore, Apple's JavaScript framework based on KJS", Value: …, ID: mwA3Y
+										1200 text . 
+										1201 text kde-darwin
+										1202 text  (Mailing list). Archived from 
+										1203 link Description: the original, Value: …, ID: mwA3g
+										1204 text  on March 10, 2007
+										1205 container mwA3k
+											1206 text . Retrieved 
+											1207 text August 21,
+											1208 text  2008
+										1209 text .
+							1210 container cite_note-21
+								1211 AXListMarker 21. 
+								1212 link Description: Jump up, Value: …, ID: mwA30
+								1213 container mw-reference-text-cite_note-21
+									1214 container CITEREFSandfeld2005
+										1215 text Sandfeld, Allan (April 30, 2005). 
+										1216 link Description: "Safari and KHTML again", Value: …, ID: mwA4A
+										1217 text . 
+										1218 text KDE Blogs
+										1219 container mwA4I
+											1220 text . Retrieved 
+											1221 text October 28,
+											1222 text  2025
+										1223 text .
+							1224 container cite_note-22
+								1225 AXListMarker 22. 
+								1226 link Description: Jump up, Value: …, ID: mwA4Y
+								1227 container mw-reference-text-cite_note-22
+									1228 container CITEREFRusin2005
+										1229 text Rusin, Zack (April 28, 2005). 
+										1230 link Description: "So, when will KHTML merge all the WebCore changes?", Value: …, ID: mwA4k
+										1231 text . 
+										1232 text KDE Blogs
+										1233 text . 
+										1234 link Description: Archived, Value: …, ID: mwA4s
+										1235 text  from the original on January 5, 2026
+										1236 container mwA4w
+											1237 text . Retrieved 
+											1238 text October 28,
+											1239 text  2025
+										1240 text .
+							1241 container cite_note-23
+								1242 AXListMarker 23. 
+								1243 link Description: Jump up, Value: …, ID: mwA5A
+								1244 container mw-reference-text-cite_note-23
+									1245 container mwA5M
+										1246 link Description: "The bitter failure named 'safari and khtml'", Value: …, ID: mwA5Q
+										1247 text . April 29, 2005. 
+										1248 link Description: Archived, Value: …, ID: mwA5Y
+										1249 text  from the original on April 15, 2015.
+							1250 container cite_note-24
+								1251 AXListMarker 24. 
+								1252 link Description: Jump up, Value: …, ID: mwA5k
+								1253 container mw-reference-text-cite_note-24
+									1254 container mwA5w
+										1255 link Description: "Open-source divorce for Apple's Safari?", Value: …, ID: mwA50
+										1256 text . 
+										1257 link Description: Archived, Value: …, ID: mwA54
+										1258 text  from the original on July 7, 2009.
+							1259 container cite_note-25
+								1260 AXListMarker 25. 
+								1261 link Description: Jump up, Value: …, ID: mwA6E
+								1262 container mw-reference-text-cite_note-25
+									1263 container mwA6Q
+										1264 link Description: "WebCore open source changes", Value: …, ID: mwA6U
+										1265 text . Archived from 
+										1266 link Description: the original, Value: …, ID: mwA6Y
+										1267 text  on May 27, 2016
+										1268 container mwA6c
+											1269 text . Retrieved 
+											1270 text May 14,
+											1271 text  2016
+										1272 text .
+							1273 container cite_note-26
+								1274 AXListMarker 26. 
+								1275 link Description: Jump up, Value: …, ID: mwA6s
+								1276 container mw-reference-text-cite_note-26
+									1277 container CITEREFPipitas2005
+										1278 text Pipitas (May 13, 2005). 
+										1279 link Description: "WebCore – KHTML – Firefox: Know your facts!", Value: …, ID: mwA64
+										1280 container mwA68
+											1281 text . Retrieved 
+											1282 text October 28,
+											1283 text  2025
+										1284 text .
+							1285 container cite_note-27
+								1286 AXListMarker 27. 
+								1287 link Description: Jump up, Value: …, ID: mwA7M
+								1288 container mw-reference-text-cite_note-27
+									1289 container mwA7Y
+										1290 link Description: "Konqueror now passes Acid2", Value: …, ID: mwA7c
+										1291 text . 
+										1292 link Description: Archived, Value: …, ID: mwA7g
+										1293 text  from the original on June 21, 2017.
+							1294 container cite_note-kdenews2007-06-05-28
+								1295 AXListMarker 28. 
+								1296 container mwA7o
+									1297 link Description: Jump up to:, Value: …, ID: mwA7s
+									1298 link Value: …, ID: mwA70
+								1299 container mw-reference-text-cite_note-kdenews2007-06-05-28
+									1300 container CITEREFMolkentin2005
+										1301 text Molkentin, Daniel (June 7, 2005). 
+										1302 link Description: "Apple Opens WebKit CVS and Bug Database", Value: …, ID: mwA8A
+										1303 text . 
+										1304 text KDE News
+										1305 text . 
+										1306 link Description: Archived, Value: …, ID: mwA8I
+										1307 text  from the original on July 15, 2009
+										1308 container mwA8M
+											1309 text . Retrieved 
+											1310 text January 16,
+											1311 text  2007
+										1312 text .
+							1313 container cite_note-29
+								1314 AXListMarker 29. 
+								1315 link Description: Jump up, Value: …, ID: mwA8c
+								1316 container mw-reference-text-cite_note-29
+									1317 container CITEREFEcker2007
+										1318 text Ecker, Clint (June 12, 2007). 
+										1319 link Description: "Ars at WWDC: Interview with Lars Knoll, creator of KHTML", Value: …, ID: mwA8o
+										1320 text . 
+										1321 link Description: Ars Technica, Value: …, ID: mwA8w
+										1322 text . 
+										1323 link Description: Archived, Value: …, ID: mwA80
+										1324 text  from the original on May 31, 2008.
+							1325 container cite_note-arsunfork-30
+								1326 AXListMarker 30. 
+								1327 link Description: Jump up, Value: …, ID: mwA9A
+								1328 container mw-reference-text-cite_note-arsunfork-30
+									1329 container CITEREFUnrau2007
+										1330 text Unrau, Troy (July 23, 2007). 
+										1331 link Description: "The unforking of KDE's KHTML and WebKit", Value: …, ID: mwA9M
+										1332 text . 
+										1333 text Ars Technica
+										1334 text . 
+										1335 link Description: Archived, Value: …, ID: mwA9U
+										1336 text  from the original on September 30, 2007
+										1337 container mwA9Y
+											1338 text . Retrieved 
+											1339 text July 30,
+											1340 text  2007
+										1341 text .
+							1342 container cite_note-kde4.5.0-31
+								1343 AXListMarker 31. 
+								1344 link Description: Jump up, Value: …, ID: mwA9o
+								1345 container mw-reference-text-cite_note-kde4.5.0-31
+									1346 container mwA90
+										1347 link Value: …, ID: mwA94, Description: "KDE Development Platform 4.5.0 gains performance, stability, new high-speed cache and support for WebKit"
+										1348 text . 
+										1349 link Description: Archived, Value: …, ID: mwA98
+										1350 text  from the original on March 14, 2011.
+							1351 container cite_note-discontinued-32
+								1352 AXListMarker 32. 
+								1353 link Description: Jump up, Value: …, ID: mwA-I
+								1354 container mw-reference-text-cite_note-discontinued-32
+									1355 container mwA-U
+										1356 link Description: "KHTML", Value: …, ID: mwA-Y
+										1357 text . 
+										1358 text GitHub
+										1359 text . 
+										1360 link Description: Archived, Value: …, ID: mwA-g
+										1361 text  from the original on November 1, 2024
+										1362 container mwA-k
+											1363 text . Retrieved 
+											1364 text May 5,
+											1365 text  2023
+										1366 text . 
+										1367 container mwA-s
+											1368 text " Removed for KF6, the 'kf5' branch contains the last maintained state. "
+							1369 container cite_note-kdestandard-33
+								1370 AXListMarker 33. 
+								1371 link Description: Jump up, Value: …, ID: mwA-4
+								1372 container mw-reference-text-cite_note-kdestandard-33
+									1373 container CITEREFPfeifle2005
+										1374 text Pfeifle, Kurt (July 10, 2005). 
+										1375 link Description: "Next Generation KDE Technologies Ported to WebCore", Value: …, ID: mwA_E
+										1376 container mwA_I
+											1377 text . Retrieved 
+											1378 text October 28,
+											1379 text  2025
+										1380 text .
+							1381 container cite_note-34
+								1382 AXListMarker 34. 
+								1383 link Description: Jump up, Value: …, ID: mwA_Y
+								1384 container mw-reference-text-cite_note-34
+									1385 container mwA_k
+										1386 link Description: "CSS Transforms", Value: …, ID: mwA_o
+										1387 text . 
+										1388 text Webkit
+										1389 text . October 26, 2007. 
+										1390 link Description: Archived, Value: …, ID: mwA_w
+										1391 text  from the original on January 13, 2017.
+							1392 container cite_note-35
+								1393 AXListMarker 35. 
+								1394 link Description: Jump up, Value: …, ID: mwA_8
+								1395 container mw-reference-text-cite_note-35
+									1396 container mwBAI
+										1397 link Description: "CSS3 Animations", Value: …, ID: mwBAM
+										1398 text . W3C. 
+										1399 link Description: Archived, Value: …, ID: mwBAQ
+										1400 text  from the original on February 21, 2009.
+							1401 container cite_note-36
+								1402 AXListMarker 36. 
+								1403 link Description: Jump up, Value: …, ID: mwBAc
+								1404 container mw-reference-text-cite_note-36
+									1405 container CITEREFKoivisto2007
+										1406 text Koivisto, Antti (November 12, 2007). 
+										1407 link Description: "HTML5 Media Support", Value: …, ID: mwBAo
+										1408 text . 
+										1409 text WebKit Blog
+										1410 text . 
+										1411 link Description: Archived, Value: …, ID: mwBAw
+										1412 text  from the original on January 13, 2017.
+							1413 container cite_note-Announcing_SquirrelFish-37
+								1414 AXListMarker 37. 
+								1415 container mwBA4
+									1416 link Description: Jump up to:, Value: …, ID: mwBA8
+									1417 link Value: …, ID: mwBBE
+								1418 container mw-reference-text-cite_note-Announcing_SquirrelFish-37
+									1419 container mwBBQ
+										1420 link Description: "Announcing SquirrelFish", Value: …, ID: mwBBU
+										1421 text . June 2, 2008. 
+										1422 link Description: Archived, Value: …, ID: mwBBY
+										1423 text  from the original on January 27, 2017.
+							1424 container cite_note-SquirrelFish_project-38
+								1425 AXListMarker 38. 
+								1426 container mwBBg
+									1427 link Description: Jump up to:, Value: …, ID: mwBBk
+									1428 link Value: …, ID: mwBBs
+								1429 container mw-reference-text-cite_note-SquirrelFish_project-38
+									1430 container mwBB4
+										1431 link Description: "SquirrelFish project", Value: …, ID: mwBB8
+										1432 text . 
+										1433 link Description: Archived, Value: …, ID: mwBCA
+										1434 text  from the original on January 13, 2017
+										1435 container mwBCE
+											1436 text . Retrieved 
+											1437 text January 12,
+											1438 text  2017
+										1439 text .
+							1440 container cite_note-Introducing_SquirrelFish_Extreme-39
+								1441 AXListMarker 39. 
+								1442 container mwBCQ
+									1443 link Description: Jump up to:, Value: …, ID: mwBCU
+									1444 link Value: …, ID: mwBCc
+								1445 container mw-reference-text-cite_note-Introducing_SquirrelFish_Extreme-39
+									1446 container mwBCo
+										1447 link Description: "Introducing SquirrelFish Extreme", Value: …, ID: mwBCs
+										1448 text . September 18, 2008. 
+										1449 link Description: Archived, Value: …, ID: mwBCw
+										1450 text  from the original on November 26, 2016.
+							1451 container cite_note-x86-64-40
+								1452 AXListMarker 40. 
+								1453 link Description: Jump up, Value: …, ID: mwBC8
+								1454 container mw-reference-text-cite_note-x86-64-40
+									1455 container mwBDI
+										1456 link Description: "Changeset 40439", Value: …, ID: mwBDM
+										1457 text . 
+										1458 text Webkit Trac
+										1459 text . January 30, 2009. 
+										1460 link Description: Archived, Value: …, ID: mwBDU
+										1461 text  from the original on January 7, 2016
+										1462 container mwBDY
+											1463 text . Retrieved 
+											1464 text December 27,
+											1465 text  2010
+										1466 text .
+							1467 container cite_note-webkit2wiki-41
+								1468 AXListMarker 41. 
+								1469 link Description: Jump up, Value: …, ID: mwBDo
+								1470 container mw-reference-text-cite_note-webkit2wiki-41
+									1471 container mwBD0
+										1472 link Description: "WebKit2 wiki", Value: …, ID: mwBD4
+										1473 text . 
+										1474 text Webkit.org
+										1475 text . 
+										1476 link Description: Archived, Value: …, ID: mwBEA
+										1477 text  from the original on August 28, 2012
+										1478 container mwBEE
+											1479 text . Retrieved 
+											1480 text August 3,
+											1481 text  2012
+										1482 text .
+							1483 container cite_note-42
+								1484 AXListMarker 42. 
+								1485 link Description: Jump up, Value: …, ID: mwBEU
+								1486 container mw-reference-text-cite_note-42
+									1487 container mwBEg
+										1488 link Description: "Announcing WebKit2", Value: …, ID: mwBEk
+										1489 text . 
+										1490 text Webkit.org
+										1491 text . April 8, 2010. 
+										1492 link Description: Archived, Value: …, ID: mwBEs
+										1493 text  from the original on April 23, 2011
+										1494 container mwBEw
+											1495 text . Retrieved 
+											1496 text December 27,
+											1497 text  2010
+										1498 text .
+							1499 container cite_note-meego-harmattan-43
+								1500 AXListMarker 43. 
+								1501 link Description: Jump up, Value: …, ID: mwBFA
+								1502 container mw-reference-text-cite_note-meego-harmattan-43
+									1503 container mwBFM
+										1504 link Description: "Introducing the Nokia N9: all it takes is a swipe!", Value: …, ID: mwBFQ
+										1505 text . 
+										1506 text Nokia Conversations
+										1507 text . Nokia Corporation. Archived from 
+										1508 link Description: the original, Value: …, ID: mwBFY
+										1509 text  on June 24, 2011
+										1510 container mwBFc
+											1511 text . Retrieved 
+											1512 text June 21,
+											1513 text  2011
+										1514 text .
+							1515 container cite_note-44
+								1516 AXListMarker 44. 
+								1517 link Description: Jump up, Value: …, ID: mwBFs
+								1518 container mw-reference-text-cite_note-44
+									1519 container mwBF4
+										1520 link Description: "Source code repository for public parts of Safari 5.1", Value: …, ID: mwBF8
+										1521 text . The WebKit Open Source Project. Archived from 
+										1522 link Description: the original, Value: …, ID: mwBGA
+										1523 text  on October 3, 2011
+										1524 container mwBGE
+											1525 text . Retrieved 
+											1526 text July 20,
+											1527 text  2011
+										1528 text .
+							1529 container cite_note-45
+								1530 AXListMarker 45. 
+								1531 link Description: Jump up, Value: …, ID: mwBGU
+								1532 container mw-reference-text-cite_note-45
+									1533 container mwBGg
+										1534 link Description: "WWDC 2014 Session 206 - Introducing the Modern WebKit API - ASCIIwwdc", Value: …, ID: mwBGk
+										1535 text . Archived from 
+										1536 link Description: the original, Value: …, ID: mwBGo
+										1537 text  on December 13, 2014
+										1538 container mwBGs
+											1539 text . Retrieved 
+											1540 text December 13,
+											1541 text  2014
+										1542 text .
+							1543 container cite_note-46
+								1544 AXListMarker 46. 
+								1545 link Description: Jump up, Value: …, ID: mwBG8
+								1546 container mw-reference-text-cite_note-46
+									1547 container mwBHI
+										1548 link Value: …, ID: mwBHM, Description: "132399 – Move the legacy WebKit API into WebKitLegacy.framework and move it inside WebKit.framework"
+										1549 text . 
+										1550 text Webkit.org
+										1551 text . 
+										1552 link Description: Archived, Value: …, ID: mwBHU
+										1553 text  from the original on June 9, 2019
+										1554 container mwBHY
+											1555 text . Retrieved 
+											1556 text June 9,
+											1557 text  2019
+										1558 text .
+							1559 container cite_note-47
+								1560 AXListMarker 47. 
+								1561 link Description: Jump up, Value: …, ID: mwBHo
+								1562 container mw-reference-text-cite_note-47
+									1563 container mwBH0
+										1564 link Description: "Renaming Directories and Project Files to Match Framework Names", Value: …, ID: mwBH4
+										1565 text . 
+										1566 text Webkit.org
+										1567 text . July 10, 2017. 
+										1568 link Description: Archived, Value: …, ID: mwBIA
+										1569 text  from the original on June 9, 2019
+										1570 container mwBIE
+											1571 text . Retrieved 
+											1572 text June 9,
+											1573 text  2019
+										1574 text .
+							1575 container cite_note-ars-blink-48
+								1576 AXListMarker 48. 
+								1577 container mwBIQ
+									1578 link Description: Jump up to:, Value: …, ID: mwBIU
+									1579 link Value: …, ID: mwBIc
+								1580 container mw-reference-text-cite_note-ars-blink-48
+									1581 container mwBIo
+										1582 link Description: "Google going its own way, forking WebKit rendering engine", Value: …, ID: mwBIs
+										1583 text . 
+										1584 text Ars Technica
+										1585 text . April 3, 2013. 
+										1586 link Description: Archived, Value: …, ID: mwBI0
+										1587 text  from the original on April 4, 2013
+										1588 container mwBI4
+											1589 text . Retrieved 
+											1590 text April 4,
+											1591 text  2013
+										1592 text .
+							1593 container cite_note-App_Store_Review_Guidelines-49
+								1594 AXListMarker 49. 
+								1595 link Description: Jump up, Value: …, ID: mwBJI
+								1596 container mw-reference-text-cite_note-App_Store_Review_Guidelines-49
+									1597 container mwBJU
+										1598 link Description: "App Store Review Guidelines", Value: …, ID: mwBJY
+										1599 text . 
+										1600 link Description: Archived, Value: …, ID: mwBJc
+										1601 text  from the original on March 4, 2020
+										1602 container mwBJg
+											1603 text . Retrieved 
+											1604 text May 31,
+											1605 text  2021
+										1606 text .
+							1607 container cite_note-Nokia_S60_Webkit_Browser-50
+								1608 AXListMarker 50. 
+								1609 link Description: Jump up, Value: …, ID: mwBJw
+								1610 container mw-reference-text-cite_note-Nokia_S60_Webkit_Browser-50
+									1611 container mwBJ8
+										1612 link Description: "Nokia S60 Webkit Browser", Value: …, ID: mwBKA
+										1613 text . Nokia. Archived from 
+										1614 link Description: the original, Value: …, ID: mwBKE
+										1615 text  on December 6, 2005.
+							1616 container cite_note-Google_Chrome,_Google's_Browser_Project-51
+								1617 AXListMarker 51. 
+								1618 link Description: Jump up, Value: …, ID: mwBKQ
+								1619 container mw-reference-text-cite_note-Google_Chrome,_Google's_Browser_Project-51
+									1620 container mwBKc
+										1621 link Description: "Google Chrome, Google's Browser Project", Value: …, ID: mwBKg
+										1622 text . 
+										1623 link Description: Archived, Value: …, ID: mwBKk
+										1624 text  from the original on September 2, 2008.
+							1625 container cite_note-google-comic-52
+								1626 AXListMarker 52. 
+								1627 link Description: Jump up, Value: …, ID: mwBKw
+								1628 container mw-reference-text-cite_note-google-comic-52
+									1629 container mwBK8
+										1630 link Description: "Comic describing the Google Chrome Project", Value: …, ID: mwBLA
+										1631 text . 
+										1632 link Description: Archived, Value: …, ID: mwBLE
+										1633 text  from the original on September 3, 2008.
+							1634 container cite_note-53
+								1635 AXListMarker 53. 
+								1636 link Description: Jump up, Value: …, ID: mwBLQ
+								1637 container mw-reference-text-cite_note-53
+									1638 container mwBLc
+										1639 link Description: PS3、ファームウェアv4.10からWebKitへ。 - あまたの何かしら。, Value: …, ID: mwBLg
+										1640 text . 
+										1641 text あまたの何かしら。
+										1642 text . February 8, 2012. 
+										1643 link Description: Archived, Value: …, ID: mwBLs
+										1644 text  from the original on October 14, 2012
+										1645 container mwBLw
+											1646 text . Retrieved 
+											1647 text January 13,
+											1648 text  2013
+										1649 text .
+							1650 container cite_note-54
+								1651 AXListMarker 54. 
+								1652 link Description: Jump up, Value: …, ID: mwBME
+								1653 container mw-reference-text-cite_note-54
+									1654 container CITEREFPersch2008
+										1655 text Persch, Christian (April 1, 2008). 
+										1656 link Description: "ANNOUNCEMENT: The Future of Epiphany", Value: …, ID: mwBMQ
+										1657 text . 
+										1658 text Epiphany Mailing List
+										1659 text  (Mailing list). GNOME Project. 
+										1660 link Description: Archived, Value: …, ID: mwBMY
+										1661 text  from the original on February 14, 2012
+										1662 container mwBMc
+											1663 text . Retrieved 
+											1664 text October 28,
+											1665 text  2025
+										1666 text .
+							1667 container cite_note-55
+								1668 AXListMarker 55. 
+								1669 link Description: Jump up, Value: …, ID: mwBMs
+								1670 container mw-reference-text-cite_note-55
+									1671 container CITEREFChen
+										1672 text Chen, Brian X. 
+										1673 link Description: "HP Launches WebOS-Powered Tablet, Phones", Value: …, ID: mwBM4
+										1674 text . Gadget Lab. 
+										1675 text Wired
+										1676 text . 
+										1677 link Description: Archived, Value: …, ID: mwBNA
+										1678 text  from the original on April 10, 2014
+										1679 container mwBNE
+											1680 text . Retrieved 
+											1681 text January 13,
+											1682 text  2013
+										1683 text .
+							1684 container cite_note-56
+								1685 AXListMarker 56. 
+								1686 link Description: Jump up, Value: …, ID: mwBNU
+								1687 container mw-reference-text-cite_note-56
+									1688 container mwBNg
+										1689 link Description: "100 Million Club (H1 2010 update)", Value: …, ID: mwBNk
+										1690 text . 
+										1691 text VisionMobile
+										1692 text . October 18, 2010. 
+										1693 link Description: Archived, Value: …, ID: mwBNs
+										1694 text  from the original on March 1, 2011
+										1695 container mwBNw
+											1696 text . Retrieved 
+											1697 text March 1,
+											1698 text  2011
+										1699 text .
+							1700 container cite_note-57
+								1701 AXListMarker 57. 
+								1702 link Description: Jump up, Value: …, ID: mwBOA
+								1703 container mw-reference-text-cite_note-57
+									1704 container mwBOM
+										1705 link Description: "Top 5 Desktop, Tablet & Console Browsers", Value: …, ID: mwBOQ
+										1706 text . 
+										1707 text StatCounter
+										1708 text . April 2015
+										1709 container mwBOY
+											1710 text . Retrieved 
+											1711 text April 14,
+											1712 text  2015
+										1713 text .
+							1714 container cite_note-58
+								1715 AXListMarker 58. 
+								1716 link Description: Jump up, Value: …, ID: mwBO8
+								1717 container mw-reference-text-cite_note-58
+									1718 container CITEREFStachowiak2007
+										1719 text Stachowiak, Maciej (January 10, 2007). 
+										1720 link Description: "The Obligatory iPhone Post", Value: …, ID: mwBPI
+										1721 text . 
+										1722 text WebKit Blog
+										1723 text . 
+										1724 link Description: Archived, Value: …, ID: mwBPQ
+										1725 text  from the original on February 19, 2008
+										1726 container mwBPU
+											1727 text . Retrieved 
+											1728 text January 24,
+											1729 text  2008
+										1730 text .
+							1731 container cite_note-andport-59
+								1732 AXListMarker 59. 
+								1733 link Description: Jump up, Value: …, ID: mwBPk
+								1734 container mw-reference-text-cite_note-andport-59
+									1735 container mwBPw
+										1736 link Description: "Android Uses WebKit", Value: …, ID: mwBP0
+										1737 text . Archived from 
+										1738 link Description: the original, Value: …, ID: mwBP4
+										1739 text  on January 13, 2017
+										1740 container mwBP8
+											1741 text . Retrieved 
+											1742 text January 12,
+											1743 text  2017
+										1744 text .
+							1745 container cite_note-60
+								1746 AXListMarker 60. 
+								1747 link Description: Jump up, Value: …, ID: mwBQM
+								1748 container mw-reference-text-cite_note-60
+									1749 container mwBQY
+										1750 link Description: "WebKit in the News", Value: …, ID: mwBQc
+										1751 text . 
+										1752 text WebKit.org
+										1753 text . November 13, 2007
+										1754 container mwBQk
+											1755 text . Retrieved 
+											1756 text November 17,
+											1757 text  2018
+										1758 text .
+							1759 container cite_note-61
+								1760 AXListMarker 61. 
+								1761 link Description: Jump up, Value: …, ID: mwBQ0
+								1762 container mw-reference-text-cite_note-61
+									1763 container mwBRA
+										1764 link Description: "The Amazing Rise of WebKit Mobile", Value: …, ID: mwBRE
+										1765 text . 
+										1766 text Gigaom
+										1767 text . November 13, 2007. Archived from 
+										1768 link Description: the original, Value: …, ID: mwBRM
+										1769 text  on November 14, 2007
+										1770 container mwBRQ
+											1771 text . Retrieved 
+											1772 text November 17,
+											1773 text  2018
+										1774 text .
+							1775 container cite_note-palmPre-62
+								1776 AXListMarker 62. 
+								1777 link Description: Jump up, Value: …, ID: mwBRg
+								1778 container mw-reference-text-cite_note-palmPre-62
+									1779 container mwBRs
+										1780 link Description: "Palm Pre in-depth impressions, video, and huge hands-on gallery", Value: …, ID: mwBRw
+										1781 text . January 9, 2009. 
+										1782 link Description: Archived, Value: …, ID: mwBR0
+										1783 text  from the original on January 13, 2017.
+							1784 container cite_note-63
+								1785 AXListMarker 63. 
+								1786 link Description: Jump up, Value: …, ID: mwBSA
+								1787 container mw-reference-text-cite_note-63
+									1788 container CITEREFTopolsky2010
+										1789 text Topolsky, Joshua (July 28, 2010). 
+										1790 link Value: …, ID: mwBSM, Description: "New Amazon Kindle announced: $139 WiFi-only version and $189 3G model available August 27th in the US and UK"
+										1791 text . 
+										1792 link Description: Archived, Value: …, ID: mwBSQ
+										1793 text  from the original on January 13, 2017.
+							1794 container cite_note-64
+								1795 AXListMarker 64. 
+								1796 link Description: Jump up, Value: …, ID: mwBSc
+								1797 container mw-reference-text-cite_note-64
+									1798 container CITEREFLex_Friedman2012
+										1799 text Lex Friedman (July 26, 2012). 
+										1800 link Description: "Safari 6 available for Mountain Lion and Lion, but not Windows", Value: …, ID: mwBSo
+										1801 text . 
+										1802 text MacWorld
+										1803 text . International Data Group. 
+										1804 link Description: Archived, Value: …, ID: mwBSw
+										1805 text  from the original on August 8, 2021
+										1806 container mwBS0
+											1807 text . Retrieved 
+											1808 text August 8,
+											1809 text  2021
+										1810 text .
+							1811 container cite_note-65
+								1812 AXListMarker 65. 
+								1813 link Description: Jump up, Value: …, ID: mwBTE
+								1814 container mw-reference-text-cite_note-65
+									1815 container mwBTQ
+										1816 link Description: "Buildbot: builder Apple-Win-10-Debug-Build", Value: …, ID: mwBTU
+										1817 text . 
+										1818 text WebKit.org
+										1819 text . Apple, Inc
+										1820 container mwBTc
+											1821 text . Retrieved 
+											1822 text August 8,
+											1823 text  2021
+										1824 text .
+							1825 container cite_note-66
+								1826 AXListMarker 66. 
+								1827 link Description: Jump up, Value: …, ID: mwBUA
+								1828 container mw-reference-text-cite_note-66
+									1829 container mwBUM
+										1830 link Description: "Buildbot: builder WinCairo-64-bit-WKL-Release-Build", Value: …, ID: mwBUQ
+										1831 text . 
+										1832 text WebKit
+										1833 text . Apple, Inc
+										1834 container mwBUY
+											1835 text . Retrieved 
+											1836 text August 8,
+											1837 text  2021
+										1838 text .
+							1839 container cite_note-67
+								1840 AXListMarker 67. 
+								1841 link Description: Jump up, Value: …, ID: mwBU8
+								1842 container mw-reference-text-cite_note-67
+									1843 container mwBVI
+										1844 link Description: "About the security content of iCloud for Windows 12.3", Value: …, ID: mwBVM
+										1845 text . 
+										1846 text Apple Support
+										1847 text . Apple, Inc. 
+										1848 link Description: Archived, Value: …, ID: mwBVU
+										1849 text  from the original on August 8, 2021
+										1850 container mwBVY
+											1851 text . Retrieved 
+											1852 text August 8,
+											1853 text  2021
+										1854 text .
+							1855 container cite_note-68
+								1856 AXListMarker 68. 
+								1857 link Description: Jump up, Value: …, ID: mwBVo
+								1858 container mw-reference-text-cite_note-68
+									1859 container mwBV0
+										1860 link Description: "About the security content of iTunes 12.11.3 for Windows", Value: …, ID: mwBV4
+										1861 text . 
+										1862 text Apple Support
+										1863 text . Apple, Inc. 
+										1864 link Description: Archived, Value: …, ID: mwBWA
+										1865 text  from the original on August 8, 2021
+										1866 container mwBWE
+											1867 text . Retrieved 
+											1868 text August 8,
+											1869 text  2021
+										1870 text .
+							1871 container cite_note-69
+								1872 AXListMarker 69. 
+								1873 link Description: Jump up, Value: …, ID: mwBWU
+								1874 container mw-reference-text-cite_note-69
+									1875 container mwBWg
+										1876 link Description: "BuildingCairoOnWindows – WebKit", Value: …, ID: mwBWk
+										1877 text . 
+										1878 text WebKit Trac
+										1879 text . Apple, Inc. June 8, 2021. 
+										1880 link Description: Archived, Value: …, ID: mwBWs
+										1881 text  from the original on August 8, 2021
+										1882 container mwBWw
+											1883 text . Retrieved 
+											1884 text August 8,
+											1885 text  2021
+										1886 text .
+							1887 container cite_note-70
+								1888 AXListMarker 70. 
+								1889 link Description: Jump up, Value: …, ID: mwBXA
+								1890 container mw-reference-text-cite_note-70
+									1891 container mwBXM
+										1892 link Value: …, ID: mwBXQ, Description: "WebKitForWindows/WebKitRequirements: Build scripts for the requirements of the WinCairo port of WebKit"
+										1893 text . 
+										1894 text GitHub
+										1895 text . Apple, Inc. 
+										1896 link Description: Archived, Value: …, ID: mwBXY
+										1897 text  from the original on August 8, 2021
+										1898 container mwBXc
+											1899 text . Retrieved 
+											1900 text August 8,
+											1901 text  2021
+										1902 text .
+							1903 container cite_note-71
+								1904 AXListMarker 71. 
+								1905 link Description: Jump up, Value: …, ID: mwBXs
+								1906 container mw-reference-text-cite_note-71
+									1907 container mwBX4
+										1908 link Description: "World / Eolie", Value: …, ID: mwBX8
+										1909 text . 
+										1910 link Description: Archived, Value: …, ID: mwBYA
+										1911 text  from the original on October 8, 2021
+										1912 container mwBYE
+											1913 text . Retrieved 
+											1914 text October 8,
+											1915 text  2021
+										1916 text .
+							1917 container cite_note-gtkportweb-72
+								1918 AXListMarker 72. 
+								1919 link Description: Jump up, Value: …, ID: mwBYU
+								1920 container mw-reference-text-cite_note-gtkportweb-72
+									1921 container mwBYg
+										1922 link Description: "WebKitGTK+ project website", Value: …, ID: mwBYk
+										1923 text . 
+										1924 link Description: Archived, Value: …, ID: mwBYo
+										1925 text  from the original on January 30, 2017.
+							1926 container cite_note-gtkport-73
+								1927 AXListMarker 73. 
+								1928 link Description: Jump up, Value: …, ID: mwBY0
+								1929 container mw-reference-text-cite_note-gtkport-73
+									1930 container mwBZA
+										1931 link Description: "WebKit/Gtk+ is coming", Value: …, ID: mwBZE
+										1932 text . 
+										1933 text Alp Toker
+										1934 text . June 12, 2007. 
+										1935 link Description: Archived, Value: …, ID: mwBZM
+										1936 text  from the original on March 25, 2008.
+							1937 container cite_note-clutterportweb-74
+								1938 AXListMarker 74. 
+								1939 link Description: Jump up, Value: …, ID: mwBZY
+								1940 container mw-reference-text-cite_note-clutterportweb-74
+									1941 container mwBZk
+										1942 link Description: "WebKitClutter project website", Value: …, ID: mwBZo
+										1943 text . 
+										1944 link Description: Archived, Value: …, ID: mwBZs
+										1945 text  from the original on July 1, 2017
+										1946 container mwBZw
+											1947 text . Retrieved 
+											1948 text January 12,
+											1949 text  2017
+										1950 text .
+							1951 container cite_note-Qt_WebKit-75
+								1952 AXListMarker 75. 
+								1953 link Description: Jump up, Value: …, ID: mwBaA
+								1954 container mw-reference-text-cite_note-Qt_WebKit-75
+									1955 container mwBaM
+										1956 link Description: "QT WebKit", Value: …, ID: mwBaQ
+										1957 text . Archived from 
+										1958 link Description: the original, Value: …, ID: mwBaU
+										1959 text  on August 3, 2009.
+							1960 container cite_note-76
+								1961 AXListMarker 76. 
+								1962 link Description: Jump up, Value: …, ID: mwBag
+								1963 container mw-reference-text-cite_note-76
+									1964 container mwBas
+										1965 link Description: "Home", Value: …, ID: mwBaw
+										1966 text . ProFusion. 
+										1967 link Description: Archived, Value: …, ID: mwBa0
+										1968 text  from the original on June 21, 2021
+										1969 container mwBa4
+											1970 text . Retrieved 
+											1971 text January 13,
+											1972 text  2013
+										1973 text .
+							1974 container cite_note-pleyo-77
+								1975 AXListMarker 77. 
+								1976 link Description: Jump up, Value: …, ID: mwBbI
+								1977 container mw-reference-text-cite_note-pleyo-77
+									1978 container mwBbU
+										1979 link Description: "pleyo", Value: …, ID: mwBbY
+										1980 text . 
+										1981 link Description: Archived, Value: …, ID: mwBbc
+										1982 text  from the original on March 25, 2008.
+							1983 container cite_note-owb-78
+								1984 AXListMarker 78. 
+								1985 link Description: Jump up, Value: …, ID: mwBbo
+								1986 container mw-reference-text-cite_note-owb-78
+									1987 container mwBb0
+										1988 link Description: "Welcome to OWB", Value: …, ID: mwBb4
+										1989 text . 
+										1990 text OWB Trac
+										1991 text . Archived from 
+										1992 link Description: the original, Value: …, ID: mwBcA
+										1993 text  on May 9, 2008.
+							1994 container cite_note-owb_AmigaOS3.9-79
+								1995 AXListMarker 79. 
+								1996 link Description: Jump up, Value: …, ID: mwBcM
+								1997 container mw-reference-text-cite_note-owb_AmigaOS3.9-79
+									1998 container mwBcY
+										1999 link Description: "Origyn Web Browser 1.1 For m68k AmigaOS", Value: …, ID: mwBcc
+										2000 text . AmigaWeb.net. April 1, 2008. Archived from the original on May 2, 2008
+										2001 container mwBcg
+											2002 text . Retrieved 
+											2003 text June 2,
+											2004 text  2010
+										2005 text .
+							2006 container cite_note-owb_AROS-80
+								2007 AXListMarker 80. 
+								2008 link Description: Jump up, Value: …, ID: mwBc0
+								2009 container mw-reference-text-cite_note-owb_AROS-80
+									2010 container mwBdA
+										2011 link Description: "Origyn Web Browser for AROS", Value: …, ID: mwBdE
+										2012 text . 
+										2013 text Cogville
+										2014 text . Archived from 
+										2015 link Description: the original, Value: …, ID: mwBdM
+										2016 text  on March 4, 2009.
+							2017 container cite_note-mosport-81
+								2018 AXListMarker 81. 
+								2019 link Description: Jump up, Value: …, ID: mwBdY
+								2020 container mw-reference-text-cite_note-mosport-81
+									2021 container mwBdk
+										2022 link Description: "Origyn Web Browser for MorphOS", Value: …, ID: mwBdo
+										2023 text . Fabian Coeurjoly. 
+										2024 link Description: Archived, Value: …, ID: mwBds
+										2025 text  from the original on March 17, 2010
+										2026 container mwBdw
+											2027 text . Retrieved 
+											2028 text January 4,
+											2029 text  2010
+										2030 text .
+							2031 container cite_note-OWB_html5-82
+								2032 AXListMarker 82. 
+								2033 link Description: Jump up, Value: …, ID: mwBeA
+								2034 container mw-reference-text-cite_note-OWB_html5-82
+									2035 container CITEREFHolwerda2010
+										2036 text Holwerda, Thom (March 8, 2010). 
+										2037 link Description: "Origyn Web Browser 1.7 Supports HTML5 Media, More", Value: …, ID: mwBeM
+										2038 text . 
+										2039 text OSNews
+										2040 text . 
+										2041 link Description: Archived, Value: …, ID: mwBeU
+										2042 text  from the original on March 12, 2010
+										2043 container mwBeY
+											2044 text . Retrieved 
+											2045 text March 8,
+											2046 text  2010
+										2047 text .
+							2048 container cite_note-h-webkitchrome-83
+								2049 AXListMarker 83. 
+								2050 link Description: Jump up, Value: …, ID: mwBeo
+								2051 container mw-reference-text-cite_note-h-webkitchrome-83
+									2052 container mwBe0
+										2053 link Description: "WebKit developers planning Chromium extraction", Value: …, ID: mwBe4
+										2054 text . 
+										2055 text The H
+										2056 text . 
+										2057 link Description: Archived, Value: …, ID: mwBfA
+										2058 text  from the original on April 7, 2013
+										2059 container mwBfE
+											2060 text . Retrieved 
+											2061 text April 9,
+											2062 text  2013
+										2063 text .
+							2064 container cite_note-84
+								2065 AXListMarker 84. 
+								2066 link Description: Jump up, Value: …, ID: mwBfU
+								2067 container mw-reference-text-cite_note-84
+									2068 container mwBfg
+										2069 text Stachowiak, Maciej (September 25, 2008). 
+										2070 link Description: "Full Pass Of Acid3", Value: …, ID: mwBfk
+										2071 text . 
+										2072 text WebKit Blog
+										2073 text . 
+										2074 link Description: Archived, Value: …, ID: mwBfs
+										2075 text  from the original on September 29, 2008
+										2076 container mwBfw
+											2077 text . Retrieved 
+											2078 text September 29,
+											2079 text  2008
+										2080 text .
+							2081 container cite_note-webjavascript-85
+								2082 AXListMarker 85. 
+								2083 link Description: Jump up, Value: …, ID: mwBgA
+								2084 container mw-reference-text-cite_note-webjavascript-85
+									2085 container mwBgM
+										2086 link Description: "The WebKit Open Source Project – JavaScript", Value: …, ID: mwBgQ
+										2087 text . 
+										2088 text WebKit.org
+										2089 text . 
+										2090 link Description: Archived, Value: …, ID: mwBgY
+										2091 text  from the original on August 14, 2015.
+							2092 container cite_note-javascriptshowdown-86
+								2093 AXListMarker 86. 
+								2094 link Description: Jump up, Value: …, ID: mwBgk
+								2095 container mw-reference-text-cite_note-javascriptshowdown-86
+									2096 container CITEREFAtwood2007
+										2097 text Atwood, Jeff (December 19, 2007). 
+										2098 link Description: "The Great Browser JavaScript Showdown", Value: …, ID: mwBgw
+										2099 text . 
+										2100 text Coding Horror
+										2101 text . Archived from 
+										2102 link Description: the original, Value: …, ID: mwBg4
+										2103 text  on September 6, 2008.
+							2104 container cite_note-ftljit-87
+								2105 AXListMarker 87. 
+								2106 link Description: Jump up, Value: …, ID: mwBhE
+								2107 container mw-reference-text-cite_note-ftljit-87
+									2108 container mwBhQ
+										2109 link Description: "Introducing the WebKit FTL JIT", Value: …, ID: mwBhU
+										2110 text . 
+										2111 text Webkit
+										2112 text . May 13, 2014. 
+										2113 link Description: Archived, Value: …, ID: mwBhc
+										2114 text  from the original on January 19, 2017.
+							2115 container cite_note-88
+								2116 AXListMarker 88. 
+								2117 link Description: Jump up, Value: …, ID: mwBho
+								2118 container mw-reference-text-cite_note-88
+									2119 container mwBh0
+										2120 link Description: "Apple integrates LLVM compiler to boost WebKit JavaScript performance", Value: …, ID: mwBh4
+										2121 text . 
+										2122 link Description: Ars Technica, Value: …, ID: mwBiA
+										2123 text . May 16, 2014. 
+										2124 link Description: Archived, Value: …, ID: mwBiE
+										2125 text  from the original on July 8, 2017.
+							2126 container cite_note-89
+								2127 AXListMarker 89. 
+								2128 link Description: Jump up, Value: …, ID: mwBiQ
+								2129 container mw-reference-text-cite_note-89
+									2130 container mwBic
+										2131 link Description: "Introducing the B3 JIT Compiler", Value: …, ID: mwBig
+										2132 text . 
+										2133 text WebKit Blog
+										2134 text . February 15, 2016. 
+										2135 link Description: Archived, Value: …, ID: mwBio
+										2136 text  from the original on May 3, 2017.
+					2137 container External links, ID: mwBiw
+						2138 container
+							2139 heading External links, Value: 2, ID: External_links
+								2140 text External links
+							2141 link Description: edit, Help: Edit section: External links, Value: …
+						2142 content list mwBi0
+							2143 container mwBi4
+								2144 AXListMarker • 
+								2145 link Description: Official website, Value: …
+								2146 link Description: Edit this at Wikidata, Value: …
+							2147 container mwBjA
+								2148 AXListMarker • 
+								2149 link Description: Official website, Value: …
+								2150 text  for 
+								2151 link Description: WebKitGTK, Value: …, ID: mwBjM
+							2152 container mwBjQ
+								2153 AXListMarker • 
+								2154 link Description: SunSpider 1.0 JavaScript Benchmark, Value: …, ID: mwBjU
+								2155 link Description: Archived, Value: …, ID: mwBjY
+								2156 text  December 15, 2018, at the 
+								2157 link Description: Wayback Machine, Value: …
+						2158 container Browser engines (comparison), ID: mwBjk
+							2159 table
+								2160 row
+									2161 cell
+										2162 button (collapsed) [show], Secondary Actions: Expand
+											2163 text [
+											2164 text show
+											2165 text ]
+										2166 content list
+											2167 container
+												2168 link Description: v, Help: Template:Browser engines, Value: …
+												2169 text  · 
+											2170 container
+												2171 link Description: t, Help: Template talk:Browser engines, Value: …
+												2172 text  · 
+											2173 link Description: e, Help: Special:EditPage/Template:Browser engines, Value: …
+										2174 container Browser_engines_(comparison)485
+											2175 link Description: Browser engines, Help: Browser engine, Value: …
+											2176 text  (
+											2177 link Description: comparison, Help: Comparison of browser engines, Value: …
+											2178 text )
+						2179 container macOS, ID: mwBjs
+							2180 table
+								2181 row
+									2182 cell
+										2183 button (collapsed) [show], Secondary Actions: Expand
+											2184 text [
+											2185 text show
+											2186 text ]
+										2187 content list
+											2188 container
+												2189 link Description: v, Help: Template:MacOS, Value: …
+												2190 text  · 
+											2191 container
+												2192 link Description: t, Help: Template talk:MacOS, Value: …
+												2193 text  · 
+											2194 link Description: e, Help: Special:EditPage/Template:MacOS, Value: …
+										2195 link Description: macOS, Help: MacOS, Value: …
+						2196 container ECMAScript, ID: mwBj0
+							2197 table
+								2198 row
+									2199 cell
+										2200 button (collapsed) [show], Secondary Actions: Expand
+											2201 text [
+											2202 text show
+											2203 text ]
+										2204 content list
+											2205 container
+												2206 link Description: v, Help: Template:ECMAScript, Value: …
+												2207 text  · 
+											2208 container
+												2209 link Description: t, Help: Template talk:ECMAScript, Value: …
+												2210 text  · 
+											2211 link Description: e, Help: Special:EditPage/Template:ECMAScript, Value: …
+										2212 link Description: ECMAScript, Value: …
+						2213 container Widget engines, ID: mwBj8
+							2214 table
+								2215 row
+									2216 cell
+										2217 button (collapsed) [show], Secondary Actions: Expand
+											2218 text [
+											2219 text show
+											2220 text ]
+										2221 content list
+											2222 container
+												2223 link Description: v, Help: Template:Widget engine, Value: …
+												2224 text  · 
+											2225 container
+												2226 link Description: t, Help: Template talk:Widget engine, Value: …
+												2227 text  · 
+											2228 link Description: e, Help: Special:EditPage/Template:Widget engine, Value: …
+										2229 link Description: Widget engines, Help: Software widget, Value: …
+						2230 container Web browsers, ID: mwBkE
+							2231 table
+								2232 row
+									2233 cell
+										2234 button (collapsed) [show], Secondary Actions: Expand
+											2235 text [
+											2236 text show
+											2237 text ]
+										2238 content list
+											2239 container
+												2240 link Description: v, Help: Template:Web browsers, Value: …
+												2241 text  · 
+											2242 container
+												2243 link Description: t, Help: Template talk:Web browsers, Value: …
+												2244 text  · 
+											2245 link Description: e, Help: Special:EditPage/Template:Web browsers, Value: …
+										2246 link Description: Web browsers, Help: Web browser, Value: …
+				2247 container mw-normal-catlinks
+					2248 link Description: Categories, Help: Help:Category, Value: …
+					2249 text : 
+					2250 content list
+						2251 link Description: 1999 software, Help: Category:1999 software, Value: …
+						2252 link Description: 2005 software, Help: Category:2005 software, Value: …
+						2253 link Description: Apple Inc. developed frameworks, Help: Category:Apple Inc. developed frameworks, Value: …
+						2254 link Description: Application programming interfaces, Help: Category:Application programming interfaces, Value: …
+						2255 link Description: Free layout engines, Help: Category:Free layout engines, Value: …
+						2256 link Description: Free software programmed in C++, Help: Category:Free software programmed in C++, Value: …
+						2257 link Description: Mobile software, Help: Category:Mobile software, Value: …
+						2258 link Description: Software based on WebKit, Help: Category:Software based on WebKit, Value: …
+						2259 link Description: Software forks, Help: Category:Software forks, Value: …
+						2260 link Description: Software that uses Cairo (graphics), Help: Category:Software that uses Cairo (graphics), Value: …
+						2261 link Description: Software that uses GTK, Help: Category:Software that uses GTK, Value: …
+						2262 link Description: Software using the BSD license, Help: Category:Software using the BSD license, Value: …
+		2263 container footer
+			2264 content list footer-info
+				2265 container footer-info-lastmod
+					2266 text This page was last edited on 15 September 2026, at 07:05  (UTC) .
+				2267 container footer-info-renderedwith
+					2268 text Page was rendered with 
+					2269 link Description: Parsoid, Help: mw:Special:MyLanguage/Parsoid, Value: …
+					2270 text .
+				2271 container footer-info-copyright
+					2272 text Text is available under the 
+					2273 link Description: Creative Commons Attribution-ShareAlike 4.0 License, Help: Wikipedia:Text of the Creative Commons Attribution-ShareAlike 4.0 International License, Value: …
+					2274 text ; additional terms may apply. By using this site, you agree to the 
+					2275 link Description: Terms of Use, Help: foundation:Special:MyLanguage/Policy:Terms of Use, Value: …
+					2276 text  and 
+					2277 link Description: Privacy Policy, Help: foundation:Special:MyLanguage/Policy:Privacy policy, Value: …
+					2278 text . Wikipedia® is a registered trademark of the 
+					2279 link Description: Wikimedia Foundation, Inc., Value: …
+					2280 text , a non-profit organization.
+			2281 content list footer-places
+				2282 link Description: Privacy policy, Value: …
+				2283 link Description: About Wikipedia, Value: …
+				2284 link Description: Disclaimers, Value: …
+				2285 link Description: Contact Wikipedia, Value: …
+				2286 link Description: Legal & safety contacts, Value: …
+				2287 link Description: Code of Conduct, Value: …
+				2288 link Description: Developers, Value: …
+				2289 link Description: Statistics, Value: …
+				2290 link Description: Cookie statement, Value: …
+				2291 link Description: Mobile view, Value: …
+			2292 content list footer-icons
+				2293 link Description: Wikimedia Foundation, Value: …
+				2294 link Description: Powered by MediaWiki, Value: …
+	2295 container react-scan-toast
+		2296 container react-scan-toast-title
+			2297 text ⚛️ React Not Detected
+		2298 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		2299 button react-scan-toast-close-button
+			2300 image
+
+The focused UI element is 1 AXWebArea WebKit - Wikipedia, URL: 127.0.0.1:18911/cor…

@@ -2,3 +2,5 @@ node_modules/
 .venv/
 results/.cache/
 results/raw-live/
+# Corpus outputs are large (6 MB) and regenerate from the committed corpus.
+results/raw/corpus-*/

@@ -1,12 +1,12 @@
-[14]<label />
+[15]<label />
 	Single
-	|SHADOW(open)|*[3]<input id=one type=file compound_components=(name=Browse Files,role=button),(name=File Selected,role=textbox,current=None) />
-[17]<label />
+	|SHADOW(open)|*[4]<input id=one type=file compound_components=(name=Browse Files,role=button),(name=File Selected,role=textbox,current=None) />
+[18]<label />
 	Many
-	|SHADOW(open)|*[4]<input id=many type=file compound_components=(name=Browse Files,role=button),(name=Files Selected,role=textbox,current=None) />
-[5]<button id=picker />
+	|SHADOW(open)|*[5]<input id=many type=file compound_components=(name=Browse Files,role=button),(name=Files Selected,role=textbox,current=None) />
+[6]<button id=picker />
 	Choose via button
-|SHADOW(open)|*[6]<input id=hidden-file type=file compound_components=(name=Browse Files,role=button),(name=File Selected,role=textbox,current=None) />
-[22]<a id=dl />
+|SHADOW(open)|*[7]<input id=hidden-file type=file compound_components=(name=Browse Files,role=button),(name=File Selected,role=textbox,current=None) />
+[23]<a id=dl />
 	Download file
 none

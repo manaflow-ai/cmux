@@ -449,3 +449,240 @@ The same four live pages on the app (brepl-v24, 1280x800), bytes of
 Amazon's nav belt: 11 of its 30 links print; the 19 its overflow box cuts
 off are left out (item 1). Its department select prints as one line with 10
 options and `+N more` (item 3).
+
+## Live ChatGPT for Chrome (2026-09-30)
+
+This round runs the real ChatGPT for Chrome runtime, not the offline stand-ins.
+[chatgpt-live.ts](../../tests/browser-parity/compare/chatgpt-live.ts) drives the
+installed runtime through the reference client in `cmux-browser-cli`
+(`CuaReferenceClient`, ChatGPT-account login). It works in the user's Chrome,
+inside the session group "🧪 cmux parity". All pages come from one approved
+disposable origin (`127.0.0.1:18911`). Cross-origin frames point at a second,
+unapproved loopback origin. The run opens no live sites and uses no raw CDP,
+downloads, history or uploads. Every tab it opens is closed in `finally`.
+cmux is `944344b` (all nine "cmux must" fixes). Pages: the 12 fixture pages and
+the 9 frozen corpus pages in `tests/browser-parity/fixtures/corpus`. All tools
+load the corpus pages with the same policy, which blocks their off-site images.
+
+Tools: `chatgpt-live-ax` is `tab.ax.get("state",{disableDiffing:true})` in the
+default AX mode. `chatgpt-live-pw` is `tab.playwright.domSnapshot()`.
+`chatgpt-live-dom` is `tab.dom_cua.get_visible_dom()`. `dom_cua` exists only in
+the legacy mode (`BROWSER_USE_TINYSKY_ENABLED=0`), so the script captures it in a
+second pass. Neither mode asked for any approval.
+
+| metric (fixtures + corpus) | cmux | cmux-i | chatgpt-live-ax | chatgpt-live-dom | chatgpt-live-pw | aside | pw-mcp |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| tokens, 12 fixtures | 2.7k | 2.0k | 4.8k | **1.3k** | 1.9k | 2.5k | 4.0k |
+| tokens, 9 corpus pages | 66k | 41k | 111k | **28k** | 150k | 77k | 211k |
+| tokens per addressable element, corpus | 29.8 | **18.4** | 50.3 | 35.7 | no refs | 35.0 | 96.9 |
+| recall, fixtures | **100%** | **100%** | 96.7% | 80.0% | 0% (mentions 95%+) | 93.3% | 96.7% |
+| recall, corpus | 99.6% | 99.6% | **99.7%** | 35.9% | 0% (mentions 99.9%) | 99.1% | 98.4% |
+| recall, corpus first screen | 99.6% | 99.4% | **99.7%** | 95.7% | 0% | 98.7% | 98.8% |
+| leaked hidden targets, corpus | 3.5% (89) | 3.5% (89) | 4.5% (115) | **0.2% (2)** | n/a | 4.6% (118) | 1.4% (35) |
+| hidden text shown, corpus | **3.6%** | **3.6%** | **3.6%** | 3.9% | 6.5% | 5.2% | 6.5% |
+| structure probes (36) | **35** | 29 | 22 | 14 | 24 | 24 | 29 |
+| password value shown | no (`********`) | no | no (`<redacted>`) | no | no | no | **yes** |
+| after fill + check + submit: printed | diff, **383 B** | diff, 334 B | full tree, 1,242 B | full list | full tree | diff, 420 B | changed subtree, 797 B |
+| ... shows value / check / submit text | yes / yes / yes | yes / yes / **no** | redacted / yes / yes | n/a | n/a | yes / yes / yes | yes / yes / yes |
+| renamed element keeps its ref | yes | yes | yes | yes | no refs | no | no |
+| stale ref | fails fast | fails fast | fails fast ("Accessibility element 5 is stale or missing") | n/a | n/a | fails fast | waits until timeout |
+
+The live ChatGPT flow used `ax.setValue`, `ax.click` and `ax.click`, then `tab.ax.get()`.
+Every step succeeded, and the page showed "Submitted me@x.com tos=true plan=Pro".
+On this 1.2 KB page the renderer's minimum saving (1,000 bytes) is not met,
+so it printed the full tree again. The Email field prints as
+`Value: <redacted>` because its name matches the credential pattern. The model
+sees the check and the result text, but it cannot see the value it typed.
+
+### The offline stand-ins against live output
+
+All figures below use `results/summary.md`, "Offline stand-ins vs live
+ChatGPT". The harness strips URLs, ports, tab ids and AX id numbers first.
+
+- **AX text (offline renderer vs live):** 14 of 21 pages are identical. Six
+  pages differ by 1 to 6 lines, and the corpus Vercel page has 11 more lines of
+  lazy content live. Live keeps the space before the comma of a label-derived
+  name (`Name , ID: name`) and a double space in
+  `Description:  Accept terms`. Live prints `Value: <redacted>` for the
+  password, where the offline builder omits the value. The nested page differs
+  only by its served `/pages/` URLs. The live service keeps one id space
+  per tab across navigations, so on a reused tab the ids start above 0. This does
+  not change any metric: every earlier chatgpt-ax figure stands within 1% of
+  live.
+- **`get_visible_dom()` (spec reproduction vs live):** identical on 9 of 21
+  pages. Live adds `indeterminate="true"` and `value="<redacted>"`, and it drops
+  `value="on"` on checkboxes and radios. On long pages live lists more elements
+  (up to +52%, corpus Books) because the user's Chrome window is taller than the
+  harness's 800 px. The reproduction therefore under-reports dom_cua's recall,
+  but not by a large amount (corpus 31% to 36%).
+- **`domSnapshot()` (reproduction vs live):** identical on 9 pages. Live adds
+  `[id="…"]` to iframe lines. Live also redacts the password (`<redacted>`). The
+  reproduction printed `hunter2`, so its earlier security-probe failure was an
+  error in the reproduction. Live passes that probe (24/36, not 23).
+- **Frames:** live read the unapproved cross-origin frames (the frames fixture,
+  and all three alternating-origin levels of the nested page) and asked for no
+  approval. The approval gate covers top-level page access. It does not cover
+  frame content. The closed shadow root is missing live, the same as offline.
+
+### Excerpts
+
+States form (cmux, then live AX, live `dom_cua`, live `domSnapshot`):
+
+```
+- textbox "Name" [ref=e2] [required]
+- textbox "Code" [ref=e3] [invalid]: "x1"
+- textbox "Account" [ref=e4] [readonly]: "42"
+- textbox "Secret" [ref=e5]: "********"
+- checkbox "Some selected" [ref=e6] [checked=mixed]
+- combobox "Size" [ref=e7] [options: S, M, L]: "M"
+```
+
+```
+				8 text field (settable) Name , ID: name
+				11 text field (settable) Code , Value: x1, ID: code
+				14 text field Account , Value: 42, ID: account
+				17 text field (settable) Secret , Value: <redacted>
+			18 checkbox (settable, integer) Description:  Some selected, Value: 2, ID: mixed
+			19 pop up button (collapsed, settable) Description: Size, Value: M, ID: size, Secondary Actions: Expand
+				20 menu
+					21 S
+					22 (selected) M
+					23 L
+```
+
+```
+<input node_id=1 required="true" />
+<input node_id=2 value="x1" />
+<input node_id=3 value="42" readonly="true" />
+<input node_id=4 type="password" value="<redacted>" />
+<input node_id=5 type="checkbox" indeterminate="true" />
+<select node_id=6 aria-label="Size" value="M">S M L</select>
+```
+
+```
+- text: Name
+- textbox "Name"
+- text: Code
+- textbox "Code": x1
+- textbox "Secret": <redacted>
+- checkbox "Some selected" [checked=mixed]
+```
+
+Hacker News story (corpus), cmux and live AX:
+
+```
+- text: "1."
+- link "upvote" [ref=e11]
+- link "Livenerf: Has Opus 5.5 been nerfed yet?" [ref=e12]
+- link "github.com/ninjahawk" [ref=e13]
+- text: "334 points by"
+- link "bryan0" [ref=e14]
+- link "5 hours ago" [ref=e15]
+- link "hide" [ref=e16]
+- link "143 comments" [ref=e17]
+```
+
+```
+				27 cell
+					28 link Value: news.ycombinator.co…, ID: up_49901736
+				29 cell
+					30 link Description: Livenerf: Has Opus 5.5 been nerfed yet?, Value: github.com/ninjahaw…
+					31 text  (
+					32 link Description: github.com/ninjahawk, Value: news.ycombinator.co…
+					33 text )
+			34 row
+				35 cell
+					36 text 334 points
+					37 text  by
+					38 link Description: bryan0, Value: news.ycombinator.co…
+```
+
+MDN sidebar disclosure (corpus mdn-iframe), cmux and live AX:
+
+```
+      - button [ref=e303] [expanded=false]:
+        - link "Guides" [ref=e304]
+```
+
+```
+			833 button (collapsed) Guides, Secondary Actions: Expand
+				834 link Description: Guides, Value: …
+```
+
+### Where ChatGPT still beats cmux
+
+- **Corpus recall and leaks.** Live AX addresses 99.7% of corpus targets and
+  cmux addresses 99.6%. The gap is the 4 MDN sidebar disclosures that cmux prints
+  without a name (excerpt above). The match counts an unnamed `button` as a miss,
+  and a model has to guess from the child link. On leaks, cmux (3.5%) beats live
+  AX (4.5%), but Playwright MCP (1.4%) and `dom_cua` (0.2%) beat cmux. 84 of
+  cmux's 89 corpus leaks are zero-width Wikipedia citation backlinks ("Jump
+  up"). Playwright's snapshot keeps 4 of them, which suggests that it drops elements with an empty box.
+- **Destinations of named links.** Every live ChatGPT format tells the model
+  where a link goes: AX gives a 20-character `Value: host/path…`, `dom_cua` and
+  `domSnapshot` give the full `href`. cmux prints `[url=…]` only for unnamed or
+  image-only links, so the `link-target` probe is the only one of 36 that cmux
+  fails. On HN, the model cannot tell that the title link leaves the site and
+  the comment link does not.
+- **Cheapest first screen.** `dom_cua` costs 28k tokens on the corpus, 30% less
+  than cmux-i. It has 95.7% first-screen recall and almost no leaks. cmux's
+  `{ viewport: true }` (measured in the app in the section above) is its
+  answer, but this harness does not score it yet.
+- **One id space per tab.** Live AX ids continue across navigations in a tab, so
+  an id from the previous page can never name an element on the new page. cmux
+  refs also continue across documents (scenario 17). This is a tie.
+- **Typed credentials.** Live AX, `dom_cua` and `domSnapshot` redact any field
+  whose attributes match the credential pattern (email, phone, OTP), including
+  what the agent typed. cmux shows `me@x.com`. This is better for checking the
+  agent's own input, and weaker if a page pre-fills another user's data.
+
+Where cmux is ahead: 35 of 36 structure probes against 22 (live AX: no
+`required`/`invalid`/`readonly`, landmarks shown as `container`, placeholder
+names lost, `contenteditable` not marked editable). Its output is 41% smaller
+than live AX on the corpus (66k against 111k tokens), and cmux-i costs 18.4
+tokens per addressable element against 50.3. After an action it prints a
+383-byte diff where live AX reprints the 1,242-byte tree. It reaches the closed
+shadow root, and it does not show a text box that a user extension (React Scan,
+see Caveats) injects into the page.
+
+### New cmux must
+
+1. **In interactive mode, the diff after an action must include changed
+   non-interactive text.** After the submit, cmux-i printed 334 bytes without
+   "Submitted me@x.com …". Aside-i and live AX both show the result text. Print
+   added or changed text, status, alert and live-region lines in the
+   interactive diff, even when the interactive tree omits them.
+2. **Keep the name of an actionable container whose children have refs.** MDN's
+   `<summary><a>Guides</a></summary>` prints as `button [ref=e303]
+   [expanded=false]` with no name. When the "content name repeats the children"
+   rule removes the name, keep the name on a node that has its own ref:
+   `button "Guides" [ref=e303] [expanded=false]`.
+3. **Drop links and buttons whose own box has zero width or zero height and
+   that no child box makes visible.** On the corpus Wikipedia page this removes
+   84 of cmux's 89 leaked targets. It brings cmux to Playwright's leak rate
+   without dropping focusable skip links, because those are latent, not empty.
+4. **Show where off-site links go.** Add `[url=host/…]` (host and first path
+   segment) to links whose host differs from the page's host. On HN this marks
+   most of the 30 story links and leaves the other 160+ links, which stay on
+   the site, unchanged. The
+   `link-target` probe (a same-site relative link) still needs
+   `{ urls: true }`. This rule gives the model the destination that ChatGPT's
+   formats give, at a small part of their cost.
+5. **Score `{ viewport: true }` in the harness.** It is cmux's answer to
+   `dom_cua` and needs the same recall and leak evidence (a harness change;
+   the next round can add it as a tool).
+
+### Caveats for this round
+
+- The live captures ran in the user's own Chrome at its window size. This
+  changes only `dom_cua`, which lists the viewport. The React Scan extension
+  adds a "React Not Detected" toast to each page, and ChatGPT reads it as page
+  content. The harness removes that block (`stripExtensionUi`) before it scores.
+- ChatGPT's page evaluation is read-only: setting `innerHTML` fails. The
+  ref-stability page (`pages/refs.html`) makes the same mutation when the
+  runtime clicks "Mutate", and the other tools use script evaluation.
+- The live pages were served on other ports than the harness pages. The ground
+  truth comes from the harness's Chrome on identical markup.
+- Recompute everything with:
+  `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --experimental-strip-types tests/browser-parity/compare/chatgpt-live.ts`
+  then `node tests/browser-parity/compare/run.mjs --pages fixtures,nest,corpus`.

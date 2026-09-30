@@ -1,0 +1,42 @@
+- heading "Input" [level=1]
+- textbox "Keys"
+- button "Hover me"
+- button "Double"
+- button "Right click"
+- generic: Drag
+- generic: Drop zone
+- generic "Scroller":
+  - generic: Row 0
+  - generic: Row 1
+  - generic: Row 2
+  - generic: Row 3
+  - generic: Row 4
+  - generic: Row 5
+  - generic: Row 6
+  - generic: Row 7
+  - generic: Row 8
+  - generic: Row 9
+  - generic: Row 10
+  - generic: Row 11
+  - generic: Row 12
+  - generic: Row 13
+  - generic: Row 14
+  - generic: Row 15
+  - generic: Row 16
+  - generic: Row 17
+  - generic: Row 18
+  - generic: Row 19
+  - generic: Row 20
+  - generic: Row 21
+  - generic: Row 22
+  - generic: Row 23
+  - generic: Row 24
+  - generic: Row 25
+  - generic: Row 26
+  - generic: Row 27
+  - generic: Row 28
+  - generic: Row 29
+- generic "Canvas"
+- paragraph: none
+- generic "Rich editor": start
+- textbox "Clipboard target"

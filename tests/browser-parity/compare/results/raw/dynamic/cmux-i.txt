@@ -1,5 +1,6 @@
 title: Dynamic Fixture
 url: http://localhost:18765/dynamic.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- heading "Dynamic" [level=1]
 - button "Load later" [ref=e1]
 - button "Push state" [ref=e2]
 - link "Open new tab" [ref=e3]

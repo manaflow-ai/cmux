@@ -1,5 +1,6 @@
 title: Nested top
 url: http://localhost:18811/top.html
+- heading "Top" [level=1]
 - button "Top button" [ref=e1]
 - iframe "Level one" [ref=e2]:
   - textbox "L1 field" [ref=f1e1]

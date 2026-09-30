@@ -21,7 +21,13 @@ import { scoreStructure, focusProbe } from "./probes.mjs";
 import { writeSummary } from "./report.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const TOOLS = ["cmux", "cmux-i", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "pw-mcp", "browser-use", "stagehand"];
+export const TOOLS = ["cmux", "cmux-i", "aside", "aside-i", "chatgpt-ax", "chatgpt-dom", "chatgpt-pw", "chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw", "pw-mcp", "browser-use", "stagehand"];
+// Captured by chatgpt-live.ts in the user's Chrome; read from its output.
+const LIVE_TOOLS = ["chatgpt-live-ax", "chatgpt-live-dom", "chatgpt-live-pw"];
+const CORPUS = fs.readdirSync(path.join(here, "../fixtures/corpus")).filter((f) => f.endsWith(".html")).map((f) => f.replace(/\.html$/, ""));
+// The frozen corpus pages link images and fonts on their original sites;
+// every tool, and the live ChatGPT capture, loads them with the same policy.
+const CORPUS_CSP = "default-src 'self' 'unsafe-inline' data:; img-src 'self' data:";
 
 const FIXTURES = ["index", "aria", "states", "frames", "frame-inner", "shadow", "surface", "dynamic", "input", "dialogs", "files"];
 const LIVE = {
@@ -34,7 +40,7 @@ const LIVE = {
 };
 
 function parseArgs(argv) {
-  const a = { pages: ["fixtures", "nest", "live"], only: null, skip: new Set(), scenarios: true };
+  const a = { pages: ["fixtures", "nest", "corpus", "live"], only: null, skip: new Set(), scenarios: true };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--pages") a.pages = argv[++i].split(",");
     else if (argv[i] === "--only") a.only = argv[++i];
@@ -59,6 +65,11 @@ function serveNest() {
           const f = path.join(here, "results/raw-live", path.basename(pathname));
           if (!fs.existsSync(f)) return res.writeHead(404).end();
           return res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(fs.readFileSync(f));
+        }
+        if (pathname.startsWith("/corpus/")) {
+          const f = path.join(here, "../fixtures/corpus", path.basename(pathname));
+          if (!fs.existsSync(f)) return res.writeHead(404).end();
+          return res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": CORPUS_CSP }).end(fs.readFileSync(f));
         }
         const f = path.join(dir, path.basename(pathname) || "top.html");
         if (!fs.existsSync(f)) return res.writeHead(404).end();
@@ -234,6 +245,7 @@ async function main() {
     const pages = [];
     if (args.pages.includes("fixtures")) for (const f of FIXTURES) pages.push({ name: f, kind: "fixture", url: `${server.origins.primary}/${f === "index" ? "" : f + ".html"}?peer=${encodeURIComponent(server.origins.peer)}` });
     if (args.pages.includes("nest")) pages.push({ name: "nest", kind: "fixture", url: nest.url });
+    if (args.pages.includes("corpus")) for (const c of CORPUS) pages.push({ name: `corpus-${c}`, kind: "corpus", url: `http://localhost:18811/corpus/${c}.html` });
     if (args.pages.includes("live")) for (const [name, url] of Object.entries(LIVE)) pages.push({ name, kind: "live", url });
     // Amazon refuses Playwright WebKit (the cmux dev driver), so a frozen copy
     // of the page Chrome received, scripts removed, is served locally to every
@@ -255,10 +267,10 @@ async function main() {
     for (const p of selected) {
       log(`${p.name} ${p.url}`);
       const startedAt = new Date().toISOString();
-      const settleMs = p.kind === "live" ? 2500 : 500;
+      const settleMs = p.kind === "live" ? 2500 : p.kind === "corpus" ? 1200 : 500;
       const { steps, meta } = await runAll(adapters, p.url, [{ op: "capture", mode: "full" }, { op: "capture", mode: "interactive" }], settleMs, log);
       Object.assign(versions, meta.versions);
-      const outputs = { ...steps[0], ...steps[1] };
+      const outputs = { ...steps[0], ...steps[1], ...readLive(p.name) };
       const rawDir = path.join(here, p.kind === "live" ? "results/raw-live" : "results/raw", safe(p.name));
       fs.mkdirSync(rawDir, { recursive: true });
       const gt = meta.groundTruth;
@@ -325,6 +337,34 @@ async function main() {
         if (m) results.scenarios.refs[tool] = { ...m, before: c1.text, after: c2.text };
       }
     }
+    if (args.scenarios && !args.only) {
+      // Fill, check and submit with each tool's own locators, then what the
+      // tool prints next. The live ChatGPT flow (by AX index) is read from
+      // chatgpt-live.ts's output.
+      log("scenario: action flow");
+      const url = `${server.origins.primary}/?peer=${encodeURIComponent(server.origins.peer)}`;
+      const ACTIONS = [{ fill: "#email", value: "me@x.com" }, { click: "#tos" }, { click: "#submit" }];
+      results.scenarios.actionFlow = {};
+      for (const mode of ["full", "interactive"]) {
+        const run = await runAll(adapters.filter((a) => ["chrome", "cmux", "aside"].includes(a.name)), url, [{ op: "capture", mode }, { op: "act", actions: ACTIONS }, { op: "capture", mode }], 500, log);
+        for (const tool of TOOLS) {
+          if (/-i$/.test(tool) !== (mode === "interactive")) continue;
+          const m = flowMetrics(tool, run.steps[0][tool], run.steps[2][tool]);
+          if (m) results.scenarios.actionFlow[tool] = m;
+        }
+      }
+      const live = readLiveScenarios();
+      if (live?.actionFlow) {
+        const f = live.actionFlow;
+        results.scenarios.actionFlow["chatgpt-live-ax"] = { ...flowMetrics("chatgpt-live-ax", { text: f.before }, { text: f.afterFull, incremental: f.after }), actionErrors: Object.fromEntries(Object.entries(f).filter(([k]) => k.endsWith("error"))), submittedText: f.page };
+      }
+      if (live?.refs) {
+        const r = live.refs;
+        results.scenarios.refs["chatgpt-live-ax"] = { ...refMetrics("chatgpt-live-ax", { text: r.before }, { text: r.after }, { Alpha: { error: r.oldAlpha }, Out: { text: r.oldOut } }), before: r.before, after: r.after };
+      }
+      if (live) results.chatgptLive = { capturedAt: live.capturedAt, approvals: { ax: live["approvals-ax"], legacy: live["approvals-legacy"] } };
+    }
+    results.offlineVsLive = offlineVsLive(results);
     results.versions = { ...(results.versions ?? {}), ...versions };
     fs.writeFileSync(resultsPath, JSON.stringify(results, null, 1));
     writeSummary(results, path.join(here, "results/summary.md"));
@@ -340,6 +380,81 @@ async function main() {
     void server.close();
     void nest.close();
   }
+}
+
+// The user's Chrome runs the React Scan extension, which adds a "React Not
+// Detected" toast to every page after a moment; ChatGPT reads it like page
+// content. It is not the page's, so it is removed before scoring.
+export function stripExtensionUi(text) {
+  return text.replace(/^(\t*)\d+ container react-scan-toast\n[\s\S]*?react-scan-toast-close-button\n\1\t\t\d+ image\n?/m, "");
+}
+
+function readLive(page) {
+  const dir = path.join(here, "results/chatgpt-live", page);
+  const out = {};
+  for (const tool of LIVE_TOOLS) {
+    const f = path.join(dir, `${tool}.txt`);
+    if (!fs.existsSync(f)) continue;
+    const text = fs.readFileSync(f, "utf8");
+    out[tool] = text.startsWith("ERROR: ") ? { error: text.slice(7) } : { text: stripExtensionUi(text) };
+  }
+  return out;
+}
+
+function readLiveScenarios() {
+  const f = path.join(here, "results/chatgpt-live/scenarios.json");
+  if (!fs.existsSync(f)) return null;
+  const d = JSON.parse(fs.readFileSync(f, "utf8"));
+  for (const sc of [d.actionFlow, d.refs]) if (sc) for (const k of ["before", "after", "afterFull"]) if (typeof sc[k] === "string") sc[k] = stripExtensionUi(sc[k]);
+  return d;
+}
+
+function flowMetrics(tool, before, after) {
+  if (!before?.text || !after?.text) return null;
+  const inc = { cmux: after.printed, "cmux-i": after.printed, aside: after.incremental, "aside-i": after.incremental, "chatgpt-ax": after.incremental, "chatgpt-live-ax": after.incremental, "pw-mcp": after.incremental }[tool];
+  if (inc === undefined) return null;
+  const shown = inc ?? after.text;
+  return {
+    fullBytes: Buffer.byteLength(after.text),
+    shownBytes: Buffer.byteLength(shown),
+    shownTokens: tokens(shown),
+    showsValue: /me@x\.com/.test(shown),
+    showsChecked: /accept terms[^\n]*(\[checked\]|Value: 1)|(\[checked\]|checked=true)[^\n]*accept terms/i.test(shown),
+    showsSubmitResult: /Submitted/.test(shown),
+    excerpt: shown.length > 1500 ? shown.slice(0, 1500) + "\n…" : shown,
+  };
+}
+
+// How the offline stand-ins (renderer on a clean-room snapshot, spec
+// reproductions) differ from the live runtime on the same page. URLs,
+// ports and tab ids are normalized first.
+function offlineVsLive(results) {
+  const pairs = [["chatgpt-ax", "chatgpt-live-ax"], ["chatgpt-dom", "chatgpt-live-dom"], ["chatgpt-pw", "chatgpt-live-pw"]];
+  // AX ids are compared apart from their numbers: the live service keeps one
+  // id space per tab across navigations, so a reused tab starts above 0.
+  const normText = (t) => t.replace(/Browser tab: \d+/g, "Browser tab: N").replace(/(localhost|127\.0\.0\.1):\d+/g, "HOST").replace(/%3A\d+/g, "%3APORT").replace(/^([~+]?\t*)\d+ /gm, "$1# ").replace(/UI element is \d+ /, "UI element is # ").replace(/node_id=\d+/g, "node_id=#").split("\n").map((l) => l.replace(/\s+$/, ""));
+  const out = {};
+  for (const [name, p] of Object.entries(results.pages)) {
+    if (p.kind === "live") continue;
+    const dir = path.join(here, "results/raw", safe(name));
+    const liveDir = path.join(here, "results/chatgpt-live", name);
+    for (const [off, live] of pairs) {
+      const a = path.join(dir, `${off}.txt`);
+      const b = path.join(liveDir, `${live}.txt`);
+      if (!fs.existsSync(a) || !fs.existsSync(b)) continue;
+      const A = normText(fs.readFileSync(a, "utf8"));
+      const B = normText(stripExtensionUi(fs.readFileSync(b, "utf8")));
+      const setA = new Map();
+      for (const l of A) setA.set(l, (setA.get(l) ?? 0) + 1);
+      let common = 0;
+      for (const l of B) if (setA.get(l) > 0) {
+        common++;
+        setA.set(l, setA.get(l) - 1);
+      }
+      (out[name] ??= {})[off] = { offlineBytes: Buffer.byteLength(A.join("\n")), liveBytes: Buffer.byteLength(B.join("\n")), offlineLines: A.length, liveLines: B.length, sameLines: common, identical: A.join("\n") === B.join("\n") };
+    }
+  }
+  return out;
 }
 
 // The cmux runtime measured: HEAD plus a digest of the runtime files, which

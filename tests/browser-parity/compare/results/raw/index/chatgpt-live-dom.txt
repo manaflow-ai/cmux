@@ -1,0 +1,8 @@
+<a node_id=1 href="/aria.html">Home</a>
+<a node_id=2 href="/dynamic.html">Docs</a>
+<input node_id=3 name="email" placeholder="you@x.com" type="email" />
+<input node_id=4 name="tos" type="checkbox" />
+<select node_id=5 aria-label="Plan" name="plan" value="Pro">Free Pro Team</select>
+<textarea node_id=6 aria-label="Bio" name="bio">hi</textarea>
+<button node_id=7 type="submit">Create account</button>
+<button node_id=8 type="button" disabled="true">Disabled</button>

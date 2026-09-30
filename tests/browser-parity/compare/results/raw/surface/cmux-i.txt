@@ -1,5 +1,6 @@
 title: Surface Fixture
 url: http://localhost:18765/surface.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- heading "Surface" [level=1]
 - textbox "Search here" [ref=e1]
 - button "Count 0" [ref=e2]
 - checkbox "Check me" [ref=e3]

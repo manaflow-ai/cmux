@@ -1,0 +1,71 @@
+Browser tab: 370922480, Title: "States Fixture", URL: "http://127.0.0.1:18911/states.html?peer=http%3A%2F%2F127.0.0.1%3A18912".
+1 AXWebArea States Fixture, URL: 127.0.0.1:18911/states.html?peer=http%3A%2F%2F127.0.0.1%3A18912
+	2 container
+		3 heading States, Value: 1
+			4 text States
+		5 container Profile
+			6 container
+				7 text Name 
+				8 text field (settable) Name , ID: name
+			9 container
+				10 text Code 
+				11 text field (settable) Code , Value: x1, ID: code
+			12 container
+				13 text Account 
+				14 text field Account , Value: 42, ID: account
+			15 container
+				16 text Secret 
+				17 text field (settable) Secret , Value: <redacted>
+			18 checkbox (settable, integer) Description:  Some selected, Value: 2, ID: mixed
+			19 pop up button (collapsed, settable) Description: Size, Value: M, ID: size, Secondary Actions: Expand
+				20 menu
+					21 S
+					22 (selected) M
+					23 L
+			24 list Description: Tags, ID: tags
+				25 (selected) red
+				26 blue
+		27 checkbox Partial, Value: 2
+		28 combo box (expanded) Description: City, Value: Paris, Secondary Actions: Collapse
+			29 text Paris
+		30 list Description: Cities, ID: cities
+			31 (selected) Paris
+			32 Rome
+		33 table Users
+			34 row
+				35 cell
+					36 text User
+				37 cell
+					38 text Action
+			39 row
+				40 cell
+					41 text Ada
+				42 cell
+					43 button Edit
+			44 row
+				45 cell
+					46 text Grace
+				47 cell
+					48 text none
+		49 text Links: 
+		50 link Description: relative, Value: 127.0.0.1:18911/aria.html?x=1#y
+		51 text , 
+		52 link Description: peer, Value: 127.0.0.1:18912/aria.html, ID: peer-link
+		53 text , 
+		54 link Description: script, Value: javascript:void%200
+		55 text .
+		56 definition list
+			57 container Term
+				58 text Term
+			59 text Definition
+		60 progress indicator Description: Progress, Value: 30
+		61 text Spaces 
+		62 text around
+		63 text  inline  elements  stay single.
+		64 container Description: Log, ID: scroll
+			65 text line one
+			66 text line two
+			67 text line three
+			68 text line four
+
+The focused UI element is 1 AXWebArea States Fixture, URL: 127.0.0.1:18911/states.html?peer=http%3A%2F%2F127.0.0.1%3A18912

@@ -1,4 +1,4 @@
-[0-8] RootWebArea: Parity Fixture
+[0-7] RootWebArea: Parity Fixture
   [0-10] scrollable, html
     [0-15] body
       [0-16] navigation: Main

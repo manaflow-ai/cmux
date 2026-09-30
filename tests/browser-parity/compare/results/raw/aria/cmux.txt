@@ -32,7 +32,7 @@ url: http://localhost:18765/aria.html?peer=http%3A%2F%2F127.0.0.1%3A18766
   - progressbar "Upload": "40"
   - alert: "Heads up"
   - table "Scores":
-    - row: "Name | Score"
+    - row [header]: "Name | Score"
     - row: "Ada | 9"
   - tree "Files" [ref=e18]:
     - treeitem "src" [ref=e19] [expanded]:

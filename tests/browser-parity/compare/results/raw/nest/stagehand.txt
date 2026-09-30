@@ -1,17 +1,17 @@
 [2-2] RootWebArea: Nested top
-  [2-8] scrollable, html
-    [2-13] body
-      [2-14] heading: Top
-      [2-16] button: Top button
-      [2-18] Iframe: Level one
+  [2-7] scrollable, html
+    [2-12] body
+      [2-13] heading: Top
+      [2-15] button: Top button
+      [2-17] Iframe: Level one
         [0-2] RootWebArea: L1
-          [0-5] scrollable, html
-            [0-9] body
-              [0-10] paragraph
-                [0-11] StaticText: Level one (peer origin)
+          [0-8] scrollable, html
+            [0-12] body
+              [0-13] paragraph
+                [0-14] StaticText: Level one (peer origin)
               [0-1] textbox: L1 field
-              [0-14] Iframe: Level two
-      [2-7] Iframe: Srcdoc
+              [0-17] Iframe: Level two
+      [2-6] Iframe: Srcdoc
         [1-4] RootWebArea
-          [1-19] scrollable, html
-            [1-22] button: Srcdoc button
+          [1-18] scrollable, html
+            [1-21] button: Srcdoc button

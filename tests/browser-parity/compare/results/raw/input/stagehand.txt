@@ -1,8 +1,8 @@
-[0-4] RootWebArea: Input Fixture
+[0-2] RootWebArea: Input Fixture
   [0-6] scrollable, html
     [0-13] body
       [0-14] heading: Input
-      [0-2] textbox: Keys
+      [0-3] textbox: Keys
       [0-19] button: Hover me
       [0-24] button: Double
       [0-26] button: Right click
@@ -44,4 +44,4 @@
       [0-94] paragraph
         [0-95] StaticText: none
       [0-97] StaticText: start
-      [0-3] textbox: Clipboard target
+      [0-4] textbox: Clipboard target

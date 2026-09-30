@@ -37,6 +37,10 @@ function replProgram(steps, { snapshotCall, open, close, settleMs, wait }) {
       body.push(`{ const __s = await ${snapshotCall(s.mode === "interactive")}; __out.push({ text: __s.tree, incremental: __s.diff ?? null, printed: String(__s) }); }`);
     } else if (s.op === "eval") {
       body.push(`await page.evaluate(${JSON.stringify(s.js)}); await ${wait}(250); __out.push(null);`);
+    } else if (s.op === "act") {
+      // Real input through the tool's own locators, as an agent acts.
+      const steps = s.actions.map((a) => (a.fill ? `await page.locator(${JSON.stringify(a.fill)}).fill(${JSON.stringify(a.value)});` : `await page.locator(${JSON.stringify(a.click)}).click();`));
+      body.push(`${steps.join(" ")} await ${wait}(300); __out.push(null);`);
     } else if (s.op === "resolve") {
       body.push(`{ const __txt = __out[${s.from}].text; const __r = {};
   for (const __n of ${JSON.stringify(s.names)}) {
@@ -183,6 +187,13 @@ export async function createChromeAdapter() {
           if (s.op === "eval") {
             await page.evaluate(s.js);
             await page.waitForTimeout(250);
+            results.push(null);
+          } else if (s.op === "act") {
+            for (const a of s.actions) {
+              if (a.fill) await page.fill(a.fill, a.value);
+              else await page.click(a.click);
+            }
+            await page.waitForTimeout(300);
             results.push(null);
           } else if (s.op === "resolve") {
             const txt = results[s.from]["pw-mcp"].raw;

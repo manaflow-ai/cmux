@@ -1,5 +1,6 @@
 title: Input Fixture
 url: http://localhost:18765/input.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- heading "Input" [level=1]
 - textbox "Keys" [ref=e1]
 - button "Hover me" [ref=e2]
 - button "Double" [ref=e3]

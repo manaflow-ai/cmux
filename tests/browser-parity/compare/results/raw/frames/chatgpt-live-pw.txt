@@ -1,0 +1,7 @@
+- heading "Frames" [level=1]
+- iframe [id="same"]:
+  - button "Inside frame"
+  - textbox "Frame field"
+- iframe [id="cross"]:
+  - button "Inside frame"
+  - textbox "Frame field"

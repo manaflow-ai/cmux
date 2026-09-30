@@ -1,0 +1,26 @@
+Browser tab: 370922480, Title: "Surface Fixture", URL: "http://127.0.0.1:18911/surface.html?peer=http%3A%2F%2F127.0.0.1%3A18912".
+1 AXWebArea Surface Fixture, URL: 127.0.0.1:18911/surface.html?peer=http%3A%2F%2F127.0.0.1%3A18912
+	2 heading Surface, Value: 1
+		3 text Surface
+	4 text field (settable) ph
+	5 button Count 0, ID: counter
+	6 checkbox (settable, integer) Description:  Check me, Value: 0, ID: cb
+	7 text field (settable) Description: Text field, Value: start, ID: text
+	8 button Late, ID: late-btn
+	9 button (disabled) Off, ID: off
+	10 button (collapsed) More, Secondary Actions: Expand
+		11 text More
+	12 text Drag
+	13 text Drop zone
+	14 container Description: Outer, ID: outer
+		15 AXWebArea about:srcdoc
+			16 text Outer
+			17 container Description: Inner, ID: inner
+				18 AXWebArea about:srcdoc
+					19 container
+						20 text Inner label 
+						21 text field (settable) Inner label 
+					22 text Inner text
+	23 text Far text
+
+The focused UI element is 1 AXWebArea Surface Fixture, URL: 127.0.0.1:18911/surface.html?peer=http%3A%2F%2F127.0.0.1%3A18912

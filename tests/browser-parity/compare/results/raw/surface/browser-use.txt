@@ -1,24 +1,24 @@
 Surface
-|SHADOW(open)|[4]<input id=ph placeholder=Search here />
-[13]<button id=counter />
+|SHADOW(open)|[2]<input id=ph placeholder=Search here />
+[12]<button id=counter />
 	Count 0
-[30]<label />
-	[6]<input type=checkbox id=cb value=on checked=false />
+[29]<label />
+	[4]<input type=checkbox id=cb value=on checked=false />
 	Check me
-|SHADOW(open)|[5]<input id=text aria-label=Text field value=start />
-[36]<button id=late-btn />
+|SHADOW(open)|[3]<input id=text aria-label=Text field value=start />
+[35]<button id=late-btn />
 	Late
 Off
-|SHADOW(open)|*[41]<details compound_components=(name=Toggle Disclosure,role=button),(name=Content Area,role=region) />
-	[42]<summary expanded=false />
+|SHADOW(open)|*[40]<details compound_components=(name=Toggle Disclosure,role=button),(name=Content Area,role=region) />
+	[41]<summary expanded=false />
 		More
-[14]<div id=pad />
+[13]<div id=pad />
 Drag
 Drop zone
-|scroll element[52]<iframe id=outer title=Outer /> (scroll)
+|scroll element[51]<iframe id=outer title=Outer /> (scroll)
 	Outer
-	|scroll element[65]<iframe id=inner title=Inner /> (scroll)
-		[69]<label />
+	|scroll element[64]<iframe id=inner title=Inner /> (scroll)
+		[68]<label />
 			Inner label
-			|SHADOW(open)|[9]<input placeholder=Inner-ph />
+			|SHADOW(open)|[8]<input placeholder=Inner-ph />
 		Inner text

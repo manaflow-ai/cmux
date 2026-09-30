@@ -1,0 +1,11 @@
+- heading "Top" [level=1]
+- button "Top button"
+- iframe [id="l1"]:
+  - paragraph: Level one (peer origin)
+  - textbox "L1 field"
+  - iframe [id="l2"]:
+    - paragraph: Level two (back to top origin)
+    - iframe [id="l3"]:
+      - button "Deep button"
+- iframe [id="srcdoc"]:
+  - button "Srcdoc button"

@@ -1,0 +1,9 @@
+<input node_id=1 placeholder="Search here" />
+<button node_id=2>Count 0</button>
+<input node_id=3 type="checkbox" />
+<input node_id=4 aria-label="Text field" value="start" />
+<button node_id=5>Late</button>
+<button node_id=6 disabled="true">Off</button>
+<details node_id=7>More Details body</details>
+<summary node_id=8>More</summary>
+<input node_id=9 placeholder="Inner-ph" />

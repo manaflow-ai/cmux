@@ -27,6 +27,9 @@ export const REF_RE = {
   "chatgpt-ax": /^[~+]?\t*(\d+) /,
   "chatgpt-dom": /node_id=(\d+)/,
   "chatgpt-pw": null,
+  "chatgpt-live-ax": /^[~+]?\t*(\d+) /,
+  "chatgpt-live-dom": /node_id=(\d+)/,
+  "chatgpt-live-pw": null,
   "browser-use": /(?:^|[\s|])\*?\[(\d+)\]</,
   stagehand: /\[(\d+-\d+)\]/,
 };

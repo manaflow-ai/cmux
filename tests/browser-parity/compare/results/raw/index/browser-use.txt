@@ -5,12 +5,12 @@
 Sign up
 [29]<label />
 	Email
-	|SHADOW(open)|[5]<input id=email type=email name=email placeholder=you@x.com />
+	|SHADOW(open)|[3]<input id=email type=email name=email placeholder=you@x.com />
 [32]<label />
-	[8]<input id=tos type=checkbox name=tos value=on checked=false />
+	[6]<input id=tos type=checkbox name=tos value=on checked=false />
 	Accept terms
-|SHADOW(open)|*[6]<select id=plan name=plan aria-label=Plan expanded=false compound_components=(name=Dropdown Toggle,role=button),(name=Options,role=listbox,count=3,options=Free|Pro|Team) />
-|SHADOW(open)|[7]<textarea id=bio name=bio aria-label=Bio value=hi />
+|SHADOW(open)|*[4]<select id=plan name=plan aria-label=Plan expanded=false compound_components=(name=Dropdown Toggle,role=button),(name=Options,role=listbox,count=3,options=Free|Pro|Team) />
+|SHADOW(open)|[5]<textarea id=bio name=bio aria-label=Bio value=hi />
 [44]<button type=submit />
 	Create account
 Disabled

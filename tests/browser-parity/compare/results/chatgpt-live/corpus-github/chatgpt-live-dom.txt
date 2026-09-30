@@ -1,0 +1,109 @@
+<a node_id=1 href="https://github.com/manaflow-ai/cmux#start-of-content">Skip to content</a>
+<a node_id=2 aria-label="Homepage" href="https://github.com/" />
+<button node_id=3 type="button">Platform</button>
+<button node_id=4 type="button">Solutions</button>
+<button node_id=5 type="button">Resources</button>
+<button node_id=6 type="button">Open Source</button>
+<button node_id=7 type="button">Enterprise</button>
+<a node_id=8 href="https://github.com/pricing">Pricing</a>
+<button node_id=9 aria-label="Search or jump to, type / to search" type="button">Search /</button>
+<a node_id=10 href="https://github.com/login?return_to=https%3A%2F%2Fgithub.com%2Fmanaflow-ai%2Fcmux">Sign in</a>
+<a node_id=11 href="https://github.com/signup?ref_cta=Sign+up&amp;ref_loc=header+logged+out&amp;ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&amp;source=header-repo&amp;source_repo=manaflow-ai%2Fcmux">Sign up</a>
+<button node_id=12 type="button" />
+<a node_id=13 href="https://github.com/manaflow-ai">manaflow-ai</a>
+<a node_id=14 href="https://github.com/manaflow-ai/cmux">cmux</a>
+<button node_id=15 aria-label="Sponsor manaflow-ai/cmux" type="button">Sponsor</button>
+<a node_id=16 aria-label="You must be signed in to change notification settings" href="https://github.com/login?return_to=%2Fmanaflow-ai%2Fcmux">Notifications</a>
+<a node_id=17 href="https://github.com/login?return_to=%2Fmanaflow-ai%2Fcmux">Fork 2.4k</a>
+<a node_id=18 aria-label="You must be signed in to star a repository" href="https://github.com/login?return_to=%2Fmanaflow-ai%2Fcmux">Star 27.5k</a>
+<a node_id=19 href="https://github.com/manaflow-ai/cmux">Code</a>
+<a node_id=20 href="https://github.com/manaflow-ai/cmux/issues">Issues 1.8k</a>
+<a node_id=21 href="https://github.com/manaflow-ai/cmux/pulls">Pull requests 1.6k</a>
+<a node_id=22 href="https://github.com/manaflow-ai/cmux/discussions">Discussions</a>
+<a node_id=23 href="https://github.com/manaflow-ai/cmux/actions">Actions</a>
+<a node_id=24 href="https://github.com/manaflow-ai/cmux/projects">Projects</a>
+<a node_id=25 href="https://github.com/manaflow-ai/cmux/security">Security and quality 0</a>
+<a node_id=26 href="https://github.com/manaflow-ai/cmux/pulse">Insights</a>
+<div node_id=27>main 9074 Branches 191 Tags Go to file Code Open more actions menu Latest commit lawrencecchen and claude docs: add CodeRouter documentation in all locales ( #1</div>
+<button node_id=28 aria-label="main branch" type="button">main</button>
+<a node_id=29 href="https://github.com/manaflow-ai/cmux/branches" type="button">9074 Branches</a>
+<a node_id=30 href="https://github.com/manaflow-ai/cmux/tags" type="button">191 Tags</a>
+<input node_id=31 aria-label="Go to file" placeholder="Go to file" role="combobox" type="text" />
+<button node_id=32 type="button">Code</button>
+<div node_id=33 />
+<a node_id=34 aria-label="commits by lawrencecchen" href="https://github.com/manaflow-ai/cmux/commits?author=lawrencecchen">lawrencecchen</a>
+<a node_id=35 aria-label="commits by claude" href="https://github.com/manaflow-ai/cmux/commits?author=claude">claude</a>
+<a node_id=36 href="https://github.com/manaflow-ai/cmux/commit/31014dcd486779cda1ef0924fea9c5583cab1b2c">docs: add CodeRouter documentation in all locales (</a>
+<a node_id=37 href="https://github.com/manaflow-ai/cmux/pull/15506">#15506</a>
+<a node_id=38 href="https://github.com/manaflow-ai/cmux/commit/31014dcd486779cda1ef0924fea9c5583cab1b2c">)</a>
+<button node_id=39 type="button" />
+<button node_id=40 type="button" />
+<a node_id=41 aria-label="Commit 31014dc" href="https://github.com/manaflow-ai/cmux/commit/31014dcd486779cda1ef0924fea9c5583cab1b2c">31014dc</a>
+<a node_id=42 href="https://github.com/manaflow-ai/cmux/commits/main/">18,487 Commits</a>
+<a node_id=43 aria-label=".agents, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/.agents" title=".agents">.agents</a>
+<a node_id=44 href="https://github.com/manaflow-ai/cmux/commit/075410eef1bd1ac08e5be6b4040d443d328eb64a" title="[codex] Add more cmux agent skills (#5614) * Add more cmux agent skills * Trim cmux CLAUDE skill index * Keep setup and local dev in CLAUDE * Expose repo skills to Claude and Codex * Keep core testing policies in CLAUDE * Keep pitfalls and release rules in CLAUDE">[codex] Add more cmux agent skills (</a>
+<a node_id=45 href="https://github.com/manaflow-ai/cmux/pull/5614">#5614</a>
+<a node_id=46 href="https://github.com/manaflow-ai/cmux/commit/075410eef1bd1ac08e5be6b4040d443d328eb64a" title="[codex] Add more cmux agent skills (#5614) * Add more cmux agent skills * Trim cmux CLAUDE skill index * Keep setup and local dev in CLAUDE * Expose repo skills to Claude and Codex * Keep core testing policies in CLAUDE * Keep pitfalls and release rules in CLAUDE">)</a>
+<a node_id=47 aria-label=".asc, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/.asc" title=".asc">.asc</a>
+<a node_id=48 href="https://github.com/manaflow-ai/cmux/commit/2e50b815bb7b3535d0161650a8d4d3251d620765" title="Add iOS App Store production lane (#7644) * Add iOS App Store release lane * Fix App Store workflow build output env * Harden App Store release lane dispatch * Fix App Store ASC workflow build-number args * Harden App Store workflow operations * Block App Store external purchase links * Requi">Add iOS App Store production lane (</a>
+<a node_id=49 href="https://github.com/manaflow-ai/cmux/pull/7644">#7644</a>
+<a node_id=50 href="https://github.com/manaflow-ai/cmux/commit/2e50b815bb7b3535d0161650a8d4d3251d620765" title="Add iOS App Store production lane (#7644) * Add iOS App Store release lane * Fix App Store workflow build output env * Harden App Store release lane dispatch * Fix App Store ASC workflow build-number args * Harden App Store workflow operations * Block App Store external purchase links * Requi">)</a>
+<a node_id=51 aria-label=".claude, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/.claude" title=".claude">.claude</a>
+<a node_id=52 href="https://github.com/manaflow-ai/cmux/commit/ee2cda0aa7431754cedca00975ba1fb19375091e" title="Backfill Unreleased changelog and draft next release cards (#14999) * Backfill Unreleased changelog and draft next release cards Co-Authored-By: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; * Apply review: fold follow-ups, drop flagged-off and unshipped items, mark Cloud beta Co-Authored-By: Claude O">Backfill Unreleased changelog and draft next release cards (</a>
+<a node_id=53 href="https://github.com/manaflow-ai/cmux/pull/14999">#14999</a>
+<a node_id=54 href="https://github.com/manaflow-ai/cmux/commit/ee2cda0aa7431754cedca00975ba1fb19375091e" title="Backfill Unreleased changelog and draft next release cards (#14999) * Backfill Unreleased changelog and draft next release cards Co-Authored-By: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; * Apply review: fold follow-ups, drop flagged-off and unshipped items, mark Cloud beta Co-Authored-By: Claude O">)</a>
+<a node_id=55 aria-label=".github, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/.github" title=".github">.github</a>
+<a node_id=56 href="https://github.com/manaflow-ai/cmux/commit/119fdb0ca5d270e1d3558281e3f08d1005995809" title="Load diff viewer grammars lazily and drop dead vendored Pierre bundles (#15576) * ci: budget the diff viewer's eagerly evaluated JS `scripts/check-webviews-diff-budget.mjs` walks the committed webviews bundle from `main.mjs` and `chunks/diffSurface.mjs` through static imports, sums the bytes the d">Load diff viewer grammars lazily and drop dead vendored Pierre bundles (</a>
+<a node_id=57 aria-label=".greptile, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/.greptile" title=".greptile">.greptile</a>
+<a node_id=58 href="https://github.com/manaflow-ai/cmux/commit/f9090089991c6024dfcb507bfb99e5d6d974a1c3" title="review: scope error privacy checks to end-user surfaces (#13277)">review: scope error privacy checks to end-user surfaces (</a>
+<a node_id=59 href="https://github.com/manaflow-ai/cmux/pull/13277">#13277</a>
+<a node_id=60 href="https://github.com/manaflow-ai/cmux/commit/f9090089991c6024dfcb507bfb99e5d6d974a1c3" title="review: scope error privacy checks to end-user surfaces (#13277)">)</a>
+<a node_id=61 aria-label="AppIcon.icon, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/AppIcon.icon" title="AppIcon.icon">AppIcon.icon</a>
+<a node_id=62 href="https://github.com/manaflow-ai/cmux/commit/3566b6ec2170fc57b74ca5b71f954aa631be75cb" title="Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f">Regenerate app icons from Icon Composer (</a>
+<a node_id=63 href="https://github.com/manaflow-ai/cmux/pull/1005">#1005</a>
+<a node_id=64 href="https://github.com/manaflow-ai/cmux/commit/3566b6ec2170fc57b74ca5b71f954aa631be75cb" title="Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f">)</a>
+<a node_id=65 aria-label="Assets.xcassets, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Assets.xcassets" title="Assets.xcassets">Assets.xcassets</a>
+<a node_id=66 href="https://github.com/manaflow-ai/cmux/commit/638aaa717d431661e8fb85748964ac08ea87cc1b" title="feat(tui): adopt Herdr-style agent plugins and journal projections (#13299) * feat(tui): adopt Herdr-style agent plugin architecture * perf(cloud): move VM guest setup into snapshot contract * docs: preserve Herdr handoff for startup work * test(cloud): assert snapshot guest contract * fix(clou">feat(tui): adopt Herdr-style agent plugins and journal projections (</a>
+<a node_id=67 href="https://github.com/manaflow-ai/cmux/pull/13299">#…</a>
+<a node_id=68 aria-label="CLI, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/CLI" title="CLI">CLI</a>
+<a node_id=69 href="https://github.com/manaflow-ai/cmux/commit/ddc7ae0b4b15d6749372655a26318b67dcafb4ee" title="Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux ">Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…</a>
+<a node_id=70 aria-label="Examples, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Examples" title="Examples">Examples</a>
+<a node_id=71 href="https://github.com/manaflow-ai/cmux/commit/ae49bf57c1e0062b394a74c1d390dcf242c4f1b3" title="fix(examples): show custom description in Project Worktrees sidebar (#15256) * test: cover Project Worktrees subtitle preferring the description (#4889) Project Worktrees rows (pinned and grouped) should show a workspace's custom description and fall back to the branch only when the description is">fix(examples): show custom description in Project Worktrees sidebar (</a>
+<a node_id=72 href="https://github.com/manaflow-ai/cmux/pull/15256">#…</a>
+<a node_id=73 aria-label="KeyboardPinningLab, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/KeyboardPinningLab" title="KeyboardPinningLab">KeyboardPinningLab</a>
+<a node_id=74 href="https://github.com/manaflow-ai/cmux/commit/ba47b1dc0d9585c921692bfe65e2a1bb4c4566ac" title="Keep the iOS terminal dock pinned during keyboard reversals (#9836) * Add standalone iOS keyboard pinning lab * Test rapid iOS keyboard dock reversals * Unify iOS keyboard dock presentation * Fix CLI compile break from classify() tuple access https://github.com/manaflow-ai/cmux/pull/9804 landed">Keep the iOS terminal dock pinned during keyboard reversals (</a>
+<a node_id=75 href="https://github.com/manaflow-ai/cmux/pull/9836">#9836</a>
+<a node_id=76 href="https://github.com/manaflow-ai/cmux/commit/ba47b1dc0d9585c921692bfe65e2a1bb4c4566ac" title="Keep the iOS terminal dock pinned during keyboard reversals (#9836) * Add standalone iOS keyboard pinning lab * Test rapid iOS keyboard dock reversals * Unify iOS keyboard dock presentation * Fix CLI compile break from classify() tuple access https://github.com/manaflow-ai/cmux/pull/9804 landed">)</a>
+<a node_id=77 aria-label="Native, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Native" title="Native">Native</a>
+<a node_id=78 href="https://github.com/manaflow-ai/cmux/commit/ddc7ae0b4b15d6749372655a26318b67dcafb4ee" title="Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux ">Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…</a>
+<a node_id=79 aria-label="Packages, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Packages" title="Packages">Packages</a>
+<a node_id=80 href="https://github.com/manaflow-ai/cmux/commit/c09d4fee0fad0b34172c2b5173ca54ae7420564b" title="Merge pull request #15789 from manaflow-ai/feat-ios-browser-update-warning iOS: hide browser update hint while reconnecting">Merge pull request</a>
+<a node_id=81 href="https://github.com/manaflow-ai/cmux/pull/15789">#15789</a>
+<a node_id=82 href="https://github.com/manaflow-ai/cmux/commit/c09d4fee0fad0b34172c2b5173ca54ae7420564b" title="Merge pull request #15789 from manaflow-ai/feat-ios-browser-update-warning iOS: hide browser update hint while reconnecting">from manaflow-ai/feat-ios-browser-update-wa…</a>
+<a node_id=83 aria-label="Prototypes/SettingsShellLab, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Prototypes/SettingsShellLab" title="This path skips through empty directories">Prototypes/ SettingsShellLab</a>
+<a node_id=84 href="https://github.com/manaflow-ai/cmux/commit/1ccde06843ae57c51e005900658f0e8c34e17627" title="Add settings sidebar shell (#3244) * Add settings sidebar shell * Add settings shell prototype app * Migrate settings to native shell layout * Align settings shell with prototype * Remove settings titlebar debug hooks * Use SwiftUI scene for settings window * Improve settings search results ">Add settings sidebar shell (</a>
+<a node_id=85 href="https://github.com/manaflow-ai/cmux/pull/3244">#3244</a>
+<a node_id=86 href="https://github.com/manaflow-ai/cmux/commit/1ccde06843ae57c51e005900658f0e8c34e17627" title="Add settings sidebar shell (#3244) * Add settings sidebar shell * Add settings shell prototype app * Migrate settings to native shell layout * Align settings shell with prototype * Remove settings titlebar debug hooks * Use SwiftUI scene for settings window * Improve settings search results ">)</a>
+<a node_id=87 aria-label="Resources, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Resources" title="Resources">Resources</a>
+<a node_id=88 href="https://github.com/manaflow-ai/cmux/commit/ddc7ae0b4b15d6749372655a26318b67dcafb4ee" title="Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux ">Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…</a>
+<a node_id=89 aria-label="Sources, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/Sources" title="Sources">Sources</a>
+<a node_id=90 href="https://github.com/manaflow-ai/cmux/commit/ddc7ae0b4b15d6749372655a26318b67dcafb4ee" title="Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux ">Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…</a>
+<a node_id=91 aria-label="TunnelExtension, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/TunnelExtension" title="TunnelExtension">TunnelExtension</a>
+<a node_id=92 href="https://github.com/manaflow-ai/cmux/commit/f9eb928188f6c465742280eecdf3ccbc80742753" title="Fix Cloud VPN cancellation ordering and stale tunnel device selection (#12886) * test(cloud): reproduce duplicate VPN starts * fix(cloud): coalesce duplicate VPN starts * fix(cloud): actorize VPN start callback gate * fix(cloud): tighten provider start concurrency * fix(cloud): avoid tunnel sta">Fix Cloud VPN cancellation ordering and stale tunnel device selection (</a>
+<a node_id=93 href="https://github.com/manaflow-ai/cmux/pull/12886">…</a>
+<a node_id=94 aria-label="agent-chat, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/agent-chat" title="agent-chat">agent-chat</a>
+<a node_id=95 href="https://github.com/manaflow-ai/cmux/commit/bdb69202d3f6edb8013153724cb8c5dd28d10c60" title="Keep the mail broker from orphaning a reply to an unknown parent (#15330) * Cover two ways append() disagrees with its own contract Both assertions fail on this commit. append() accepts a reply whose parent it has never seen. normalizeEnvelope falls back to the message's own id for the thread, so">Keep the mail broker from orphaning a reply to an unknown parent (</a>
+<a node_id=96 href="https://github.com/manaflow-ai/cmux/pull/15330">#15330</a>
+<a node_id=97 aria-label="cmux-browser, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/cmux-browser" title="cmux-browser">cmux-browser</a>
+<a node_id=98 href="https://github.com/manaflow-ai/cmux/commit/4c15bb331bf1d80818aa4e4046fb3e6849c061ee" title="cmux-browser: stop requiring GPL for web/package.json (#15231) https://github.com/manaflow-ai/cmux/pull/15206 relicensed web/ under BUSL-1.1, so the Browser license policy's GPL check on web/package.json fails every run that routes the browser host tests. Co-authored-by: Claude Opus 5.5 (1M contex">cmux-browser: stop requiring GPL for web/package.json (</a>
+<a node_id=99 href="https://github.com/manaflow-ai/cmux/pull/15231">#15231</a>
+<a node_id=100 href="https://github.com/manaflow-ai/cmux/commit/4c15bb331bf1d80818aa4e4046fb3e6849c061ee" title="cmux-browser: stop requiring GPL for web/package.json (#15231) https://github.com/manaflow-ai/cmux/pull/15206 relicensed web/ under BUSL-1.1, so the Browser license policy's GPL check on web/package.json fails every run that routes the browser host tests. Co-authored-by: Claude Opus 5.5 (1M contex">)</a>
+<a node_id=101 aria-label="cmux-tui, (Directory)" href="https://github.com/manaflow-ai/cmux/tree/main/cmux-tui" title="cmux-tui">cmux-tui</a>
+<a node_id=102 href="https://github.com/manaflow-ai/cmux/commit/ad7906a2611fa3967843049f34d0df9d1cc9c51a" title="Consolidate SSH security, shim hardening, and restored terminal replay fixes (#15116) * test: cover durable Claude shim storage * fix: keep per-pane Claude shims outside TMPDIR * test: harden durable Claude shim coverage * fix: make event reconnect policy instantiable * cmux ssh: test that the ">Consolidate SSH security, shim hardening, and restored terminal repla…</a>
+<a node_id=103 href="https://cmux.com/">cmux.com</a>
+<a node_id=104 href="https://github.com/topics/amp">amp</a>
+<a node_id=105 href="https://github.com/topics/claude-code">claude-code</a>
+<a node_id=106 href="https://github.com/topics/cli">cli</a>
+<a node_id=107 href="https://github.com/topics/codex">codex</a>
+<a node_id=108 href="https://github.com/topics/coding-agents">coding-agents</a>
+<a node_id=109 href="https://github.com/topics/gemini">gemini</a>
