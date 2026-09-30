@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
@@ -32,7 +34,14 @@ for (const [key, value] of Object.entries({
 })) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
 
 const groups = (name: string) => [{ trigger: "/" as const, commands: [{ name, description: name }] }];
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 let renderer: ReactTestRenderer | undefined;
+let fixtureRoot: string | undefined;
+let restoreDiscovery: (() => void) | undefined;
 try {
   const { useSession } = await import("../src/session");
   let state: ReturnType<typeof useSession>;
@@ -43,7 +52,7 @@ try {
   await update(() => ws.open());
   const request = async (provider: string, cwd: string) => {
     await update(() => state.requestProviderCommands(provider, cwd));
-    return ws.sent.at(-1);
+    return sockets.at(-1)!.sent.at(-1);
   };
   const reply = async (request: any, name: string, extra: Record<string, unknown> = {}) => update(() => ws.receive({
     kind: "commands-list", provider: request.provider, cwd: request.cwd,
@@ -81,6 +90,13 @@ try {
   await update(() => ws.receive({ kind: "error", op: "list-commands", requestId: failed.requestId, cwd: failed.cwd, message: "discovery failed" }));
   await reply(failed, "late-after-error");
   assert.deepEqual(state.providerCommands.codex, []);
+  const retryFailure = await request("codex", "/repo/failure");
+  await update(() => ws.receive({ kind: "error", op: "list-commands", requestId: failed.requestId, cwd: failed.cwd }));
+  await reply(retryFailure, "retry-command");
+  assert.deepEqual(state.providerCommands.codex, groups("retry-command"), "an old failure must not settle a newer retry");
+  const empty = await request("claude", "/repo/empty");
+  await reply(empty, "unused", { groups: [] });
+  assert.deepEqual(state.providerCommands.claude, [], "a successful empty catalog clears the command menu");
 
   const beforeDisconnect = await request("codex", "/repo/reconnect");
   await update(() => ws.close());
@@ -101,9 +117,80 @@ try {
   await update(() => state.requestProviderCommands("codex", "/repo/offline"));
   assert.deepEqual(state.providerCommands.codex, [], "changing cwd while offline must not show the old project's commands");
   assert.equal(replacement.sent.at(-1), reconnectRequest);
+
+  // Bridge the production server response path into the mounted client. The
+  // isolated provider fixture completes discoveries in reverse order while
+  // the server's real cwd cache and response/error encoding run normally.
+  const { sendCommandCatalogResponse } = await import("../server");
+  const { piAdapter } = await import("../adapters/pi");
+  const originalDiscovery = piAdapter.listCommands;
+  restoreDiscovery = () => { piAdapter.listCommands = originalDiscovery; };
+  const scratch = join(import.meta.dir, "../scratch");
+  await mkdir(scratch, { recursive: true });
+  fixtureRoot = await mkdtemp(join(scratch, "command-catalog-"));
+  const oldCwd = join(fixtureRoot, "old");
+  const newCwd = join(fixtureRoot, "new");
+  const failedCwd = join(fixtureRoot, "failed");
+  const rejectedCwd = join(fixtureRoot, "rejected");
+  await Promise.all([oldCwd, newCwd, failedCwd, rejectedCwd].map((path) => mkdir(path)));
+  const oldDiscovery = deferred<ReturnType<typeof groups>>();
+  const newDiscovery = deferred<ReturnType<typeof groups>>();
+  let discoveries = 0;
+  piAdapter.listCommands = (cwd) => {
+    discoveries++;
+    if (cwd === oldCwd) return oldDiscovery.promise;
+    if (cwd === newCwd) return newDiscovery.promise;
+    if (cwd === rejectedCwd) return Promise.reject(new Error("async discovery failure"));
+    throw new Error("provider discovery failed with private details");
+  };
+  const encoded: any[] = [];
+  const bridge = { send(data: string | Buffer) {
+    const message = JSON.parse(String(data)); encoded.push(message); replacement.receive(message); return 0;
+  } };
+  replacement.readyState = FakeSocket.OPEN;
+  const serverOld = await request("pi", oldCwd);
+  const serverNew = await request("pi", newCwd);
+  const oldFlight = sendCommandCatalogResponse(bridge, serverOld);
+  const newFlight = sendCommandCatalogResponse(bridge, serverNew);
+  await act(async () => { newDiscovery.resolve(groups("server-new")); await newFlight; });
+  await act(async () => { oldDiscovery.resolve(groups("server-old")); await oldFlight; });
+  assert.deepEqual(state.providerCommands.pi, groups("server-new"));
+  assert.equal(encoded[0].requestId, serverNew.requestId);
+  assert.equal(encoded[0].cwd, newCwd);
+  assert.equal(encoded[1].requestId, serverOld.requestId);
+  assert.equal(encoded[1].cwd, oldCwd);
+  const cached = await request("pi", newCwd);
+  await act(async () => { await sendCommandCatalogResponse(bridge, cached); });
+  assert.equal(discoveries, 2, "the server keeps cwd cache entries while correlating each reply");
+  assert.deepEqual(state.providerCommands.pi, groups("server-new"));
+
+  const serverFailure = await request("pi", failedCwd);
+  await act(async () => { await sendCommandCatalogResponse(bridge, serverFailure); });
+  assert.equal(encoded.at(-1).kind, "error");
+  assert.equal(encoded.at(-1).requestId, serverFailure.requestId);
+  assert.equal(encoded.at(-1).cwd, failedCwd);
+  assert.ok(!encoded.at(-1).message.includes("private details"));
+  await update(() => replacement.receive({ kind: "commands-list", ...serverFailure, groups: groups("late-server-success") }));
+  assert.deepEqual(state.providerCommands.pi, []);
+  const rejected = await request("pi", rejectedCwd);
+  await act(async () => { await sendCommandCatalogResponse(bridge, rejected); });
+  assert.equal(encoded.at(-1).kind, "error");
+  assert.equal(encoded.at(-1).requestId, rejected.requestId);
+  assert.equal(encoded.at(-1).cwd, rejectedCwd);
+
+  const unknownProvider = await request("missing-provider", newCwd);
+  await act(async () => { await sendCommandCatalogResponse(bridge, unknownProvider); });
+  assert.equal(encoded.at(-1).kind, "error");
+  assert.equal(encoded.at(-1).requestId, unknownProvider.requestId);
+  assert.equal(encoded.at(-1).cwd, newCwd);
+  const legacy: any[] = [];
+  await sendCommandCatalogResponse({ send(data) { legacy.push(JSON.parse(String(data))); return 0; } }, { provider: "pi", cwd: newCwd });
+  assert.deepEqual(legacy[0].groups, groups("server-new"), "legacy clients can still discover commands without request IDs");
   console.log("Command discovery ordering, cwd changes, repeat visits, providers, errors, reconnect, and offline requests: OK");
 } finally {
+  restoreDiscovery?.();
   if (renderer) await act(async () => { renderer!.unmount(); });
+  if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true });
   assert.equal(timers.size, 0, "unmount releases every owned timer");
   for (const [key, descriptor] of descriptors) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
