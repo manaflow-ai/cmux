@@ -97,6 +97,9 @@ final class PaneOverlayView: NSView {
 
     /// The rect the border and ring trace (for tests and `debug.layers`).
     var borderFrame: CGRect { border.frame }
+    /// The rect the focus ring and glow trace, in this view's coordinates
+    /// (for tests and `debug.layers`).
+    var ringFrame: CGRect { ring.frame }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
