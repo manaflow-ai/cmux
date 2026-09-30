@@ -39,6 +39,7 @@ final class PolicyFakeUnixSocketServer: @unchecked Sendable {
     private var _requests: [Data] = []
     private let listenFD: Int32
     private var shouldStop = false
+    private let servedConnection = DispatchSemaphore(value: 0)
 
     var requests: [Data] {
         lock.lock()
@@ -116,6 +117,13 @@ final class PolicyFakeUnixSocketServer: @unchecked Sendable {
             _ = Darwin.write(client, raw.baseAddress, raw.count)
         }
         Darwin.close(client)
+        servedConnection.signal()
+    }
+
+    /// Waits until one more accepted connection has been read to EOF and
+    /// answered (or its answer has failed).
+    func waitForServedConnection(timeout: TimeInterval = 5) -> Bool {
+        servedConnection.wait(timeout: .now() + timeout) == .success
     }
 
     func close() {

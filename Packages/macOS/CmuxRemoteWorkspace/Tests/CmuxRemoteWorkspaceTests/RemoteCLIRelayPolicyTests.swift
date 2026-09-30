@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 @testable import CmuxRemoteWorkspace
@@ -375,6 +376,36 @@ struct RemoteCLIRelayPolicyTests {
             )
             #expect(unixServer.requests.count == 1)
         }
+    }
+
+    @Test("the local socket stand-in survives a relay that abandons its round trip")
+    func abandonedLocalRoundTripDoesNotKillTheTestProcess() throws {
+        let unixServer = try PolicyFakeUnixSocketServer()
+        defer { unixServer.close() }
+        // No second local account exists in tests, so expect a user ID the
+        // fake socket's owner cannot have. The relay connects, refuses the
+        // peer and closes without writing, which is also what the stand-in
+        // sees when a relay session closes in the middle of a forward.
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: relayID,
+            relayTokenHex: tokenHex,
+            commandRewriter: PolicyPassthroughRewriter(),
+            localSocketPeerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1)
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let exchange = try runPolicyRelayExchange(
+            port: port,
+            relayID: relayID,
+            tokenHex: tokenHex,
+            commandLine: #"{"id":"abandoned","method":"system.ping","params":{}}"#
+        )
+        #expect(exchange.responseLines.first?["ok"] as? Bool == false)
+        // The stand-in reads to EOF, which arrives only once the relay has
+        // closed its socket, and then writes its reply into that closed socket.
+        #expect(unixServer.waitForServedConnection())
+        #expect(unixServer.requests == [Data()])
     }
 
     @Test("owned decoys cannot forward unrelated routing to the local socket", arguments: [
