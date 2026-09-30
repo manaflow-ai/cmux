@@ -6715,8 +6715,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let paneTabs: [String: [UUID]] = Dictionary(
             uniqueKeysWithValues: orderedPaneIds.map { paneId in
                 let panelIds = bonsplitController
-                    .tabIds(inPane: paneId)
-                    .compactMap { panelIdFromSurfaceId($0) }
+                    .tabs(inPane: paneId)
+                    .compactMap { panelIdFromSurfaceId($0.id) }
                 return (paneId.id.uuidString, panelIds)
             }
         )
