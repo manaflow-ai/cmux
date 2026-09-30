@@ -1,5 +1,5 @@
 // Client-side session state: one WebSocket, one session per page.
-import type { QueuedAgentMessage } from "./agent-messages";
+import type { QueuedAgentMessage } from "../agent-messages";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
@@ -172,7 +172,7 @@ export interface SessionSummary {
   queuedMessages?: QueuedAgentMessage[];
 }
 
-export type { QueuedAgentMessage } from "./agent-messages";
+export type { QueuedAgentMessage } from "../agent-messages";
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {
