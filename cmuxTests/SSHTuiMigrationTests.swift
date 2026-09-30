@@ -123,13 +123,14 @@ struct SSHTuiMigrationTests {
         // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
         // runs in batch mode, so on a password-only host the live master is
         // its only way in.
-        let opened = configuration(options: SSHConnectionSharingOptions().mergingDefaults(into: ["ProxyJump=bastion"]))
+        let opened = configuration(options: ["ProxyJump=bastion"])
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
         let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
         #expect(openedCarrier["controlmaster"] == "auto")
-        #expect(openedCarrier["controlpath"]?.hasPrefix("/tmp/cmux-ssh-") == true)
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
     }
 
@@ -359,6 +360,33 @@ struct SSHTuiMigrationTests {
         catalog.endProjections(panelID: panelID, reason: .replaced)
         #expect(!workspace.isRemoteTerminalContext(panelID))
         #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+    }
+
+    @MainActor
+    @Test("Only terminals known to run on this Mac resolve paths locally")
+    func unplacedAndCloudSurfacesNeverResolvePathsLocally() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(!workspace.terminalLinkIsRemoteTerminal(panelID))
+        let unplaced = UUID()
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: unplaced))
+        #expect(workspace.terminalLinkIsRemoteTerminal(unplaced))
+
+        let resource = SurfaceResourceID(
+            machine: .cloud("vm-path-fixture-" + UUID().uuidString),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        try #require(catalog.projectionIncludingPendingRestore(forPanel: panelID)?.resource == resource)
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
     }
 
     @Test("Loopback links in SSH terminals retain remote routing")

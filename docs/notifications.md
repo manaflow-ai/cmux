@@ -95,11 +95,34 @@ Inside a machine:
   reply affordance, a click action, agent context, or project `cmux.json` hooks from a local
   directory.
 
+## Notifications from your other Macs
+
+`cmux notify` in a terminal on another Mac under **My Devices** also reaches this Mac while
+the link to that Mac is up. This Mac reads the other Mac's notification feed and shows each
+unread notification on the pane that mirrors that terminal, or on the local workspace that
+shows the terminal's remote workspace. A notification whose terminal and remote workspace are
+both not shown here gets no local notification. Reading or dismissing the notification here marks it read on the other Mac.
+
+The same untrusted-text clamps and admission budget as Cloud machines apply, and hooks see
+`CMUX_NOTIFICATION_ORIGIN=device-mac:<device>`. Notifications that the other Mac itself got
+from a Cloud machine or a third Mac are not relayed, so nothing shows twice or loops.
+
 ## Navigation
 
 Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
 
 Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
+
+## Native banner lifetime and notification history
+
+cmux keeps its notification record and unread state until you open, mark, or
+dismiss it (subject to the existing focused-surface dismissal policy). The
+native macOS presentation is separate: macOS controls how long a **Banner** is
+visible and may remove it after a few seconds. cmux cannot extend that native
+Banner lifetime. To keep the system alert visible until you dismiss it, open
+**System Settings → Notifications → cmux** and choose **Alert** instead of
+**Banner**. The cmux notification panel remains the durable place to review
+notifications regardless of that macOS presentation choice.
 
 ## Suppress only the focused surface
 
@@ -206,7 +229,7 @@ The `agent` object is omitted entirely for non-agent notifications (plain `cmux 
 
 ### Origin
 
-The `origin` object is present only for notifications whose text came from somewhere other than this Mac: `kind` is `ssh-relay` (a `cmux ssh` host) or `cloud-vm` (a cmux Cloud machine, with `machine` set to its id), and `value` is the same string the hook process sees in `CMUX_NOTIFICATION_ORIGIN` — `local`, `ssh-relay:<workspace uuid>`, or `cloud-vm:<machine>`. Hooks cannot modify it. `notifications.command` receives the same `CMUX_NOTIFICATION_ORIGIN` variable. Treat remote-origin `title`, `subtitle`, and `body` as untrusted text: use them as data (`"$CMUX_NOTIFICATION_BODY"` in quotes), never interpolate them into a command, an `osascript` source string, or an `eval`. A hook that wants to stay quiet for machines can gate on it:
+The `origin` object is present only for notifications whose text came from somewhere other than this Mac: `kind` is `ssh-relay` (a `cmux ssh` host), `cloud-vm` (a cmux Cloud machine, with `machine` set to its id), or `device-mac` (another Mac under My Devices, with `machine` set to its device id), and `value` is the same string the hook process sees in `CMUX_NOTIFICATION_ORIGIN` — `local`, `ssh-relay:<workspace uuid>`, `cloud-vm:<machine>`, or `device-mac:<device>`. Hooks cannot modify it. `notifications.command` receives the same `CMUX_NOTIFICATION_ORIGIN` variable. Treat remote-origin `title`, `subtitle`, and `body` as untrusted text: use them as data (`"$CMUX_NOTIFICATION_BODY"` in quotes), never interpolate them into a command, an `osascript` source string, or an `eval`. A hook that wants to stay quiet for machines can gate on it:
 
 ```sh
 case "$CMUX_NOTIFICATION_ORIGIN" in

@@ -5,6 +5,7 @@ import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
 import Foundation
+import CmuxTerminalSharing
 import Bonsplit
 import CmuxBrowser
 import CmuxGit
@@ -348,6 +349,9 @@ class TabManager: ObservableObject {
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
+            }
+            if let selectedTabId {
+                workspacesById[selectedTabId]?.admitStartupRestoresAwaitingFirstVisit()
             }
             sentryBreadcrumb("workspace.switch", data: [
                 "tabCount": tabs.count
@@ -1046,6 +1050,30 @@ class TabManager: ObservableObject {
     ///
     /// - Returns: `false` when no terminal panel is focused. A missing
     ///   screenshot is reported later by a beep, after the folder is read.
+    /// Makes the focused shared terminal follow this Mac's window (the shared
+    /// "Size to My Window" action; see ``TerminalSharingStore/sizeToMe(surfaceID:)``).
+    ///
+    /// - Returns: `false` when no terminal is focused or it is not attached.
+    @discardableResult
+    func sizeFocusedTerminalToMyWindow() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.terminalSharing.sizeToMe(surfaceID: panel.id)
+    }
+
+    /// Opens the size panel for the focused terminal.
+    ///
+    /// - Parameter confirmDisconnectOthers: open with the "Disconnect other
+    ///   clients" confirmation already showing.
+    /// - Returns: `false` when no terminal is focused.
+    @discardableResult
+    func showFocusedTerminalSizePanel(confirmDisconnectOthers: Bool) -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return TerminalController.shared.presentTerminalSizePanel(
+            surfaceID: panel.id,
+            confirmDisconnectOthers: confirmDisconnectOthers
+        )
+    }
+
     @discardableResult
     func pasteLastScreenshotIntoFocusedTerminal() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
@@ -1131,8 +1159,10 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         initialTerminalEnvironment: [String: String],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -1148,9 +1178,11 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
+            initialTerminalIsRemote: initialTerminalIsRemote,
             initialTerminalInput: initialTerminalInput,
             initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
             initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
+            initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1341,6 +1373,7 @@ class TabManager: ObservableObject {
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -1351,6 +1384,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
+        initialTerminalStartsOnFirstVisit: Bool = false,
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
@@ -1444,8 +1478,10 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -5080,13 +5116,15 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
-               from: anchorPanelId,
-               orientation: orientation,
-               insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url,
-               preferredProfileID: snapshot.profileID
-           )?.id {
+           let browserPanelId = workspace.withSplitSpaceAdmissionBypass({
+               workspace.newBrowserSplit(
+                   from: anchorPanelId,
+                   orientation: orientation,
+                   insertFirst: snapshot.fallbackSplitInsertFirst,
+                   url: snapshot.url,
+                   preferredProfileID: snapshot.profileID
+               )?.id
+           }) {
             return browserPanelId
         }
 

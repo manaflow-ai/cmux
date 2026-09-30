@@ -53,6 +53,19 @@ struct DeviceLinkReconnectPolicyTests {
         )
     }
 
+    @Test("A below-link cancellation during a dial enters the reconnect policy")
+    func interruptedConnectRetries() {
+        var policy = DeviceLinkReconnectPolicy()
+        #expect(policy.apply(.directory(dialable: true)) == .connecting(attempt: 1))
+        #expect(
+            policy.apply(.connectInterrupted) == .waiting(
+                attempt: 1, delay: DeviceLinkReconnectPolicy.delay(afterFailures: 1)
+            ),
+            "a cancellation from the engine is a failed dial, not a completed teardown"
+        )
+        #expect(policy.apply(.waitElapsed) == .connecting(attempt: 2))
+    }
+
     @Test("Backoff is bounded at thirty seconds")
     func backoffTable() {
         #expect(DeviceLinkReconnectPolicy.delay(afterFailures: 0) == .seconds(1))
