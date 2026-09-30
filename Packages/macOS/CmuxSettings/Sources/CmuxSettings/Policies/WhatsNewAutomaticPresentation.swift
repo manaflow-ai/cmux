@@ -53,7 +53,8 @@ public struct WhatsNewAutomaticPresentation: Sendable {
         liveAnnouncedVersion: String?
     ) -> LaunchOutcome {
         guard liveMode != .off else { return .suppress }
-        return liveMode == .sheet ? .presentSheet : .indicate
+        guard announcedVersion == liveAnnouncedVersion else { return .suppress }
+        return decidedToPresent && liveMode == .sheet ? .presentSheet : .indicate
     }
 
 
