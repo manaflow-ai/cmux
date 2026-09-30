@@ -586708,6 +586708,131 @@
           }
         }
       }
+    },
+    "cloudTree.action.newCloudMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز سحابي جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle machine cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいクラウドマシン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 클라우드 머신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建云主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增雲端機器"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova cloud mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny cloud-maskine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova macchina cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ថ្មី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny sky-maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa maszyna w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova máquina na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая облачная машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องคลาวด์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bulut makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова хмарна машина"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
