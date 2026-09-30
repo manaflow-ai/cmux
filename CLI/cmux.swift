@@ -2615,9 +2615,12 @@ final class ClaudeHookSessionStore {
     /// bounded store, so hook routing can recover without silently destroying
     /// the user's previous session mappings.
     private func quarantineOversizedState(at url: URL) throws -> ClaudeHookSessionStoreFile {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1_000)
         let backupURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).quarantined.json", isDirectory: false)
-        try? fileManager.removeItem(at: backupURL)
+            .appendingPathComponent(
+                ".\(url.lastPathComponent).quarantined.\(timestamp).\(UUID().uuidString).json",
+                isDirectory: false
+            )
         try fileManager.moveItem(at: url, to: backupURL)
         return ClaudeHookSessionStoreFile()
     }
