@@ -77,8 +77,21 @@ extension WorkspaceGroupCoordinator {
             || model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) else {
             return 0
         }
-
         let confirmedWorkspaceIds = Set(confirmation.memberWorkspaceIds)
+        var newlyProtectedGroupIds = Set<UUID>()
+        let groupsContainingConfirmedWorkspaces = model.tabs.compactMap { tab in
+            confirmedWorkspaceIds.contains(tab.id) ? tab.groupId : nil
+        }
+        for groupId in Set(groupsContainingConfirmedWorkspaces).union([confirmation.groupId])
+            where deletingGroupIds.insert(groupId).inserted {
+            newlyProtectedGroupIds.insert(groupId)
+        }
+        defer {
+            for groupId in newlyProtectedGroupIds {
+                deletingGroupIds.remove(groupId)
+            }
+        }
+
         let confirmedOrder = Dictionary(
             uniqueKeysWithValues: confirmation.memberWorkspaceIds.enumerated().map { ($1, $0) }
         )
@@ -106,6 +119,10 @@ extension WorkspaceGroupCoordinator {
 
         var closed = 0
         for tab in members {
+            if let groupId = tab.groupId,
+               deletingGroupIds.insert(groupId).inserted {
+                newlyProtectedGroupIds.insert(groupId)
+            }
             if model.tabs.count <= 1 {
                 _ = host.createWorkspaceForGroup(
                     title: nil,

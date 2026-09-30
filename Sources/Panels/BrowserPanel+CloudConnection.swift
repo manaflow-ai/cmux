@@ -62,6 +62,16 @@ extension BrowserPanel {
         return cloudResourceForDuplication
     }
 
+    /// The owning team persisted with ``cloudResourceForSession``: the
+    /// machine's provider team, else the restored team, else the selected team.
+    var cloudTeamIDForSession: String? {
+        guard let machineID = cloudResourceForSession?.machine.cloudMachineID else { return nil }
+        if let owner = CmuxTuiSurfaceProviderRegistry.shared.ownerTeamID(forMachineID: machineID) {
+            return owner
+        }
+        return restoredCloudTeamID ?? WorkspaceCloudVMBinding.owningTeamID(forVMID: machineID, previous: nil)
+    }
+
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
