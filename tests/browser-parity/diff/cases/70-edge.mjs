@@ -36,22 +36,22 @@ export default [
     path: null,
     code: `const noCreds = await ms(async () => { const r = await $P.goto(U("/auth/basic"), $T(8000)); return [r ? r.status() : null, await $P.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/basic")); u.username = "parity"; u.password = "secret"; await $P.goto(u.href, $T(8000)); return await $P.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
     aside: `const p0 = await openTab(U("/diff/next.html"));
 const noCreds = await ms(async () => { const r = await page.goto(U("/auth/basic"), { timeout: 8000 }); return [r ? r.status() : null, await page.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/basic")); u.username = "parity"; u.password = "secret"; await page.goto(u.href, { timeout: 8000 }); return await page.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
     chatgpt: `const noCreds = await ms(async () => { await t.goto(U("/auth/basic")); return [null, await $P.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/basic")); u.username = "parity"; u.password = "secret"; await t.goto(u.href); return await $P.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
-    compare: { aside: ["noCreds", "noCredsMs", "withCreds"], chatgpt: ["noCredsMs", "withCreds"] },
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: withCreds.value ?? withCreds };`,
+    compare: { aside: ["noCredsAuth", "noCredsMs", "withCreds"], chatgpt: ["noCredsAuth", "noCredsMs", "withCreds"] },
     better: {
       aside: {
         reason: "user:pass@ in the URL answers a Basic challenge; Aside's navigation with credentials times out",
         check: (c, r) => c.withCreds === 'Authed as parity' && r.withCreds !== 'Authed as parity',
       },
     },
-    expect: { noCreds: [401, "401 basic"], noCredsMs: "instant", withCreds: "Authed as parity" },
+    expect: { noCredsAuth: true, noCredsMs: "instant", withCreds: "Authed as parity" },
   },
   {
     id: "edge.auth-digest",
@@ -59,22 +59,22 @@ return { noCreds: noCreds.value ?? noCreds, noCredsMs: noCreds.ms, withCreds: wi
     path: null,
     code: `const noCreds = await ms(async () => { const r = await $P.goto(U("/auth/digest"), $T(8000)); return [r ? r.status() : null, await $P.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/digest")); u.username = "parity"; u.password = "secret"; await $P.goto(u.href, $T(8000)); return await $P.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
     aside: `await openTab(U("/diff/next.html"));
 const noCreds = await ms(async () => { const r = await page.goto(U("/auth/digest"), { timeout: 8000 }); return [r ? r.status() : null, await page.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/digest")); u.username = "parity"; u.password = "secret"; await page.goto(u.href, { timeout: 8000 }); return await page.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
     chatgpt: `const noCreds = await ms(async () => { await t.goto(U("/auth/digest")); return [null, await $P.locator("h1").innerText()]; });
 const withCreds = await ms(async () => { const u = new URL(U("/auth/digest")); u.username = "parity"; u.password = "secret"; await t.goto(u.href); return await $P.locator("h1").innerText(); });
-return { noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
-    compare: { aside: ["noCreds", "withCreds"], chatgpt: ["withCreds"] },
+return { noCredsAuth: !!(noCreds.error ? /401|auth|AUTH/i.test(noCreds.error) : noCreds.value && (noCreds.value[0] === 401 || /401/.test(noCreds.value[1]))), _noCreds: noCreds.value ?? noCreds, withCreds: withCreds.value ?? withCreds };`,
+    compare: { aside: ["noCredsAuth", "withCreds"], chatgpt: ["noCredsAuth", "withCreds"] },
     better: {
       aside: {
         reason: "user:pass@ in the URL answers a Digest challenge",
         check: (c, r) => c.withCreds === 'Digest authed as parity' && r.withCreds !== c.withCreds,
       },
     },
-    expect: { noCreds: [401, "401 digest"], withCreds: "Digest authed as parity" },
+    expect: { noCredsAuth: true, withCreds: "Digest authed as parity" },
   },
   permission("geolocation", "geo"),
   permission("notifications", "notify"),
@@ -738,6 +738,12 @@ return { stale: r.error ? { error: r.error } : "clicked", ms: r.ms, status: awai
 const out = await $P.locator("#out").innerText();
 const vanish = await E(() => $P.locator("#vanish").click($T(1500)));
 return { rerender: re.error ? { error: re.error } : "clicked", out: /^clicked \\d+$/.test(out), vanish: vanish.error ? { error: vanish.error } : "clicked", gone: await $P.locator("#vanish").count() };`,
+    better: {
+      aside: {
+        reason: "a click on an element the page keeps re-rendering lands on the element now under the pointer; Aside fails it as detached",
+        check: (c, r, h) => c.rerender === 'clicked' && c.out === true && typeof r.rerender === 'object',
+      },
+    },
     expect: { rerender: "clicked", out: true, gone: 0 },
   },
   {

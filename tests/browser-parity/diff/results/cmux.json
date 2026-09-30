@@ -1,9 +1,215 @@
 {
  "meta": {
-  "backend": "cmux-dev",
-  "recordedAt": "2026-09-30T14:00:32.903Z"
+  "backend": "cmux",
+  "recordedAt": "2026-09-30T14:00:34.089Z",
+  "tag": "brepl-par2",
+  "sha": null
  },
  "cases": {
+  "tabs.open-current": {
+   "value": {
+    "same": true,
+    "url": "<primary>/diff/lab.html",
+    "title": "Diff lab"
+   },
+   "ms": 595
+  },
+  "tabs.list-get": {
+   "value": {
+    "count": 2,
+    "keys": [
+     "active",
+     "current",
+     "id",
+     "title",
+     "url"
+    ],
+    "titles": [
+     "Diff lab",
+     "Next page"
+    ],
+    "getTitle": "Diff lab",
+    "active": 1,
+    "missing": {
+     "error": "No open tab with id \"nope\"; see tabs.list()",
+     "name": "Error"
+    }
+   },
+   "ms": 668
+  },
+  "tabs.attach": {
+   "value": {
+    "afterId": "<primary>/diff/next.html",
+    "activeIsOurs": true,
+    "activeUrl": "<primary>/diff/lab.html",
+    "context": true,
+    "bad": {
+     "error": "No open tab with id \"nope\"; see tabs.list()",
+     "name": "Error"
+    }
+   },
+   "ms": 760
+  },
+  "tabs.open-errors": {
+   "value": {
+    "bad": {
+     "error": "tabs.open: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
+     "name": "Error"
+    },
+    "session": "string"
+   },
+   "ms": 106
+  },
+  "session.name-docs": {
+   "value": {
+    "named": "string",
+    "docs": true,
+    "empty": {
+     "ok": true,
+     "value": " "
+    }
+   },
+   "ms": 392
+  },
+  "tabs.keep-deliverable": {
+   "value": {
+    "kept": true
+   },
+   "ms": 520
+  },
+  "snapshot.full": {
+   "value": {
+    "heading": true,
+    "frame": true,
+    "shadow": true,
+    "offscreen": true,
+    "typed": true,
+    "clicked": "clicked"
+   },
+   "ms": 483
+  },
+  "snapshot.interactive": {
+   "value": {
+    "button": true,
+    "listText": false,
+    "smaller": true
+   },
+   "ms": 464
+  },
+  "snapshot.show-hidden": {
+   "value": {
+    "plain": false,
+    "all": true
+   },
+   "ms": 436
+  },
+  "snapshot.scoped": {
+   "value": {
+    "refFrame": true,
+    "refMain": false,
+    "selItems": true,
+    "selMain": false,
+    "badRef": {
+     "error": "ref e9999 does not exist; take a new snapshot",
+     "name": "Error"
+    }
+   },
+   "ms": 543
+  },
+  "snapshot.diff": {
+   "value": {
+    "diffMentions": true,
+    "diffShort": true,
+    "printed": true
+   },
+   "ms": 539
+  },
+  "snapshot.ax-get-modes": {
+   "value": {
+    "shot": true,
+    "state": true,
+    "both": true
+   },
+   "ms": 523
+  },
+  "snapshot.ax-errors": {
+   "value": {
+    "click": {
+     "error": "ref e99999 does not exist; take a new snapshot",
+     "name": "Error"
+    },
+    "get": {
+     "ok": true,
+     "value": "title: Diff lab\nurl: <primary>/diff/lab.html\n- heading \"Diff lab\" [level=1]\n- textbox \"Name\" [ref=e1] [placeholder=\"Enter name\"]: \"initial\"\n- textbox \"Decoy\" [ref=e2]: \"leave\"\n- button \"Action\" [ref=e3]\n- checkbox \"Option\" [ref=e4]\n- radio \"Radio A\" [ref=e5]\n- radio \"Radio B\" [ref=e6]\n- combobox \"Choice\" [ref=e7] [options: Alpha, Beta, Gamma]: \"Alpha\"\n- listbox \"Colors\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]\n- textbox \"Readonly\" [ref=e10] [readonly]: \"fixed\"\n- textbox \"Notes\" [ref=e11]: \"line1\"\n- textbox \"Rich editor\" [ref=e12]: \"alpha beta gamma\"\n- button \"Menu\" [ref=e13]\n- generic [ref=e14]: \"Drag me\"\n- generic \"Outer scroller\" [ref=e15] [scrollable]:\n  - generic \"Inner scroller\" [ref=e16] [scrollable]:\n    - button \"Deep button\" [ref=e17]\n  - button \"Scroll end\" [ref=e18]\n- button \"Count 0\" [ref=e19]\n- textbox \"Keys\" [ref=e20]\n- canvas [ref=e21]\n- button \"Make late\" [ref=e22]\n- button \"Remove me\" [ref=e23]\n- link \"Next page\" [ref=e24]\n- button \"Push state\" [ref=e25]\n- button \"Log\" [ref=e26]\n- button \"Throw\" [ref=e27]\n- link \"Popup link\" [ref=e28]\n- textbox \"Shadow field\" [ref=e29]\n- button \"Shadow action\" [ref=e30]\n- iframe \"Inner frame\" [ref=e31]:\n  - textbox \"Frame label\" [ref=f1e1] [placeholder=\"Frame placeholder\"]\n  - button \"Frame action\" [ref=f1e2]\n- button \"Far away\" [ref=e32]"
+    },
+    "unknownRef": {
+     "error": "ref e99999 does not exist; take a new snapshot",
+     "name": "Error"
+    }
+   },
+   "ms": 441
+  },
+  "screenshot.annotated": {
+   "value": {
+    "image": true,
+    "differs": true
+   },
+   "ms": 547
+  },
+  "element-at": {
+   "value": {
+    "role": "button",
+    "name": "Action",
+    "ref": true
+   },
+   "ms": 444
+  },
+  "fetch.cookies": {
+   "value": {
+    "status": 200,
+    "ok": true,
+    "type": "application/json",
+    "json": {
+     "q": "1",
+     "method": "GET"
+    },
+    "cookieNames": [
+     "http_only",
+     "lax",
+     "none_secure",
+     "plain",
+     "secure_flag",
+     "strict"
+    ],
+    "post": "POST",
+    "missing": 404
+   },
+   "ms": 368
+  },
+  "node.fs-path-buffer": {
+   "value": {
+    "abs": true,
+    "back": "hello fs",
+    "join": "a/c.txt",
+    "base": "y",
+    "ext": ".gz",
+    "b64": "aGk=",
+    "fromB64": "hi",
+    "missing": {
+     "error": "ENOENT: no such file or directory, open '/private/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/nope-brepl.txt'",
+     "name": "Error"
+    }
+   },
+   "ms": 110
+  },
+  "print.display-console": {
+   "value": {
+    "log": true,
+    "display": true,
+    "autoPrint": true
+   },
+   "ms": 67
+  },
   "page.goto.basic": {
    "value": {
     "url": "<primary>/diff/next.html",
@@ -11,7 +217,7 @@
     "status": 200,
     "ok": true
    },
-   "ms": 175
+   "ms": 488
   },
   "page.goto.wait-until": {
    "value": {
@@ -32,17 +238,17 @@
      "name": "Error"
     }
    },
-   "ms": 2328
+   "ms": 2529
   },
   "page.goto.timeout": {
    "value": {
     "slow": {
-     "ms": 607,
-     "error": "page.goto: Timeout 600ms exceeded.",
+     "ms": 612,
+     "error": "Timeout 600ms exceeded while navigating to \"<primary>/slow?ms=4000\"",
      "name": "Error"
     }
    },
-   "ms": 834
+   "ms": 1126
   },
   "page.goto.errors": {
    "value": {
@@ -55,7 +261,7 @@
      "name": "Error"
     }
    },
-   "ms": 261
+   "ms": 403
   },
   "page.reload": {
    "value": {
@@ -63,7 +269,7 @@
     "after": "Count 0",
     "status": 200
    },
-   "ms": 311
+   "ms": 566
   },
   "page.reload.options": {
    "value": {
@@ -71,7 +277,7 @@
     "b": true,
     "title": "Diff lab"
    },
-   "ms": 237
+   "ms": 514
   },
   "page.back-forward": {
    "value": {
@@ -80,7 +286,7 @@
     "title": "Next page",
     "backStatus": 200
    },
-   "ms": 290
+   "ms": 742
   },
   "page.back-forward.no-entry": {
    "value": {
@@ -88,7 +294,7 @@
     "forward": null,
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 159
+   "ms": 452
   },
   "page.url-title.push-state": {
    "value": {
@@ -101,7 +307,7 @@
      "Diff lab pushed"
     ]
    },
-   "ms": 263
+   "ms": 438
   },
   "page.content": {
    "value": {
@@ -110,7 +316,7 @@
     "frameText": true,
     "typedValue": null
    },
-   "ms": 176
+   "ms": 514
   },
   "page.evaluate.forms": {
    "value": {
@@ -132,20 +338,20 @@
      "name": "Error"
     }
    },
-   "ms": 319
+   "ms": 528
   },
   "page.evaluate.mutation": {
    "value": {
     "set": "ok",
     "status": "set by evaluate"
    },
-   "ms": 235
+   "ms": 389
   },
   "page.evaluate.options": {
    "value": {
     "withArg": 2
    },
-   "ms": 189
+   "ms": 376
   },
   "page.query.dollar": {
    "value": {
@@ -163,7 +369,7 @@
      "name": "Error"
     }
    },
-   "ms": 202
+   "ms": 361
   },
   "page.getters.page-level": {
    "value": {
@@ -180,7 +386,7 @@
     "placeholder": 1,
     "testId": 3
    },
-   "ms": 228
+   "ms": 439
   },
   "page.getters.errors": {
    "value": {
@@ -205,7 +411,7 @@
      "name": "Error"
     }
    },
-   "ms": 665
+   "ms": 380
   },
   "page.frame-locator": {
    "value": {
@@ -215,13 +421,13 @@
     "text": 1,
     "regex": 1
    },
-   "ms": 432
+   "ms": 509
   },
   "page.frame-locator.nested": {
    "value": {
     "text": "deep clicked"
    },
-   "ms": 324
+   "ms": 473
   },
   "page.frames": {
    "value": {
@@ -229,7 +435,7 @@
     "mainUrl": "<primary>/diff/lab.html",
     "child": true
    },
-   "ms": 211
+   "ms": 414
   },
   "page.click-fill": {
    "value": {
@@ -240,7 +446,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 598
+   "ms": 809
   },
   "page.screenshot.forms": {
    "value": {
@@ -254,7 +460,7 @@
      "height": 800
     }
    },
-   "ms": 314
+   "ms": 486
   },
   "page.screenshot.errors": {
    "value": {
@@ -267,7 +473,7 @@
      "name": "Error"
     }
    },
-   "ms": 207
+   "ms": 375
   },
   "page.pdf": {
    "value": {
@@ -275,7 +481,7 @@
     "a4": "%PDF-",
     "bigger": true
    },
-   "ms": 212
+   "ms": 2953
   },
   "page.wait-for-selector": {
    "value": {
@@ -284,12 +490,12 @@
     "attached": true,
     "detached": true,
     "timeout": {
-     "ms": 404,
+     "ms": 405,
      "error": "locator.waitFor: Timeout 400ms exceeded.\n  - waiting for locator('#missing') to be visible",
      "name": "TimeoutError"
     }
    },
-   "ms": 1490
+   "ms": 1666
   },
   "page.wait-for-load-state": {
    "value": {
@@ -301,7 +507,7 @@
      "name": "Error"
     }
    },
-   "ms": 197
+   "ms": 383
   },
   "page.wait-for-url": {
    "value": {
@@ -311,12 +517,12 @@
     "fn": true,
     "opts": true,
     "never": {
-     "ms": 404,
+     "ms": 403,
      "error": "page.waitForURL: Timeout 400ms exceeded.\n  - waiting for navigation to \"<primary>/never\"",
      "name": "TimeoutError"
     }
    },
-   "ms": 737
+   "ms": 920
   },
   "page.wait-for-timeout": {
    "value": {
@@ -327,7 +533,7 @@
      "name": "Error"
     }
    },
-   "ms": 776
+   "ms": 987
   },
   "page.wait-for-event.popup-console": {
    "value": {
@@ -337,7 +543,7 @@
      "lab log 42"
     ]
    },
-   "ms": 475
+   "ms": 1100
   },
   "page.wait-for-event.errors": {
    "value": {
@@ -346,12 +552,12 @@
      "name": "TimeoutError"
     },
     "none": {
-     "ms": 300,
+     "ms": 301,
      "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
      "name": "TimeoutError"
     }
    },
-   "ms": 684
+   "ms": 881
   },
   "page.on-off": {
    "value": {
@@ -361,7 +567,7 @@
      "error:lab error"
     ]
    },
-   "ms": 746
+   "ms": 920
   },
   "page.viewport": {
    "value": {
@@ -375,14 +581,14 @@
      "height": 500
     }
    },
-   "ms": 169
+   "ms": 434
   },
   "page.bring-to-front": {
    "value": {
     "ok": true,
     "visible": "visible"
    },
-   "ms": 157
+   "ms": 443
   },
   "page.close": {
    "value": {
@@ -393,20 +599,20 @@
      "name": "Error"
     }
    },
-   "ms": 151
+   "ms": 424
   },
   "page.video": {
    "value": {
     "recording": false
    },
-   "ms": 152
+   "ms": 460
   },
   "page.keyboard-mouse-objects": {
    "value": {
     "canvas": 1,
     "keys": "hi"
    },
-   "ms": 213
+   "ms": 480
   },
   "loc.click.options": {
    "value": {
@@ -719,7 +925,7 @@
      ]
     ]
    },
-   "ms": 815
+   "ms": 1007
   },
   "loc.dblclick.options": {
    "value": {
@@ -1392,7 +1598,7 @@
      ]
     ]
    },
-   "ms": 833
+   "ms": 1108
   },
   "loc.click.more-options": {
    "value": {
@@ -1466,7 +1672,7 @@
     "trial": [],
     "noWaitAfter": 3
    },
-   "ms": 779
+   "ms": 972
   },
   "loc.check.options": {
    "value": {
@@ -1489,7 +1695,7 @@
      "name": "Error"
     }
    },
-   "ms": 844
+   "ms": 1047
   },
   "loc.timeout-options": {
    "value": {
@@ -1506,7 +1712,7 @@
     "items": 3,
     "itemsWithArg": 4
    },
-   "ms": 342
+   "ms": 450
   },
   "loc.errors.missing": {
    "value": {
@@ -1567,7 +1773,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 4421
+   "ms": 4591
   },
   "loc.errors.evaluate": {
    "value": {
@@ -1589,7 +1795,7 @@
     },
     "emptyAll": 0
    },
-   "ms": 222
+   "ms": 445
   },
   "loc.failure-kinds": {
    "value": {
@@ -1634,7 +1840,7 @@
      "name": "Error"
     }
    },
-   "ms": 3376
+   "ms": 3630
   },
   "loc.composition-errors": {
    "value": {
@@ -1679,7 +1885,7 @@
      "name": "Error"
     }
    },
-   "ms": 349
+   "ms": 358
   },
   "loc.filter-options": {
    "value": {
@@ -1697,7 +1903,7 @@
     "lHasNotText": 2,
     "lHasNotTextRe": 2
    },
-   "ms": 199
+   "ms": 406
   },
   "loc.regexp-getters": {
    "value": {
@@ -1730,7 +1936,7 @@
      1
     ]
    },
-   "ms": 324
+   "ms": 435
   },
   "loc.select-option.forms": {
    "value": {
@@ -1763,7 +1969,7 @@
      "name": "Error"
     }
    },
-   "ms": 263
+   "ms": 431
   },
   "loc.wait-for.states": {
    "value": {
@@ -1778,7 +1984,7 @@
      "name": "Error"
     }
    },
-   "ms": 1353
+   "ms": 1596
   },
   "loc.fill.forms": {
    "value": {
@@ -1796,7 +2002,7 @@
      "name": "Error"
     }
    },
-   "ms": 258
+   "ms": 421
   },
   "loc.typing": {
    "value": {
@@ -1820,14 +2026,14 @@
      "name": "Error"
     }
    },
-   "ms": 824
+   "ms": 1119
   },
   "loc.hover": {
    "value": {
     "status": "menu picked",
     "enter": true
    },
-   "ms": 583
+   "ms": 801
   },
   "loc.focus-blur": {
    "value": {
@@ -1838,7 +2044,7 @@
      "blur"
     ]
    },
-   "ms": 192
+   "ms": 413
   },
   "loc.set-input-files": {
    "value": {
@@ -1846,7 +2052,7 @@
     "many": "multi: parity-upload.txt(Disposable browser parity upload),second.txt(two)",
     "cleared": 0,
     "missing": {
-     "error": "EACCES: permission denied, '/nonexistent/parity.txt' is outside the REPL's directories",
+     "error": "EACCES: permission denied, path is outside the REPL working directory '/nonexistent/parity.txt'",
      "name": "Error"
     },
     "notFile": {
@@ -1854,7 +2060,7 @@
      "name": "Error"
     }
    },
-   "ms": 466
+   "ms": 441
   },
   "loc.drag-to": {
    "value": {
@@ -1867,13 +2073,13 @@
      "dragend:true"
     ]
    },
-   "ms": 234
+   "ms": 539
   },
   "loc.drag-to.ax": {
    "value": {
     "drop": "dropped payload"
    },
-   "ms": 199
+   "ms": 434
   },
   "loc.tap": {
    "value": {
@@ -1882,7 +2088,7 @@
     },
     "status": "clicked"
    },
-   "ms": 247
+   "ms": 469
   },
   "loc.scroll-into-view": {
    "value": {
@@ -1890,7 +2096,7 @@
     "inView": true,
     "hiddenBox": null
    },
-   "ms": 255
+   "ms": 386
   },
   "loc.screenshot": {
    "value": {
@@ -1901,7 +2107,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 694
+   "ms": 848
   },
   "loc.reads": {
    "value": {
@@ -1924,7 +2130,7 @@
      "Third"
     ]
    },
-   "ms": 182
+   "ms": 413
   },
   "loc.states": {
    "value": {
@@ -1964,7 +2170,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 579
+   "ms": 757
   },
   "loc.collections": {
    "value": {
@@ -1982,7 +2188,7 @@
     "nthOut": 0,
     "none": 0
    },
-   "ms": 179
+   "ms": 388
   },
   "loc.and-or": {
    "value": {
@@ -1991,7 +2197,7 @@
     "or": 2,
     "orText": "Second"
    },
-   "ms": 188
+   "ms": 370
   },
   "loc.scoped-getters": {
    "value": {
@@ -2003,7 +2209,7 @@
     "chained": "Third",
     "outside": 0
    },
-   "ms": 190
+   "ms": 405
   },
   "loc.evaluate": {
    "value": {
@@ -2014,7 +2220,7 @@
     "all": "First|Second|Third",
     "shadow": true
    },
-   "ms": 220
+   "ms": 459
   },
   "loc.dispatch-event": {
    "value": {
@@ -2023,7 +2229,7 @@
      false
     ]
    },
-   "ms": 190
+   "ms": 473
   },
   "loc.download-media": {
    "value": {
@@ -2034,209 +2240,7 @@
      "name": "TimeoutError"
     }
    },
-   "ms": 524
-  },
-  "tabs.open-current": {
-   "value": {
-    "same": true,
-    "url": "<primary>/diff/lab.html",
-    "title": "Diff lab"
-   },
-   "ms": 224
-  },
-  "tabs.list-get": {
-   "value": {
-    "count": 2,
-    "keys": [
-     "active",
-     "current",
-     "id",
-     "title",
-     "url"
-    ],
-    "titles": [
-     "Diff lab",
-     "Next page"
-    ],
-    "getTitle": "Diff lab",
-    "active": 1,
-    "missing": {
-     "error": "No open tab with id \"nope\"; see tabs.list()",
-     "name": "Error"
-    }
-   },
-   "ms": 543
-  },
-  "tabs.attach": {
-   "value": {
-    "afterId": "<primary>/diff/next.html",
-    "activeIsOurs": true,
-    "activeUrl": "<primary>/diff/lab.html",
-    "context": true,
-    "bad": {
-     "error": "No open tab with id \"nope\"; see tabs.list()",
-     "name": "Error"
-    }
-   },
-   "ms": 491
-  },
-  "tabs.open-errors": {
-   "value": {
-    "bad": {
-     "error": "tabs.open: Cannot navigate to invalid URL: expected an absolute URL, got \"not a url\"",
-     "name": "Error"
-    },
-    "session": "string"
-   },
-   "ms": 6
-  },
-  "session.name-docs": {
-   "value": {
-    "named": "string",
-    "docs": true,
-    "empty": {
-     "ok": true,
-     "value": " "
-    }
-   },
-   "ms": 229
-  },
-  "tabs.keep-deliverable": {
-   "value": {
-    "kept": true
-   },
-   "ms": 201
-  },
-  "snapshot.full": {
-   "value": {
-    "heading": true,
-    "frame": true,
-    "shadow": true,
-    "offscreen": true,
-    "typed": true,
-    "clicked": "clicked"
-   },
-   "ms": 341
-  },
-  "snapshot.interactive": {
-   "value": {
-    "button": true,
-    "listText": false,
-    "smaller": true
-   },
-   "ms": 276
-  },
-  "snapshot.show-hidden": {
-   "value": {
-    "plain": false,
-    "all": true
-   },
-   "ms": 281
-  },
-  "snapshot.scoped": {
-   "value": {
-    "refFrame": true,
-    "refMain": false,
-    "selItems": true,
-    "selMain": false,
-    "badRef": {
-     "error": "ref e9999 does not exist; take a new snapshot",
-     "name": "Error"
-    }
-   },
-   "ms": 278
-  },
-  "snapshot.diff": {
-   "value": {
-    "diffMentions": true,
-    "diffShort": true,
-    "printed": true
-   },
-   "ms": 354
-  },
-  "snapshot.ax-get-modes": {
-   "value": {
-    "shot": true,
-    "state": true,
-    "both": true
-   },
-   "ms": 340
-  },
-  "snapshot.ax-errors": {
-   "value": {
-    "click": {
-     "error": "ref e99999 does not exist; take a new snapshot",
-     "name": "Error"
-    },
-    "get": {
-     "ok": true,
-     "value": "title: Diff lab\nurl: <primary>/diff/lab.html\n- heading \"Diff lab\" [level=1]\n- textbox \"Name\" [ref=e1] [placeholder=\"Enter name\"]: \"initial\"\n- textbox \"Decoy\" [ref=e2]: \"leave\"\n- button \"Action\" [ref=e3]\n- checkbox \"Option\" [ref=e4]\n- radio \"Radio A\" [ref=e5]\n- radio \"Radio B\" [ref=e6]\n- combobox \"Choice\" [ref=e7] [options: Alpha, Beta, Gamma]: \"Alpha\"\n- listbox \"Colors\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]\n- textbox \"Readonly\" [ref=e10] [readonly]: \"fixed\"\n- textbox \"Notes\" [ref=e11]: \"line1\"\n- textbox \"Rich editor\" [ref=e12]: \"alpha beta gamma\"\n- button \"Menu\" [ref=e13]\n- generic [ref=e14]: \"Drag me\"\n- generic \"Outer scroller\" [ref=e15] [scrollable]:\n  - generic \"Inner scroller\" [ref=e16] [scrollable]:\n    - button \"Deep button\" [ref=e17]\n  - button \"Scroll end\" [ref=e18]\n- button \"Count 0\" [ref=e19]\n- textbox \"Keys\" [ref=e20]\n- canvas [ref=e21]\n- button \"Make late\" [ref=e22]\n- button \"Remove me\" [ref=e23]\n- link \"Next page\" [ref=e24]\n- button \"Push state\" [ref=e25]\n- button \"Log\" [ref=e26]\n- button \"Throw\" [ref=e27]\n- link \"Popup link\" [ref=e28]\n- textbox \"Shadow field\" [ref=e29]\n- button \"Shadow action\" [ref=e30]\n- iframe \"Inner frame\" [ref=e31]:\n  - textbox \"Frame label\" [ref=f1e1] [placeholder=\"Frame placeholder\"]\n  - button \"Frame action\" [ref=f1e2]\n- button \"Far away\" [ref=e32]"
-    },
-    "unknownRef": {
-     "error": "ref e99999 does not exist; take a new snapshot",
-     "name": "Error"
-    }
-   },
-   "ms": 759
-  },
-  "screenshot.annotated": {
-   "value": {
-    "image": true,
-    "differs": true
-   },
-   "ms": 299
-  },
-  "element-at": {
-   "value": {
-    "role": "button",
-    "name": "Action",
-    "ref": true
-   },
-   "ms": 216
-  },
-  "fetch.cookies": {
-   "value": {
-    "status": 200,
-    "ok": true,
-    "type": "application/json",
-    "json": {
-     "q": "1",
-     "method": "GET"
-    },
-    "cookieNames": [
-     "http_only",
-     "lax",
-     "plain",
-     "strict"
-    ],
-    "post": "POST",
-    "missing": 404
-   },
-   "ms": 225
-  },
-  "node.fs-path-buffer": {
-   "value": {
-    "abs": true,
-    "back": "hello fs",
-    "join": "a/c.txt",
-    "base": "y",
-    "ext": ".gz",
-    "b64": "aGk=",
-    "fromB64": "hi",
-    "missing": {
-     "error": "ENOENT: no such file or directory, open '/private/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/nope-brepl.txt'",
-     "name": "Error"
-    }
-   },
-   "ms": 2
-  },
-  "print.display-console": {
-   "value": {
-    "log": true,
-    "display": true,
-    "autoPrint": true
-   },
-   "ms": 525
+   "ms": 784
   },
   "keyboard.members": {
    "value": {
@@ -2294,7 +2298,7 @@
     ],
     "trusted": true
    },
-   "ms": 330
+   "ms": 536
   },
   "keyboard.errors": {
    "value": {
@@ -2311,7 +2315,7 @@
      "name": "Error"
     }
    },
-   "ms": 162
+   "ms": 400
   },
   "keyboard.shortcuts": {
    "value": {
@@ -2321,24 +2325,24 @@
      "a,false,false,true,false",
      "Alt,true,false,false,false",
      "Shift,true,false,false,true",
-     "K,true,false,false,true",
+     ",true,false,false,true",
      "Control,false,true,false,false",
      "Shift,false,true,false,true",
      "ArrowLeft,false,true,false,true"
     ]
    },
-   "ms": 219
+   "ms": 514
   },
   "mouse.members": {
    "value": {
-    "clicks": 1,
+    "clicks": 4,
     "right": true,
     "moves": true,
     "at": true,
     "wheel": true,
     "trusted": true
    },
-   "ms": 4229
+   "ms": 1205
   },
   "cua.options": {
    "value": {
@@ -2366,14 +2370,14 @@
      }
     }
    },
-   "ms": 281
+   "ms": 419
   },
   "cua.download-media": {
    "value": {
     "name": "cd-a.txt",
     "body": "cd body a\n"
    },
-   "ms": 189
+   "ms": 435
   },
   "dom-cua.forms": {
    "value": {
@@ -2386,7 +2390,7 @@
      "name": "Error"
     }
    },
-   "ms": 752
+   "ms": 959
   },
   "ax.click-forms": {
    "value": {
@@ -2396,7 +2400,7 @@
     "right": 1,
     "middle": 2
    },
-   "ms": 824
+   "ms": 780
   },
   "ax.text-forms": {
    "value": {
@@ -2431,14 +2435,14 @@
      3
     ]
    },
-   "ms": 233
+   "ms": 1734
   },
   "ax.scroll-forms": {
    "value": {
     "inner": true,
     "page": true
    },
-   "ms": 859
+   "ms": 1353
   },
   "ax.secondary-action": {
    "value": {
@@ -2448,7 +2452,7 @@
      "name": "Error"
     }
    },
-   "ms": 258
+   "ms": 493
   },
   "clipboard.members": {
    "value": {
@@ -2464,7 +2468,7 @@
      "name": "Error"
     }
    },
-   "ms": 179
+   "ms": 411
   },
   "dev.logs": {
    "value": {
@@ -2495,7 +2499,7 @@
      "name": "Error"
     }
    },
-   "ms": 251
+   "ms": 601
   },
   "dialogs.held": {
    "value": {
@@ -2515,7 +2519,7 @@
     "prompted": "prompt typed",
     "promptDismissed": "prompt null"
    },
-   "ms": 582
+   "ms": 738
   },
   "dialogs.errors": {
    "value": {
@@ -2529,14 +2533,14 @@
     },
     "result": "prompt null"
    },
-   "ms": 223
+   "ms": 433
   },
   "dialogs.snapshot-blocked": {
    "value": {
     "shows": true,
     "title": "Dialogs Fixture"
    },
-   "ms": 225
+   "ms": 468
   },
   "dialogs.beforeunload": {
    "value": {
@@ -2544,7 +2548,7 @@
     "stayed": false,
     "_onClose": null
    },
-   "ms": 4241
+   "ms": 4007
   },
   "filechooser.event": {
    "value": {
@@ -2553,16 +2557,16 @@
     "heldMultiple": true,
     "shown": true,
     "none": {
-     "ms": 300,
+     "ms": 313,
      "error": "page.waitForEvent: Timeout 300ms exceeded while waiting for event \"filechooser\"",
      "name": "TimeoutError"
     },
     "missing": {
-     "error": "EACCES: permission denied, '/nonexistent/parity.txt' is outside the REPL's directories",
+     "error": "EACCES: permission denied, path is outside the REPL working directory '/nonexistent/parity.txt'",
      "name": "Error"
     }
    },
-   "ms": 715
+   "ms": 871
   },
   "navigation.expect": {
    "value": {
@@ -2579,7 +2583,7 @@
     },
     "after": "Next page"
    },
-   "ms": 1643
+   "ms": 1867
   },
   "content.export": {
    "value": {
@@ -2588,7 +2592,7 @@
      "hasHeading": true
     }
    },
-   "ms": 166
+   "ms": 406
   },
   "content.export-site": {
    "value": {
@@ -2605,7 +2609,7 @@
      "name": "Error"
     }
    },
-   "ms": 153
+   "ms": 345
   },
   "tabs.content": {
    "value": {
@@ -2628,7 +2632,7 @@
      "name": "Error"
     }
    },
-   "ms": 342
+   "ms": 1010
   },
   "browser.history": {
    "value": {
@@ -2650,16 +2654,16 @@
      "name": "Error"
     }
    },
-   "ms": 161
+   "ms": 500
   },
   "browser.capabilities": {
    "value": {
     "cdp": {
-     "error": "Cannot read properties of undefined (reading 'send')",
+     "error": "undefined is not an object (evaluating 'page.cdp.send')",
      "name": "TypeError"
     }
    },
-   "ms": 152
+   "ms": 385
   },
   "edge.auth-basic": {
    "value": {
@@ -2668,10 +2672,10 @@
      401,
      "401 basic"
     ],
-    "noCredsMs": 783,
+    "noCredsMs": 335,
     "withCreds": "Authed as parity"
    },
-   "ms": 823
+   "ms": 485
   },
   "edge.auth-digest": {
    "value": {
@@ -2682,66 +2686,66 @@
     ],
     "withCreds": "Digest authed as parity"
    },
-   "ms": 215
+   "ms": 496
   },
   "edge.permission-geolocation": {
    "value": {
     "result": "error 1",
-    "settledMs": 90,
+    "settledMs": 79,
     "dialog": false
    },
-   "ms": 229
+   "ms": 423
   },
   "edge.permission-notifications": {
    "value": {
     "result": "result denied",
-    "settledMs": 73,
+    "settledMs": 63,
     "dialog": false
    },
-   "ms": 233
+   "ms": 420
   },
   "edge.permission-camera": {
    "value": {
     "result": "pending",
-    "settledMs": 6224,
+    "settledMs": 5538,
     "dialog": false
    },
-   "ms": 6369
+   "ms": 5943
   },
   "edge.permission-clipboard-read": {
    "value": {
     "result": "error NotAllowedError",
-    "settledMs": 92,
+    "settledMs": 72,
     "dialog": false
    },
-   "ms": 357
+   "ms": 458
   },
   "edge.tls-self-signed": {
    "value": {
     "nav": {
-     "error": "page.goto: The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk."
+     "error": "The certificate for this server is invalid. You might be connecting to a server that is pretending to be “127.0.0.1” which could put your confidential information at risk. at <tls>/diff/next.html"
     },
-    "ms": 201
+    "ms": 222
    },
-   "ms": 207
+   "ms": 328
   },
   "edge.nav-dns": {
    "value": {
     "nav": {
-     "error": "page.goto: A server with the specified hostname could not be found."
+     "error": "A server with the specified hostname could not be found. at <dns>/"
     },
     "url": "<primary>/diff/lab.html"
    },
-   "ms": 408
+   "ms": 470
   },
   "edge.nav-refused": {
    "value": {
     "nav": {
-     "error": "page.goto: Could not connect to the server."
+     "error": "Could not connect to the server. at <refused>/"
     },
-    "ms": 6
+    "ms": 45
    },
-   "ms": 147
+   "ms": 395
   },
   "edge.nav-http-errors": {
    "value": {
@@ -2751,48 +2755,48 @@
     "t500": "Broken",
     "ok": false
    },
-   "ms": 242
+   "ms": 494
   },
   "edge.nav-aborted": {
    "value": {
     "first": {
-     "error": "page.goto: Navigation to \"<primary>/slow?ms=3000\" is interrupted by another navigation to \"<primary>/diff/next.html\""
+     "error": "Navigation to \"<primary>/slow?ms=3000\" was interrupted by another navigation"
     },
     "url": "<primary>/diff/next.html",
     "title": "Next page"
    },
-   "ms": 367
+   "ms": 644
   },
   "edge.nav-redirect-loop": {
    "value": {
     "loop": {
-     "error": "page.goto: too many HTTP redirects"
+     "error": "too many HTTP redirects at <primary>/redirect-loop"
     },
-    "loopMs": 115,
+    "loopMs": 80,
     "redirected": "<primary>/diff/next.html"
    },
-   "ms": 241
+   "ms": 650
   },
   "edge.download-blob": {
    "value": {
     "name": "blob.txt",
     "body": "blob body\n"
    },
-   "ms": 167
+   "ms": 519
   },
   "edge.download-data": {
    "value": {
     "name": "data.txt",
     "body": "data body\n"
    },
-   "ms": 189
+   "ms": 430
   },
   "edge.download-cd": {
    "value": {
     "name": "cd-a.txt",
     "body": "cd body a\n"
    },
-   "ms": 183
+   "ms": 463
   },
   "edge.download-post": {
    "value": {
@@ -2800,7 +2804,7 @@
     "body": "name,value\nq,posted\n",
     "url": "<primary>/diff/files.html"
    },
-   "ms": 164
+   "ms": 417
   },
   "edge.download-concurrent": {
    "value": {
@@ -2815,13 +2819,13 @@
      ]
     ]
    },
-   "ms": 1830
+   "ms": 2068
   },
   "edge.file-drop": {
    "value": {
     "result": "dropzone: drop.txt(dropped body)"
    },
-   "ms": 137
+   "ms": 342
   },
   "edge.input-types": {
    "value": {
@@ -2838,7 +2842,7 @@
     "accept": "parity.png",
     "acceptOther": "parity-upload.txt"
    },
-   "ms": 446
+   "ms": 413
   },
   "edge.contenteditable-bold": {
    "value": {
@@ -2846,14 +2850,14 @@
     "bolded": "alpha beta gamma end",
     "text": "alpha beta gamma end"
    },
-   "ms": 326
+   "ms": 595
   },
   "edge.typing-unicode": {
    "value": {
     "input": "héllo wörld 😀 中文 👩‍👩‍👧",
     "rich": "héllo wörld 😀 中文 👩‍👩‍👧"
    },
-   "ms": 270
+   "ms": 566
   },
   "edge.composition": {
    "value": {
@@ -2864,7 +2868,7 @@
     ],
     "trusted": true
    },
-   "ms": 162
+   "ms": 411
   },
   "edge.nested-scroll": {
    "value": {
@@ -2872,14 +2876,14 @@
     "inner": true,
     "outer": true
    },
-   "ms": 270
+   "ms": 503
   },
   "edge.infinite-scroll": {
    "value": {
     "many": true,
     "last": 1
    },
-   "ms": 2323
+   "ms": 2545
   },
   "edge.iframe-sandboxed": {
    "value": {
@@ -2887,20 +2891,20 @@
     "csp": "csp clicked",
     "inertText": true
    },
-   "ms": 288
+   "ms": 644
   },
   "edge.iframe-srcdoc": {
    "value": {
     "text": "frame clicked"
    },
-   "ms": 237
+   "ms": 413
   },
   "edge.iframe-navigation": {
    "value": {
     "heading": "Next page",
     "inSnapshot": true
    },
-   "ms": 200
+   "ms": 473
   },
   "edge.window-open": {
    "value": {
@@ -2909,7 +2913,7 @@
     "opener2": "opener null",
     "listedAfter": 0
    },
-   "ms": 377
+   "ms": 1177
   },
   "edge.alert-during-navigation": {
    "value": {
@@ -2920,7 +2924,7 @@
     "nav": "loaded",
     "after": "after alert"
    },
-   "ms": 182
+   "ms": 471
   },
   "edge.spa-route-wait": {
    "value": {
@@ -2931,33 +2935,35 @@
      "Linus"
     ]
    },
-   "ms": 934
+   "ms": 1292
   },
   "edge.service-worker": {
    "value": {
     "state": "controlled",
     "out": "from service worker"
    },
-   "ms": 212
+   "ms": 449
   },
   "edge.websocket": {
    "value": {
     "out": "echo:hi"
    },
-   "ms": 132
+   "ms": 390
   },
   "edge.cookies-flags": {
    "value": {
-    "docCookie": "js_cookie,lax,plain,strict",
+    "docCookie": "js_cookie,lax,none_secure,plain,secure_flag,strict",
     "sent": [
      "http_only",
      "js_cookie",
      "lax",
+     "none_secure",
      "plain",
+     "secure_flag",
      "strict"
     ]
    },
-   "ms": 112
+   "ms": 517
   },
   "edge.cookies-subdomain": {
    "value": {
@@ -2966,51 +2972,51 @@
     ],
     "other": []
    },
-   "ms": 269
+   "ms": 763
   },
   "edge.storage-isolation": {
    "value": {
     "a": "ls=L ss=S",
     "b": "ls=L ss=null"
    },
-   "ms": 230
+   "ms": 736
   },
   "edge.slow-load": {
    "value": {
     "title": "Slow",
-    "ms": 3014,
+    "ms": 3076,
     "ok": true
    },
-   "ms": 3118
+   "ms": 3487
   },
   "edge.never-finishing-load": {
    "value": {
     "dcl": "ok",
     "text": "pressed",
     "load": {
-     "error": "page.goto: Timeout 1500ms exceeded."
+     "error": "Timeout 1386ms exceeded while waiting for load"
     },
-    "loadMs": 1503
+    "loadMs": 1542
    },
-   "ms": 1846
+   "ms": 2112
   },
   "edge.main-thread-blocked": {
    "value": {
     "read": "unblocked",
-    "readMs": 3,
+    "readMs": 2,
     "after": "after clicked"
    },
-   "ms": 2818
+   "ms": 3003
   },
   "edge.stale-ref": {
    "value": {
     "stale": {
      "error": "ref e3 is stale: the element was removed; take a new snapshot"
     },
-    "ms": 12,
+    "ms": 1,
     "status": "ready"
    },
-   "ms": 188
+   "ms": 524
   },
   "edge.detached-mid-click": {
    "value": {
@@ -3019,7 +3025,7 @@
     "vanish": "clicked",
     "gone": 0
    },
-   "ms": 537
+   "ms": 522
   },
   "edge.overlay-intercepts": {
    "value": {
@@ -3029,7 +3035,7 @@
     "out1": "idle",
     "out2": "under clicked"
    },
-   "ms": 1155
+   "ms": 1276
   },
   "edge.zoom-scale": {
    "value": {
@@ -3037,7 +3043,7 @@
     "zoomed": "zoom clicked",
     "clipPx": true
    },
-   "ms": 419
+   "ms": 460
   },
   "edge.large-page": {
    "value": {
@@ -3045,7 +3051,16 @@
     "picked": "picked 4321",
     "count": 5000
    },
-   "ms": 695
+   "ms": 709
+  },
+  "tabs.claim-other-workspace": {
+   "value": {
+    "listedAll": true,
+    "inOwnList": false,
+    "otherWorkspace": true,
+    "count": "Count 1"
+   },
+   "ms": 383
   },
   "edge.sessions-two-tabs": {
    "value": {
@@ -3063,19 +3078,30 @@
      null
     ]
    },
-   "ms": 801
+   "ms": 1121
   },
   "edge.sessions-same-tab": {
    "value": {
     "bSaw": "Count 1",
     "aSaw": "Count 1",
     "concurrent": true,
-    "after": "Count 2",
+    "after": "Count 3",
     "closedForB": {
      "error": "Target page, context or browser has been closed"
     }
    },
-   "ms": 504
+   "ms": 931
+  },
+  "edge.web-process-crash": {
+   "value": {
+    "killed": true,
+    "crashed": true,
+    "evaluate": {
+     "error": "frame.evaluate: Target crashed; call page.reload() or page.goto() to load it again"
+    },
+    "recovered": "Count 1"
+   },
+   "ms": 910
   }
  }
 }

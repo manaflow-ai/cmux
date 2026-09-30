@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "aside",
-  "recordedAt": "2026-09-30T13:18:08.483Z",
+  "recordedAt": "2026-09-30T14:00:25.952Z",
   "version": "1.26.916.1741"
  },
  "cases": {
@@ -2217,30 +2217,32 @@
   },
   "edge.auth-basic": {
    "value": {
-    "noCreds": {
-     "ms": 7,
+    "noCredsAuth": true,
+    "_noCreds": {
+     "ms": 24,
      "error": "net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
-    "noCredsMs": 7,
+    "noCredsMs": 24,
     "withCreds": {
-     "ms": 30101,
+     "ms": 30038,
      "error": "Timed out waiting for interactive page after 30000ms",
      "name": "NavigationReadinessTimeoutError"
     }
    },
-   "ms": 30950
+   "ms": 33263
   },
   "edge.auth-digest": {
    "value": {
-    "noCreds": {
-     "ms": 12,
+    "noCredsAuth": true,
+    "_noCreds": {
+     "ms": 13,
      "error": "net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
     "withCreds": "Digest authed as parity"
    },
-   "ms": 2072
+   "ms": 2542
   },
   "edge.permission-geolocation": {
    "value": {

@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "chatgpt",
-  "recordedAt": "2026-09-30T13:18:21.272Z"
+  "recordedAt": "2026-09-30T14:01:09.330Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -355,8 +355,11 @@
    "mode": "ax"
   },
   "page.keyboard-mouse-objects": {
-   "uncaught": "Timed out after 3000ms evaluating selector #canvas: CDP operation exceeded its deadline before command dispatch",
-   "ms": 76214,
+   "value": {
+    "canvas": 1,
+    "keys": "hi"
+   },
+   "ms": 2289,
    "mode": "legacy"
   },
   "tabs.open-current": {
@@ -2321,27 +2324,29 @@
   },
   "edge.auth-basic": {
    "value": {
-    "noCreds": {
-     "ms": 251,
-     "error": "Browser Use cannot open <primary>/auth/basic in tab 370923558. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+    "noCredsAuth": true,
+    "_noCreds": {
+     "ms": 267,
+     "error": "Browser Use cannot open <primary>/auth/basic in tab 370923780. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
-    "noCredsMs": 251,
+    "noCredsMs": 267,
     "withCreds": "Authed as parity"
    },
-   "ms": 714,
+   "ms": 1105,
    "mode": "ax"
   },
   "edge.auth-digest": {
    "value": {
-    "noCreds": {
-     "ms": 349,
-     "error": "Browser Use cannot open <primary>/auth/digest in tab 370923562. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
+    "noCredsAuth": true,
+    "_noCreds": {
+     "ms": 474,
+     "error": "Browser Use cannot open <primary>/auth/digest in tab 370923784. Browser reported: net::ERR_INVALID_AUTH_CREDENTIALS",
      "name": "Error"
     },
     "withCreds": "Digest authed as parity"
    },
-   "ms": 1082,
+   "ms": 1278,
    "mode": "ax"
   },
   "edge.permission-geolocation": {
@@ -2724,13 +2729,25 @@
    "mode": "legacy"
   },
   "loc.hover": {
-   "uncaught": "Error: CDP operation exceeded its deadline before command dispatch waiting on click for selector #menu-item Locator diagnostics: {\"kind\":\"action_failed\",\"action\":\"click\",\"locator\":\"#menu-item\",\"matchCount\":1,\"matches\":[{\"ariaLabel\":null,\"disabled\":false,\"role\":\"menuitem\",\"tag\":\"button\",\"text\":\"Menu item\",\"type\":null,\"visible\":true}],\"visibleCount\":1,\"truncated\":false}",
-   "ms": 11265,
+   "value": {
+    "status": "menu picked",
+    "enter": true
+   },
+   "ms": 1576,
    "mode": "legacy"
   },
   "loc.drag-to": {
-   "uncaught": "Timed out after 3000ms evaluating selector #drop: playwright.evaluate exceeded its deadline",
-   "ms": 10624,
+   "value": {
+    "drop": "dropped payload",
+    "events": [
+     "dragstart:true",
+     "dragenter:true",
+     "dragover:true",
+     "drop:true",
+     "dragend:true"
+    ]
+   },
+   "ms": 1670,
    "mode": "legacy"
   },
   "keyboard.members": {
@@ -2779,8 +2796,15 @@
    "mode": "legacy"
   },
   "mouse.members": {
-   "uncaught": "CDP operation exceeded its deadline before command dispatch",
-   "ms": 26706,
+   "value": {
+    "clicks": 3,
+    "right": true,
+    "moves": true,
+    "at": true,
+    "wheel": true,
+    "trusted": true
+   },
+   "ms": 1749,
    "mode": "legacy"
   },
   "cua.options": {
