@@ -1218,6 +1218,7 @@
 		C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */; };
 		7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */; };
 		F0316A711615C3D2D3008A82 /* CMUXCLI+WindowDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64B5058972147F941BD6FA5 /* CMUXCLI+WindowDispatch.swift */; };
+		D3A7A0010000000000000001 /* CMUXCLI+WorkspaceGroupJoin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A7A0010000000000000002 /* CMUXCLI+WorkspaceGroupJoin.swift */; };
 		06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */; };
 		173751C62F967C585036C9C0 /* CMUXCLICodexUnavailableAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0677DB157F30F725FECA0EC /* CMUXCLICodexUnavailableAdmissionTests.swift */; };
 		C0DE31390000000000000115 /* CMUXCLIErrorOutputRegressionTests+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000116 /* CMUXCLIErrorOutputRegressionTests+Events.swift */; };
@@ -5493,6 +5494,7 @@
 		EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPN.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPNAppManaged.swift"; sourceTree = "<group>"; };
 		A64B5058972147F941BD6FA5 /* CMUXCLI+WindowDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WindowDispatch.swift"; sourceTree = "<group>"; };
+		D3A7A0010000000000000002 /* CMUXCLI+WorkspaceGroupJoin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceGroupJoin.swift"; sourceTree = "<group>"; };
 		7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceTodo.swift"; sourceTree = "<group>"; };
 		F0677DB157F30F725FECA0EC /* CMUXCLICodexUnavailableAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLICodexUnavailableAdmissionTests.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000116 /* CMUXCLIErrorOutputRegressionTests+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLIErrorOutputRegressionTests+Events.swift"; sourceTree = "<group>"; };
@@ -11352,6 +11354,7 @@
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
 				112080A00000000000000008 /* CMUXCLI+ConfigValidation.swift */,
 				7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */,
+				D3A7A0010000000000000002 /* CMUXCLI+WorkspaceGroupJoin.swift */,
 				C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */,
 				C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */,
 				C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */,
@@ -16147,6 +16150,7 @@
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */,
 				F0316A711615C3D2D3008A82 /* CMUXCLI+WindowDispatch.swift in Sources */,
+				D3A7A0010000000000000001 /* CMUXCLI+WorkspaceGroupJoin.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,

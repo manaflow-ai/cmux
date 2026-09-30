@@ -132,21 +132,18 @@ struct ClaudeHookSessionRecord: Codable {
             self.createdAt = createdAt
             self.requiresToolUseId = requiresToolUseId
         }
-
         static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
             (
                 fingerprint: fingerprint(for: normalizedCommand),
                 length: normalizedCommand.utf8.count
             )
         }
-
         private static func normalizedCommand(_ value: String) -> String {
             value
                 .replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
         private static func fingerprint(for value: String) -> String {
             var encoded: [UInt8] = []
             encoded.reserveCapacity(64)
@@ -156,7 +153,6 @@ struct ClaudeHookSessionRecord: Codable {
             }
             return String(decoding: encoded, as: UTF8.self)
         }
-
         private static func redactedPreview(for value: String) -> String {
             _ = value
             return String(
@@ -164,7 +160,6 @@ struct ClaudeHookSessionRecord: Codable {
                 defaultValue: "Approval needed"
             )
         }
-
         private enum CodingKeys: String, CodingKey {
             case commandFingerprint
             case commandLength
@@ -11635,46 +11630,7 @@ struct CMUXCLI {
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "join":
-            let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let (wsOpt, rem1) = parseOption(rem0, name: "--workspace")
-            let (_, rem2) = parseOption(rem1, name: "--window")
-            let groupName = (nameOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !groupName.isEmpty else {
-                throw CLIError(message: "join requires a group name")
-            }
-            params["name"] = groupName
-            // Without --workspace, the caller context above already set the
-            // calling terminal's workspace. With --window it did not, and the
-            // workspace names its own window anyway.
-            if let wsOpt {
-                params["workspace_id"] = try normalizeWorkspaceHandle(
-                    wsOpt,
-                    client: client,
-                    windowHandle: params["window_id"] as? String
-                ) ?? wsOpt
-            }
-            guard params["workspace_id"] != nil else {
-                throw CLIError(message: params["window_id"] == nil
-                    ? "join requires --workspace <id> when run outside a cmux terminal"
-                    : "join --window requires --workspace <id>")
-            }
-            let response = try client.sendV2(method: "workspace.group.join", params: params)
-            if jsonOutput {
-                print(jsonString(formatIDs(response, mode: idFormat)))
-            } else if let group = response["group"] as? [String: Any] {
-                let note: String
-                if (response["created"] as? Bool) == true {
-                    note = " " + String(localized: "cli.workspaceGroup.join.created", defaultValue: "(created)")
-                } else if (response["already_member"] as? Bool) == true {
-                    note = " " + String(localized: "cli.workspaceGroup.join.alreadyMember", defaultValue: "(already a member)")
-                } else {
-                    note = ""
-                }
-                print("OK \(textHandle(group, idFormat: idFormat))\(note)")
-            } else {
-                print("OK")
-            }
+            try runWorkspaceGroupJoin(rest: rest, params: &params, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "remove":
             let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
@@ -19745,10 +19701,7 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
-            let joinHelp = String(
-                localized: "cli.workspaceGroup.help.join",
-                defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat."
-            )
+            let joinHelp = String(localized: "cli.workspaceGroup.help.join", defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat.")
             let overview = String(
                 localized: "cli.workspaceGroup.help.overview",
                 defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
@@ -19776,8 +19729,7 @@ struct CMUXCLI {
               pin <group>
               unpin <group>
               add --group <group> --workspace <ws>
-              join <name> [--workspace <ws>]
-                                        \(joinHelp)
+              join <name> [--workspace <ws>] \(joinHelp)
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
               new-workspace <group> [--placement afterCurrent|top|end]
@@ -21715,7 +21667,7 @@ struct CMUXCLI {
     }
 
     /// Pick the display handle for an item dict based on --id-format.
-    private func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+    func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
         let ref = item["ref"] as? String
         let id = item["id"] as? String
         switch idFormat {

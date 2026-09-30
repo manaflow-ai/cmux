@@ -33,12 +33,10 @@ extension ControlAppFocusContext {
     func controlSetAppFocusOverride(_ focused: Bool?) {}
     func controlSimulateAppActive() {}
 }
-
 extension ControlFeedContext {
     nonisolated func controlFeedInvalidJumpMessage() -> String {
         "feed.jump requires workstream_id"
     }
-
     nonisolated func controlFeedResolvePossibleSurfaceAsync(
         workstreamID: String
     ) async -> Bool { false }
