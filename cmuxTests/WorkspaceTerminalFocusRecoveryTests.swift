@@ -531,12 +531,12 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             #expect(window.makeFirstResponder(surfaceView))
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // The window can lay the hosted view out before the queued apply runs; force that order.
+            panel.hostedView.needsLayout = true
+            panel.hostedView.layoutSubtreeIfNeeded()
             #expect(panel.hostedView.isSurfaceViewFirstResponder())
             #expect(panel.hostedView.debugRenderStats().desiredFocus)
-            #expect(
-                !panel.surface.debugDesiredFocusState(),
-                "Right-sidebar dock handoff should defer Ghostty focus until geometry is usable"
-            )
+            #expect(!panel.surface.debugDesiredFocusState(), "Right-sidebar dock handoff should defer Ghostty focus until geometry is usable")
 
             await AppKitTestEventPump().drain()
             #expect(
