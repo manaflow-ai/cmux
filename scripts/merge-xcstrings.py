@@ -133,6 +133,10 @@ def merge_keys(
                     ordered.append((key, "ours"))
                 continue
             conflicts.append(f"{label}.{key}")
+            if in_ours:
+                ordered.append((key, "ours"))
+            elif in_theirs:
+                ordered.append((key, "theirs"))
             continue
         if ours_changed:
             if in_ours:
@@ -211,6 +215,67 @@ def _joiner(layout: Layout, key: str) -> str:
     key_start, value_start, _ = layout.spans[key]
     key_text_end = key_start + len(json.dumps(key))
     return layout.text[key_text_end:value_start]
+
+
+def _line_start(text: str, index: int) -> int:
+    newline = text.rfind("\n", 0, index)
+    return 0 if newline < 0 else newline + 1
+
+
+def materialize_catalog_conflicts(
+    base_text: str,
+    ours_text: str,
+    theirs_text: str,
+    merged_text: str,
+    conflicts: list[str],
+    width: int,
+) -> str:
+    """Insert per-key conflicts into an otherwise key-merged catalog.
+
+    This helper is intentionally separate from `merge_catalog_text`, which is
+    also used by catch_up_pr.py and must never produce conflict markers.
+    """
+    source_texts = {"base": base_text, "ours": ours_text, "theirs": theirs_text}
+    source_tops = {
+        side: Layout(text, text.index("{")) for side, text in source_texts.items()
+    }
+    source_strings = {
+        side: Layout(text, _strings_open_index(text, source_tops[side]))
+        for side, text in source_texts.items()
+    }
+    merged_top = Layout(merged_text, merged_text.index("{"))
+    merged_strings = Layout(merged_text, _strings_open_index(merged_text, merged_top))
+    replacements: list[tuple[int, int, str]] = []
+    for name in conflicts:
+        scope, key = name.split(".", 1)
+        if scope == "strings":
+            target = merged_strings
+            sources = source_strings
+        elif scope == "catalog":
+            target = merged_top
+            sources = source_tops
+        else:
+            raise ValueError(f"unknown conflict scope {scope!r}")
+        if key not in target.spans:
+            raise ValueError(f"conflict key {name!r} is absent from merged catalog")
+        base_block = sources["base"].blocks.get(key, "")
+        ours_block = sources["ours"].blocks.get(key, "")
+        theirs_block = sources["theirs"].blocks.get(key, "")
+        start, _, end = target.spans[key]
+        line_start = _line_start(merged_text, start)
+        suffix = merged_text[end:]
+        comma = "," if suffix.startswith(",") else ""
+        replacements.append(
+            (
+                line_start,
+                end + len(comma),
+                conflict_text(base_block, ours_block, theirs_block, width) + comma,
+            )
+        )
+    result = merged_text
+    for start, end, replacement in sorted(replacements, reverse=True):
+        result = result[:start] + replacement + result[end:]
+    return result
 
 
 def explicit_conflict(base: str, ours: str, theirs: str, width: int = 7) -> str:
@@ -403,7 +468,19 @@ def main(argv: list[str]) -> int:
         print(f"merge-xcstrings: {name}: cannot merge ({error}); falling back", file=sys.stderr)
         return 1
     if conflicts:
-        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
+        try:
+            conflict_result = materialize_catalog_conflicts(
+                base_text,
+                ours_text,
+                theirs_text,
+                merged_text,
+                conflicts,
+                marker_size,
+            )
+            ours_path.write_text(conflict_result, encoding="utf-8")
+        except Exception as error:
+            print(f"merge-xcstrings: {name}: cannot render per-key conflict ({error})", file=sys.stderr)
+            _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(
             f"merge-xcstrings: {name}: {len(conflicts)} key(s) changed on both sides; "
             "materializing a conflict: " + ", ".join(conflicts[:5]),

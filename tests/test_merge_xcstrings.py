@@ -8,7 +8,6 @@ reaches the author as a visible diff3 conflict.
 
 import json
 import importlib.util
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -307,7 +306,8 @@ def test_delete_versus_modify_conflicts():
     theirs = catalog({})
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1, stderr
-    assert_conflict_preserves(merged, '"value": "changed"', '"strings": {}')
+    assert_conflict_preserves(merged, '"value": "changed"')
+    assert '"a"' in merged
 
 
 def test_non_canonical_input_merges_without_reformatting():
