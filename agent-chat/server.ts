@@ -148,6 +148,7 @@ const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
   { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
+  { id: "goose", label: "Goose", adapter: "acp", cmd: ["goose", "acp"], installCommand: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash" },
   { id: "pi", label: "pi", adapter: "pi", cmd: ["pi"], installCommand: "npm i -g @mariozechner/pi" },
   {
     id: "gemini",
@@ -160,6 +161,10 @@ const PROVIDERS: ProviderDef[] = [
     defaultModel: geminiDefaultModel(),
   },
 ];
+
+export function providerDefinitionsForTest(): readonly ProviderDef[] {
+  return PROVIDERS;
+}
 
 const adapters = new Map<string, Adapter>();
 for (const def of PROVIDERS) {
