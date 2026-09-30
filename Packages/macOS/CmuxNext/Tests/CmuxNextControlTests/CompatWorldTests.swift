@@ -44,6 +44,22 @@ func sampleTree() -> DaemonTree {
         #expect(CompatRefRegistry.parse("tab:3") == nil)
     }
 
+    @Test func eachWindowListsOnlyItsOwnWorkspaces() throws {
+        let alpha = "11111111-1111-4111-8111-111111111111", beta = "22222222-2222-4222-8222-222222222222"
+        var app = ControlTopology()
+        app.windows = [
+            ControlWindowInfo(id: "win-1", workspaceID: alpha, workspaceIDs: [alpha], isKey: true, isVisible: true, focusedPaneID: nil),
+            ControlWindowInfo(id: "win-2", workspaceID: beta, workspaceIDs: [beta], isKey: false, isVisible: true, focusedPaneID: nil),
+        ]
+        let world = CompatWorld(topology: CompatFreshTopology.make(tree: sampleTree(), appState: app), refs: CompatRefRegistry())
+        #expect(world.workspaces(in: world.windows[0]).map(\.title) == ["alpha"])
+        #expect(world.workspaces(in: world.windows[1]).map(\.title) == ["Beta!"])
+        #expect(world.workspaces(in: nil).count == 2)
+        let json = CompatJSON.window(world.windows[1], in: world)
+        #expect(json["workspace_count"] == 1)
+        #expect(json["workspace_ids"] == .array([.string(beta.uppercased())]))
+    }
+
     @Test func buildOrdersByLayoutAndUsesFrontendFocus() throws {
         let refs = CompatRefRegistry()
         var app = ControlTopology()

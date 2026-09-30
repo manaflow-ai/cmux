@@ -96,7 +96,8 @@ enum CompatSystemMethods {
         let scoped = world.workspaces.filter { onlyWorkspace == nil || $0.uuid == onlyWorkspace?.uuid }
         var windowItems: [JSON] = windows.map { window in
             var item = CompatJSON.window(window, in: world)
-            item["workspaces"] = .array(scoped.map { workspaceItem($0, window: window) })
+            let listed = Set(world.workspaces(in: window).map(\.uuid))
+            item["workspaces"] = .array(scoped.filter { listed.contains($0.uuid) }.map { workspaceItem($0, window: window) })
             return .object(item)
         }
         if windowItems.isEmpty {

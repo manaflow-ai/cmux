@@ -7,7 +7,6 @@ enum CompatUnsupported {
     /// Specific methods, checked before their namespace.
     static let methods: [String: String] = [
         "workspace.last": ControlStrings.text("control.unsupported.method.workspace.last", "focus history is not tracked by cmux-next yet"),
-        "workspace.move_to_window": ControlStrings.text("control.unsupported.method.workspace.move_to_window", "windows do not own workspaces in cmux-next; any window can show any workspace"),
         "workspace.reorder_many": ControlStrings.text("control.unsupported.method.workspace.reorder_many", "batch reorder is not implemented; call workspace.reorder per workspace"),
         "workspace.action": ControlStrings.text("control.unsupported.method.workspace.action", "use the action registry instead: cmux action list / cmux action run <id>"),
         "workspace.set_auto_title": ControlStrings.text("control.unsupported.method.workspace.set_auto_title", "agent auto-naming moves to cmux-tui report-agent"),
