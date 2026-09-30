@@ -298,7 +298,9 @@ final class KeyStatusTestWindow: NSWindow {
 
 /// The cmuxTests bundle's NSPrincipalClass. XCTest creates it when the bundle
 /// loads, before the first test, and it restores `AppDelegate.shared` after
-/// every XCTest case.
+/// every XCTest case. Each case also runs under
+/// `MainWindowDefaultsIsolation`, so it neither opens its windows the way an
+/// earlier test left them nor leaves its own for a later one.
 ///
 /// `AppDelegate.init` installs the new delegate as `shared`, and hundreds of
 /// tests build a throwaway delegate without restoring the host's. Whichever
@@ -321,9 +323,11 @@ final class CmuxTestsPrincipal: NSObject, XCTestObservation {
 
     func testCaseWillStart(_ testCase: XCTestCase) {
         sharedAtStart = AppDelegate.shared
+        MainWindowDefaultsIsolation.begin()
     }
 
     func testCaseDidFinish(_ testCase: XCTestCase) {
+        MainWindowDefaultsIsolation.end()
         if AppDelegate.shared !== sharedAtStart {
             AppDelegate.shared = sharedAtStart
             if let sharedAtStart {
@@ -367,4 +371,91 @@ struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == ExclusiveAppContextTrait {
     static var exclusiveAppContext: Self { Self() }
+}
+
+/// Keeps the main-window state one test leaves behind out of the next test.
+///
+/// A new main window takes its size from the last window closed (the saved
+/// geometry) when no source window is open, and its right sidebar's
+/// visibility, width and mode from the last values any window saved. Tests
+/// share one defaults domain, so a test that narrowed a window or showed the
+/// right sidebar set up every later test's windows in the same app host:
+/// `AppDelegateShortcutRoutingTests` closes a 560 pt wide window, which leaves
+/// a 320 pt terminal area beside the 240 pt sidebar. Split admission (#15392)
+/// refuses a split that would leave a pane narrower than 160 pt, so the splits
+/// of whichever tests ran next failed (#15488).
+///
+/// A test runs with none of these values saved, so its windows open the way a
+/// fresh app opens them, and the saved values are put back when it ends, so its
+/// own windows' state does not outlive it. XCTest cases get this from
+/// `CmuxTestsPrincipal`; a Swift Testing suite that opens main windows takes
+/// `.isolatedMainWindowDefaults`.
+enum MainWindowDefaultsIsolation {
+    static var keys: [String] {
+        [
+            AppDelegate.debugPersistedWindowGeometryDefaultsKey,
+            "fileExplorer.isVisible",
+            "fileExplorer.width",
+            "rightSidebar.mode",
+        ]
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var depth = 0
+    nonisolated(unsafe) private static var saved: [String: Any] = [:]
+
+    static func begin(defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
+        if depth == 0 {
+            saved = [:]
+            for key in keys {
+                saved[key] = defaults.object(forKey: key)
+            }
+        }
+        depth += 1
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    static func end(defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard depth > 0 else { return }
+        depth -= 1
+        guard depth == 0 else { return }
+        for key in keys {
+            if let value = saved[key] {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        saved = [:]
+    }
+}
+
+/// `MainWindowDefaultsIsolation` around each test of a Swift Testing suite
+/// that opens main windows.
+struct IsolatedMainWindowDefaultsTrait: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func scopeProvider(for test: Test, testCase: Test.Case?) -> Self? {
+        testCase == nil ? nil : self
+    }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        MainWindowDefaultsIsolation.begin()
+        defer { MainWindowDefaultsIsolation.end() }
+        try await function()
+    }
+}
+
+extension Trait where Self == IsolatedMainWindowDefaultsTrait {
+    static var isolatedMainWindowDefaults: Self { Self() }
 }

@@ -19,7 +19,7 @@ import Testing
 /// the shell-integration refresh path runs a session-scoped
 /// `show-environment` that cannot see `-g` values.
 @MainActor
-@Suite struct RemoteTmuxMirrorEnvironmentPushTests {
+@Suite(.isolatedMainWindowDefaults) struct RemoteTmuxMirrorEnvironmentPushTests {
 
     // MARK: - Pure command construction
 
