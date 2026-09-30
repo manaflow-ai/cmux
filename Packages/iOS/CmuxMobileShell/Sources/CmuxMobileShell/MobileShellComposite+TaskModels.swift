@@ -14,6 +14,11 @@ private struct MobileTaskModelRequestContext {
     let owner: Owner
 }
 
+private struct MobileTaskModelHostFetchResult: Sendable {
+    let result: MobileTaskModelListResult
+    let connectionIdentity: String
+}
+
 extension MobileShellComposite {
     /// Removes model state for pairing rows that are no longer available.
     /// A removed row must also cancel an in-flight refresh so its completion
@@ -135,6 +140,18 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async throws -> MobileTaskModelListResult {
+        try await fetchTaskModelsWithIdentity(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).result
+    }
+
+    private func fetchTaskModelsWithIdentity(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws -> MobileTaskModelHostFetchResult {
         guard !Task.isCancelled,
               var context = captureTaskModelRequestContext(
                   macDeviceID: macDeviceID,
@@ -167,7 +184,10 @@ extension MobileShellComposite {
                 ) else {
                     throw MobileShellConnectionError.connectionClosed
                 }
-                return result
+                return MobileTaskModelHostFetchResult(
+                    result: result,
+                    connectionIdentity: context.client.instanceID
+                )
             } catch {
                 guard !Task.isCancelled else { throw error }
                 if attempt == 0,
@@ -554,11 +574,12 @@ extension MobileShellComposite {
                     )
                 }
                 do {
-                    let result = try await self.fetchTaskModels(
+                    let fetch = try await self.fetchTaskModelsWithIdentity(
                             provider: provider,
                             macDeviceID: macDeviceID,
                             instanceTag: instanceTag
                         )
+                    let result = fetch.result
                     let outcome: MobileTaskModelRefreshOutcome
                     switch result.error {
                     case .providerUnavailable:
@@ -574,7 +595,8 @@ extension MobileShellComposite {
                     }
                     return MobileTaskModelHostRefreshResult(
                         result: result,
-                        outcome: outcome
+                        outcome: outcome,
+                        connectionIdentity: fetch.connectionIdentity
                     )
                 } catch {
                     let outcome = MobileTaskModelRefreshOutcome(classifying: error)
@@ -703,7 +725,21 @@ extension MobileShellComposite {
                         hostOutcome = outcome
                         continue
                     }
-                    cacheTaskModels(result, for: key)
+                    guard cacheTaskModels(
+                        result,
+                        for: key,
+                        connectionIdentity: outcome.connectionIdentity
+                    ) else {
+                        // The response was validated for a client that has
+                        // since been replaced. Do not let it become a
+                        // successful refresh for the replacement connection.
+                        hostOutcome = MobileTaskModelHostRefreshResult(
+                            result: nil,
+                            outcome: .retry(.connectionClosed),
+                            connectionIdentity: outcome.connectionIdentity
+                        )
+                        continue
+                    }
                     didUpdate?(result)
                     refreshOutcome = .succeeded
                     group.cancelAll()
@@ -777,20 +813,33 @@ extension MobileShellComposite {
         cacheTaskModels(result, for: key)
     }
 
+    @discardableResult
     private func cacheTaskModels(
         _ result: MobileTaskModelListResult,
-        for key: MobileTaskModelCacheKey
-    ) {
+        for key: MobileTaskModelCacheKey,
+        connectionIdentity: String? = nil
+    ) -> Bool {
+        let cachedConnectionIdentity: String?
+        if result.source == .discovered {
+            let currentIdentity = taskModelConnectionIdentity(
+                macDeviceID: key.macDeviceID,
+                instanceTag: key.instanceTag
+            )
+            if let connectionIdentity {
+                guard currentIdentity == connectionIdentity else { return false }
+                cachedConnectionIdentity = connectionIdentity
+            } else {
+                cachedConnectionIdentity = currentIdentity
+            }
+        } else {
+            cachedConnectionIdentity = nil
+        }
         taskModelCache[key] = MobileTaskModelCacheEntry(
             result: result,
             fetchedAt: runtime?.now() ?? Date(),
-            connectionIdentity: result.source == .discovered
-                ? taskModelConnectionIdentity(
-                    macDeviceID: key.macDeviceID,
-                    instanceTag: key.instanceTag
-                )
-                : nil
+            connectionIdentity: cachedConnectionIdentity
         )
+        return true
     }
 
     /// Source of the cached catalog, exposed for diagnostics and UI verification.

@@ -136,6 +136,25 @@ struct MobileTaskModelPrefetchTests {
         #expect(await probe.requestCount == 1)
     }
 
+    @Test func failedCatalogIsSharedAcrossThePrefetchWave() async throws {
+        let probe = MobileTaskModelPrefetchCatalogProbe(data: Data("{}".utf8))
+        let catalog = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://catalog.example.test/models")!,
+            loader: { _ in await probe.load() }
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(), hostCapabilities: [], taskModelCatalogClient: catalog
+        )
+
+        await store.prefetchTaskModels(for: [
+            .init(macDeviceID: "offline-a", instanceTag: nil, connectionIdentity: nil),
+            .init(macDeviceID: "offline-b", instanceTag: nil, connectionIdentity: nil),
+            .init(macDeviceID: "offline-c", instanceTag: nil, connectionIdentity: nil),
+        ])
+
+        #expect(await probe.requestCount == 1)
+    }
+
     @Test func obsoleteConnectionDoesNotPrefetchIntoReplacement() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router, hostCapabilities: [])

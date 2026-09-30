@@ -73,14 +73,6 @@ extension MobileShellComposite {
         return catalog
     }
 
-    private func invalidateTaskModelPrefetchCatalog(
-        _ catalog: MobileTaskModelPrefetchCatalog
-    ) {
-        guard taskModelPrefetchCatalog?.id == catalog.id else { return }
-        taskModelPrefetchCatalog?.cancel()
-        taskModelPrefetchCatalog = nil
-    }
-
     func cancelTaskModelPrefetchTasks(keeping pairingIDs: Set<String>? = nil) {
         let keys = taskModelPrefetchDesiredTargets.keys.filter { key in
             pairingIDs?.contains(key.pairingID) != true
@@ -157,15 +149,10 @@ extension MobileShellComposite {
               taskModelConnectionIdentity(
                   macDeviceID: target.macDeviceID, instanceTag: target.instanceTag
               ) == target.connectionIdentity else { return }
-        guard await catalog.result(for: provider) != nil else {
-            invalidateTaskModelPrefetchCatalog(catalog)
-            guard !Task.isCancelled else { return }
-            _ = await refreshTaskModels(
-                provider: provider, macDeviceID: target.macDeviceID,
-                instanceTag: target.instanceTag, maximumCacheAge: 300
-            )
-            return
-        }
+        // Keep a failed shared catalog for this prefetch wave. Passing it
+        // through preserves one backend attempt while each Mac can still
+        // perform its independent host discovery. Invalidating here would
+        // make every worker start another provider-independent download.
         _ = await refreshTaskModels(
             provider: provider, macDeviceID: target.macDeviceID,
             instanceTag: target.instanceTag, maximumCacheAge: 300,
