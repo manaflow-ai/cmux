@@ -17,6 +17,13 @@ public protocol DaemonRequest: Encodable, Sendable {
     static var command: String { get }
 }
 
+/// A command whose reply waits for cmux-tui to launch a terminal host.
+/// cmux-tui bounds that launch by its own host handshake (2 s) and connect
+/// retry (1 s) windows, so these use `Configuration.spawnTimeout` instead of
+/// the 2 s control-plane deadline: a client that gives up first reports a
+/// failure for a tab the daemon then creates.
+public protocol TerminalSpawningRequest: DaemonRequest {}
+
 /// `{}` responses.
 public struct EmptyResponse: Decodable, Sendable, Equatable {
     public init() {}
