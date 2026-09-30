@@ -91,6 +91,22 @@ struct CodexAutoNamingArgumentsTests {
         #expect(!args.joined(separator: " ").contains("sensitive-value"))
     }
 
+    @Test func nonTemporaryConfigIgnoresSectionsInsideMultilineStrings() {
+        let args = CodexAutoNamingArguments.build(configToml: """
+        model = "gpt-5-codex"
+        model_provider = "subrouter"
+        [model_providers.subrouter]
+        description = \"\"\"
+        [model_providers.subrouter.http_headers]
+        Authorization = "Bearer sensitive-value"
+        \"\"\"
+        base_url = "http://127.0.0.1:31415/v1"
+        """)
+        let overrides = configOverrides(args)
+        #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
+        #expect(!args.joined(separator: " ").contains("sensitive-value"))
+    }
+
     @Test func nonTemporaryConfigDropsUnicodeEscapedHeaderSections() {
         let args = CodexAutoNamingArguments.build(configToml: #"""
         model = "gpt-5-codex"

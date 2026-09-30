@@ -270,8 +270,15 @@ struct CodexAutoNamingArguments: Sendable {
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
         var section = ""
+        var multilineStringDelimiter: String?
         for rawLine in toml.split(whereSeparator: \.isNewline) {
             let line = removingComment(from: rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let delimiter = multilineStringDelimiter {
+                if line.range(of: delimiter) != nil {
+                    multilineStringDelimiter = nil
+                }
+                continue
+            }
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
             if line.first == "[", line.last == "]" {
                 section = String(line.dropFirst().dropLast())
@@ -280,6 +287,13 @@ struct CodexAutoNamingArguments: Sendable {
             guard let equals = line.firstIndex(of: "=") else { continue }
             let key = line[..<equals].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            for delimiter in ["\"\"\"", "'''"] {
+                let occurrenceCount = value.components(separatedBy: delimiter).count - 1
+                if occurrenceCount.isMultiple(of: 2) == false {
+                    multilineStringDelimiter = delimiter
+                    break
+                }
+            }
             if section.isEmpty {
                 if key == "model" { model = String(value) }
                 if key == "model_provider" { modelProvider = String(value) }
