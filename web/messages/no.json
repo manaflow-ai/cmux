@@ -2033,7 +2033,8 @@
           "ampIntegration": "Slår cmux-hookene for Amp på eller av. Når de er slått av, forblir den medfølgende utvidelsen installert, men inaktiv.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
           "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
-          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
