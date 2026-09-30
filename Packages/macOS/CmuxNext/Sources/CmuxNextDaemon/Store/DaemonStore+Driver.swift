@@ -130,6 +130,7 @@ extension DaemonStore {
                 let (tree, barrier) = try await driver.connection.snapshot()
                 apply(snapshot: tree)
                 snapshotBarrier = max(snapshotBarrier, barrier)
+                advanceAppliedSequence(to: barrier)
                 if seedAgents { apply(agents: try await driver.connection.agents()) }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")

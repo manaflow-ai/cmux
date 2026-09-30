@@ -33,6 +33,12 @@ public final class DaemonStore {
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
+    /// The highest event sequence the tree reflects: advanced after a batch
+    /// applies without needing a resync, and to a snapshot's barrier once
+    /// that snapshot is applied. Readers compare it with
+    /// `DaemonConnection.eventSequence()` taken after a write (read-your-writes
+    /// without refetching the tree).
+    public internal(set) var appliedSequence: UInt64 = 0
     /// Client transaction ids the daemon echoed, newest last (bounded).
     public internal(set) var confirmedTransactions: [ClientTransactionID] = []
     /// Called once per echoed transaction id, on the main actor.

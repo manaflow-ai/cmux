@@ -224,3 +224,18 @@ final class ManualFrameScheduler: FrameScheduler {
         #expect(queue.bufferedOutputBytes == 100)
     }
 }
+
+/// `appliedSequence` is the compat write barrier's clock: it passes a
+/// sequence only once the tree reflects every event up to it.
+@MainActor @Suite struct AppliedSequenceTests {
+    @Test func advancesAfterAnExactBatchButNotBeforeAResync() {
+        let store = DaemonStore()
+        store.apply(batch: [DaemonEventEnvelope(sequence: 4, event: .titleChanged(surface: 3, title: "a"))])
+        #expect(store.appliedSequence == 4)
+        // A coarse invalidation is reflected only once its snapshot lands.
+        #expect(store.apply(batch: [DaemonEventEnvelope(sequence: 6, event: .treeChanged(transaction: nil))]) == .resync)
+        #expect(store.appliedSequence == 4)
+        store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .titleChanged(surface: 3, title: "old"))])
+        #expect(store.appliedSequence == 4)
+    }
+}

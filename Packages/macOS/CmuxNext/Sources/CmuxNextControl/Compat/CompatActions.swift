@@ -43,6 +43,8 @@ extension CompatService {
         for task in run.work {
             if let error = await task.value { failure = failure ?? error }
         }
+        // The handler's daemon replies are in: later reads wait for their events.
+        await noteWrite()
         if let failure { throw ControlError(code: "daemon_error", message: failure, data: ["action": .string(id)]) }
     }
 }

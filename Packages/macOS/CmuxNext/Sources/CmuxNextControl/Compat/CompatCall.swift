@@ -18,11 +18,11 @@ struct CompatCall: Sendable {
         return CompatWorld(topology: topology, refs: service.refs)
     }
 
-    /// The world from a fresh `list-workspaces`, joined with the snapshot's
-    /// app-local state: read-your-writes for mutations.
+    /// The world as of a snapshot that reflects every acknowledged compat
+    /// write (read-your-writes without a daemon round trip; see
+    /// `CompatService.world(deadline:)`).
     func world() async throws -> CompatWorld {
-        let tree = try await service.daemon("list-workspaces") { try await $0.listWorkspaces() }
-        return CompatWorld(topology: CompatFreshTopology.make(tree: tree, appState: control.snapshot.topology), refs: service.refs)
+        try await service.world(deadline: control.deadline)
     }
 
     func target(_ world: CompatWorld) -> CompatTarget { CompatTarget(world: world, refs: service.refs, params: params) }

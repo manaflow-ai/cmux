@@ -147,6 +147,16 @@ public actor DaemonConnection {
         return try await Self.perform(request, on: transport, timeout: timeout)
     }
 
+    /// The event sequence this connection has routed so far, or nil when
+    /// not connected. Taken after a command's reply, it is a write barrier:
+    /// once `DaemonStore.appliedSequence` reaches it, the store reflects
+    /// every event the daemon emitted before that reply (the reply's
+    /// `eventBarrier` is at most this). Sequences grow across reconnects.
+    public func eventSequence() -> UInt64? {
+        guard case .ready(let transport, let serial) = phase else { return nil }
+        return DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount)
+    }
+
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
     /// on the control socket and decodes its `result`.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,

@@ -87,7 +87,7 @@ enum CompatV1 {
 
     static func listNotifications(_ line: CompatV1Line, _ service: CompatService) async throws -> String {
         let world = try await service.world()
-        let entries = try await service.daemon("list-notifications") { try await $0.notificationLedger() }
+        let entries = try await service.daemon("list-notifications", mutates: false) { try await $0.notificationLedger() }
         guard !entries.isEmpty else { return "No notifications" }
         return entries.enumerated().map { index, entry in
             let surface = entry.surface.flatMap { handle in world.surfaces.values.first { $0.handle == handle } }
