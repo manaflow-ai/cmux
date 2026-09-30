@@ -181,6 +181,31 @@ struct SidebarWorkspaceDragDelegateTests {
         writer.releaseSourceGraph()
     }
 
+    @Test
+    func sidebarReorderTypeSuppressesPaneDropRouting() throws {
+        let registry = TabDragTransferRegistry()
+        let registration = try #require(
+            registry.register(
+                TabDragTransfer(
+                    tab: Bonsplit.Tab(title: "workspace"),
+                    sourcePaneId: Bonsplit.PaneID()
+                )
+            )
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("mixed-sidebar-\(UUID())"))
+        defer {
+            registry.end(registration)
+            pasteboard.clearContents()
+        }
+        #expect(registration.write(to: pasteboard))
+        #expect(
+            pasteboard.setString("workspace", forType: DragOverlayRoutingPolicy.sidebarTabReorderType)
+        )
+        #expect(
+            BonsplitTabDragPayload.transfer(from: pasteboard, registry: registry) == nil
+        )
+    }
+
     private func makeWriter(
         table: SidebarWorkspaceTableViewImpl,
         controller: SidebarWorkspaceTableController
