@@ -73,6 +73,12 @@ def tag_pids(tag):
     return [int(p) for p in out.split() if int(p) != os.getpid()]
 
 
+def app_pids(tag):
+    out = subprocess.run(["pgrep", "-f", f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV.*/Contents/MacOS/"],
+                         capture_output=True, text=True).stdout
+    return [int(p) for p in out.split() if int(p) != os.getpid()]
+
+
 def stop_tag(tag, app_pid):
     """Quits the app this run started, then ends the tag's daemon and hosts."""
     if app_pid:
@@ -106,11 +112,13 @@ class Run:
         self.pid = None
         self.client = None
 
-    def launch(self):
+    def launch(self, warm_daemon=False):
+        # A warm launch keeps the daemon this run primed; only the app must be gone.
+        running = (lambda: app_pids(self.tag)) if warm_daemon else (lambda: tag_pids(self.tag))
         deadline = time.monotonic() + 15
-        while tag_pids(self.tag) and time.monotonic() < deadline:
+        while running() and time.monotonic() < deadline:
             time.sleep(0.5)  # a previous run's daemon may still be exiting
-        if tag_pids(self.tag):
+        if running():
             listing = subprocess.run(["ps", "-o", "pid=,command=", "-p", ",".join(map(str, tag_pids(self.tag)))],
                                      capture_output=True, text=True).stdout
             raise SystemExit(f"tag {self.tag} already has processes running; quit them first "
@@ -243,7 +251,7 @@ def one_run(tag, threshold_ms, tabs, daemon="cold", startup_only=False):
             run.launch()
             run.wait_launch_settled()
             run.quit_app()
-        run.launch()
+        run.launch(warm_daemon=daemon == "warm")
         metrics["launch.key_echo_ms"] = run.key_echo_ms()
         run.wait_launch_settled()
         timings = run.result("debug.timings")
