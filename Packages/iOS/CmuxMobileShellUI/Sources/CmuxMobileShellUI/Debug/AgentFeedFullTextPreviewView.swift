@@ -36,7 +36,8 @@ public struct AgentFeedFullTextPreviewView: View {
             macDeviceID: "preview-mac", macDisplayName: "Preview Mac",
             itemID: "full-text-preview", workstreamID: "codex-preview", source: "codex",
             kind: .stop, status: .telemetry, createdAt: now, updatedAt: now,
-            stopReason: text, fullTextTruncated: false, connectionStatus: .connected
+            stopReason: text, remoteWorkspaceID: "preview-workspace",
+            remoteSurfaceID: "preview-tab", fullTextTruncated: false, connectionStatus: .connected
         )
         shortItem = MobileAgentFeedItem(
             macDeviceID: "preview-mac", macDisplayName: "Preview Mac",
