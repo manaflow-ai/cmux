@@ -248,15 +248,16 @@
           }
           printedTexts.push(text + "\n");
           spill();
-          // The part of this text that still fits, cut at a line end.
-          const room = headCap - shown;
+          // The part of this text that still fits, cut at a line end, or
+          // inside a line longer than the room.
+          const room = Math.max(0, headCap - shown);
           const cut = text.lastIndexOf("\n", room);
-          const head = cut > 0 ? text.slice(0, cut) : "";
+          const head = cut > 0 ? text.slice(0, cut) : room > 0 ? text.slice(0, room) + "…" : "";
           if (head) {
             shown += head.length + 1;
             host.print(level, head);
           }
-          tail = text.slice(head ? cut + 1 : 0);
+          tail = text.slice(cut > 0 ? cut + 1 : room);
           host.print("info", `# output continues in ${file}`);
           return;
         }
