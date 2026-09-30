@@ -69,7 +69,10 @@ jobs:
       backend_tag: ${{ steps.decide.outputs.backend_tag }}
       web_changed: ${{ steps.decide.outputs.web_changed }}
     steps:
+      # Only the pull_request path diffs files; a dispatch skips the checkout,
+      # which is most of this job's time and gates the macOS job's start.
       - name: Checkout
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Depth 2 reaches both parents of a PR merge commit, which is all

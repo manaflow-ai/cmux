@@ -165,6 +165,11 @@ start_postgres() {
     docker exec -i "$PG_CONTAINER" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U cmux -d cmux_v2 -q <"$sql" \
       >>"$LOGS/postgres-run.log" 2>&1 || die postgres "apply $(basename "$sql") failed"
   done
+  # Prove what iroh-v2 will require: a verified chain and hostname for the
+  # fixed name over Postgres's STARTTLS negotiation.
+  openssl s_client -starttls postgres -connect 127.0.0.1:5432 -servername "$NAME" \
+    -verify_hostname "$NAME" -verify_return_error </dev/null >"$LOGS/postgres-tls.log" 2>&1 \
+    || die postgres "TLS for $NAME does not verify"
   timing "postgres ready"
 }
 
