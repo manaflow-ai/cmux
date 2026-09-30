@@ -586172,55 +586172,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete this machine, then create a new one. Retrying will not fix it. Copy any files you still need first if you can."
+            "value": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "احذف هذا الجهاز، ثم أنشئ جهازًا جديدًا. إعادة المحاولة لن تحل المشكلة. انسخ أولًا أي ملفات ما زلت تحتاجها إن أمكن."
+            "value": "أنشئ جهازًا جديدًا، وانسخ ملفاتك باستخدام cmux vm pull و cmux vm push، ثم احذف هذا الجهاز."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Löschen Sie diese Maschine und erstellen Sie dann eine neue. Ein erneuter Versuch behebt das nicht. Kopieren Sie nach Möglichkeit zuerst alle Dateien, die Sie noch brauchen."
+            "value": "Erstelle eine neue Maschine, kopiere deine Dateien mit cmux vm pull und cmux vm push hinüber und lösche dann diese."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elimina esta máquina y luego crea una nueva. Reintentar no lo solucionará. Si puedes, copia primero los archivos que aún necesites."
+            "value": "Crea una máquina nueva, copia tus archivos con cmux vm pull y cmux vm push y después elimina esta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supprimez cette machine, puis créez-en une nouvelle. Réessayer ne résoudra pas le problème. Si possible, copiez d’abord les fichiers dont vous avez encore besoin."
+            "value": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンを削除してから、新しいマシンを作成してください。再試行しても解決しません。必要なファイルがあれば、可能なら先にコピーしてください。"
+            "value": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신을 삭제한 다음 새 머신을 만드세요. 다시 시도해도 해결되지 않습니다. 가능하면 필요한 파일을 먼저 복사하세요."
+            "value": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请删除此机器，然后创建新机器。重试无法解决此问题。如果可以，请先复制仍需要的文件。"
+            "value": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請刪除此機器，然後建立新機器。重試無法解決此問題。如果可以，請先複製仍需要的檔案。"
+            "value": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
           }
         }
       }
@@ -586231,55 +586231,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine uses an older format and can no longer be opened. Create a new machine to keep working."
+            "value": "This machine was created before a Cloud update and can't be attached."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم جهاز Cloud هذا تنسيقًا أقدم ولم يعد من الممكن فتحه. أنشئ جهازًا جديدًا لمتابعة العمل."
+            "value": "أُنشئ هذا الجهاز قبل تحديث Cloud ولا يمكن الاتصال به."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Cloud-Maschine verwendet ein älteres Format und kann nicht mehr geöffnet werden. Erstellen Sie eine neue Maschine, um weiterzuarbeiten."
+            "value": "Diese Maschine wurde vor einem Cloud-Update erstellt und kann nicht verbunden werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta máquina en la nube usa un formato anterior y ya no se puede abrir. Crea una máquina nueva para seguir trabajando."
+            "value": "Esta máquina se creó antes de una actualización de Cloud y no se puede conectar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette machine Cloud utilise un ancien format et ne peut plus être ouverte. Créez une nouvelle machine pour continuer à travailler."
+            "value": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Cloud マシンは古い形式のため、開けなくなりました。作業を続けるには新しいマシンを作成してください。"
+            "value": "このマシンは Cloud の更新前に作成されたため、接続できません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Cloud 머신은 이전 형식을 사용하므로 더 이상 열 수 없습니다. 작업을 계속하려면 새 머신을 만드세요."
+            "value": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Cloud 机器使用旧格式，已无法打开。请创建新机器以继续工作。"
+            "value": "这台机器创建于 Cloud 更新之前，无法连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Cloud 機器使用舊格式，已無法開啟。請建立新機器以繼續工作。"
+            "value": "這台機器建立於 Cloud 更新之前，無法連線。"
           }
         }
       }
@@ -586290,55 +586290,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recreate this Cloud machine"
+            "value": "Recreate this machine"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أعد إنشاء جهاز Cloud هذا"
+            "value": "أعد إنشاء هذا الجهاز"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Cloud-Maschine neu erstellen"
+            "value": "Diese Maschine neu erstellen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a crear esta máquina en la nube"
+            "value": "Vuelve a crear esta máquina"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recréez cette machine Cloud"
+            "value": "Recréez cette machine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Cloud マシンを作り直してください"
+            "value": "このマシンを作り直してください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Cloud 머신을 다시 만드세요"
+            "value": "이 머신을 다시 만드세요"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请重新创建此 Cloud 机器"
+            "value": "重新创建这台机器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請重新建立此 Cloud 機器"
+            "value": "重新建立這台機器"
           }
         }
       }

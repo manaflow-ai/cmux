@@ -100,14 +100,14 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
 
 /// Title for a machine that must be deleted and created again (`vm_recreate_required`).
 public func cloudVMRecreateRequiredTitle() -> String {
-    String(localized: "cloudVM.error.recreateRequired.title", defaultValue: "Recreate this Cloud machine")
+    String(localized: "cloudVM.error.recreateRequired.title", defaultValue: "Recreate this machine")
 }
 
 /// One-line state shown for a machine that can never be opened again.
 public func cloudVMRecreateRequiredMessage() -> String {
     String(
         localized: "cloudVM.error.recreateRequired.message",
-        defaultValue: "This Cloud machine uses an older format and can no longer be opened. Create a new machine to keep working."
+        defaultValue: "This machine was created before a Cloud update and can't be attached."
     )
 }
 
@@ -115,7 +115,7 @@ public func cloudVMRecreateRequiredMessage() -> String {
 public func cloudVMRecreateRequiredAction() -> String {
     String(
         localized: "cloudVM.error.recreateRequired.action",
-        defaultValue: "Delete this machine, then create a new one. Retrying will not fix it. Copy any files you still need first if you can."
+        defaultValue: "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
     )
 }
 
