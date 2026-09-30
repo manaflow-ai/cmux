@@ -92,10 +92,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
             case .enqueued, .dropped:
                 delivered = true
             @unknown default:
-                // Treat future yield outcomes as delivered. The observer was
-                // present, so retaining the replay marker would only cause a
-                // redundant refresh on a later subscriber.
-                delivered = true
+                break
             }
         }
         for id in terminatedObserverIDs {
