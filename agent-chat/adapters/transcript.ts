@@ -369,26 +369,35 @@ export const TRANSCRIPT_INITIAL_WINDOW_BYTES = 8 * 1024 * 1024;
 const TRANSCRIPT_POLL_MS = 500;
 const TRANSCRIPT_READ_CHUNK = 1024 * 1024;
 
-/** Follows an append-only JSONL file by offset, delivering complete lines. */
+/** Follows JSONL appends by offset, resetting when the file is replaced. */
 export class TranscriptTail {
   private offset = -1;
+  private identity: { dev: number; ino: number } | null = null;
   private pending = "";
   private timer: ReturnType<typeof setInterval> | null = null;
-  private inflight: Promise<void> | null = null;
+  // Filesystem calls can finish after stop/restart. Only the current lifetime
+  // may advance decoding state or deliver callbacks; old handles still close.
+  private generation = 0;
+  private stopped = false;
+  private inflight: { generation: number; promise: Promise<void> } | null = null;
   private decoder = new TextDecoder();
 
   constructor(
     readonly path: string,
     private readonly onLines: (lines: string[], mtimeMs: number) => void,
-    private readonly opts: { pollMs?: number; initialWindowBytes?: number } = {},
+    private readonly opts: { pollMs?: number; initialWindowBytes?: number; onReset?: () => void } = {},
   ) {}
 
   start() {
     if (this.timer) return;
+    this.stopped = false;
+    const generation = this.generation;
     // A transcript that stops being readable between stat and open (deleted,
     // or a root-owned file) must not reject out of the timer: an unhandled
     // rejection ends the whole sidecar. The next poll tries again.
-    const tick = () => void this.poll().catch(() => {});
+    const tick = () => {
+      if (this.ownsRead(generation)) void this.poll().catch(() => {});
+    };
     tick();
     this.timer = setInterval(tick, this.opts.pollMs ?? TRANSCRIPT_POLL_MS);
   }
@@ -396,39 +405,66 @@ export class TranscriptTail {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopped = true;
+    this.generation++;
   }
 
-  /** Reads everything appended since the last poll; joins a read in flight. */
+  /** Reads new appends, joining only a read from the current lifetime. */
   poll(): Promise<void> {
-    if (!this.inflight) {
-      this.inflight = this.read().finally(() => {
-        this.inflight = null;
+    if (this.stopped) return Promise.resolve();
+    const generation = this.generation;
+    if (!this.inflight || this.inflight.generation !== generation) {
+      const flight = { generation, promise: this.read(generation) };
+      this.inflight = flight;
+      flight.promise = flight.promise.finally(() => {
+        if (this.inflight === flight) this.inflight = null;
       });
     }
-    return this.inflight;
+    return this.inflight.promise;
   }
 
-  private async read(): Promise<void> {
-    const info = await stat(this.path).catch(() => null);
-    if (!info) return;
-    let skipPartialFirstLine = false;
-    if (this.offset < 0) {
-      const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
-      this.offset = Math.max(0, info.size - window);
-      skipPartialFirstLine = this.offset > 0;
-    } else if (info.size < this.offset) {
-      // Truncated or replaced: follow the new file from its start.
-      this.offset = 0;
-      this.pending = "";
-      this.decoder = new TextDecoder();
-    }
-    if (info.size === this.offset) return;
+  private ownsRead(generation: number): boolean {
+    return !this.stopped && this.generation === generation;
+  }
+
+  private async read(generation: number): Promise<void> {
+    const probe = await stat(this.path).catch(() => null);
+    if (!this.ownsRead(generation) || !probe) return;
+    if (this.identity?.dev === probe.dev && this.identity.ino === probe.ino && probe.size === this.offset) return;
     const handle = await open(this.path, "r");
     try {
+      if (!this.ownsRead(generation)) return;
+      // Use the opened file's identity and size: an atomic rename can replace
+      // the path between the probe and open, even with unchanged size/mtime.
+      const info = await handle.stat();
+      if (!this.ownsRead(generation)) return;
+      const reset = this.identity !== null && (
+        this.identity.dev !== info.dev || this.identity.ino !== info.ino || info.size < this.offset
+      );
+      if (this.identity?.dev !== info.dev || this.identity.ino !== info.ino) {
+        this.offset = -1;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      this.identity = { dev: info.dev, ino: info.ino };
+      let skipPartialFirstLine = false;
+      if (this.offset < 0) {
+        const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
+        this.offset = Math.max(0, info.size - window);
+        skipPartialFirstLine = this.offset > 0;
+      } else if (info.size < this.offset) {
+        // An in-place truncation keeps its inode but still resets decoding.
+        this.offset = 0;
+        this.pending = "";
+        this.decoder = new TextDecoder();
+      }
+      if (reset) this.opts.onReset?.();
+      if (!this.ownsRead(generation)) return;
+      if (info.size === this.offset) return;
       const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
-      while (this.offset < info.size) {
+      while (this.ownsRead(generation) && this.offset < info.size) {
         const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, info.size - this.offset), this.offset);
-        if (bytesRead <= 0) break;
+        if (!this.ownsRead(generation) || bytesRead <= 0) break;
         this.offset += bytesRead;
         this.pending += this.decoder.decode(buf.subarray(0, bytesRead), { stream: true });
         if (skipPartialFirstLine) {
@@ -485,25 +521,43 @@ export function attachTranscript(
   onTitle?: (title: string) => void,
   opts: { pollMs?: number; initialWindowBytes?: number; onTick?: () => void } = {},
 ): TranscriptTail {
-  const parser = transcriptParser(agent);
+  let parser = transcriptParser(agent);
   const refreshStatus = () => {
     const st = transcriptState(sess);
-    if (!st) return;
+    if (!st || st.tail !== tail) return;
     sess.setStatus(transcriptLooksRunning(sess.events, st.lastWriteMs) ? "running" : "idle");
-    opts.onTick?.();
+    if (transcriptState(sess) === st) opts.onTick?.();
   };
   const tail = new TranscriptTail(path, (lines, mtimeMs) => {
     const st = transcriptState(sess);
+    if (!st || st.tail !== tail) return;
     // Activity comes from the file's own write time, so a transcript that
     // went idle long ago does not look busy when its history first loads.
-    if (st) st.lastWriteMs = mtimeMs;
+    st.lastWriteMs = mtimeMs;
     const title = parser.title;
     for (const line of lines) {
-      for (const evt of parser.parse(line)) sess.emit(evt);
+      if (transcriptState(sess) !== st) return;
+      for (const evt of parser.parse(line)) {
+        if (transcriptState(sess) !== st) return;
+        sess.emit(evt);
+      }
     }
+    if (transcriptState(sess) !== st) return;
     if (parser.title && parser.title !== title) onTitle?.(parser.title);
     refreshStatus();
-  }, opts);
+  }, {
+    ...opts,
+    onReset: () => {
+      const st = transcriptState(sess);
+      if (!st || st.tail !== tail) return;
+      parser = transcriptParser(agent);
+      st.parser = parser;
+      st.lastWriteMs = 0;
+      if (sess.resetHistory) sess.resetHistory();
+      else sess.events.length = 0;
+      refreshStatus();
+    },
+  });
   const state: TranscriptState = {
     tail,
     parser,
