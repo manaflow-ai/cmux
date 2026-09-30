@@ -81,7 +81,7 @@ COMPILE_FAILED = (
     "2026-09-27T10:40:00.0000000Z /tmp/cmux-ci/src/cmuxTests/SidebarWidthPolicyTests.swift:672:57: error: "
     "ambiguous use of 'init'\n"
 )
-STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED config-schema (0.03s)\n"
+STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED launch-policy (0.03s)\n"
 ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"

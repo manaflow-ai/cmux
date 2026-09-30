@@ -850,7 +850,7 @@ class Prefer(Fixture):
 
     def recorded_with_package_change(self, changed):
         record = self.recorded(changed)
-        record["Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/F.swift"] = ["stale", 1]
+        record["Packages/macOS/CmuxNext/Sources/CmuxNextApp/F.swift"] = ["stale", 1]
         return record
 
     def test_rebuilds_app_only_for_a_package_swift_source(self):

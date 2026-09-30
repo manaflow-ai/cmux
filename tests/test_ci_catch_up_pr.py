@@ -5,8 +5,8 @@ Each case builds a small git repository in a temp dir with a base branch and a
 pull request branch, runs scripts/ci/catch_up_pr.py through its CLI the way
 the workflow does, and checks both the JSON result and the repository it left
 behind: a merge commit with the resolved files, or an untouched head with the
-blocking files named. The real normalizer, schema generator and xcstrings
-merger resolve conflicts; a stub tools root stands in for a failing generator.
+blocking files named. The real normalizer and xcstrings merger resolve
+conflicts; a stub tools root stands in for a failing generator.
 
 The last cases read .github/workflows/pr-catch-up.yml: it runs on
 pull_request_target, issue_comment and main's green CI fast guards runs next
@@ -83,11 +83,6 @@ def catalog(**strings: str) -> str:
     return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
 
 
-def schema(a: int, z: int) -> str:
-    # Unchanged lines between "a" and "z" let git merge edits to each cleanly.
-    return f'{{\n  "a": {a},\n  "m1": 0,\n  "m2": 0,\n  "m3": 0,\n  "z": {z}\n}}\n'
-
-
 class Fixture:
     """A repository with `main` and a `pr` branch checked out."""
 
@@ -116,28 +111,12 @@ class Fixture:
         self.git("commit", "-q", "--allow-empty", "-m", message)
         return self.git("rev-parse", "HEAD")
 
-    def regenerate_schema(self) -> None:
-        (self.path / MODULE.SCHEMA_SWIFT).parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [sys.executable, str(ROOT / MODULE.SCHEMA_GENERATOR), "--root", str(self.path)],
-            check=True, capture_output=True,
-        )
-
-    def branches(self, base: dict, main: dict, pr: dict, schema_regen: bool = False) -> None:
-        self.write(base)
-        if schema_regen:
-            self.regenerate_schema()
-        self.commit({}, "base")
+    def branches(self, base: dict, main: dict, pr: dict) -> None:
+        self.commit(base, "base")
         self.git("checkout", "-q", "-b", "pr")
-        self.write(pr)
-        if schema_regen:
-            self.regenerate_schema()
-        self.commit({}, "pr change")
+        self.commit(pr, "pr change")
         self.git("checkout", "-q", "main")
-        self.write(main)
-        if schema_regen:
-            self.regenerate_schema()
-        self.commit({}, "main change")
+        self.commit(main, "main change")
         self.git("checkout", "-q", "pr")
 
     def read(self, name: str) -> str:
@@ -208,9 +187,9 @@ class MergeTests(CatchUpCase):
 
     def test_unknown_conflict_stops_and_names_the_file(self) -> None:
         self.repo.branches(
-            {"README.md": "one\n", "Resources/Localizable.xcstrings": catalog(a="A")},
-            {"README.md": "main\n", "Resources/Localizable.xcstrings": catalog(a="A", b="B")},
-            {"README.md": "pr\n", "Resources/Localizable.xcstrings": catalog(a="A", c="C")},
+            {"README.md": "one\n", "Resources/InfoPlist.xcstrings": catalog(a="A")},
+            {"README.md": "main\n", "Resources/InfoPlist.xcstrings": catalog(a="A", b="B")},
+            {"README.md": "pr\n", "Resources/InfoPlist.xcstrings": catalog(a="A", c="C")},
         )
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up()
@@ -240,43 +219,28 @@ class UntrustedTreeTests(CatchUpCase):
         code, result = self.catch_up()
         self.assert_blocked(code, result, before, ["app.swift"])
 
-    def test_symlinked_schema_is_not_read_into_the_commit(self) -> None:
-        secret = self.tmp / "secret.txt"
-        secret.write_text("RUNNER SECRET\n", encoding="utf-8")
-        self.repo.branches({MODULE.SCHEMA_JSON: schema(1, 1), "README.md": "a\n"}, {"README.md": "main\n"}, {},
-                           schema_regen=True)
-        link = self.repo.path / MODULE.SCHEMA_JSON
-        link.unlink()
-        link.symlink_to(secret)
-        self.repo.commit({}, "schema becomes a symlink")
-        before = self.repo.git("rev-parse", "HEAD")
-        code, result = self.catch_up()
-        self.assert_blocked(code, result, before, [MODULE.SCHEMA_SWIFT])
-        self.assertIn("symlink", result["blocking"][0]["reason"])
-
-    def test_symlinked_generated_swift_is_not_written_through(self) -> None:
+    def test_symlinked_pbxproj_is_not_written_through(self) -> None:
         victim = self.tmp / "victim.txt"
         victim.write_text("untouched\n", encoding="utf-8")
         self.repo.branches(
-            {MODULE.SCHEMA_JSON: schema(1, 1)},
-            {MODULE.SCHEMA_JSON: schema(2, 1)},
-            {MODULE.SCHEMA_JSON: schema(1, 2)},
-            schema_regen=True,
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1})},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "B.swift": 2})},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "C.swift": 3})},
         )
-        swift = self.repo.path / MODULE.SCHEMA_SWIFT
-        swift.unlink()
-        swift.symlink_to(victim)
-        self.repo.commit({}, "generated Swift becomes a symlink")
+        project = self.repo.path / MODULE.PBXPROJ
+        project.unlink()
+        project.symlink_to(victim)
+        self.repo.commit({}, "project becomes a symlink")
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up()
         # Git also lists the symlink side under `<path>~<commit>` for the type conflict.
         blocked = [item["path"] for item in result["blocking"]]
         self.assert_blocked(code, result, before, blocked)
-        self.assertEqual(blocked[0], MODULE.SCHEMA_SWIFT)
+        self.assertEqual(blocked[0], MODULE.PBXPROJ)
         self.assertEqual(victim.read_text(encoding="utf-8"), "untouched\n")
 
     def test_non_utf8_catalog_blocks_instead_of_crashing(self) -> None:
-        path = "Resources/Localizable.xcstrings"
+        path = "Resources/InfoPlist.xcstrings"
         self.repo.branches({path: catalog(a="A")}, {path: catalog(a="A", b="B")}, {})
         (self.repo.path / path).write_bytes(b"\xff\xfe not utf-8\n")
         self.repo.commit({}, "binary catalog")
@@ -286,7 +250,7 @@ class UntrustedTreeTests(CatchUpCase):
 
 
 class XcstringsTests(CatchUpCase):
-    PATH = "Resources/Localizable.xcstrings"
+    PATH = "Resources/InfoPlist.xcstrings"
 
     def test_disjoint_keys_union(self) -> None:
         self.repo.branches(
@@ -315,67 +279,22 @@ class XcstringsTests(CatchUpCase):
         self.assertIn("both sides: `strings.a`", comment)
 
 
-class SchemaTests(CatchUpCase):
-    def test_conflicting_generated_swift_is_regenerated_from_merged_schema(self) -> None:
-        self.repo.branches(
-            {MODULE.SCHEMA_JSON: schema(1, 1)},
-            {MODULE.SCHEMA_JSON: schema(2, 1)},
-            {MODULE.SCHEMA_JSON: schema(1, 2)},
-            schema_regen=True,
-        )
-        before = self.repo.git("rev-parse", "HEAD")
-        code, result = self.catch_up()
-        self.assert_merged(code, result, before)
-        self.assertEqual([item["path"] for item in result["resolved"]], [MODULE.SCHEMA_SWIFT])
-        self.assertEqual(self.repo.read(MODULE.SCHEMA_JSON), schema(2, 2))
-        check = subprocess.run(
-            [sys.executable, str(ROOT / MODULE.SCHEMA_GENERATOR), "--root", str(self.repo.path), "--check"],
-            capture_output=True, text=True,
-        )
-        self.assertEqual(check.returncode, 0, check.stdout)
-
-    def test_conflicting_schema_source_stops(self) -> None:
-        self.repo.branches(
-            {MODULE.SCHEMA_JSON: schema(1, 1)},
-            {MODULE.SCHEMA_JSON: schema(2, 1)},
-            {MODULE.SCHEMA_JSON: schema(3, 1)},
-            schema_regen=True,
-        )
-        before = self.repo.git("rev-parse", "HEAD")
-        code, result = self.catch_up()
-        self.assert_blocked(code, result, before, [MODULE.SCHEMA_JSON, MODULE.SCHEMA_SWIFT])
-
-    def test_invalid_merged_schema_is_not_regenerated(self) -> None:
-        # Each side's edit is valid JSON; their clean textual merge is not.
-        base = '{\n  "a": 1,\n  "m1": 0,\n  "m2": 0,\n  "m3": 0,\n  "z": 1\n}\n'
-        self.repo.branches(
-            {MODULE.SCHEMA_JSON: base},
-            {MODULE.SCHEMA_JSON: base.replace('"a": 1,', '"a": 2')},
-            {MODULE.SCHEMA_JSON: base.replace('"z": 1', '"z": 2,\n  "y": 3')},
-            schema_regen=False,
-        )
-        before = self.repo.git("rev-parse", "HEAD")
-        code, result = self.catch_up()
-        self.assert_blocked(code, result, before, [MODULE.SCHEMA_SWIFT])
-        self.assertIn("not valid JSON", result["blocking"][0]["reason"])
-
+class ToolsRootTests(CatchUpCase):
     def test_generator_failure_stops(self) -> None:
         tools = self.tmp / "tools"
-        for script in (MODULE.NORMALIZER, MODULE.XCSTRINGS_MERGER):
-            (tools / script).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / script, tools / script)
-        (tools / MODULE.SCHEMA_GENERATOR).write_text(
+        (tools / MODULE.XCSTRINGS_MERGER).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / MODULE.XCSTRINGS_MERGER, tools / MODULE.XCSTRINGS_MERGER)
+        (tools / MODULE.NORMALIZER).write_text(
             "import sys\nprint('stub generator broke', file=sys.stderr)\nsys.exit(3)\n", encoding="utf-8",
         )
         self.repo.branches(
-            {MODULE.SCHEMA_JSON: schema(1, 1)},
-            {MODULE.SCHEMA_JSON: schema(2, 1)},
-            {MODULE.SCHEMA_JSON: schema(1, 2)},
-            schema_regen=True,
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1})},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "B.swift": 2})},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "C.swift": 3})},
         )
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up(tools_root=tools)
-        self.assert_blocked(code, result, before, [MODULE.SCHEMA_SWIFT])
+        self.assert_blocked(code, result, before, [MODULE.PBXPROJ])
         self.assertIn("stub generator broke", result["blocking"][0]["reason"])
 
     def test_tree_generator_is_never_run(self) -> None:
@@ -384,10 +303,10 @@ class SchemaTests(CatchUpCase):
         canary = self.tmp / "ran"
         hostile = f"from pathlib import Path\nPath({str(canary)!r}).write_text('ran')\n"
         self.repo.branches(
-            {MODULE.SCHEMA_JSON: schema(1, 1), MODULE.SCHEMA_GENERATOR: hostile, MODULE.NORMALIZER: hostile},
-            {MODULE.SCHEMA_JSON: schema(2, 1)},
-            {MODULE.SCHEMA_JSON: schema(1, 2)},
-            schema_regen=True,
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1}), MODULE.NORMALIZER: hostile,
+             MODULE.XCSTRINGS_MERGER: hostile},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "B.swift": 2})},
+            {MODULE.PBXPROJ: pbxproj_ids({"A.swift": 1, "C.swift": 3})},
         )
         before = self.repo.git("rev-parse", "HEAD")
         code, result = self.catch_up()
@@ -605,7 +524,7 @@ class SourceTests(CatchUpCase):
 class VerifyTests(CatchUpCase):
     """The push job's own check of the merge commit (`catch_up_pr.py verify`)."""
 
-    PATH = "Resources/Localizable.xcstrings"
+    PATH = "Resources/InfoPlist.xcstrings"
 
     def merged(self) -> tuple[str, str, str]:
         self.repo.branches(

@@ -119,7 +119,7 @@ def assert_areas(
 def test_test_only_changes_skip_the_release_build() -> None:
     for paths in (
         ["Packages/macOS/CmuxNext/Tests/CmuxNextTests/LayoutTests.swift"],
-        ["Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/CmuxGlaedaExecutionContractTests.swift", "docs/ci.md"],
+        ["Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift", "docs/ci.md"],
     ):
         actual = module.classify_files(paths)
         assert actual.macos is True, (paths, actual)
@@ -179,7 +179,7 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
         "cmux.xcodeproj/project.pbxproj",
         "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
         "Packages/macOS/CmuxTerminal/Package.swift",
-        "Resources/Localizable.xcstrings",
+        "Resources/InfoPlist.xcstrings",
         "scripts/thin-app-bundle.sh",
         "tests/test_thin_app_bundle.sh",
         "package.json",
@@ -191,27 +191,15 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
         assert actual.release_build is True, (paths, actual)
 
 
-def test_cmux_foundation_tests_route_the_package_lane() -> None:
-    # The swift-package-tests lane runs every CmuxFoundation suite when the
-    # package changes.
-    for name in ("CmuxConfigSemanticValidatorTests", "CmuxGlaedaExecutionContractTests"):
-        path = f"Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/{name}.swift"
-        actual = module.classify_files([path])
-        assert actual.swift_packages is True, (path, actual)
-    assert "CmuxFoundation" in module.swift_package_test_selection(
-        ["Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/CmuxGlaedaExecutionContractTests.swift"]
-    )
-
-
 def test_package_changes_route_the_package_test_lane() -> None:
     # PRs #13786 and #13790 move ~150 assertions into package test targets.
     # Under the compile-only pull-request suite the only macOS signal is
     # compile admission, which builds package library targets and never their
     # test targets, so those assertions would land with zero CI execution.
     for path in (
-        "Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Probe.swift",
-        "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Probe.swift",
-        "Packages/macOS/CmuxFoundation/Package.swift",
+        "Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift",
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/Probe.swift",
+        "Packages/macOS/CmuxUpdater/Package.swift",
         # A dependency of packages the job runs, reached through Package.swift
         # path dependencies rather than by name.
         "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/Whatever.swift",
@@ -226,11 +214,11 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
         ["Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift"]
     ) == ("CmuxUpdater",)
     # A dependency pulls in its dependents, and nothing else.
-    foundation = module.swift_package_test_selection(["Packages/macOS/CmuxFoundation/Package.swift"])
-    assert "CmuxFoundation" in foundation
-    # CmuxSimulator depends on CmuxFoundation, so it is a dependent; CmuxUpdater is not.
-    assert "CmuxSimulator" in foundation
-    assert "CmuxUpdater" not in foundation
+    auth_core = module.swift_package_test_selection(["Packages/Shared/CMUXAuthCore/Package.swift"])
+    assert "CMUXAuthCore" in auth_core
+    # CmuxAuthRuntime depends on CMUXAuthCore, so it is a dependent; CmuxUpdater is not.
+    assert "CmuxAuthRuntime" in auth_core
+    assert "CmuxUpdater" not in auth_core
     assert module.swift_package_test_selection(["Sources/AppDelegate.swift"]) == ()
 
 
@@ -247,7 +235,7 @@ def test_non_package_changes_leave_the_package_test_lane_unrouted() -> None:
         "docs/ci.md",
         "README.md",
         "package.json",
-        "Resources/Localizable.xcstrings",
+        "Resources/InfoPlist.xcstrings",
         # A package the job does not run. Routing it would start the lane only
         # for it to select nothing and test nothing.
         "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/Foo.swift",
@@ -283,15 +271,12 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
     body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
-    assert "CmuxFoundation" in packages
+    assert "CMUXAuthCore" in packages
     path = "Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift"
     assert module.classify_files([path]).swift_packages is True
     assert "CmuxUpdater" in module.swift_package_test_selection([path])
     # These macOS packages had test targets but were missing from the list once.
-    for name in (
-        "CmuxPhonePush",
-        "CmuxSimulator",
-    ):
+    for name in ("CmuxPhonePush",):
         assert name in packages, name
     for name in packages:
         assert any((ROOT / "Packages").glob(f"*/{name}/Package.swift")), name
@@ -302,7 +287,7 @@ def test_package_lane_does_not_widen_any_other_area() -> None:
     # package test source still skips the Release build, and nothing here
     # turns on web work.
     actual = module.classify_files([
-        "Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/CmuxGlaedaExecutionContractTests.swift"
+        "Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift"
     ])
     assert actual.swift_packages is True
     assert actual.release_build is False
@@ -4031,12 +4016,12 @@ def test_macos_compile_admission_builds_the_product_once() -> None:
     assert "app_host_test_products.py stamp" in admission
 
 
-def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> None:
+def test_static_preflight_rejects_stale_generated_output_before_native_work() -> None:
     steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
     scripts = [step["run"] for step in steps if "run" in step]
-    with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cmux-generated-preflight-") as tmp:
         repo = Path(tmp)
-        # Run the actual CI wrapper while isolating the schema checker from
+        # Run the actual CI wrapper while isolating the launch policy checker from
         # unrelated validators. Read its declared recipe without importing it.
         import ast
         recipe_tree = ast.parse((ROOT / "scripts/verify-local.py").read_text())
@@ -4053,15 +4038,12 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
             target.chmod(0o755)
         for name in ("verify-local.py", "verification_receipt.py"):
             shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
-        generator = repo / "scripts/generate-cmux-config-schema.py"
-        generator.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
-        schema = repo / "web/data/cmux.schema.json"
-        schema.parent.mkdir(parents=True)
-        schema.write_text('{"type":"object"}\n')
-        generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
-        generated.mkdir(parents=True)
-        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        generator = repo / "scripts/generate-claude-launch-environment-policy.py"
+        shutil.copy2(ROOT / "scripts/generate-claude-launch-environment-policy.py", generator)
+        manifest = repo / "scripts/claude-launch-environment-policy.json"
+        manifest.write_text('{"inheritedSessionIdentityKeys": ["A"], "inheritedTrustBypassKeys": ["B"]}\n')
+        (repo / "agent-chat/adapters").mkdir(parents=True)
+        subprocess.run([sys.executable, str(generator), "--write"], cwd=repo, check=True)
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "-c", "user.name=fixture", "-c",
@@ -4072,11 +4054,11 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
                                   capture_output=True, text=True, env={**os.environ, "CI": "true"})
         result = run_gate()
         assert result.returncode == 0, result.stdout + result.stderr
-        schema.write_text('{"type":"object","title":"changed"}\n')
+        manifest.write_text('{"inheritedSessionIdentityKeys": ["A", "C"], "inheritedTrustBypassKeys": ["B"]}\n')
         stale = run_gate()
-        assert stale.returncode != 0, "stale schema reached native admission"
-        assert "is stale" in stale.stdout
-        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        assert stale.returncode != 0, "stale generated output reached native admission"
+        assert "stale generated Claude launch policy" in stale.stdout + stale.stderr
+        subprocess.run([sys.executable, str(generator), "--write"], cwd=repo, check=True)
         result = run_gate()
         assert result.returncode == 0, result.stdout + result.stderr
 

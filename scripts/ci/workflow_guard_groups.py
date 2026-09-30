@@ -93,7 +93,7 @@ PATH_OWNERS = {
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
-    # test_ci_catch_up_pr.py runs the catch-up script, which runs these three
+    # test_ci_catch_up_pr.py runs the catch-up script, which runs these two
     # resolvers, and reads the workflow that calls it. The workflow also
     # answers to the preflight runner guard (test_ci_self_hosted_guard.sh).
     # test_merge_pbxproj.py also runs catch_up_pr.py, for union_pbxproj.
@@ -101,7 +101,6 @@ PATH_OWNERS = {
     ".github/workflows/pr-catch-up.yml": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
-    "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the catch-up script.
     "scripts/merge-pbxproj.py": frozenset(("preflight",)),

@@ -401,10 +401,6 @@ path = "tests/test_local_build_cache_preflight.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_localizable_xcstrings_structure.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
@@ -898,10 +894,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_media.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cmux_config_schema_embed.py"
 lane = "linux-guard"
 
 [[test]]

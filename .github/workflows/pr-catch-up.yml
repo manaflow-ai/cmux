@@ -46,9 +46,8 @@ name: PR catch-up
 #   ledger artifact, which counts selections per head.
 # - merge: read-only token. Checks the head out as data (no credentials, no
 #   submodules, no LFS) into `candidate/` and runs catch_up_pr.py and the
-#   generators it calls (normalize-pbxproj.py, generate-cmux-config-schema.py,
-#   merge-xcstrings.py) from `trusted/`, the commit this workflow was loaded
-#   from. Nothing from the head is executed, sourced or installed, the merge
+#   generators it calls (normalize-pbxproj.py, merge-xcstrings.py) from
+#   `trusted/`, the commit this workflow was loaded from. Nothing from the head is executed, sourced or installed, the merge
 #   reads .gitattributes from the base commit, and resolvers refuse symlinks.
 #   The merge commit leaves as a git bundle.
 # - finish: write token. Trusts nothing from the merge job: it re-reads the

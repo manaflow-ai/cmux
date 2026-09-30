@@ -12,7 +12,6 @@
 		CE7A00000000000000000011 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
-		CE7A0000000000000000001A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		CE7A00000000000000000002 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A00000000000000000001 /* main.swift */; };
         C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */; };
 		CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
@@ -39,7 +38,6 @@
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
-		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		CE7A00000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
@@ -79,7 +77,6 @@
 					C0DE70500000000000000001 /* start-cmux-profiling */,
 					C0DE70530000000000000001 /* submit-cmux-profile */,
 					D96971000000000000000003 /* setup-pam-tid.sh */,
-					DA7A10CA710E000000000001 /* Localizable.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				FEED0000000000000000F006 /* opencode-plugin.js */,
 				FEED0A00000000000000F006 /* feed-tui */,
@@ -205,7 +202,6 @@
 				CE7A00000000000000000015 /* Assets.xcassets in Resources */,
 				CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */,
 				CE7A0000000000000000001D /* LICENSE in Resources */,
-				CE7A0000000000000000001A /* Localizable.xcstrings in Resources */,
 				CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

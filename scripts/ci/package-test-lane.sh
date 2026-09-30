@@ -79,12 +79,10 @@ select_packages() {
     CmuxWorkspacePresence
     CmuxIrohTransport
     CmuxIrxTransport
-    CmuxFoundation
     CmuxMobileTerminalKit
     CmuxMobileWorkspace
     CmuxUpdater
     CmuxPhonePush
-    CmuxSimulator
   )
 
   changed="$work/changed-files.txt"
@@ -297,10 +295,10 @@ run_package_tests() {
     local pkg="$1"
     package_args "$pkg" || return 1
     case "$pkg" in
-    # CmuxFoundation has several process-tree suites whose child
-    # fixtures share global process resources; run each suite in its
-    # own Swift Testing process just like the auth/transport suites.
-    CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
+    # These packages have process-tree suites whose child fixtures
+    # share global process resources; run each suite in its own Swift
+    # Testing process.
+    CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)

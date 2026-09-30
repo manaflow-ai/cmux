@@ -113,7 +113,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         result, calls = self.run_packages("CMUXAuthCore")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         ran = {Path(args[args.index('--package-path') + 1]).name for args in calls}
-        self.assertIn("CmuxFoundation", ran)
+        self.assertIn("CmuxIrohTransport", ran)
         self.assertIn("CmuxUpdater", ran)
         self.assertIn(
             "::error title=Swift package tests failed::CMUXAuthCore failed with exit status 1",

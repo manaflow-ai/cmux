@@ -4,7 +4,7 @@ name: cmux-next
 # (Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
 # suites in-process; it never builds or launches a cmux DEV app. The checks
 # are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
-# string tables (the CmuxNext catalogs, InfoPlist and the CLI table).
+# string tables (the CmuxNext catalogs and InfoPlist).
 
 on:
   pull_request:
@@ -15,7 +15,6 @@ on:
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -26,7 +25,6 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:

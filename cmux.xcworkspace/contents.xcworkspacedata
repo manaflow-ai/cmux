@@ -130,16 +130,10 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
-         location = "group:CmuxFoundation">
-      </FileRef>
-      <FileRef
          location = "group:CmuxNext">
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">

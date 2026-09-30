@@ -187,10 +187,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
-      - name: Validate Localizable.xcstrings catalog structure
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_localizable_xcstrings_structure.py
-
       - name: Validate Resources property lists have unique keys
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
@@ -276,16 +272,6 @@ jobs:
       - name: Validate Claude launch environment policy generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
-
-      # The Swift validator reads the schema embedded in CmuxFoundation, so it
-      # must be regenerated whenever web/data/cmux.schema.json changes.
-      - name: Validate embedded cmux.json schema generation
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 scripts/generate-cmux-config-schema.py --check
-
-      - name: Validate embedded cmux.json schema round trip
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_cmux_config_schema_embed.py
 
       - name: Set up Bun for guard tests
         if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}

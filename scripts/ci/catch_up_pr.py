@@ -2,8 +2,8 @@
 """Catch a pull request head up with its base: merge, resolve generated files, commit.
 
 Slice 1 of RFC #14631. A pull request that was green goes stale when main
-moves, and the mechanical conflicts that follow (pbxproj ordering, the
-embedded config schema, string catalogs) cost a person a merge and a fix.
+moves, and the mechanical conflicts that follow (pbxproj ordering, string
+catalogs) cost a person a merge and a fix.
 This merges the base into the checked-out head with `--no-ff`, resolves only
 the files whose correct content a generator or a key-wise merge decides, and
 commits. It never rebases, never force-pushes and never pushes at all: the
@@ -18,12 +18,6 @@ being merged (the workflow runs this against untrusted pull request bytes):
   object IDs. A hunk where either side changed or removed a base line stops,
   and so does a union that repeats a key in any dictionary (two values for
   one build setting).
-- The embedded config schema Swift: regenerated with
-  scripts/generate-cmux-config-schema.py from the merged
-  web/data/cmux.schema.json. It is also regenerated when both sides changed
-  the schema and git merged the Swift text cleanly, since a textual merge of
-  two base64 blobs is not the encoding of the merged schema. A conflict in the
-  schema JSON itself, or merged schema text that is not valid JSON, stops.
 - *.xcstrings: a key-level three-way merge through scripts/merge-xcstrings.py.
   The same key changed differently on both sides stops, naming the keys.
 - Source files in brace languages (SOURCE_SUFFIXES): a conflicted hunk where
@@ -71,13 +65,7 @@ RESULT_SCHEMA = "catch-up-result/v1"
 DEFAULT_TOOLS_ROOT = Path(__file__).resolve().parents[2]
 
 PBXPROJ = "cmux.xcodeproj/project.pbxproj"
-SCHEMA_JSON = "web/data/cmux.schema.json"
-SCHEMA_SWIFT = (
-    "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/"
-    "CmuxConfigSchema.generated.swift"
-)
 NORMALIZER = "scripts/normalize-pbxproj.py"
-SCHEMA_GENERATOR = "scripts/generate-cmux-config-schema.py"
 XCSTRINGS_MERGER = "scripts/merge-xcstrings.py"
 
 # Wide conflict markers so a line of seven `<` inside the file cannot pass
@@ -603,40 +591,10 @@ class Resolver:
         (self.repo.path / path).write_text(merged, encoding="utf-8")
         self.done(path, "kept both sides' declarations")
 
-    def schema(self, conflicted: bool) -> None:
-        # The generator reads one path and writes the other. A symlink at
-        # either would read a runner file into the commit or write outside
-        # the checkout.
-        for path in (SCHEMA_JSON, SCHEMA_SWIFT):
-            if problem := self.repo.unsafe(path):
-                self.block(SCHEMA_SWIFT, f"{path} is {problem}; not regenerating")
-                return
-        try:
-            json.loads((self.repo.path / SCHEMA_JSON).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            self.block(SCHEMA_SWIFT, f"merged {SCHEMA_JSON} is not valid JSON ({error.__class__.__name__}); not regenerating")
-            return
-        completed = run_tool(
-            self.tools_root, SCHEMA_GENERATOR, ["--root", str(self.repo.path)], self.repo.path,
-        )
-        if completed.returncode != 0:
-            self.block(SCHEMA_SWIFT, f"generate-cmux-config-schema.py failed: {tail(completed.stderr)}")
-            return
-        method = "regenerated from the merged schema" + ("" if conflicted else " (both sides changed the schema)")
-        self.done(SCHEMA_SWIFT, "generate-cmux-config-schema.py, " + method)
-
 
 def tail(text: str, limit: int = 300) -> str:
     text = " ".join(text.strip().split())
     return text if len(text) <= limit else "..." + text[-limit:]
-
-
-def schema_needs_regeneration(repo: Repo, unmerged: dict[str, set[int]]) -> bool:
-    """Both sides changed the schema, so neither side's Swift encodes the merge."""
-    if SCHEMA_JSON in unmerged or not (repo.path / SCHEMA_JSON).is_file():
-        return False
-    merged = repo.text("hash-object", "--", SCHEMA_JSON)
-    return merged not in {repo.blob_id("HEAD", SCHEMA_JSON), repo.blob_id("MERGE_HEAD", SCHEMA_JSON)}
 
 
 def check_git_version() -> None:
@@ -692,10 +650,6 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
         if stages != {1, 2, 3}:
             side = "added on both sides" if 1 not in stages else "deleted on one side and changed on the other"
             resolver.block(path, f"{side}; needs a person")
-        elif path == SCHEMA_SWIFT:
-            continue  # regenerated below, once the schema JSON is known to be merged
-        elif path == SCHEMA_JSON:
-            resolver.block(path, "schema source conflicts; resolve it, then run generate-cmux-config-schema.py")
         elif path.endswith(".xcstrings"):
             resolver.xcstrings(path)
         elif path == PBXPROJ:
@@ -704,12 +658,6 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
             resolver.source(path)
         else:
             resolver.block(path, "both sides changed it")
-
-    swift_conflicted = unmerged.get(SCHEMA_SWIFT) == {1, 2, 3}
-    if swift_conflicted and SCHEMA_JSON in unmerged:
-        resolver.block(SCHEMA_SWIFT, "generated from the conflicted schema source")
-    elif swift_conflicted or schema_needs_regeneration(repo, unmerged):
-        resolver.schema(conflicted=swift_conflicted)
 
     result.resolved = resolver.resolved
     result.blocking = resolver.blocking
@@ -760,7 +708,7 @@ def command_merge(args: argparse.Namespace) -> int:
 
 
 def allowed_generated_path(path: str) -> bool:
-    return path in {PBXPROJ, SCHEMA_SWIFT} or path.endswith(".xcstrings")
+    return path == PBXPROJ or path.endswith(".xcstrings")
 
 
 def verify_merge(repo_path: Path, head: str, base: str, merged: str, base_tip: str) -> list[str]:

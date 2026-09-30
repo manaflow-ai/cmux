@@ -371,10 +371,8 @@ class AffectedChecksTests(unittest.TestCase):
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
 
-    def test_current_ci_schema_and_wiring_inputs_select_their_checks(self):
+    def test_current_ci_wiring_inputs_select_their_checks(self):
         for path, expected in (
-            ("web/data/cmux.schema.json", "config-schema"),
-            ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
             ("scripts/lint-pbxproj-test-wiring.sh", "test-wiring"),
         ):
             with self.subTest(path=path), repo_fixture() as repo:
