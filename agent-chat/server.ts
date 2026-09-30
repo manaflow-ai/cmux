@@ -16,7 +16,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, transcriptAdapter, transcriptTarget, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -644,7 +644,15 @@ function transcriptTitle(source: TranscriptSource): string {
 function ensureTranscriptSession(source: TranscriptSource): Session {
   const id = transcriptSessionId(source);
   const existing = sessions.get(id);
-  if (existing?.transcript?.path === source.path) return existing;
+  if (existing?.transcript?.path === source.path) {
+    const target = transcriptTarget(existing);
+    if (target?.agentSessionId !== source.sessionId || target?.surfaceId !== source.surfaceId) {
+      // A resumed agent can keep its transcript while moving to another
+      // terminal. Replace changed bindings to also fence old RPC replies.
+      existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
+    }
+    return existing;
+  }
   if (existing?.transcript) {
     // The agent's transcript moved (for example a resolved fallback path):
     // re-point the same session so open pages stay subscribed.
