@@ -272,6 +272,11 @@ struct CmuxTopSnapshotScopeTests {
     @Test func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() async throws {
         let pid = Int(Darwin.getpid())
         let expectedFootprintBytes = try #require(physicalFootprintBytes(for: pid), "proc_pid_rusage did not return physical footprint for current process")
+        // DIAG #15488: hold 256 MiB of dirty memory across the capture to reproduce footprint drift.
+        let driftBytes = 256 << 20
+        // Leaked on purpose so every iteration dirties fresh pages instead of reusing freed ones.
+        let drift = UnsafeMutableRawPointer.allocate(byteCount: driftBytes, alignment: 16_384)
+        memset(drift, 1, driftBytes)
 
         let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         let payload = snapshot.summaryPayload(for: [pid])
