@@ -86,7 +86,8 @@ struct RestoredProcessDetectedBindingTests {
         pending.armRestoredProcessDetectionObservation()
         let spawnedAt = SuspendingClock.now
         #expect(pending.preservesRestoredProcessDetection(at: spawnedAt.advanced(by: .seconds(3_600))))
-        #expect(pending.recordRestoredRuntimeSpawn(at: spawnedAt))
+        let didRecordSpawn = pending.recordRestoredRuntimeSpawn(at: spawnedAt)
+        #expect(didRecordSpawn)
         let expired = spawnedAt.advanced(by: RestoredProcessDetectionObservation.observationWindow)
         #expect(pending.preservesRestoredProcessDetection(at: spawnedAt))
         #expect(!pending.preservesRestoredProcessDetection(at: expired))

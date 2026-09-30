@@ -18,8 +18,11 @@ import Testing
         observation.arm()
         let spawnedAt = SuspendingClock.now.advanced(by: .seconds(3_600))
         #expect(observation.preserves(at: spawnedAt))
-        #expect(observation.recordRuntimeSpawn(at: spawnedAt))
-        #expect(!observation.recordRuntimeSpawn(at: spawnedAt.advanced(by: .seconds(10))))
+        // `recordRuntimeSpawn` is mutating, so each result is read outside the test macros.
+        let firstSpawn = observation.recordRuntimeSpawn(at: spawnedAt)
+        let repeatedSpawn = observation.recordRuntimeSpawn(at: spawnedAt.advanced(by: .seconds(10)))
+        #expect(firstSpawn)
+        #expect(!repeatedSpawn)
         let window = RestoredProcessDetectionObservation.observationWindow
         #expect(observation.preserves(at: spawnedAt.advanced(by: window - .seconds(1))))
         #expect(!observation.preserves(at: spawnedAt.advanced(by: window)))
@@ -29,7 +32,8 @@ import Testing
         var observation = RestoredProcessDetectionObservation()
         observation.arm()
         observation.clear()
-        #expect(!observation.recordRuntimeSpawn())
+        let lateSpawn = observation.recordRuntimeSpawn()
+        #expect(!lateSpawn)
         #expect(!observation.preserves())
     }
 }
