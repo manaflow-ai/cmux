@@ -54,6 +54,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        // Backdrop first: changing it while AppKit installs the content
+        // view puts the content above the titlebar (see WindowRootView).
+        root.applyBackdrop(to: window)
         window.contentView = root
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }

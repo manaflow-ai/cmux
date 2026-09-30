@@ -134,9 +134,16 @@ final class WindowRootView: NSView {
         view.reparentRootedThemeScope()
     }
 
+    /// Paints only this view. The window's opacity and background are set by
+    /// `applyBackdrop(to:)` before the window installs this view: AppKit
+    /// calls this hook from inside `NSWindow.contentView`'s setter, and a
+    /// window background change there drops the theme frame's backdrop view
+    /// that the setter places the content relative to, so the content lands
+    /// above the titlebar and its opaque layer hides the traffic lights
+    /// (nxdog12).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        themeDidChange()
+        paintBackground()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -149,15 +156,26 @@ final class WindowRootView: NSView {
     /// Ghostty.app, with its `background-blur` radius behind it
     /// (`WindowBackdrop`).
     func themeDidChange() {
+        paintBackground()
+        if let window { applyBackdrop(to: window) }
+    }
+
+    private func paintBackground() {
+        layer?.backgroundColor = performWithTheme { Palette.windowBackground }.cgColor
+    }
+
+    /// Sets `window`'s opacity, background and blur for this view's theme.
+    /// Values that already match are not written again, so a repeat call
+    /// (an appearance change while the window installs this view) never
+    /// touches the theme frame.
+    func applyBackdrop(to window: NSWindow) {
         let tokens = themeTokens
         let backdrop = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur)
-        let background = performWithTheme { Palette.windowBackground }
-        layer?.backgroundColor = background.cgColor
-        guard let window else { return }
-        window.isOpaque = backdrop.isOpaque
-        window.backgroundColor = backdrop.isOpaque
-            ? background
+        let color = backdrop.isOpaque
+            ? performWithTheme { Palette.windowBackground }
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
+        if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
+        if window.backgroundColor != color { window.backgroundColor = color }
         if backdrop.appliesBlur { GhosttyRuntime.shared.applyBackgroundBlur(to: window) }
     }
 }
