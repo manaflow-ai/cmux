@@ -4536,6 +4536,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
@@ -4543,6 +4544,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             buttons: buttons,
             sourcePath: sourcePath,
             globalConfigPath: globalConfigPath,
+            settingPresets: settingPresets,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
             workspaceCommands: workspaceCommands
         )
@@ -4574,7 +4576,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         )
                     )
                 }
-                if button.action.inlineWorkspace != nil {
+                if button.action.inlineWorkspace != nil || button.action.isSettingChange {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
@@ -4633,6 +4635,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration.buttons,
             sourcePath: configuration.sourcePath,
             globalConfigPath: configuration.globalConfigPath,
+            settingPresets: configuration.settingPresets,
             terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
             workspaceCommands: configuration.workspaceCommands
         )
@@ -14943,6 +14946,19 @@ extension Workspace: BonsplitDelegate {
         }
 
         guard let globalConfigPath = surfaceTabBarButtonGlobalConfigPath else {
+            return
+        }
+
+        if case .setting(let change) = executable.button.action {
+            CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: executable.button.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                settingPresets: surfaceTabBarButtonConfiguration?.settingPresets ?? [:],
+                confirm: executable.button.confirm ?? false,
+                title: executable.button.title,
+                presentingWindow: presentingWindow
+            )
             return
         }
 

@@ -137,6 +137,16 @@ struct TerminalPredictionEngineTests {
         #expect(session.liveOffsets == [0, 1, 2])
     }
 
+    @Test func aConsumedBindingDoesNotRaiseAnInputBarrier() {
+        var session = armedSession()
+        session.type("s")
+        session.engine.typedNothing(at: session.clock + .milliseconds(1))
+        session.type("-")
+
+        #expect(session.drawn == "s-")
+        #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
     @Test func aConfirmedGlyphKeepsDrawingUntilAFrameIsPresented() {
         // The tee fires before the VT parser, so dropping the glyph at
         // confirmation blanks the cell until the paint catches up.
