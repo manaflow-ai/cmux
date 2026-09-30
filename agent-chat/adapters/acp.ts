@@ -1,5 +1,8 @@
 import type {
   Adapter,
+  AgentEvent,
+  AgentPlanEntry,
+  AgentPlanStatus,
   CommandEntry,
   OptionChoice,
   OptionValue,
@@ -437,6 +440,24 @@ function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): Se
   ];
 }
 
+function normalizeAcpPlanStatus(status: unknown): AgentPlanStatus {
+  return status === "pending" || status === "in_progress" || status === "completed" ? status : "unknown";
+}
+
+export function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.map((entry: any) => ({
+    text: typeof entry?.content === "string" ? entry.content : String(entry?.content ?? ""),
+    status: normalizeAcpPlanStatus(entry?.status),
+    ...(entry?.priority == null ? {} : { priority: String(entry.priority) }),
+  }));
+}
+
+export function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+  const normalized = normalizeAcpPlanEntries(entries);
+  return normalized.length ? { kind: "plan", entries: normalized } : null;
+}
+
 // Notifications and reverse requests from the agent.
 function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, msg: any, writeMsg: (m: unknown) => void) {
   if (msg.method === "session/update") {
@@ -468,10 +489,10 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
         }
         break;
       case "plan":
-        sess.emit({
-          kind: "status",
-          text: "plan: " + (u.entries ?? []).map((e: any) => e.content).join(" → ").slice(0, 300),
-        });
+        {
+          const plan = acpPlanEvent(u.entries);
+          if (plan) sess.emit(plan);
+        }
         break;
       case "available_commands_update":
         st.commands = normalizeCommands(u.availableCommands);

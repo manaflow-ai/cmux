@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { makeAcpAdapter } from "../adapters/acp";
 import type { AgentEvent, ProviderDef, SessionCtx, SessionStatus } from "../types";
+import type { Block } from "../src/session";
 
 Object.defineProperty(globalThis, "location", {
   configurable: true,
@@ -54,7 +55,7 @@ test("preserves ACP plans as structured, replaceable events", async () => {
       { text: "Verify the change", status: "in_progress", priority: "medium" },
     ]);
 
-    const blocks = planEvents.reduce((current, event) => foldEvent(current, event as never), [] as unknown[]);
+    const blocks = planEvents.reduce((current, event) => foldEvent(current, event as never), [] as Block[]);
     const visiblePlans = blocks.filter((block) => (block as { kind: string }).kind === "plan");
     expect(visiblePlans).toHaveLength(1);
     expect(visiblePlans[0]).toEqual({ kind: "plan", entries: planEvents[1]?.entries });
