@@ -34,6 +34,15 @@ public struct ImportProgress: Sendable, Equatable {
     /// 0...1 over the whole plan.
     public var fraction: Double
     public var counts: ImportCounts
+
+    public init(profileIndex: Int, profileCount: Int, profile: BrowserSourceProfile, kind: ImportDataKind?, fraction: Double, counts: ImportCounts) {
+        self.profileIndex = profileIndex
+        self.profileCount = profileCount
+        self.profile = profile
+        self.kind = kind
+        self.fraction = fraction
+        self.counts = counts
+    }
 }
 
 /// Items read so far (or imported, in a summary).

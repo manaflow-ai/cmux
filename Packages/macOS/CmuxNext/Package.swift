@@ -103,7 +103,7 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Browser import (plans/cmux-next/onboarding.md): source detection
+        // Browser import (onboarding step 2; data-model.md 5): source detection
         // (Chrome, Arc, Dia, Brave, Edge, Vivaldi, Helium, Chromium, Safari,
         // Firefox), parsers for bookmarks, history, open tabs and extensions,
         // and the cancellable importer. No UI, nothing main-actor.

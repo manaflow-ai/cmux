@@ -138,4 +138,8 @@ public enum Typography {
     public static var search: NSFont { .systemFont(ofSize: size(16, 18), weight: .regular) }
     /// Shortcut glyphs.
     public static var shortcut: NSFont { .monospacedSystemFont(ofSize: size(10.5, 11), weight: .medium) }
+    /// Page titles in windows that introduce something (onboarding).
+    public static var title: NSFont { .systemFont(ofSize: size(20, 22), weight: .semibold) }
+    /// The line under a page title.
+    public static var subtitle: NSFont { .systemFont(ofSize: size(13, 14), weight: .regular) }
 }
