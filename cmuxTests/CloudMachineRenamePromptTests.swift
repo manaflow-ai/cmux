@@ -18,7 +18,7 @@ struct CloudMachineRenamePromptTests {
     @Test("machine menu passes the current display label to Rename")
     func passesDisplayLabel() throws {
         var received: (String, String?)?
-        let verbs = Self.verbs { id, label in received = (id, label) }
+        let verbs = Self.verbs { machine in received = (machine.id, machine.displayName) }
         let machine = Self.machine(label: "Build machine", slug: "sleepy-teal-otter")
 
         try Self.performRename(in: verbs.manageEntries(machine))
@@ -30,13 +30,28 @@ struct CloudMachineRenamePromptTests {
     @Test("machine menu passes the generated name when no display label exists")
     func passesGeneratedName() throws {
         var received: (String, String?)?
-        let verbs = Self.verbs { id, label in received = (id, label) }
+        let verbs = Self.verbs { machine in received = (machine.id, machine.displayName) }
         let machine = Self.machine(label: nil, slug: "sleepy-teal-otter")
 
         try Self.performRename(in: verbs.manageEntries(machine))
 
         #expect(received?.0 == machine.id)
         #expect(received?.1 == machine.displayName)
+    }
+
+    @Test("rename prompt uses a short localized fallback when no machine name exists")
+    func usesShortFallback() {
+        let machine = Self.machine(label: nil, slug: nil)
+
+        #expect(CloudMachineRenamePresentation.promptName(for: machine) == "Cloud machine")
+        #expect(CloudMachineRenamePresentation.promptName(for: machine) != machine.id)
+    }
+
+    @Test("whitespace-only names also use the short fallback")
+    func ignoresWhitespaceName() {
+        let machine = Self.machine(label: "   ", slug: "\n")
+
+        #expect(CloudMachineRenamePresentation.promptName(for: machine) == "Cloud machine")
     }
 
     private static func machine(label: String?, slug: String?) -> MachineSnapshot {
@@ -52,7 +67,7 @@ struct CloudMachineRenamePromptTests {
     }
 
     private static func verbs(
-        promptRename: @escaping @MainActor (String, String?) -> Void
+        promptRename: @escaping @MainActor (MachineSnapshot) -> Void
     ) -> CloudMachineMenuVerbs {
         CloudMachineMenuVerbs(
             openShell: { _ in },

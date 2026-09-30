@@ -11,7 +11,7 @@ struct MachineRowActions {
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
-    let promptRename: @MainActor (String, String?) -> Void
+    let promptRename: @MainActor (MachineSnapshot) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
     var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
@@ -36,13 +36,13 @@ struct MachineRowActions {
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@…"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
             openDesktop: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@’s desktop…"), id))
                 if !launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
@@ -62,8 +62,8 @@ struct MachineRowActions {
             confirmDelete: { id in
                 presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
-            promptRename: { id, currentLabel in
-                presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            promptRename: { machine in
+                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
@@ -109,19 +109,19 @@ struct MachineRowActions {
     private static func operationLabel(verb: [String], id: String) -> String {
         let format: String
         if verb.contains("snapshot") {
-            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
+            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@…")
         } else if verb.contains("resize") {
-            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@\u{2026}")
+            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@…")
         } else if verb.contains("fork") {
-            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
+            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@…")
         } else if verb.contains("status") {
-            format = String(localized: "machines.operation.status", defaultValue: "Checking %@\u{2026}")
+            format = String(localized: "machines.operation.status", defaultValue: "Checking %@…")
         } else if verb.contains("rename") {
-            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@\u{2026}")
+            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@…")
         } else if verb.contains("rm") {
-            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@\u{2026}")
+            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@…")
         } else {
-            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
+            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@…")
         }
         return String(format: format, id)
     }
@@ -181,21 +181,20 @@ struct MachineRowActions {
 
     @MainActor
     private static func presentRenamePrompt(
-        id: String,
-        currentLabel: String?,
+        machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
-        alert.messageText = String(format: format, id)
+        let format = String(localized: "machines.rename.title", defaultValue: "Rename “%@”")
+        alert.messageText = String(format: format, CloudMachineRenamePresentation.promptName(for: machine))
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."
         )
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = currentLabel ?? ""
+        field.stringValue = machine.label ?? ""
         field.placeholderString = String(localized: "machines.rename.placeholder", defaultValue: "Label")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
@@ -204,13 +203,13 @@ struct MachineRowActions {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            var arguments = ["vm", "rename", id]
+            var arguments = ["vm", "rename", machine.id]
             if label.isEmpty {
                 arguments.append("--clear")
             } else {
                 arguments.append(label)
             }
-            onWillMutate(operationLabel(verb: ["rename"], id: id))
+            onWillMutate(operationLabel(verb: ["rename"], id: machine.id))
             if !launch(arguments: arguments, onDidMutate: onDidMutate) {
                 onDidMutate()
             }

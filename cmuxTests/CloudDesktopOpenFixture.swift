@@ -30,7 +30,7 @@ final class CloudDesktopOpenFixture {
 
     lazy var coordinator = CloudTreeOutlineView.Coordinator(
         machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in },
-            runCommand: { _, _ in }, confirmDelete: { _ in }, promptRename: { _, _ in },
+            runCommand: { _, _ in }, confirmDelete: { _ in }, promptRename: { _ in },
             resizeDisk: { _, _ in }, promptUpgrade: {}),
         nodeActions: CloudTreeNodeActions.bound(
             navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
