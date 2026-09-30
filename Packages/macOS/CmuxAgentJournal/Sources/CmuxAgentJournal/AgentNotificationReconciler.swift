@@ -257,8 +257,15 @@ public struct AgentNotificationReconciler: Sendable {
             session.ended = true
         case .stateChanged:
             if draft.declaredPhase == .running {
-                if let incomingTurn, incomingTurn != session.nativeTurn,
-                   !session.seenTurns.contains(incomingTurn) {
+                let isNewTurn = incomingTurn != nil
+                    && incomingTurn != session.nativeTurn
+                    && incomingTurn.map { !session.seenTurns.contains($0) } == true
+                // A tool event without a turn identity is ambiguous after a
+                // completion. Keep a settled turn idle unless the event names
+                // a new unseen turn; active or unknown sessions may still
+                // consume identity-less activity as a running assertion.
+                guard session.phase != .idle || isNewTurn else { break }
+                if isNewTurn, let incomingTurn {
                     session.turn = incomingTurn
                     session.nativeTurn = incomingTurn
                 }
