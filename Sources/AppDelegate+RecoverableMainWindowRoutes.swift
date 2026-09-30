@@ -392,7 +392,8 @@ extension AppDelegate {
     /// routing call stack. Identity checks on both sides of the suspension make
     /// a reattached or explicitly closed route win over the deferred freeze.
     private func scheduleWindowlessRecoverableMainWindowRouteFreeze(
-        _ route: RecoverableMainWindowRoute
+        _ route: RecoverableMainWindowRoute,
+        retryAttempt: Int = 0
     ) {
         let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
         let windowId = route.windowId
@@ -404,35 +405,51 @@ extension AppDelegate {
                 worker,
                 onCompleted: { [weak self, weak lifecycleCoordinator] _ in
                     guard let self, let lifecycleCoordinator else { return }
-                    for retryWindowId in lifecycleCoordinator.consumeWindowlessRouteFreezeRetries() {
-                        guard let route = lifecycleCoordinator.orphanedRoute(windowId: retryWindowId),
+                    for retry in lifecycleCoordinator.consumeWindowlessRouteFreezeRetries() {
+                        guard let route = lifecycleCoordinator.orphanedRoute(windowId: retry.windowId),
                               route.window == nil,
                               route.frozenWindowSnapshot == nil else {
                             continue
                         }
-                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(
+                            route,
+                            retryAttempt: retry.attempt
+                        )
                     }
                 }
             )
         }
         let task = Task { @MainActor [weak self] in
-            var shouldRetryWhenWorkerCompletes = false
+            var nextRetryAttempt: Int?
             defer {
                 let workerIsRunning = self?.mainWindowLifecycleCoordinator
                     .isWindowlessRecoveryResumeIndexesWorkerRunning() == true
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
                     token: taskToken,
-                    retryWhenWorkerCompletes: shouldRetryWhenWorkerCompletes && workerIsRunning
+                    retryAttemptWhenWorkerCompletes: workerIsRunning ? nextRetryAttempt : nil
                 )
-                if shouldRetryWhenWorkerCompletes, !workerIsRunning,
+                if let nextRetryAttempt, !workerIsRunning,
                    let self,
                    let currentRoute = self.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId),
                    ObjectIdentifier(currentRoute) == routeIdentity,
                    currentRoute.window == nil,
                    currentRoute.frozenWindowSnapshot == nil {
-                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(currentRoute)
+                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(
+                        currentRoute,
+                        retryAttempt: nextRetryAttempt
+                    )
                 }
+            }
+            if retryAttempt > 0 {
+                // Back off before rescanning so an index that stays incomplete
+                // (an undecodable hook store, a scan slower than its deadline)
+                // cannot drive back-to-back process/filesystem scans.
+                try? await Task.sleep(
+                    for: MainWindowLifecycleCoordinator.windowlessRouteFreezeRetryDelay(
+                        attempt: retryAttempt
+                    )
+                )
             }
             guard !Task.isCancelled else { return }
             guard self?.mainWindowLifecycleCoordinator.orphanedRoute(
@@ -487,11 +504,13 @@ extension AppDelegate {
                 return
             }
             // Windowless teardown is irreversible. A timeout or incomplete
-            // process scan leaves the live route intact for a later retry.
+            // process scan leaves the live route intact for a bounded retry;
+            // once the budget is spent the quit/power-off save owns the route.
             guard let resumeIndexes,
                   resumeIndexes.isFresh,
                   resumeIndexes.restorableAgentIndex.isComplete else {
-                shouldRetryWhenWorkerCompletes = true
+                nextRetryAttempt = MainWindowLifecycleCoordinator
+                    .nextWindowlessRouteFreezeRetryAttempt(after: retryAttempt)
                 return
             }
             guard !Task.isCancelled else { return }
