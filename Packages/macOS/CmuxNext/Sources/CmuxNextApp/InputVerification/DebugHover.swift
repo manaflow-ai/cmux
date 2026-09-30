@@ -10,10 +10,11 @@ import AppKit
 @MainActor
 enum DebugHover {
     private struct Inside {
-        weak var area: NSTrackingArea?
+        weak var owner: NSResponder?
     }
 
-    /// Tracking areas the simulated pointer is in, per window.
+    /// Owners of tracking areas the simulated pointer is in, per window.
+    /// Keyed by owner: views replace their areas in updateTrackingAreas.
     private static var inside: [Int: [ObjectIdentifier: Inside]] = [:]
 
     /// `location` is in window base coordinates. Returns the owners that
@@ -28,8 +29,8 @@ enum DebugHover {
             for area in view.trackingAreas where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
                 let rect = area.options.contains(.inVisibleRect) ? view.visibleRect : area.rect
                 guard let owner = area.owner as? NSResponder, rect.contains(view.convert(location, from: nil)) else { continue }
-                let id = ObjectIdentifier(area)
-                now[id] = Inside(area: area)
+                let id = ObjectIdentifier(owner)
+                now[id] = Inside(owner: owner)
                 if previous[id] == nil, area.options.contains(.mouseEnteredAndExited), let event = crossing(.mouseEntered, location, window) {
                     owner.mouseEntered(with: event)
                     delivered += 1
@@ -43,8 +44,7 @@ enum DebugHover {
         }
         visit(root)
         for (id, entry) in previous where now[id] == nil {
-            guard let area = entry.area, let owner = area.owner as? NSResponder,
-                  let event = crossing(.mouseExited, location, window) else { continue }
+            guard let owner = entry.owner, let event = crossing(.mouseExited, location, window) else { continue }
             owner.mouseExited(with: event)
             delivered += 1
         }
