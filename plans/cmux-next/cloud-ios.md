@@ -669,13 +669,12 @@ resource `local`); it does not reach a Cloud daemon yet.
   re-established by the app on reconnect, and reap and idle clocks restart
   (a close can be late, never early). The script rolls back when the new
   daemon does not serve. The pin and main both use registry schema 15 (the
-  pin adds tables); that a main build opens a registry the pin has written
-  is not tested, so treat the upgrade as one-way.
-- The pin lacks main's 18 cmux-tui commits after `fde44232` (shared terminal
-  sizing, replay resume inside escape sequences, SSH hardening), and main
-  lacks the branch's. Upgrading a machine that legacy Macs also use drops
-  those for them. Converge cmux-tui (merge main's `cmux-tui/` into this
-  branch, then re-pin) before any production machine takes the pin.
+  pin adds tables); both directions open, see 5.5.
+- The main catch-up merge (2026-09-30, main `4d9bec3bc1d`) brought main's
+  cmux-tui commits after `fde44232` (shared terminal sizing, replay resume
+  inside escape sequences, SSH hardening) into this branch, next to the
+  branch's own daemon work, and the pin moves to the merged daemon. A
+  machine upgraded to that pin keeps what legacy Macs on main use.
 - `files.cmux.com` serves binaries with `cf-cache-status: DYNAMIC` (no edge
   cache); on 2026-09-30 a VM fetched the 42 MB musl binary at 6-130 KB/s and
   one run failed with an HTTP/2 stream error (the script left the machine
@@ -708,3 +707,25 @@ app, iOS against a Cloud daemon (iOS reaches only the local daemon; the
 mobile live tests pass against the pinned daemon build). The `cmux` CLI
 compat verbs address only the local daemon, so the compat script cannot
 target a Cloud machine yet.
+
+### 5.5 Registry compatibility after the main catch-up (2026-09-30)
+
+Test: `/tmp`-only state dirs, headless `server ensure`, two workspaces with a
+`/bin/cat` terminal each, `server stop` without `--end-terminals` (terminal
+hosts keep running), then the other build opens the same state. Builds: main
+= files.cmux.com `latest` (`7d246ed`, no cmux-tui change up to main
+`4d9bec3bc1d`); merged = the catch-up daemon (`410efd84c47`).
+
+| Direction | Workspaces (key, name) | Terminals (id) | Hosts adopted, PID alive | Branch-only state |
+| --- | --- | --- | --- | --- |
+| main writes, merged opens | same | same | yes | n/a (`pinned` reads false, `groups` empty) |
+| merged writes, main opens (downgrade) | same | same | yes | n/a |
+| merged with a workspace group and a pinned tab, main opens | same | same | yes | not shown by main (it ignores the tables and fields) |
+| then merged opens again | same | same | yes | group and pin intact |
+
+So a machine can move between main's daemon and the merged daemon in both
+directions without losing workspaces or terminals; branch-only state hides
+under main's daemon and returns after the next upgrade. Not tested: registry
+rows that main's daemon writes while branch-only rows exist (for example a
+workspace main moves into a position a group owns), and a VM's real
+supervisor (the test used `server stop` and `server ensure`).
