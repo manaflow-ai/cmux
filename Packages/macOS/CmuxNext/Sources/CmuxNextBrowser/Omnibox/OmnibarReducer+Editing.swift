@@ -13,7 +13,7 @@ nonisolated extension OmnibarStep {
             guard textChanged else { return }
             beginFocus()
         }
-        if field.text != state.fieldText || field.marked != state.edit.marked && field.marked != nil {
+        if field.text != state.fieldText || kind != nil || field.marked != state.edit.marked && field.marked != nil {
             edit(field, kind ?? .insert)
         } else {
             selectionChanged(field)
