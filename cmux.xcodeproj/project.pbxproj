@@ -3708,6 +3708,8 @@
 		A11E5E1E0000000000000003 /* TerminalSelectionAccessibilityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */; };
 		C75100020000000000000001 /* TerminalSelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100020000000000000002 /* TerminalSelectionTranslation.swift */; };
 		C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */; };
+		8870A1000000000000000001 /* TerminalSharedBackdropCutoutFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8870A1000000000000000002 /* TerminalSharedBackdropCutoutFilter.swift */; };
+		8870A2000000000000000001 /* TerminalSharedBackdropCutoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8870A2000000000000000002 /* TerminalSharedBackdropCutoutView.swift */; };
 		85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */; };
 		91E525AB0D9ABD5F965A5FD7 /* TerminalSSHSessionDetectionTimeoutGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */; };
 		19C3B3B9103CA947118B64FD /* TerminalSSHSessionDetector+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */; };
@@ -3836,6 +3838,7 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
+		77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */; };
 		3AD574FB82F03F846DB54DE1 /* UpdateRelaunchAgentResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */; };
 		ECA7FC852F69AAF9FE972D06 /* UpdateRelaunchBlockersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
@@ -7820,6 +7823,8 @@
 		A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionAccessibilityNotifier.swift; sourceTree = "<group>"; };
 		C75100020000000000000002 /* TerminalSelectionTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslation.swift; sourceTree = "<group>"; };
 		C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslationAnchorView.swift; sourceTree = "<group>"; };
+		8870A1000000000000000002 /* TerminalSharedBackdropCutoutFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSharedBackdropCutoutFilter.swift; sourceTree = "<group>"; };
+		8870A2000000000000000002 /* TerminalSharedBackdropCutoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSharedBackdropCutoutView.swift; sourceTree = "<group>"; };
 		85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalShellResolver+CurrentUser.swift"; sourceTree = "<group>"; };
 		2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetectionTimeoutGate.swift; sourceTree = "<group>"; };
 		7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetector+Async.swift"; sourceTree = "<group>"; };
@@ -7949,6 +7954,7 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
+		2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateRelaunchAgentClassification.swift; sourceTree = "<group>"; };
 		A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchAgentResumeTests.swift"; sourceTree = "<group>"; };
 		8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchBlockersTests.swift"; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
@@ -10553,6 +10559,8 @@
 				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
 				C71500030000000000000001 /* SessionContentWidthPresentation.swift */,
 				C71500050000000000000001 /* TerminalPaneBackgroundView.swift */,
+				8870A1000000000000000002 /* TerminalSharedBackdropCutoutFilter.swift */,
+				8870A2000000000000000002 /* TerminalSharedBackdropCutoutView.swift */,
 				BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */,
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				A5001414 /* BrowserPanelView.swift */,
@@ -11167,6 +11175,7 @@
 				E9E08FF3907FC5F144872BDF /* DeviceDiscoverabilityConfirmation.swift */,
 				4845BF2DCEA4B76EC0EBC410 /* BrowserWindowSlotView+PaneDropOverlay.swift */,
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
+				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15505,6 +15514,8 @@
 				A11E5E1E0000000000000001 /* TerminalSelectionAccessibilityNotifier.swift in Sources */,
 				C75100020000000000000001 /* TerminalSelectionTranslation.swift in Sources */,
 				C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */,
+				8870A1000000000000000001 /* TerminalSharedBackdropCutoutFilter.swift in Sources */,
+				8870A2000000000000000001 /* TerminalSharedBackdropCutoutView.swift in Sources */,
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				91E525AB0D9ABD5F965A5FD7 /* TerminalSSHSessionDetectionTimeoutGate.swift in Sources */,
 				19C3B3B9103CA947118B64FD /* TerminalSSHSessionDetector+Async.swift in Sources */,
@@ -15595,6 +15606,7 @@
 				197D3DA9292D64327F43E992 /* UITestSocketCommandScript.swift in Sources */,
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
+				77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,

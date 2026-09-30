@@ -341,7 +341,9 @@
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
     "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム"
+    "otherPlatforms": "その他のプラットフォーム",
+    "copyCode": "コードをコピー",
+    "copied": "コピーしました"
   },
   "dashboard": {
     "nav": {
@@ -2720,7 +2722,6 @@
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z).",
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
       "chordsTitle": "ショートカットコード",
@@ -3765,6 +3766,28 @@
       "fixTransferDisabled": "管理ポリシーでファイル転送がオフになっています。管理者に問い合わせてください。",
       "supportTitle": "サポート",
       "supportDesc": "作成に失敗した場合は、通知の「エラーをコピー」を使い、トレースIDがあればそれも含めてサポートに連絡してください。"
+    },
+    "ui": {
+      "onThisPage": "このページの内容",
+      "copyPage": "ページをコピー",
+      "copyPageDesc": "LLM 向けに Markdown としてコピー",
+      "copied": "コピーしました",
+      "pageActions": "その他のページ操作",
+      "openInChatGPT": "ChatGPT で開く",
+      "openInClaude": "Claude で開く",
+      "openInDesc": "このページについて質問する",
+      "askPrompt": "{url} を読んで、内容について質問に答えてください。",
+      "previous": "前へ",
+      "next": "次へ",
+      "helpful": "このページは役に立ちましたか？",
+      "yes": "はい",
+      "no": "いいえ",
+      "thanks": "フィードバックありがとうございます。",
+      "raiseIssue": "Issue を作成",
+      "openNavigation": "ナビゲーションを開く",
+      "closeNavigation": "ナビゲーションを閉じる",
+      "searchShortcut": "ドキュメントを検索 (⌘K)",
+      "navigation": "ドキュメント"
     }
   },
   "legal": {
