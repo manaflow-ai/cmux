@@ -246,7 +246,7 @@ export async function POST(request: Request): Promise<Response> {
   // turn an authenticated create into an unbounded database health check.
   void databaseWarmup;
   const connectionInitDuration = freestyleWarmup.then(
-    () => performance.now() - warmupStartedAt,
+    () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
   );
   return withAuthedVmApiRoute(
     request,
@@ -283,7 +283,8 @@ export async function POST(request: Request): Promise<Response> {
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
 
-      timing.record("connection_init", await connectionInitDuration);
+      const connectionInit = await connectionInitDuration;
+      timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
       // Admission starts after connection readiness. Its budget describes only
       // request validation; the durable begin_create phase is recorded inside
       // the workflow and remains a separate authoritative boundary.

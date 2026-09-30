@@ -193,9 +193,10 @@ export type FreestylePreconnectOptions = {
 type FreestyleWarmupState = { promise?: Promise<void>; succeeded?: boolean; succeededAtMs?: number };
 
 const freestyleWarmupStates = new WeakMap<object, Map<string, FreestyleWarmupState>>();
-// Keep a successful probe only for the provider's normal idle-pool window;
-// after a longer suspension the next Cloud request probes again.
-const FREESTYLE_WARMUP_REUSE_MS = 30_000;
+// Undici's default global-fetch idle pool expires around four seconds. Keep a
+// successful probe for less than that, so an idle Cloud path probes again
+// before the next provider call rather than trusting a closed socket.
+const FREESTYLE_WARMUP_REUSE_MS = 3_000;
 const FREESTYLE_CLIENT_CACHE_LIMIT = 8;
 
 const globalForFreestyle = globalThis as typeof globalThis & {

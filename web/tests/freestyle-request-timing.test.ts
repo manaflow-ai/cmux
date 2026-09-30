@@ -40,7 +40,7 @@ describe("Freestyle enrollment request timings", () => {
     }) as typeof globalThis.fetch;
     const options = { baseUrl: "https://provider-idle.example.test", fetch, now: () => now };
     await preconnectFreestyle(options);
-    now = 30_001;
+    now = 3_001;
     await preconnectFreestyle(options);
     expect(calls).toBe(2);
   });
