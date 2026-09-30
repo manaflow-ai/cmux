@@ -11,7 +11,7 @@ import CmuxSettings
 
 /// Remote-tmux behavior tests using pure seams and cached, unstarted connections.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 struct RemoteTmuxMirrorTargetingTests {
     private func session(_ name: String, id: String? = nil) -> RemoteTmuxSession {
         RemoteTmuxSession(

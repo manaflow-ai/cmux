@@ -106,6 +106,7 @@ APP_HOST_CONSUMER_PATHS = (
     "scripts/ci/prepare-app-host-home.sh",
     "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/require_selected_test_execution.sh",
+    "scripts/ci/reset-app-defaults.sh",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/run-app-host-unit-batches.sh",

@@ -12,7 +12,7 @@ import Testing
 
 /// Replays the UI fuzzer's repro for #15346 in-process: a fresh window showing both
 /// side panels, resized to 320x360, used to leave the terminal area 0 pt wide.
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 @MainActor
 struct NarrowWindowSidePanelFitTests {
     /// `repro.json` from the issue, verbatim.

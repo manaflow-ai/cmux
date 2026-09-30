@@ -13,7 +13,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 struct RemoteTmuxNotificationLifecycleTests {
     @MainActor
     private final class RecordingFileOpener: FileOpening {

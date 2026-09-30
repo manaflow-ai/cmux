@@ -370,6 +370,11 @@ run_browser_find_focus() {
 }
 
 enable_xctest_automation_mode
+# Each regression starts from the app's defaults, not what earlier runs on this
+# Mac saved (reset-app-defaults.sh); the browser regression must not open its
+# window the way the resolution churn left it.
+scripts/ci/reset-app-defaults.sh "$CMUX_DERIVED_DATA_PATH"
 run_display_resolution_churn
 create_persistent_display
+scripts/ci/reset-app-defaults.sh "$CMUX_DERIVED_DATA_PATH"
 run_browser_find_focus

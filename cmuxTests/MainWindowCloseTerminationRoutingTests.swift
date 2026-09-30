@@ -112,7 +112,7 @@ private func drainDeferredTerminate() {
 }
 
 @MainActor
-@Suite("Main window close termination routing", .serialized)
+@Suite("Main window close termination routing", .serialized, .isolatedMainWindowDefaults)
 struct MainWindowCloseTerminationRoutingTests {
     @Test("Stale disposable close callback cannot terminate the surviving window")
     func staleDisposableCloseCallbackCannotTerminateSurvivor() throws {

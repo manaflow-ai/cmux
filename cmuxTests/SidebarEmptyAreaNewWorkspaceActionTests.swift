@@ -15,7 +15,7 @@ import Testing
 /// workspace after the last row, outside any workspace group.
 /// https://github.com/manaflow-ai/cmux/issues/10043
 @MainActor
-@Suite("Sidebar empty-area new workspace action", .serialized)
+@Suite("Sidebar empty-area new workspace action", .serialized, .isolatedMainWindowDefaults)
 struct SidebarEmptyAreaNewWorkspaceActionTests {
     @Test func emptyAreaDoubleClickAppliesConfiguredNewWorkspaceLayout() throws {
         let appDelegate = try #require(AppDelegate.shared)

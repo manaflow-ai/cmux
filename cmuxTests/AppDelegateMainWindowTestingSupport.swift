@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import Testing
@@ -298,7 +299,9 @@ final class KeyStatusTestWindow: NSWindow {
 
 /// The cmuxTests bundle's NSPrincipalClass. XCTest creates it when the bundle
 /// loads, before the first test, and it restores `AppDelegate.shared` after
-/// every XCTest case.
+/// every XCTest case. Each case also runs under
+/// `MainWindowDefaultsIsolation`, so it neither opens its windows the way an
+/// earlier test left them nor leaves its own for a later one.
 ///
 /// `AppDelegate.init` installs the new delegate as `shared`, and hundreds of
 /// tests build a throwaway delegate without restoring the host's. Whichever
@@ -321,9 +324,11 @@ final class CmuxTestsPrincipal: NSObject, XCTestObservation {
 
     func testCaseWillStart(_ testCase: XCTestCase) {
         sharedAtStart = AppDelegate.shared
+        MainWindowDefaultsIsolation.begin()
     }
 
     func testCaseDidFinish(_ testCase: XCTestCase) {
+        MainWindowDefaultsIsolation.end()
         if AppDelegate.shared !== sharedAtStart {
             AppDelegate.shared = sharedAtStart
             if let sharedAtStart {
@@ -367,4 +372,121 @@ struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == ExclusiveAppContextTrait {
     static var exclusiveAppContext: Self { Self() }
+}
+
+/// Keeps the main-window state one test leaves behind out of the next test.
+///
+/// A new main window takes its size from the last window closed (the saved
+/// geometry) when no source window is open, and its right sidebar's
+/// visibility, width and mode from the last values any window saved. Tests
+/// share one defaults domain, so a test that narrowed a window or showed the
+/// right sidebar set up every later test's windows in the same app host:
+/// `AppDelegateShortcutRoutingTests` closes a 560 pt wide window, which leaves
+/// a 320 pt terminal area beside the 240 pt sidebar. Split admission (#15392)
+/// refuses a split that would leave a pane narrower than 160 pt, so the splits
+/// of whichever tests ran next failed (#15488).
+///
+/// A test runs with none of these values saved, so its windows open the way a
+/// fresh app opens them, and the saved values are put back when it ends, so its
+/// own windows' state does not outlive it. XCTest cases get this from
+/// `CmuxTestsPrincipal`; a Swift Testing suite that opens main windows takes
+/// `.isolatedMainWindowDefaults`.
+enum MainWindowDefaultsIsolation {
+    static var keys: [String] {
+        [
+            AppDelegate.debugPersistedWindowGeometryDefaultsKey,
+            "fileExplorer.isVisible",
+            "fileExplorer.width",
+            "rightSidebar.mode",
+        ]
+    }
+
+    static let standard = DefaultsKeyIsolation(keys: keys, defaults: .standard)
+
+    static func begin() { standard.begin() }
+    static func end() { standard.end() }
+}
+
+/// Clears `keys` while a scope is open and puts back the values they had when
+/// the outermost scope began. It writes only keys whose value differs: every
+/// write, even of an identical value or of an absent key, posts
+/// `UserDefaults.didChangeNotification` to every defaults observer in the
+/// process (`UserDefaults+ChangeOnlyWrites.swift`), and this runs around every
+/// test.
+final class DefaultsKeyIsolation: @unchecked Sendable {
+    private let keys: [String]
+    private let defaults: UserDefaults
+    private let lock = NSLock()
+    private var depth = 0
+    private var saved: [String: Any] = [:]
+
+    init(keys: [String], defaults: UserDefaults) {
+        self.keys = keys
+        self.defaults = defaults
+    }
+
+    func begin() {
+        lock.lock()
+        defer { lock.unlock() }
+        if depth == 0 {
+            saved = [:]
+            for key in keys {
+                saved[key] = defaults.object(forKey: key)
+            }
+        }
+        depth += 1
+        for key in keys {
+            defaults.removeObjectIfPresent(forKey: key)
+        }
+    }
+
+    func end() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard depth > 0 else { return }
+        depth -= 1
+        guard depth == 0 else { return }
+        for key in keys {
+            if let value = saved[key] as? NSObject {
+                if (defaults.object(forKey: key) as? NSObject)?.isEqual(value) != true {
+                    defaults.set(value, forKey: key)
+                }
+            } else {
+                defaults.removeObjectIfPresent(forKey: key)
+            }
+        }
+        saved = [:]
+    }
+}
+
+/// `MainWindowDefaultsIsolation` around each test of a Swift Testing suite
+/// that opens main windows.
+struct IsolatedMainWindowDefaultsTrait: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func scopeProvider(for test: Test, testCase: Test.Case?) -> Self? {
+        testCase == nil ? nil : self
+    }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        // A defaults write waits for observers registered on the main queue.
+        // Writing from a background thread while holding the isolation lock
+        // could wait on a main thread that is waiting for that lock.
+        await MainActor.run { MainWindowDefaultsIsolation.begin() }
+        do {
+            try await function()
+        } catch {
+            await MainActor.run { MainWindowDefaultsIsolation.end() }
+            throw error
+        }
+        await MainActor.run { MainWindowDefaultsIsolation.end() }
+    }
+}
+
+extension Trait where Self == IsolatedMainWindowDefaultsTrait {
+    static var isolatedMainWindowDefaults: Self { Self() }
 }

@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized)
+@Suite(.serialized, .isolatedMainWindowDefaults)
 @MainActor
 struct AppDelegateFullScreenFrameRestoreTests {
     @Test(.enabled(
