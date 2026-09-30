@@ -168,6 +168,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_build_metrics.py
 
+      - name: Validate fleet compiler-cache wiring
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: bash tests/test_ci_fleet_compilation_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_lint_feature_flags_scope.py
@@ -533,6 +537,14 @@ jobs:
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_simple_pool_picker.py
+
+      - name: Validate manual dispatch routing guard
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_manual_dispatch_guard_workflow.py
+
+      - name: Validate manual dispatch guard decisions
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_manual_dispatch_guard.py
 
       - name: Validate delta CI from the last green head
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -973,6 +985,10 @@ jobs:
       - name: Validate the Homebrew cask update gate
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
+
+      - name: Validate the Homebrew cask update keeps run metadata out of scripts
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_homebrew_untrusted_input.py
 
       - name: Validate universal GhosttyKit and Release build settings
         if: ${{ matrix.group == 'release-notary' }}

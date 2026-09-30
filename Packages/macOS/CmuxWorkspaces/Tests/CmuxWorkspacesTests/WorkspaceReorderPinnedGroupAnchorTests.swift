@@ -28,10 +28,8 @@ struct WorkspaceReorderPinnedGroupAnchorTests {
 
         let member = CoordinatorStubTab()
         model.tabs = [member]
-        let groupId = try #require(groups.createWorkspaceGroup(
-            name: "Pinned",
-            childWorkspaceIds: [member.id]
-        ))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned"))
+        groups.addWorkspaceToGroup(workspaceId: member.id, groupId: groupId)
         let anchorId = try #require(
             model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
         )

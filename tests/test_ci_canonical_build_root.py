@@ -193,6 +193,18 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
 
+    def test_runtime_source_alias_can_use_a_stable_root_without_taking_the_build_root(self):
+        runtime_root = self.base / "stable-source"
+        result = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root),
+                 "CMUX_CI_RUNTIME_SOURCE_ROOT": str(runtime_root)},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((runtime_root / "src/sub/keep.txt").read_text(), "keep")
+        self.assertFalse((self.root / "src").exists())
+
     def test_the_canonical_source_is_a_real_directory_not_a_symlink(self):
         # A symlink resolves back to the pool-specific path, which would make
         # the shared key claim a match the compiler does not honour.

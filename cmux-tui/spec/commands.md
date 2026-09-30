@@ -413,6 +413,7 @@ Params:
 | `display_name` | `string` | default unchanged | Shared sizing identity; defaults to `name` |
 | `device_kind` | `string` | default unchanged | `mac`, `iphone`, `ipad`, `tui`, `browser`; anything else is `unknown`; defaults to `kind` |
 | `device_name` | `string` | default unchanged | Shared sizing identity |
+| `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
 
 Identity fields are clamped like `name`. A connection that sends
 `shared-sizing-v1` in `capabilities` receives `size-state` events on its
@@ -676,7 +677,13 @@ Ends a control connection. Every attached surface receives its `detached` event 
 `client` may also be a shared-sizing participant id from `size-state`. A
 relay sub-view id (`c<client>/<view>`) detaches only that sub-view: the relay
 stays connected and receives `detached {surface, reason:"disconnected-by", by,
-view}` on its attach stream for that surface to forward to the leaf.
+view}` on its attach stream for that surface to forward to the leaf. The own
+view of a client that sent `sizing-view-detach-v1` in `set-client-info`
+detaches only that view: the client stays connected with its attachments and
+relay sub-views, its view stops counting toward the grid, and it receives
+`detached {surface, reason:"disconnected-by", by, scope:"view"}`.
+`reattach-view` restores it. Participant ids are per terminal, so `surface`
+resolves `client` on that terminal only.
 
 Params:
 
@@ -684,6 +691,7 @@ Params:
 | --- | --- | --- | --- |
 | `client` | `uint64` or `string` | required | Client id from `list-clients`, or a participant id |
 | `by` | `object{user_id?,display_name?,device_name?}` | default: the requester's identity | Actor shown to the detached viewer; asserted, not verified |
+| `surface` | `Id` | optional | Resolves a participant id on this terminal only |
 
 Result: `object{}`.
 
@@ -2711,7 +2719,7 @@ object{accepted:bool,reservation_id:uint64|null,outcome:"applied"|"passive"|"sup
 With `shared-sizing-v1`, `view:string` (1-128 printable characters, for
 example `mobile:<client_id>`) replaces `lease` and creates or updates a relay
 sub-view keyed by this connection and `view`, with optional
-`identity:object{user_id?,display_name?,device_kind?,device_name?}`. An
+`identity:object{user_id?,display_name?,device_kind?,device_name?,device_id?}`. An
 omitted `identity` keeps the previous one. The connection must be attached to
 the terminal. Its result adds `participant:string`, the host participant id
 (`c<client>/<view>`); `accepted` is whether the sub-view now sets a dimension
@@ -2833,6 +2841,31 @@ participant <id>`, and a capability error for a client without
 ```json
 {"id":9,"cmd":"note-size-activity","surface":4,"view":"mobile:p1"}
 {"id":9,"ok":true,"data":{"participant":"c3/mobile:p1","changed":true}}
+```
+
+### reattach-view
+
+| Field | Value |
+| --- | --- |
+| name | `reattach-view` |
+| status | implemented |
+| since | protocol 12 with `sizing-view-detach-v1` |
+
+Restores the caller's own view of a terminal after `detach-client` detached
+that view only (`detached` with `scope:"view"`). The view rejoins shared
+sizing with its latest report. `counts:false` reattaches it as a viewer that
+does not count toward the grid; `counts:true` makes it count; omitted keeps
+the automatic rule.
+
+Params: required `surface:Id`, optional `counts:bool`.
+
+Result: `object{participant:string,state:object}` with the view's participant
+id and the terminal's size state. Errors: `view of surface <id> is not
+detached`, `surface <id> is not a terminal`.
+
+```json
+{"id":10,"cmd":"reattach-view","surface":4,"counts":false}
+{"id":10,"ok":true,"data":{"participant":"c3","state":{"surface":4,"generation":7}}}
 ```
 
 ### get-size-state
