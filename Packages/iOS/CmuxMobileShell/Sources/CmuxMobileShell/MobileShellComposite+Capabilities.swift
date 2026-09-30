@@ -62,6 +62,10 @@ extension MobileShellComposite {
 
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac accepts terminal close requests from the mobile tab overview.
+    public var supportsTerminalCloseActions: Bool {
+        supportedHostCapabilities.contains(Self.terminalCloseCapability)
+    }
     /// Whether the Mac supports workspace move/reorder requests.
     public var supportsWorkspaceMoveActions: Bool { supportedHostCapabilities.contains(Self.workspaceMoveCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports workspace group mutation requests.

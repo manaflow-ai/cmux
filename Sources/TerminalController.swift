@@ -14931,7 +14931,7 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
-        case "mobile.terminal.close":
+        case "mobile.terminal.close", "terminal.close":
             result = v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.rename":
             result = v2MobileTerminalRename(params: request.params)

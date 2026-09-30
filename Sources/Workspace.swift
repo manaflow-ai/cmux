@@ -2849,6 +2849,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    /// Emits when shell activity changes the closeability of a terminal.
+    let panelShellActivityStatePublisher = PassthroughSubject<Void, Never>()
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -3235,7 +3237,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// surface-registry sub-model.
     var panelShellActivityStates: [UUID: PanelShellActivityState] {
         get { surfaceRegistry.panelShellActivityStates }
-        set { surfaceRegistry.panelShellActivityStates = newValue }
+        set {
+            let oldValue = surfaceRegistry.panelShellActivityStates
+            surfaceRegistry.panelShellActivityStates = newValue
+            if oldValue != newValue {
+                panelShellActivityStatePublisher.send(())
+            }
+        }
     }
     /// Per-panel admission state preventing restored PTY startup noise from
     /// taking ownership of the persisted title.
@@ -6397,6 +6405,32 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
         return panel.isDirty
+    }
+
+    /// Whether a mobile tab overview can close a panel without presenting a
+    /// confirmation dialog. The phone has no way to host the Mac's close
+    /// confirmation, so it only receives an affordance when the same policy
+    /// used by the tab-close button is already clear.
+    func canClosePanelWithoutPrompt(
+        panelId: UUID,
+        source: CloseTabCloseSource = .tabCloseButton
+    ) -> Bool {
+        guard !isPanelPinned(panelId) else { return false }
+        let closePolicy = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+        guard source != .tabCloseButton || !closePolicy.hidesTabCloseButton else {
+            return false
+        }
+        if isRemoteTmuxMirror,
+           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+           remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId) {
+            // Remote mirror closes can require a live tmux activity query and
+            // confirmation, neither of which can be completed by this RPC.
+            return false
+        }
+        return !closePolicy.shouldConfirmClose(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: source
+        )
     }
 
     /// Applies sidebar Git branch state unless the panel belongs to a Cloud machine.

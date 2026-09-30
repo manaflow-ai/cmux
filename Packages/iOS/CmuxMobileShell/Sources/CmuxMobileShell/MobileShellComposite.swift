@@ -129,6 +129,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceMetadataCapability = "workspace.metadata.v1"
     static let workspaceReadStateCapability = "workspace.read_state.v1"
     static let workspaceCloseCapability = "workspace.close.v1"
+    static let terminalCloseCapability = "terminal.close.v1"
     static let workspaceMoveCapability = "workspace.move.v1"
     static let workspaceMutationAccountAuthCapability = "workspace.mutations.account_auth.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
@@ -421,6 +422,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             workspaceTopologyVersion &+= 1
             prunePendingAttachmentsForMissingTerminals()
+            pruneTerminalOverviewPreviewCacheForLiveTerminals()
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -1166,6 +1168,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
+
+    func runtimeNow() -> Date {
+        runtime?.now() ?? Date()
+    }
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -1702,6 +1708,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    var terminalOverviewPreviewLinesByID: [MobileTerminalPreview.ID: [String]] = [:]
+    var terminalOverviewPreviewUpdatedAtByID: [MobileTerminalPreview.ID: Date] = [:]
+    @ObservationIgnored var terminalCloseRequestGeneration = 0
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -2828,6 +2837,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
+        supportedHostCapabilities = [Self.terminalCloseCapability]
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return false }
         connectionState = .connected
@@ -8862,7 +8872,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminals: [
                 MobileTerminalPreview(
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
-                    name: L10n.terminalName(index: 1)
+                    name: L10n.terminalName(index: 1),
+                    canClose: true
                 ),
             ]
         )
@@ -8924,7 +8935,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let terminalIndex = workspace.terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex)
+            name: L10n.terminalName(index: terminalIndex),
+            canClose: true
         )
         mutateForegroundWorkspaces { list in
             if let index = list.firstIndex(where: { $0.id == targetWorkspaceID }) {

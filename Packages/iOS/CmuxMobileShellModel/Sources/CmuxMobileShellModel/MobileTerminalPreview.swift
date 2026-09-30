@@ -2,8 +2,8 @@ import Foundation
 
 /// A lightweight, `Sendable` snapshot of a single terminal inside a workspace.
 ///
-/// Carries the terminal identity, display name, readiness/focus flags, and the
-/// optional viewport-fit geometry the UI uses to draw the visible-area borders.
+/// Carries the terminal identity, display name, readiness/focus/close flags, and
+/// the optional viewport-fit geometry the UI uses to draw the visible-area borders.
 public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     /// A stable, string-backed identifier for a ``MobileTerminalPreview``.
     public struct ID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
@@ -33,6 +33,8 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public var isReady: Bool
     /// Whether the terminal currently holds focus in the shell.
     public var isFocused: Bool
+    /// Whether the Mac will accept a non-interactive close request for this terminal.
+    public var canClose: Bool
     /// The negotiated viewport fit, when the remote has reported one.
     public var viewportFit: MobileTerminalViewportFit?
 
@@ -42,6 +44,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     ///   - name: The terminal's user-facing display name.
     ///   - isReady: Whether the terminal surface is ready. Defaults to `true`.
     ///   - isFocused: Whether the terminal currently holds focus. Defaults to `false`.
+    ///   - canClose: Whether a non-interactive close request is allowed. Defaults to `false`.
     ///   - viewportFit: The negotiated viewport fit, if any. Defaults to `nil`.
     public init(
         id: ID,
@@ -49,6 +52,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
         currentDirectory: String? = nil,
         isReady: Bool = true,
         isFocused: Bool = false,
+        canClose: Bool = false,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
@@ -56,6 +60,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
         self.currentDirectory = currentDirectory
         self.isReady = isReady
         self.isFocused = isFocused
+        self.canClose = canClose
         self.viewportFit = viewportFit
     }
 }

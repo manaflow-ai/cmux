@@ -436,6 +436,7 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        let hadOutputSink = hasTerminalOutputSink(surfaceID: surfaceID)
         let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
         recordTerminalTheme(frame)
         let deliveryFrame: MobileTerminalRenderGridFrame
@@ -453,7 +454,7 @@ extension MobileShellComposite {
         }
         // Capture admission before continuity advances; queued deltas retain it.
         let requiresVerifiedReplay = requiresVerifiedReplayApplication(for: deliveryFrame)
-        return deliverTerminalOutput(
+        let delivered = deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: deliveryFrame,
                 replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
@@ -463,6 +464,17 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
         )
+        // A full frame received before a surface mounts still makes a useful
+        // overview thumbnail. Once a sink exists, only cache frames admitted
+        // to that sink so replay-barrier drops and queue overflows cannot
+        // replace the last accepted preview.
+        if frame.full && (delivered || !hadOutputSink) {
+            let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+            terminalOverviewPreviewLinesByID[terminalID] =
+                Self.terminalOverviewPreviewLines(from: frame)
+            terminalOverviewPreviewUpdatedAtByID[terminalID] = runtimeNow()
+        }
+        return delivered
     }
 
     @discardableResult

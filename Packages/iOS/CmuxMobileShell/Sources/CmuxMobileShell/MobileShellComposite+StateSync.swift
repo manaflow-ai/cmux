@@ -389,7 +389,8 @@ extension MobileShellComposite {
                         title: terminal.title,
                         currentDirectory: terminal.currentDirectory,
                         isFocused: terminal.isFocused,
-                        isReady: terminal.isReady
+                        isReady: terminal.isReady,
+                        canClose: terminal.canClose
                     )
                 },
                 surfaces: record.surfaces?.map { surface in

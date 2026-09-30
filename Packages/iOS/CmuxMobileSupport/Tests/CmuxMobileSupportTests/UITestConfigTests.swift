@@ -383,6 +383,16 @@ import Testing
         ]))
     }
 
+    @Test func terminalOverviewPreviewFlagRequiresOne() {
+        #expect(UITestConfig.terminalOverviewPreviewEnabled(from: [
+            "CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW": "1",
+        ]) == true)
+        #expect(UITestConfig.terminalOverviewPreviewEnabled(from: [
+            "CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW": "0",
+        ]) == false)
+        #expect(UITestConfig.terminalOverviewPreviewEnabled(from: [:]) == false)
+    }
+
     #if DEBUG
     @Test func pairingScannerPreviewFlagCanBeEnabled() {
         let env = ["CMUX_UITEST_SCANNER_PREVIEW": "1"]

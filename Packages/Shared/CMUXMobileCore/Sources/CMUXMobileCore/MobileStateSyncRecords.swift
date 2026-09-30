@@ -104,6 +104,9 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let agentSource: String?
         /// That agent's current status text, when one is attached.
         public let agentState: String?
+        /// Whether the Mac accepts a non-interactive mobile close request.
+        /// Older state-sync records decode this as `false` for safety.
+        public let canClose: Bool
 
         /// Creates a terminal row from its wire fields.
         public init(
@@ -113,7 +116,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             isReady: Bool,
             isFocused: Bool,
             agentSource: String? = nil,
-            agentState: String? = nil
+            agentState: String? = nil,
+            canClose: Bool = false
         ) {
             self.id = id
             self.title = title
@@ -122,6 +126,19 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             self.isFocused = isFocused
             self.agentSource = agentSource
             self.agentState = agentState
+            self.canClose = canClose
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isReady = try container.decode(Bool.self, forKey: .isReady)
+            isFocused = try container.decode(Bool.self, forKey: .isFocused)
+            agentSource = try container.decodeIfPresent(String.self, forKey: .agentSource)
+            agentState = try container.decodeIfPresent(String.self, forKey: .agentState)
+            canClose = try container.decodeIfPresent(Bool.self, forKey: .canClose) ?? false
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -132,6 +149,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             case isFocused = "is_focused"
             case agentSource = "agent_source"
             case agentState = "agent_state"
+            case canClose = "can_close"
         }
     }
 

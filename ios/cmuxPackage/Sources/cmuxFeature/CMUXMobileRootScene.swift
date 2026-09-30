@@ -399,6 +399,10 @@ public struct CMUXMobileRootScene: View {
             MobileWhatsNewPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
+        } else if UITestConfig.terminalOverviewPreviewEnabled {
+            CMUXMobilePreviewShellView(
+                store: MobileShellComposite.terminalOverviewPreviewHarnessStore()
+            )
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {

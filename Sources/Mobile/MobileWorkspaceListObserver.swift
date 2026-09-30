@@ -336,6 +336,11 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // A terminal's pinned state changes whether the iOS tab overview
+                // may show its close affordance, even when the panel set is
+                // unchanged.
+                workspace.$pinnedPanelIds.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelShellActivityStatePublisher.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
@@ -511,6 +516,16 @@ final class MobileWorkspaceListObserver {
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
             hasher.combine(panelIDs)
+            let terminalPanelIDs = panelIDs.filter { workspace.terminalPanel(for: $0) != nil }
+            hasher.combine(terminalPanelIDs.count)
+            for id in terminalPanelIDs {
+                hasher.combine(
+                    workspace.canClosePanelWithoutPrompt(
+                        panelId: id,
+                        source: .tabCloseButton
+                    )
+                )
+            }
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))

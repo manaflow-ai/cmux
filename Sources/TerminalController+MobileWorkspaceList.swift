@@ -222,7 +222,9 @@ extension TerminalController {
         descriptionBudget: inout Int,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
+        let terminalPanels = mobileTerminalPanels(in: workspace)
+        let terminalCount = terminalPanels.count
+        let terminals = terminalPanels.compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
@@ -237,6 +239,10 @@ extension TerminalController {
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id),
+                "can_close": terminalCount > 1 && workspace.canClosePanelWithoutPrompt(
+                    panelId: terminal.id,
+                    source: .tabCloseButton
+                ),
                 "agent_source": v2OrNull(agent?.source),
                 "agent_state": v2OrNull(agent?.state)
             ]

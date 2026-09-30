@@ -13,9 +13,9 @@ public struct PreviewMobileHost {
             id: "workspace-main",
             name: "cmux",
             terminals: [
-                MobileTerminalPreview(id: "terminal-build", name: "Build"),
-                MobileTerminalPreview(id: "terminal-agent", name: "Agent"),
-                MobileTerminalPreview(id: "terminal-tui", name: "TUI"),
+                MobileTerminalPreview(id: "terminal-build", name: "Build", canClose: true),
+                MobileTerminalPreview(id: "terminal-agent", name: "Agent", canClose: true),
+                MobileTerminalPreview(id: "terminal-tui", name: "TUI", canClose: true),
             ]
         ),
         MobileWorkspacePreview(

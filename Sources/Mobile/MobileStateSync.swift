@@ -191,7 +191,9 @@ final class MobileStateSyncHost {
         notificationStore: TerminalNotificationStore?,
         descriptionBudget: inout Int
     ) -> WorkspaceSyncRecord {
-        let terminals = controller.mobileTerminalPanels(in: workspace).map { terminal -> WorkspaceSyncRecord.Terminal in
+        let terminalPanels = controller.mobileTerminalPanels(in: workspace)
+        let terminalCount = terminalPanels.count
+        let terminals = terminalPanels.map { terminal -> WorkspaceSyncRecord.Terminal in
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
                 localFallback: controller.mobileNonEmpty(terminal.directory)
@@ -205,7 +207,11 @@ final class MobileStateSyncHost {
                 isReady: terminal.surface.surface != nil,
                 isFocused: workspace.isFocusedTerminalInputSurface(terminal.id),
                 agentSource: agent?.source,
-                agentState: agent?.state
+                agentState: agent?.state,
+                canClose: terminalCount > 1 && workspace.canClosePanelWithoutPrompt(
+                    panelId: terminal.id,
+                    source: .tabCloseButton
+                )
             )
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()

@@ -69,7 +69,8 @@ extension MobileTerminalPreview {
             name: remote.title,
             currentDirectory: remote.currentDirectory,
             isReady: remote.isReady ?? true,
-            isFocused: remote.isFocused
+            isFocused: remote.isFocused,
+            canClose: remote.canClose ?? false
         )
     }
 }

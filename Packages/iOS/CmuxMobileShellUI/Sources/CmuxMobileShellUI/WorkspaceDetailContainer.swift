@@ -38,6 +38,16 @@ struct WorkspaceDetailContainer: View {
         return store.selectedWorkspace
     }
 
+    private func closeTerminalClosure(
+        workspace: MobileWorkspacePreview
+    ) -> ((MobileTerminalPreview.ID) -> Void)? {
+        guard store.supportsTerminalCloseActions(in: workspace.id) else { return nil }
+        let store = store
+        return { terminalID in
+            Task { await store.closeTerminal(id: terminalID, in: workspace.id) }
+        }
+    }
+
     var body: some View {
         Group {
             if let workspace {
@@ -54,6 +64,7 @@ struct WorkspaceDetailContainer: View {
                         ? customizeWorkspace : nil,
                     setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
                     closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
+                    closeTerminal: closeTerminalClosure(workspace: workspace),
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,

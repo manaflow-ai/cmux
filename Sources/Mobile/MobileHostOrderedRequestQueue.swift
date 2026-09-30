@@ -26,7 +26,7 @@ struct MobileHostOrderedRequestQueue {
 }
 
 extension MobileHostRPCRequest {
-    /// Whether this request can write terminal input and must therefore be
+    /// Whether this request writes or closes a terminal and must therefore be
     /// handled in arrival order rather than on a concurrent response task.
     /// paste_image belongs here because its handler writes the materialized
     /// image path into the PTY; scroll and mouse belong here because their
@@ -38,7 +38,8 @@ extension MobileHostRPCRequest {
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.scroll", "terminal.scroll",
-             "mobile.terminal.mouse", "terminal.mouse":
+             "mobile.terminal.mouse", "terminal.mouse",
+             "mobile.terminal.close", "terminal.close":
             true
         default:
             false
@@ -51,7 +52,6 @@ extension MobileHostRPCRequest {
     /// happens to be focused.
     var mustNameItsTerminal: Bool {
         isOrderedTerminalInput
-            || method == "mobile.terminal.close"
             || method == "mobile.terminal.rename"
     }
 

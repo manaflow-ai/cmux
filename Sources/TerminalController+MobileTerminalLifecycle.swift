@@ -23,6 +23,19 @@ extension TerminalController {
         }
         let workspace = resolved.workspace
         let surfaceID = resolved.surfaceID
+        guard workspace.canClosePanelWithoutPrompt(
+            panelId: surfaceID,
+            source: .tabCloseButton
+        ) else {
+            return .err(
+                code: "protected",
+                message: String(
+                    localized: "devices.host.closeRequiresConfirmation",
+                    defaultValue: "This terminal cannot be closed without confirmation"
+                ),
+                data: ["surface_id": surfaceID.uuidString]
+            )
+        }
         var resolution: ControlSurfaceCloseResolution = .closeFailed(surfaceID)
         v2MainSync {
             resolution = controlSurfaceClose(

@@ -59,6 +59,20 @@ public struct L10n {
         return String(format: string("mobile.workspace.terminalCountFormat.other", defaultValue: "%d terminals"), count)
     }
 
+    /// A localized tab count label for the terminal overview.
+    ///
+    /// - Parameter count: The number of terminal tabs in the overview.
+    /// - Returns: The localized count phrase.
+    public static func terminalOverviewTabCount(_ count: Int) -> String {
+        if count == 1 {
+            return string("mobile.terminal.overview.tabCount.one", defaultValue: "1 Tab")
+        }
+        return String(
+            format: string("mobile.terminal.overview.tabCount.other", defaultValue: "%d Tabs"),
+            count
+        )
+    }
+
     /// A localized "N workspaces" count label with singular/plural handling, for
     /// the device tree's per-build workspace summary.
     ///

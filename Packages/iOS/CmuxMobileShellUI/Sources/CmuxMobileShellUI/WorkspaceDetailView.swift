@@ -42,6 +42,9 @@ struct WorkspaceDetailView: View {
     /// Close this workspace on the Mac. When `nil`, the close affordance is
     /// hidden from the top-bar menu, matching the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    /// Close one terminal from the tab overview. When `nil`, the Mac has not
+    /// negotiated the terminal-close capability and overview cards stay safe.
+    var closeTerminal: ((MobileTerminalPreview.ID) -> Void)? = nil
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -70,6 +73,8 @@ struct WorkspaceDetailView: View {
     /// is requested.
     @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
+    /// Drives the Safari-style terminal tab overview.
+    @State private var isTabOverviewPresented = UITestConfig.terminalOverviewPreviewEnabled
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
@@ -244,6 +249,9 @@ struct WorkspaceDetailView: View {
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
+            .fullScreenCover(isPresented: $isTabOverviewPresented) {
+                terminalOverviewCoverContent
+            }
 
         detailNavigationChrome(navigationContent)
             .task(id: workspace.rpcWorkspaceID.rawValue) {
@@ -494,24 +502,41 @@ struct WorkspaceDetailView: View {
     }
 
     private var trailingClusterToolbarContent: some View {
+        #if os(iOS)
+        HStack(spacing: 0) {
+            terminalOverviewToolbarButton
+                .frame(width: 44, height: 44)
+            terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
+        }
+        // Only the always-structural cluster wires collapse detection: a
+        // conditional item's structural removal also detaches its probe
+        // and would be indistinguishable from a More-menu collapse.
+        .measureTrailingToolbarItem(
+            "trailing-cluster",
+            into: $trailingToolbarItemWidths,
+            onLeaveBar: {
+                // A deeper push or a pop detaches the whole screen, this
+                // content view included, before the bar items animate
+                // out; only a cluster detach while the content is still
+                // on a window is the More-menu collapse.
+                if barPresence.detailContentAttached {
+                    trailingToolbarCollapseDetected = true
+                }
+            }
+        )
+        #else
         terminalPickerToolbarButton
-            .frame(width: 44, height: 44)
-            // Only the always-structural cluster wires collapse detection: a
-            // conditional item's structural removal also detaches its probe
-            // and would be indistinguishable from a More-menu collapse.
             .measureTrailingToolbarItem(
                 "trailing-cluster",
                 into: $trailingToolbarItemWidths,
                 onLeaveBar: {
-                    // A deeper push or a pop detaches the whole screen, this
-                    // content view included, before the bar items animate
-                    // out; only a cluster detach while the content is still
-                    // on a window is the More-menu collapse.
                     if barPresence.detailContentAttached {
                         trailingToolbarCollapseDetected = true
                     }
                 }
             )
+        #endif
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
@@ -914,6 +939,72 @@ struct WorkspaceDetailView: View {
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
+
+    #if os(iOS)
+    private var terminalOverviewToolbarButton: some View {
+        Button(action: openTabOverviewFromToolbar) {
+            Label(
+                L10n.string("mobile.terminal.overview.title", defaultValue: "All Tabs"),
+                systemImage: "square.grid.2x2"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
+        .accessibilityIdentifier("MobileTerminalOverviewButton")
+    }
+
+    private var terminalOverviewCoverContent: some View {
+        TerminalTabOverviewView(
+            workspaceName: workspace.name,
+            items: terminalOverviewItems,
+            canCloseTabs: closeTerminal != nil,
+            onSelect: selectTerminalFromOverview,
+            onClose: closeTerminalFromOverview,
+            onNewTerminal: createTerminalFromOverview,
+            onDone: { isTabOverviewPresented = false }
+        )
+        .task(id: terminalOverviewRefreshKey) {
+            await store.refreshWorkspaces()
+            await store.refreshTerminalOverviewPreviews(in: workspace.id)
+        }
+    }
+
+    private var terminalOverviewItems: [TerminalTabOverviewItem] {
+        workspace.terminals.map { terminal in
+            TerminalTabOverviewItem(
+                id: terminal.id,
+                title: terminal.name,
+                previewLines: store.terminalOverviewPreviewLines(for: terminal.id) ?? [],
+                isSelected: terminal.id == selectedTerminal?.id && activeBrowser == nil,
+                canClose: terminal.canClose
+            )
+        }
+    }
+
+    private var terminalOverviewRefreshKey: String {
+        let terminalIDs = workspace.terminals.map(\.id.rawValue).joined(separator: ",")
+        return "\(workspace.id.rawValue)#\(terminalIDs)#\(effectiveConnectionStatus == .connected ? 1 : 0)"
+    }
+
+    private func openTabOverviewFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        isTabOverviewPresented = true
+    }
+
+    private func createTerminalFromOverview() {
+        createTerminalFromToolbar()
+        isTabOverviewPresented = false
+    }
+
+    private func selectTerminalFromOverview(_ terminalID: MobileTerminalPreview.ID) {
+        selectTerminalFromPicker(terminalID)
+        isTabOverviewPresented = false
+    }
+
+    private func closeTerminalFromOverview(_ terminalID: MobileTerminalPreview.ID) {
+        closeTerminal?(terminalID)
+    }
+    #endif
 
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
