@@ -18104,6 +18104,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -21430,6 +21431,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -21535,6 +21537,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -21626,6 +21629,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -21989,6 +21993,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -22053,6 +22058,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -22093,6 +22099,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &late_writer,
         )
@@ -22319,6 +22326,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -22337,6 +22345,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -22352,6 +22361,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23570,6 +23580,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23817,6 +23828,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23888,6 +23900,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )

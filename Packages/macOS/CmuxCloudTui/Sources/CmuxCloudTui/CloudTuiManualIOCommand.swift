@@ -70,6 +70,7 @@ public struct CloudTuiManualIOCommand: Sendable {
                 viewAttachmentDetachCapability,
                 "terminal-color-overrides-v1",
                 sharedSizingCapability,
+                sizingViewDetachCapability,
                 // The pane writes its color sidecar after a replay, so the
                 // daemon's incomplete sequence must arrive separately.
                 "terminal-pending-sequence-v1",
@@ -84,6 +85,22 @@ public struct CloudTuiManualIOCommand: Sendable {
     /// The daemon capability for shared terminal sizing
     /// (`docs/shared-terminal-sizing.md`).
     public let sharedSizingCapability = "shared-sizing-v1"
+
+    /// The capability that lets another participant detach only this Mac's
+    /// own view while its connection and relayed phones stay.
+    public let sizingViewDetachCapability = "sizing-view-detach-v1"
+
+    /// Restores this Mac's own view after a view-only detach.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - asViewer: reattach with `counts:false`.
+    ///   - requestID: correlation id.
+    public func reattachView(surfaceID: UInt64, asViewer: Bool, requestID: UInt64 = 1) -> [String: Any] {
+        var command: [String: Any] = ["id": requestID, "cmd": "reattach-view", "surface": surfaceID]
+        if asViewer { command["counts"] = false }
+        return command
+    }
 
     /// Creates or updates a relay sub-view (a phone viewing this Mac's mirror).
     ///
@@ -182,12 +199,19 @@ public struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
-    /// Disconnects one participant (by host participant id) on behalf of `by`.
-    public func detachClient(participantID: String, by actor: TerminalDetachActor, requestID: UInt64 = 1) -> [String: Any] {
+    /// Disconnects one participant of a terminal (by host participant id) on
+    /// behalf of `by`. Participant ids are per terminal, so the command names it.
+    public func detachClient(
+        participantID: String,
+        surfaceID: UInt64,
+        by actor: TerminalDetachActor,
+        requestID: UInt64 = 1
+    ) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "detach-client",
             "client": participantID,
+            "surface": surfaceID,
             "by": jsonObject(actor) ?? [:],
         ]
     }
