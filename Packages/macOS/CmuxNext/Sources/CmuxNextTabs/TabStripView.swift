@@ -324,11 +324,6 @@ public final class TabStripView: NSView {
         }
     }
 
-    struct TokenSnapshot: Equatable, Sendable {
-        var metrics: TabStripMetrics
-        var titleFont: CGFloat
-    }
-
     /// Current tab title font size, for change detection.
     var tabTitleFontSize: CGFloat { cells.values.first?.titleFont.pointSize ?? Typography.body.pointSize }
 
@@ -354,15 +349,6 @@ public final class TabStripView: NSView {
         needsLayout = true
         layoutSubtreeIfNeeded()
         relayout(animated: animated && !reduceMotion)
-    }
-
-    struct ModelSnapshot: Sendable {
-        var tabs: [TabItem]
-        var groups: [TabGroupItem]
-        var selectedID: TabID?
-        var style: TabStripStyle
-        var showsNewTabButton: Bool
-        var trailingButtons: [TabStripButton]
     }
 
     public override func layout() {
