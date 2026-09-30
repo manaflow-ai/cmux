@@ -150,7 +150,7 @@ final class SurfaceCatalog {
     // MARK: Providers
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
-            cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine); rollBackCloudSurfaceDrops(on: provider.machine)
+            cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine)
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
@@ -166,7 +166,7 @@ final class SurfaceCatalog {
     }
 
     func unregister(machine: SurfaceMachineID) {
-        cloudWorkspaceCreationCoordinator.cancel(machine: machine); rollBackCloudSurfaceDrops(on: machine)
+        cloudWorkspaceCreationCoordinator.cancel(machine: machine)
         let inFlightKeys = inFlightProjects.keys.filter { $0.machine == machine }
         for key in inFlightKeys {
             cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
