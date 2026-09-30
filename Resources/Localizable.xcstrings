@@ -546571,65 +546571,6 @@
         }
       }
     },
-    "settings.betaFeatures.predictedEcho": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predictive local echo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "予測ローカルエコー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预测性本地回显"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorausschauendes lokales Echo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écho local prédictif"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الصدى المحلي التنبؤي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eco local predictivo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預測性本機回顯"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "예측 로컬 에코"
-          }
-        }
-      }
-    },
     "fileExplorer.error.cloudPreviewTooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -555384,65 +555325,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "symbol은 문자열이어야 합니다"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.predictedEcho.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Getippte Zeichen erscheinen bei langsamen Remoteverbindungen sofort. Sie bleiben unterstrichen, bis der Remote-Host sie bestätigt. Ausgenommen sind Passwortabfragen und Vollbild-Apps."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les caractères saisis s’affichent immédiatement sur les connexions distantes lentes. Ils restent soulignés jusqu’à ce que l’hôte distant les confirme. Cela ne s’applique ni aux invites de mot de passe ni aux apps en plein écran."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تظهر الأحرف المكتوبة فورًا في الاتصالات البعيدة البطيئة، وتبقى مسطّرة حتى يؤكدها المضيف البعيد. ولا ينطبق ذلك على مطالبات كلمة المرور والتطبيقات بملء الشاشة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los caracteres escritos aparecen al instante en conexiones remotas lentas y permanecen subrayados hasta que el host remoto los confirma. No se aplica a solicitudes de contraseña ni a apps a pantalla completa."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遠端連線較慢時，輸入的字元會立即顯示並加上底線，直到遠端主機確認為止。密碼提示和全螢幕 App 不適用此功能。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "远程连接较慢时，输入的字符会立即显示并带有下划线，直到远程主机确认为止。密码提示和全屏 App 不适用此功能。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 연결이 느릴 때 입력한 문자를 바로 표시하고, 원격 호스트가 확인할 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 앱에는 적용되지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモート接続が遅いとき、入力した文字をすぐに表示し、リモートホストが確認するまで下線を付けます。パスワードの入力やフルスクリーンアプリには適用されません。"
           }
         }
       }
@@ -588308,6 +588190,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveLocalEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Local Echo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.predictive-local-echo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho vorausschauendes lokales echo tippen latenz verzögerung ssh remote spekulativ mosh round trip unterstrichen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho écho local prédictif saisie latence décalage ssh distant spéculatif mosh aller-retour souligné"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho الصدى المحلي التنبؤي الكتابة زمن الاستجابة التأخير ssh بعيد تخميني mosh ذهاب وإياب تسطير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho eco local predictivo escritura latencia retraso ssh remoto especulativo mosh ida y vuelta subrayado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 預測性本機回顯 輸入 延遲 卡頓 ssh 遠端 推測 mosh 往返 底線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 预测性本地回显 输入 延迟 卡顿 ssh 远程 推测 mosh 往返 下划线"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 예측 로컬 에코 입력 지연 랙 ssh 원격 추측 mosh 왕복 밑줄"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.predictiveLocalEcho 予測ローカルエコー 入力 遅延 ラグ ssh リモート 投機的 mosh 往復 下線"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ändern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action edits your cmux.json:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aktion bearbeitet deine cmux.json:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette action modifie votre cmux.json :\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعدّل هذا الإجراء ملف cmux.json:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta acción edita tu cmux.json:\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此動作會編輯你的 cmux.json：\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此操作会编辑你的 cmux.json：\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업은 cmux.json을 편집합니다:\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアクションは cmux.json を編集します:\n\n%@"
+          }
+        }
+      }
+    },
+    "settingAction.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Setting?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellung ändern?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier le réglage ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تغيير الإعداد؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar el ajuste?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要變更設定嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要更改设置吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 변경할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更しますか？"
+          }
+        }
+      }
+    },
+    "settingAction.failed.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't read or save ~/.config/cmux/cmux.json. Check it for a syntax error, then try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte ~/.config/cmux/cmux.json nicht lesen oder speichern. Prüfe die Datei auf einen Syntaxfehler und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu lire ou enregistrer ~/.config/cmux/cmux.json. Vérifiez qu'il ne contient pas d'erreur de syntaxe, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة ~/.config/cmux/cmux.json أو حفظه. تحقّق من عدم وجود خطأ في الصياغة، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer ni guardar ~/.config/cmux/cmux.json. Revisa si tiene un error de sintaxis y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取或儲存 ~/.config/cmux/cmux.json。請檢查是否有語法錯誤，然後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取或保存 ~/.config/cmux/cmux.json。请检查是否有语法错误，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 ~/.config/cmux/cmux.json을 읽거나 저장하지 못했습니다. 구문 오류가 있는지 확인한 뒤 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は ~/.config/cmux/cmux.json を読み込むか保存できませんでした。構文エラーがないか確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settingAction.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Change Setting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تغيير الإعداد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellung konnte nicht geändert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar el ajuste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier le réglage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정을 변경할 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更改设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更改設定"
           }
         }
       }
