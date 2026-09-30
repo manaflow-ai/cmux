@@ -284,7 +284,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period, `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period, `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`.
 
 Errors:
 
@@ -1657,6 +1657,8 @@ Example:
 
 Creates a new screen in a workspace with one pane and one PTY tab, then makes the new screen active. If `workspace` is absent, the active workspace is used. If no workspace exists and `workspace` is absent, v5 creates a new workspace instead. Initial dimensions follow [Sizing](#sizing).
 
+With `screen-metadata-v1`, the screen's name is set in the creating commit and its color, icon, pin, position, and group in one screen commit right after it (a `screen-changed` follows the `screen-added`). `cwd` starts the first terminal there.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
@@ -1664,11 +1666,18 @@ Params:
 | `workspace` | `Id` | default null | Target workspace; unknown ids error |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `cwd` | string | default null | Directory of the first terminal (`screen-metadata-v1`) |
+| `screen_name` | string | default null | The screen's name; `name` names a terminal elsewhere |
+| `color` | string | default null | Palette token or `#RRGGBB[AA]` |
+| `icon` | string | default null | SF Symbol name or one emoji |
+| `pinned` | bool | default null | Pinned screens sort first |
+| `index` | uint | default null | Insertion index among the workspace's screens |
+| `group` | string | default null | Screen group of the same workspace (`screen-groups-v1`) |
 
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id,screen?:Id}
 ```
 
 Errors:
@@ -2439,6 +2448,350 @@ Example:
 ```json
 {"id":14,"cmd":"close-pane","pane":2}
 {"id":14,"ok":true,"data":{}}
+```
+
+### set-screen-metadata
+
+| Field | Value |
+| --- | --- |
+| name | `set-screen-metadata` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-metadata-v1` |
+
+Sets or clears a screen's color and icon. A field sent as JSON null clears it; an absent field keeps its value. The values are durable, keyed by the public screen id. Emits `screen-changed` when anything changed.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | required |  |
+| `color` | string or null | absent keeps | Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]` |
+| `icon` | string or null | absent keeps | SF Symbol name or one emoji (at most 32 bytes) |
+
+Result:
+
+```text
+object{screen:Id,color:string?,icon:string?,changed:bool}
+```
+
+### set-screen-pinned
+
+| Field | Value |
+| --- | --- |
+| name | `set-screen-pinned` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-metadata-v1` |
+
+Pins or unpins a screen. Pinned screens sort first in their workspace and cannot be grouped (pinning removes the screen from its group). Emits `tree-changed` and `screen-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | required |  |
+| `pinned` | bool | required |  |
+
+Result:
+
+```text
+object{screen:Id,pinned:bool,index:uint,changed:bool}
+```
+
+### move-screen
+
+| Field | Value |
+| --- | --- |
+| name | `move-screen` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-metadata-v1` |
+
+Moves a screen to `index` in its workspace, into `workspace` at `index`, or with `new_workspace` into a new workspace created in the same commit. The screen keeps its panes, tabs, and terminals (terminals are retargeted to the new workspace). The order is then normalized: pinned screens first, each group contiguous at its first member. A screen that changes workspace leaves its group. A workspace's last screen cannot move out. Emits `tree-changed` and `screen-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | required |  |
+| `index` | uint | default null | Insertion index after removal; default the end |
+| `workspace` | `Id` | default null | Default: the screen's workspace |
+| `new_workspace` | bool | default false |  |
+
+Result:
+
+```text
+object{screen:Id,workspace:Id,key:string,index:uint}
+```
+
+### create-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `create-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Creates a Chrome-style group from screens of one workspace. Members become contiguous at the position of the first; screens leave any group they were in. Pinned screens cannot be grouped. Emits `tree-changed` and a `screen-changed` per member.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screens` | array of `Id` | required | One workspace, at least one screen |
+| `name` | string | default "" | At most 256 characters |
+| `color` | string | default `grey` | One of the nine tab group colors |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
+```
+
+### update-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `update-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Renames, recolors, or collapses a group. Collapse is shared by every client. A linked saved record follows.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+| `name` | string | default null |  |
+| `color` | string | default null | One of the nine tab group colors |
+| `collapsed` | bool | default null |  |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
+```
+
+### add-screens-to-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `add-screens-to-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Adds screens of the group's workspace to the group at `index` inside it (default: the end).
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+| `screens` | array of `Id` | required |  |
+| `index` | uint | default null | Position inside the group |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
+```
+
+### remove-screens-from-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `remove-screens-from-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Removes screens from their groups; each lands right after its former group. A group left without members is deleted.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screens` | array of `Id` | required |  |
+
+Result:
+
+```text
+object{screens:[Id],groups:[string]}
+```
+
+### move-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `move-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Moves a whole group to `index` in its workspace, into `workspace`, or into a new workspace. Members keep their order and stay grouped.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+| `index` | uint | default null | Insertion index of the first member after removal |
+| `workspace` | `Id` | default null |  |
+| `new_workspace` | bool | default false |  |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
+```
+
+### ungroup-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `ungroup-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Dissolves a group; its screens stay in place.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+
+Result:
+
+```text
+object{group:string,screens:[Id]}
+```
+
+### close-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `close-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Closes every member screen (`end_terminals` also ends their terminals). A linked saved record stays. Refused when it would leave the workspace without a screen.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+| `end_terminals` | bool | default false |  |
+
+Result:
+
+```text
+object{group:string,closed:[Id]}
+```
+
+### list-saved-screen-groups
+
+| Field | Value |
+| --- | --- |
+| name | `list-saved-screen-groups` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Lists saved screen groups in order. `open_group` names the live group linked to a record.
+
+Params: none.
+
+Result:
+
+```text
+object{groups:[object{id:string,name:string,color:string,profile_id:string?,members:[object{name:string?,color:string?,icon:string?,cwd:string?}],updated_at_ms:uint,open_group:string?}]}
+```
+
+### save-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `save-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Saves a group as a session-wide record linked to the live group (members' names, colors, icons, and directories).
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id],saved:string}
+```
+
+### unsave-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `unsave-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Deletes the saved record linked to a live group.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `group` | string | required |  |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
+```
+
+### delete-saved-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `delete-saved-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Deletes a saved screen group and unlinks its live group.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `saved` | string | required |  |
+
+Result:
+
+```text
+object{}
+```
+
+### reopen-saved-screen-group
+
+| Field | Value |
+| --- | --- |
+| name | `reopen-saved-screen-group` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-groups-v1` |
+
+Reopens a saved group into `workspace` (default: the active one): one new screen per member in its saved directory with its name, color, and icon, grouped and linked to the record. An open group is returned as it is.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `saved` | string | required |  |
+| `workspace` | `Id` | default null |  |
+
+Result:
+
+```text
+object{group:object{id:string,name:string,color:string,collapsed:bool,saved_id:string?}?,workspace:Id?,key:string?,screens:[Id]}
 ```
 
 ### close-screen

@@ -204,6 +204,14 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
+/// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
+/// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
+/// and `screen-changed` deltas.
+pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
+/// Chrome-style screen groups: the `*-screen-group` commands, saved screen
+/// groups, and `Workspace.screen_groups`.
+pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -336,6 +344,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        SCREEN_METADATA_CAPABILITY,
+        SCREEN_GROUPS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1455,6 +1465,100 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// The new screen's name (`name` would name its terminal).
+        #[serde(default)]
+        screen_name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        pinned: Option<bool>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        group: Option<String>,
+    },
+    /// Set or clear a screen's color and icon (JSON null clears).
+    SetScreenMetadata {
+        screen: ScreenId,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    SetScreenPinned {
+        screen: ScreenId,
+        pinned: bool,
+    },
+    /// Move a screen within its workspace, into another one, or into a new one.
+    MoveScreen {
+        screen: ScreenId,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    CreateScreenGroup {
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    UpdateScreenGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    AddScreensToScreenGroup {
+        group: String,
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    RemoveScreensFromScreenGroup {
+        screens: Vec<ScreenId>,
+    },
+    MoveScreenGroup {
+        group: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    UngroupScreenGroup {
+        group: String,
+    },
+    CloseScreenGroup {
+        group: String,
+        #[serde(default)]
+        end_terminals: bool,
+    },
+    ListSavedScreenGroups,
+    SaveScreenGroup {
+        group: String,
+    },
+    UnsaveScreenGroup {
+        group: String,
+    },
+    DeleteSavedScreenGroup {
+        saved: String,
+    },
+    ReopenSavedScreenGroup {
+        saved: String,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
     },
     NewPane {
         pane: PaneId,
@@ -2371,6 +2475,21 @@ fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> 
         value["pane"] = json!(pane);
     }
     value
+}
+
+fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
+    json!({
+        "group": outcome.group.as_ref().map(|group| json!({
+            "id": group.id,
+            "name": group.name,
+            "color": group.color,
+            "collapsed": group.collapsed,
+            "saved_id": group.saved_id,
+        })),
+        "workspace": outcome.workspace,
+        "key": outcome.key,
+        "screens": outcome.members,
+    })
 }
 
 fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
@@ -11315,16 +11434,22 @@ fn screen_json(
     state: &State,
     screen: &Screen,
     active: bool,
+    group: Option<&str>,
     short_ids: &HashMap<u64, String>,
     notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
+    let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
+        "group": group,
         "active": active,
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
@@ -11397,6 +11522,14 @@ fn workspace_json(
     notifications: &TreeDecorations,
 ) -> Value {
     let presentation = notifications.presentation.workspace(&workspace.key);
+    let screen_groups =
+        crate::mux::workspace_screen_groups(workspace, &notifications.presentation.screens);
+    let group_of = |screen: ScreenId| {
+        screen_groups
+            .iter()
+            .find(|run| run.members.contains(&screen))
+            .map(|run| run.group.id.as_str())
+    };
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
@@ -11414,10 +11547,25 @@ fn workspace_json(
                 state,
                 screen,
                 screen_index == workspace.active_screen,
+                group_of(screen.id),
                 short_ids,
                 notifications,
             )
         }).collect::<Vec<_>>(),
+        "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
+    })
+}
+
+fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
+    json!({
+        "id": run.group.id,
+        "name": run.group.name,
+        "color": run.group.color,
+        "collapsed": run.group.collapsed,
+        "saved_id": run.group.saved_id,
+        "start": run.start,
+        "count": run.members.len(),
+        "screens": run.members,
     })
 }
 
@@ -11464,15 +11612,16 @@ pub(crate) fn tree_entity_json(
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
         | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
-        TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::ScreenAdded
+        | TreeDeltaKind::ScreenClosed
+        | TreeDeltaKind::ScreenRenamed
+        | TreeDeltaKind::ScreenChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
         TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
             .iter()
             .flat_map(|workspace| {
@@ -14029,9 +14178,140 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen { workspace, cols, rows } => {
-            let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewScreen {
+            workspace,
+            cols,
+            rows,
+            cwd,
+            screen_name,
+            color,
+            icon,
+            pinned,
+            index,
+            group,
+        } => {
+            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
+            let (surface, screen) =
+                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
+            Ok(json!({ "surface": surface.id, "screen": screen }))
+        }
+        Command::SetScreenMetadata { screen, color, icon } => {
+            let changed = mux.set_screen_metadata(screen, color, icon)?;
+            let presentation = mux.presentation_snapshot();
+            let record = mux
+                .with_state(|state| {
+                    state
+                        .workspaces
+                        .iter()
+                        .flat_map(|w| w.screens.iter())
+                        .find(|s| s.id == screen)
+                        .map(|s| {
+                            presentation
+                                .screens
+                                .screen(s.public_id.as_str())
+                                .cloned()
+                                .unwrap_or_default()
+                        })
+                })
+                .unwrap_or_default();
+            Ok(
+                json!({"screen": screen, "color": record.color, "icon": record.icon, "changed": changed}),
+            )
+        }
+        Command::SetScreenPinned { screen, pinned } => {
+            let (changed, index) = mux.set_screen_pinned(screen, pinned)?;
+            Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
+        }
+        Command::MoveScreen { screen, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            let outcome = mux.move_screen(screen, destination)?;
+            Ok(json!({
+                "screen": outcome.screen,
+                "workspace": outcome.workspace,
+                "key": outcome.key,
+                "index": outcome.index,
+            }))
+        }
+        Command::CreateScreenGroup { screens, name, color } => {
+            Ok(screen_group_outcome_json(&mux.create_screen_group(&screens, name, color)?))
+        }
+        Command::UpdateScreenGroup { group, name, color, collapsed } => {
+            Ok(screen_group_outcome_json(&mux.update_screen_group(&group, name, color, collapsed)?))
+        }
+        Command::AddScreensToScreenGroup { group, screens, index } => Ok(
+            screen_group_outcome_json(&mux.add_screens_to_screen_group(&group, &screens, index)?),
+        ),
+        Command::RemoveScreensFromScreenGroup { screens } => {
+            let groups = mux.remove_screens_from_screen_group(&screens)?;
+            Ok(json!({ "screens": screens, "groups": groups }))
+        }
+        Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            Ok(screen_group_outcome_json(&mux.move_screen_group(&group, destination)?))
+        }
+        Command::UngroupScreenGroup { group } => {
+            let screens = mux.ungroup_screen_group(&group)?;
+            Ok(json!({ "group": group, "screens": screens }))
+        }
+        Command::CloseScreenGroup { group, end_terminals } => {
+            let closed = mux.close_screen_group(&group, end_terminals)?;
+            Ok(json!({ "group": group, "closed": closed }))
+        }
+        Command::ListSavedScreenGroups => {
+            let presentation = mux.presentation_snapshot();
+            let groups = presentation
+                .saved_screen_groups
+                .iter()
+                .map(|saved| {
+                    let open = presentation
+                        .screens
+                        .groups
+                        .values()
+                        .find(|group| group.saved_id.as_deref() == Some(saved.id.as_str()))
+                        .map(|group| group.id.clone());
+                    json!({
+                        "id": saved.id,
+                        "name": saved.name,
+                        "color": saved.color,
+                        "profile_id": saved.profile_id,
+                        "members": saved.members,
+                        "updated_at_ms": saved.updated_at_ms,
+                        "open_group": open,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "groups": groups }))
+        }
+        Command::SaveScreenGroup { group } => {
+            let saved = mux.save_screen_group(&group)?;
+            let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
+            value["saved"] = json!(saved);
+            Ok(value)
+        }
+        Command::UnsaveScreenGroup { group } => {
+            mux.unsave_screen_group(&group)?;
+            Ok(screen_group_outcome_json(&mux.screen_group_outcome_public(&group)))
+        }
+        Command::DeleteSavedScreenGroup { saved } => {
+            mux.delete_saved_screen_group(&saved)?;
+            Ok(json!({}))
+        }
+        Command::ReopenSavedScreenGroup { saved, workspace } => {
+            let workspace = match workspace {
+                Some(workspace) => workspace,
+                None => mux
+                    .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
+                    .context("no workspace to reopen the screen group into")?,
+            };
+            Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
             let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;

@@ -21,6 +21,7 @@ fn expectExplicitNullRejected(
 test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
@@ -33,6 +34,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
+    try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");

@@ -8,6 +8,7 @@ mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod screen_groups;
 mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
@@ -20,6 +21,10 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use screen_groups::workspace_screen_groups;
+pub use screen_groups::{
+    ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
+};
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
@@ -1051,6 +1056,8 @@ pub enum TreeDeltaKind {
     ScreenAdded,
     ScreenClosed,
     ScreenRenamed,
+    /// Screen presentation (color, icon, pin, group) or position changed.
+    ScreenChanged,
     PaneAdded,
     PaneClosed,
     TabAdded,
@@ -1072,6 +1079,7 @@ impl TreeDeltaKind {
             Self::ScreenAdded => "screen-added",
             Self::ScreenClosed => "screen-closed",
             Self::ScreenRenamed => "screen-renamed",
+            Self::ScreenChanged => "screen-changed",
             Self::PaneAdded => "pane-added",
             Self::PaneClosed => "pane-closed",
             Self::TabAdded => "tab-added",
@@ -4724,6 +4732,7 @@ impl Mux {
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
             plan.tab_groups.as_ref(),
+            plan.screen_state.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
@@ -14095,6 +14104,18 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_screen_named(workspace, None, cwd, size)
+    }
+
+    /// New screen with a name (set in the creating commit) and a directory
+    /// for its first terminal.
+    pub(crate) fn new_screen_named(
+        self: &Arc<Self>,
+        workspace: Option<WorkspaceId>,
+        name: Option<String>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
@@ -14110,6 +14131,7 @@ impl Mux {
             }
         };
         let mut fields = Map::new();
+        Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(

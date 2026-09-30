@@ -41,6 +41,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
+| `screen-changed` | subscribe (`deltas`) | `screen` | protocol 12 additive extension; capability `screen-metadata-v1`; parent `workspace` |
 | `pane-added` | subscribe (`deltas`) | `pane` | protocol 7; parents `workspace`, `screen` |
 | `pane-closed` | subscribe (`deltas`) | `pane` | protocol 7; parents `workspace`, `screen` |
 | `tab-added` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
@@ -532,6 +533,23 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 ```
 
 `tab-renamed` reports a user-visible tab-name mutation such as `rename-surface`. Application title changes remain `title-changed`.
+
+### screen-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-metadata-v1` |
+
+Emitted when a screen's color, icon, pin, or group changed, or when it moved
+(within its workspace or into another one). `entity` is the full refreshed
+`Screen` and `index` its position in the workspace. Commands that reorder
+screens also emit `tree-changed` first. It carries no workspace revision.
+
+```text
+object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen}
+```
 
 ### tab-changed
 

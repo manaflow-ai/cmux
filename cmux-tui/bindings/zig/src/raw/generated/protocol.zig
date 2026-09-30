@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474";
+pub const ir_sha256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2143,6 +2143,27 @@ pub fn ackTabNotifications(client: anytype, request: AckTabNotificationsRequest)
     );
 }
 
+pub const AddScreensToScreenGroupRequest = struct {
+    group: []const u8,
+    index: wire.Field(u64) = .absent,
+    screens: []const Id,
+};
+
+pub const AddScreensToScreenGroupResult = JsonValue;
+
+pub fn addScreensToScreenGroup(client: anytype, request: AddScreensToScreenGroupRequest) !wire.Decoded(AddScreensToScreenGroupResult) {
+    return client.callTyped(
+        AddScreensToScreenGroupResult,
+        .{
+            .name = "add-screens-to-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const AddTabsToTabGroupRequest = struct {
     group: []const u8,
     surfaces: []const TabRef,
@@ -2712,6 +2733,30 @@ pub fn closeScreen(client: anytype, request: CloseScreenRequest) !wire.Decoded(C
     );
 }
 
+pub const CloseScreenGroupRequest = struct {
+    end_terminals: ?bool = null,
+    group: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "end_terminals",
+    };
+};
+
+pub const CloseScreenGroupResult = JsonValue;
+
+pub fn closeScreenGroup(client: anytype, request: CloseScreenGroupRequest) !wire.Decoded(CloseScreenGroupResult) {
+    return client.callTyped(
+        CloseScreenGroupResult,
+        .{
+            .name = "close-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const CloseSurfaceRequest = struct {
     surface: Id,
 };
@@ -2941,6 +2986,27 @@ pub fn createProfile(client: anytype, request: CreateProfileRequest) !wire.Decod
     );
 }
 
+pub const CreateScreenGroupRequest = struct {
+    color: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+    screens: []const Id,
+};
+
+pub const CreateScreenGroupResult = JsonValue;
+
+pub fn createScreenGroup(client: anytype, request: CreateScreenGroupRequest) !wire.Decoded(CreateScreenGroupResult) {
+    return client.callTyped(
+        CreateScreenGroupResult,
+        .{
+            .name = "create-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const CreateSurfaceWithReceiptRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
@@ -3130,6 +3196,25 @@ pub fn deleteProfile(client: anytype, request: DeleteProfileRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const DeleteSavedScreenGroupRequest = struct {
+    saved: []const u8,
+};
+
+pub const DeleteSavedScreenGroupResult = JsonValue;
+
+pub fn deleteSavedScreenGroup(client: anytype, request: DeleteSavedScreenGroupRequest) !wire.Decoded(DeleteSavedScreenGroupResult) {
+    return client.callTyped(
+        DeleteSavedScreenGroupResult,
+        .{
+            .name = "delete-saved-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -3542,6 +3627,23 @@ pub fn listPersonal(client: anytype, request: ListPersonalRequest) !wire.Decoded
     );
 }
 
+pub const ListSavedScreenGroupsRequest = struct {};
+
+pub const ListSavedScreenGroupsResult = JsonValue;
+
+pub fn listSavedScreenGroups(client: anytype, request: ListSavedScreenGroupsRequest) !wire.Decoded(ListSavedScreenGroupsResult) {
+    return client.callTyped(
+        ListSavedScreenGroupsResult,
+        .{
+            .name = "list-saved-screen-groups",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const ListSavedTabGroupsRequest = struct {};
 
 pub const ListSavedTabGroupsResult = JsonValue;
@@ -3755,6 +3857,58 @@ pub fn moveProfile(client: anytype, request: MoveProfileRequest) !wire.Decoded(M
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveScreenRequest = struct {
+    index: wire.Field(u64) = .absent,
+    new_workspace: ?bool = null,
+    screen: Id,
+    workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "new_workspace",
+    };
+};
+
+pub const MoveScreenResult = JsonValue;
+
+pub fn moveScreen(client: anytype, request: MoveScreenRequest) !wire.Decoded(MoveScreenResult) {
+    return client.callTyped(
+        MoveScreenResult,
+        .{
+            .name = "move-screen",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-metadata-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveScreenGroupRequest = struct {
+    group: []const u8,
+    index: wire.Field(u64) = .absent,
+    new_workspace: ?bool = null,
+    workspace: wire.Field(Id) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "new_workspace",
+    };
+};
+
+pub const MoveScreenGroupResult = JsonValue;
+
+pub fn moveScreenGroup(client: anytype, request: MoveScreenGroupRequest) !wire.Decoded(MoveScreenGroupResult) {
+    return client.callTyped(
+        MoveScreenGroupResult,
+        .{
+            .name = "move-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -4190,8 +4344,15 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
 }
 
 pub const NewScreenRequest = struct {
+    color: wire.Field([]const u8) = .absent,
     cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    group: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    pinned: wire.Field(bool) = .absent,
     rows: wire.Field(u16) = .absent,
+    screen_name: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -4599,6 +4760,25 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
     );
 }
 
+pub const RemoveScreensFromScreenGroupRequest = struct {
+    screens: []const Id,
+};
+
+pub const RemoveScreensFromScreenGroupResult = JsonValue;
+
+pub fn removeScreensFromScreenGroup(client: anytype, request: RemoveScreensFromScreenGroupRequest) !wire.Decoded(RemoveScreensFromScreenGroupResult) {
+    return client.callTyped(
+        RemoveScreensFromScreenGroupResult,
+        .{
+            .name = "remove-screens-from-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const RemoveTabsFromTabGroupRequest = struct {
     surfaces: []const TabRef,
     transaction: wire.Field([]const u8) = .absent,
@@ -4728,6 +4908,26 @@ pub fn renameWorkspace(client: anytype, request: RenameWorkspaceRequest) !wire.D
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const ReopenSavedScreenGroupRequest = struct {
+    saved: []const u8,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const ReopenSavedScreenGroupResult = JsonValue;
+
+pub fn reopenSavedScreenGroup(client: anytype, request: ReopenSavedScreenGroupRequest) !wire.Decoded(ReopenSavedScreenGroupResult) {
+    return client.callTyped(
+        ReopenSavedScreenGroupResult,
+        .{
+            .name = "reopen-saved-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -4886,6 +5086,25 @@ pub fn run(client: anytype, request: RunRequest) !wire.Decoded(RunResult) {
             .fields = &.{
                 .{ .name = "key", .since = 9, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const SaveScreenGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const SaveScreenGroupResult = JsonValue;
+
+pub fn saveScreenGroup(client: anytype, request: SaveScreenGroupRequest) !wire.Decoded(SaveScreenGroupResult) {
+    return client.callTyped(
+        SaveScreenGroupResult,
+        .{
+            .name = "save-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -5230,6 +5449,47 @@ pub fn setRatio(client: anytype, request: SetRatioRequest) !wire.Decoded(SetRati
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const SetScreenMetadataRequest = struct {
+    color: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    screen: Id,
+};
+
+pub const SetScreenMetadataResult = JsonValue;
+
+pub fn setScreenMetadata(client: anytype, request: SetScreenMetadataRequest) !wire.Decoded(SetScreenMetadataResult) {
+    return client.callTyped(
+        SetScreenMetadataResult,
+        .{
+            .name = "set-screen-metadata",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-metadata-v1",
+        },
+        request,
+    );
+}
+
+pub const SetScreenPinnedRequest = struct {
+    pinned: bool,
+    screen: Id,
+};
+
+pub const SetScreenPinnedResult = JsonValue;
+
+pub fn setScreenPinned(client: anytype, request: SetScreenPinnedRequest) !wire.Decoded(SetScreenPinnedResult) {
+    return client.callTyped(
+        SetScreenPinnedResult,
+        .{
+            .name = "set-screen-pinned",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-metadata-v1",
         },
         request,
     );
@@ -5642,6 +5902,25 @@ pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(Und
     );
 }
 
+pub const UngroupScreenGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const UngroupScreenGroupResult = JsonValue;
+
+pub fn ungroupScreenGroup(client: anytype, request: UngroupScreenGroupRequest) !wire.Decoded(UngroupScreenGroupResult) {
+    return client.callTyped(
+        UngroupScreenGroupResult,
+        .{
+            .name = "ungroup-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
 pub const UngroupTabGroupRequest = struct {
     group: []const u8,
 };
@@ -5693,6 +5972,25 @@ pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProv
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
+        },
+        request,
+    );
+}
+
+pub const UnsaveScreenGroupRequest = struct {
+    group: []const u8,
+};
+
+pub const UnsaveScreenGroupResult = JsonValue;
+
+pub fn unsaveScreenGroup(client: anytype, request: UnsaveScreenGroupRequest) !wire.Decoded(UnsaveScreenGroupResult) {
+    return client.callTyped(
+        UnsaveScreenGroupResult,
+        .{
+            .name = "unsave-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -5783,6 +6081,28 @@ pub fn updateProfile(client: anytype, request: UpdateProfileRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const UpdateScreenGroupRequest = struct {
+    collapsed: wire.Field(bool) = .absent,
+    color: wire.Field([]const u8) = .absent,
+    group: []const u8,
+    name: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateScreenGroupResult = JsonValue;
+
+pub fn updateScreenGroup(client: anytype, request: UpdateScreenGroupRequest) !wire.Decoded(UpdateScreenGroupResult) {
+    return client.callTyped(
+        UpdateScreenGroupResult,
+        .{
+            .name = "update-screen-group",
+            .authority = "control",
+            .since = 12,
+            .capability = "screen-groups-v1",
         },
         request,
     );
@@ -6334,6 +6654,14 @@ pub const ScreenAddedEvent = struct {
     workspace: Id,
 };
 
+pub const ScreenChangedEvent = struct {
+    entity: Screen,
+    event: []const u8,
+    index: wire.Field(u64) = .absent,
+    screen: Id,
+    workspace: Id,
+};
+
 pub const ScreenClosedEvent = struct {
     entity: Screen,
     event: []const u8,
@@ -6617,6 +6945,7 @@ pub const Event = union(enum) {
     render_state: RenderStateEvent,
     resized: ResizedEvent,
     screen_added: ScreenAddedEvent,
+    screen_changed: ScreenChangedEvent,
     screen_closed: ScreenClosedEvent,
     screen_renamed: ScreenRenamedEvent,
     scroll_changed: ScrollChangedEvent,
@@ -6676,6 +7005,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .render_state => "render-state",
         .resized => "resized",
         .screen_added => "screen-added",
+        .screen_changed => "screen-changed",
         .screen_closed => "screen-closed",
         .screen_renamed => "screen-renamed",
         .scroll_changed => "scroll-changed",
@@ -6835,6 +7165,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ScreenAddedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .screen_added = decoded } };
     }
+    if (std.mem.eql(u8, name, "screen-changed")) {
+        const decoded = try wire.decodeLeaky(ScreenChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .screen_changed = decoded } };
+    }
     if (std.mem.eql(u8, name, "screen-closed")) {
         const decoded = try wire.decodeLeaky(ScreenClosedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .screen_closed = decoded } };
@@ -6960,9 +7294,10 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 167;
+pub const command_count: usize = 182;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
+    .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -6985,6 +7320,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "close-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
@@ -6993,6 +7329,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "create-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "create-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "create-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
     .{ .name = "create-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
@@ -7000,6 +7337,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "delete-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "delete-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "delete-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
@@ -7020,6 +7358,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-clients", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "list-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "list-personal", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "list-saved-screen-groups", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "list-saved-tab-groups", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "list-tab-groups", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
@@ -7032,6 +7371,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
+    .{ .name = "move-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "move-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "move-tab-group-to-column", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -7068,12 +7409,14 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "rename-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "rename-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "rename-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "reopen-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "reopen-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "report-agent", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "report-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
@@ -7081,6 +7424,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "resize-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "resolve-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "save-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "save-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "scroll-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -7096,6 +7440,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
+    .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
@@ -7113,13 +7459,16 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
+    .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "unpin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
+    .{ .name = "unsave-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "unsave-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "update-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "update-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "update-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "update-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "update-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "url-open", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
@@ -7169,31 +7518,32 @@ const event_streams_27 = [_][]const u8{"attach-byte"};
 const event_streams_28 = [_][]const u8{"subscribe-deltas"};
 const event_streams_29 = [_][]const u8{"subscribe-deltas"};
 const event_streams_30 = [_][]const u8{"subscribe-deltas"};
-const event_streams_31 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_32 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
-const event_streams_33 = [_][]const u8{"subscribe"};
+const event_streams_31 = [_][]const u8{"subscribe-deltas"};
+const event_streams_32 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
+const event_streams_33 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
 const event_streams_34 = [_][]const u8{"subscribe"};
 const event_streams_35 = [_][]const u8{"subscribe"};
 const event_streams_36 = [_][]const u8{"subscribe"};
 const event_streams_37 = [_][]const u8{"subscribe"};
-const event_streams_38 = [_][]const u8{"subscribe-deltas"};
+const event_streams_38 = [_][]const u8{"subscribe"};
 const event_streams_39 = [_][]const u8{"subscribe-deltas"};
 const event_streams_40 = [_][]const u8{"subscribe-deltas"};
 const event_streams_41 = [_][]const u8{"subscribe-deltas"};
-const event_streams_42 = [_][]const u8{"subscribe"};
+const event_streams_42 = [_][]const u8{"subscribe-deltas"};
 const event_streams_43 = [_][]const u8{"subscribe"};
 const event_streams_44 = [_][]const u8{"subscribe"};
 const event_streams_45 = [_][]const u8{"subscribe"};
-const event_streams_46 = [_][]const u8{"control"};
-const event_streams_47 = [_][]const u8{"attach-byte"};
-const event_streams_48 = [_][]const u8{"subscribe"};
-const event_streams_49 = [_][]const u8{"subscribe-deltas"};
+const event_streams_46 = [_][]const u8{"subscribe"};
+const event_streams_47 = [_][]const u8{"control"};
+const event_streams_48 = [_][]const u8{"attach-byte"};
+const event_streams_49 = [_][]const u8{"subscribe"};
 const event_streams_50 = [_][]const u8{"subscribe-deltas"};
 const event_streams_51 = [_][]const u8{"subscribe-deltas"};
 const event_streams_52 = [_][]const u8{"subscribe-deltas"};
 const event_streams_53 = [_][]const u8{"subscribe-deltas"};
+const event_streams_54 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 54;
+pub const event_count: usize = 55;
 pub const events = [_]EventDescriptor{
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
@@ -7224,29 +7574,30 @@ pub const events = [_]EventDescriptor{
     .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_26 },
     .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_27 },
     .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_28 },
-    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_29 },
-    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_30 },
-    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_31 },
-    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_32 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_33 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_34 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_35 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_36 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_37 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_38 },
-    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_39 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_42 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_44 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_47 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_48 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_49 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_50 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_51 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_52 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_53 },
+    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_29 },
+    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_30 },
+    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_31 },
+    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_32 },
+    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_33 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_34 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_35 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_36 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_37 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_38 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_39 },
+    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_40 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_41 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_43 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_48 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_49 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_50 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_51 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_52 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_53 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_54 },
 };

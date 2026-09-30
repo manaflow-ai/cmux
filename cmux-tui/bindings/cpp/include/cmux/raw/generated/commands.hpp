@@ -42,6 +42,7 @@ public:
     [[nodiscard]] bool closed() const noexcept { return core_.closed(); }
 
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
@@ -64,6 +65,7 @@ public:
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> close_screen_group(const CloseScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_surface(const CloseSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_tab_group(const CloseTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
@@ -72,6 +74,7 @@ public:
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_personal_group(const CreatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_profile(const CreateProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> create_screen_group(const CreateScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_surface_with_receipt(const CreateSurfaceWithReceiptRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_tab_group(const CreateTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalPlacement> create_terminal(const CreateTerminalRequest& request = {}, RequestOptions options = {});
@@ -79,6 +82,7 @@ public:
     [[nodiscard]] Result<JsonValue> create_workspace_group(const CreateWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_personal_group(const DeletePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_profile(const DeleteProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> delete_saved_screen_group(const DeleteSavedScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_saved_tab_group(const DeleteSavedTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_workspace_group(const DeleteWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
@@ -99,6 +103,7 @@ public:
     [[nodiscard]] Result<ListClientsResult> list_clients(const ListClientsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_notifications(const ListNotificationsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_personal(const ListPersonalRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> list_saved_screen_groups(const ListSavedScreenGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_saved_tab_groups(const ListSavedTabGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_tab_groups(const ListTabGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
@@ -111,6 +116,8 @@ public:
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_personal_group(const MovePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_profile(const MoveProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_screen(const MoveScreenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_screen_group(const MoveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> move_tab(const MoveTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_tab_group(const MoveTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_tab_group_to_column(const MoveTabGroupToColumnRequest& request, RequestOptions options = {});
@@ -147,12 +154,14 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remove_screens_from_screen_group(const RemoveScreensFromScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remove_tabs_from_tab_group(const RemoveTabsFromTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> rename_pane(const RenamePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> rename_provider_managed_workspace(const RenameProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> rename_screen(const RenameScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> rename_surface(const RenameSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> rename_workspace(const RenameWorkspaceRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> reopen_saved_screen_group(const ReopenSavedScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> reopen_saved_tab_group(const ReopenSavedTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportAgentResult> report_agent(const ReportAgentRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> report_focus(const ReportFocusRequest& request, RequestOptions options = {});
@@ -160,6 +169,7 @@ public:
     [[nodiscard]] Result<ResizeSurfaceResult> resize_surface(const ResizeSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResolveTerminalResult> resolve_terminal(const ResolveTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RunResult> run(const RunRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> save_screen_group(const SaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> save_tab_group(const SaveTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> scroll_surface(const ScrollSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_screen(const SelectScreenRequest& request = {}, RequestOptions options = {});
@@ -175,6 +185,8 @@ public:
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_ratio(const SetRatioRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_screen_metadata(const SetScreenMetadataRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_screen_pinned(const SetScreenPinnedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizePolicyResult> set_size_policy(const SetSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
@@ -192,13 +204,16 @@ public:
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> ungroup_screen_group(const UngroupScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_tab_group(const UngroupTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unpin_workspace(const UnpinWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderUnregisterResult> unregister_browser_provider(const UnregisterBrowserProviderRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> unsave_screen_group(const UnsaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unsave_tab_group(const UnsaveTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_frontend_browser_tab(const UpdateFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_personal_group(const UpdatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_profile(const UpdateProfileRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> update_screen_group(const UpdateScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_tab_group(const UpdateTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_workspace_group(const UpdateWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GuestUrlOpenResult> url_open(const UrlOpenRequest& request, RequestOptions options = {});

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd. */
 
 
 import type * as T from "./types.js";
@@ -236,6 +236,14 @@ export type ResizedEvent = { event: "resized" } & {
 export type ScreenAddedEvent = { event: "screen-added" } & {
   "entity": T.Screen;
   "index": bigint;
+  "screen": T.Id;
+  "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type ScreenChangedEvent = { event: "screen-changed" } & {
+  "entity": T.Screen;
+  "index"?: (bigint) | null;
   "screen": T.Id;
   "workspace": T.Id;
 };
@@ -485,6 +493,7 @@ export type KnownCmuxEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
@@ -536,6 +545,7 @@ export type KnownSubscribeEvent =
   | PaneClosedEvent
   | PersonalChangedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
@@ -565,6 +575,7 @@ export type TreeDeltaEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | TabAddedEvent
