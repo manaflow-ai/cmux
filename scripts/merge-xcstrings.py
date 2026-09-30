@@ -8,8 +8,9 @@ Resources/Localizable.xcstrings (~6,700 entries) that produced 42 conflict
 hunks in a single pull request, none of them a semantic disagreement.
 
 This driver merges per key instead of per line. It is deliberately conservative:
-when the same key is changed on both sides it exits non-zero and lets git write
-normal conflict markers, so a real disagreement is never resolved silently.
+when the same key is changed on both sides it exits non-zero after materializing
+a visible diff3 conflict in %A, so a real disagreement is never resolved
+silently or mistaken for an ours-only file.
 
 Formatting is preserved by construction. The driver never re-serializes the
 document; it locates the byte span of each key's `"key": value` pair and
@@ -19,12 +20,14 @@ three different styles (nested two-space, compacted leaf objects, and Xcode's
 `"key" : value` spacing), and a branch often carries a different style from
 main, so re-rendering would rewrite formatting the driver does not own.
 
-Usage (git passes these): merge-xcstrings.py %O %A %B %P
+Usage (git passes these): merge-xcstrings.py %O %A %B %P %L
 """
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 DECODER = json.JSONDecoder()
@@ -210,27 +213,146 @@ def _joiner(layout: Layout, key: str) -> str:
     return layout.text[key_text_end:value_start]
 
 
+def explicit_conflict(base: str, ours: str, theirs: str, width: int = 7) -> str:
+    """A visible whole-file conflict when line-level merging is unavailable."""
+    return (
+        f"{'<' * width} ours\n{ours.rstrip()}\n"
+        f"{'|' * width} base\n{base.rstrip()}\n"
+        f"{'=' * width}\n{theirs.rstrip()}\n"
+        f"{'>' * width} theirs\n"
+    )
+
+
+def explicit_conflict_bytes(base: bytes, ours: bytes, theirs: bytes, width: int = 7) -> bytes:
+    """The byte-preserving equivalent used when one side is not UTF-8."""
+    return (
+        b"<" * width + b" ours\n" + ours.rstrip() + b"\n"
+        + b"|" * width + b" base\n" + base.rstrip() + b"\n"
+        + b"=" * width + b"\n" + theirs.rstrip() + b"\n"
+        + b">" * width + b" theirs\n"
+    )
+
+
+def conflict_text(base: str, ours: str, theirs: str, width: int = 7) -> str:
+    """Prefer a line-level diff3 conflict and fall back to an explicit one."""
+    marker_prefixes = tuple(character * width for character in "<|=>")
+    if any(
+        line.startswith(marker_prefixes)
+        for text in (base, ours, theirs)
+        for line in text.splitlines()
+    ):
+        return explicit_conflict(base, ours, theirs, width)
+
+    # Keep this helper self-contained. A merge driver can run against an
+    # untrusted checkout, so importing another checked-out helper would grant
+    # that branch code execution.
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base"
+            ours_path = root / "ours"
+            theirs_path = root / "theirs"
+            base_path.write_text(base, encoding="utf-8")
+            ours_path.write_text(ours, encoding="utf-8")
+            theirs_path.write_text(theirs, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "git",
+                    "merge-file",
+                    "--diff3",
+                    f"--marker-size={width}",
+                    "-L",
+                    "ours",
+                    "-L",
+                    "base",
+                    "-L",
+                    "theirs",
+                    "-p",
+                    str(ours_path),
+                    str(base_path),
+                    str(theirs_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        merged = result.stdout
+    except (OSError, UnicodeError):
+        return explicit_conflict(base, ours, theirs, width)
+
+    if result.returncode <= 1 and any(
+        line.startswith(marker_prefixes) for line in merged.splitlines()
+    ):
+        return merged
+    return explicit_conflict(base, ours, theirs, width)
+
+
+def _read_bytes(path: Path, label: str) -> tuple[bytes, OSError | None]:
+    try:
+        return path.read_bytes(), None
+    except OSError as error:
+        return f"[merge-xcstrings could not read {label}: {error}]\n".encode(), error
+
+
+def _materialize_conflict(
+    path: Path, base: str, ours: str, theirs: str, width: int, name: str
+) -> None:
+    try:
+        path.write_text(conflict_text(base, ours, theirs, width), encoding="utf-8")
+    except OSError as error:
+        print(f"merge-xcstrings: {name}: cannot materialize conflict ({error})", file=sys.stderr)
+
+
+def _materialize_conflict_bytes(
+    path: Path, base: bytes, ours: bytes, theirs: bytes, width: int, name: str
+) -> None:
+    try:
+        path.write_bytes(explicit_conflict_bytes(base, ours, theirs, width))
+    except OSError as error:
+        print(f"merge-xcstrings: {name}: cannot materialize conflict ({error})", file=sys.stderr)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 4:
-        print("usage: merge-xcstrings.py %O %A %B [%P]", file=sys.stderr)
+        print("usage: merge-xcstrings.py %O %A %B [%P] [%L]", file=sys.stderr)
         return 2
     base_path, ours_path, theirs_path = (Path(p) for p in argv[1:4])
     name = argv[4] if len(argv) > 4 else str(ours_path)
     try:
-        base_text = base_path.read_text(encoding="utf-8")
-        ours_text = ours_path.read_text(encoding="utf-8")
-        theirs_text = theirs_path.read_text(encoding="utf-8")
+        marker_size = max(1, int(argv[5])) if len(argv) > 5 else 7
+    except ValueError:
+        marker_size = 7
+    base_bytes, base_error = _read_bytes(base_path, "base")
+    ours_bytes, ours_error = _read_bytes(ours_path, "ours")
+    theirs_bytes, theirs_error = _read_bytes(theirs_path, "theirs")
+    read_errors = [error for error in (base_error, ours_error, theirs_error) if error is not None]
+    if read_errors:
+        _materialize_conflict_bytes(ours_path, base_bytes, ours_bytes, theirs_bytes, marker_size, name)
+        print(f"merge-xcstrings: {name}: cannot read merge inputs ({read_errors[0]}); falling back", file=sys.stderr)
+        return 1
+    try:
+        base_text = base_bytes.decode("utf-8")
+        ours_text = ours_bytes.decode("utf-8")
+        theirs_text = theirs_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        _materialize_conflict_bytes(ours_path, base_bytes, ours_bytes, theirs_bytes, marker_size, name)
+        print(f"merge-xcstrings: {name}: merge input is not UTF-8 ({error}); falling back", file=sys.stderr)
+        return 1
+    try:
         merged_text, conflicts, planned = merge_catalog_text(base_text, ours_text, theirs_text)
     except json.JSONDecodeError as error:
+        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: cannot parse ({error}); falling back", file=sys.stderr)
         return 1
     except (OSError, ValueError) as error:
+        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: cannot merge ({error}); falling back", file=sys.stderr)
         return 1
     if conflicts:
+        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(
             f"merge-xcstrings: {name}: {len(conflicts)} key(s) changed on both sides; "
-            "leaving them to the default driver: " + ", ".join(conflicts[:5]),
+            "materializing a conflict: " + ", ".join(conflicts[:5]),
             file=sys.stderr,
         )
         return 1
@@ -239,9 +361,11 @@ def main(argv: list[str]) -> int:
     try:
         reparsed = json.loads(merged_text)
     except ValueError as error:
+        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: refusing to write invalid JSON ({error})", file=sys.stderr)
         return 1
     if list(reparsed.get("strings", {})) != planned:
+        _materialize_conflict(ours_path, base_text, ours_text, theirs_text, marker_size, name)
         print(f"merge-xcstrings: {name}: merged key set did not match the plan", file=sys.stderr)
         return 1
     ours_path.write_text(merged_text, encoding="utf-8")

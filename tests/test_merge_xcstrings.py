@@ -3,7 +3,7 @@
 
 The driver must merge disjoint key additions (the common case) and must refuse
 to resolve a key that both sides changed differently, so a real disagreement
-still reaches the author as a normal git conflict.
+reaches the author as a visible diff3 conflict.
 """
 
 import json
@@ -208,6 +208,32 @@ def test_unparseable_input_falls_back():
     assert code == 1
     assert "cannot parse" in stderr, stderr
     assert_conflict_preserves(merged, "{not json", '"value": "theirs"')
+
+
+def test_non_utf8_input_materializes_a_byte_conflict():
+    driver = load_driver()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path = root / "O"
+        ours_path = root / "A"
+        theirs_path = root / "B"
+        base_path.write_bytes(render(catalog({})).encode())
+        ours_path.write_bytes(b"{\xff\n")
+        theirs_path.write_bytes(render(catalog({"a": unit("theirs")})).encode())
+        code = driver.main(
+            [
+                str(DRIVER),
+                str(base_path),
+                str(ours_path),
+                str(theirs_path),
+                "Localizable.xcstrings",
+            ]
+        )
+        merged = ours_path.read_bytes()
+    assert code == 1
+    assert merged.startswith(b"<<<<<<< ours\n")
+    assert b"\xff" in merged
+    assert b'"value": "theirs"' in merged
 
 
 def test_invalid_catalog_shape_materializes_a_conflict():
