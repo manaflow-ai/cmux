@@ -441,10 +441,12 @@ struct IrxLiveQUICTests {
         } catch {
             Issue.record("unexpected error: \(error)")
         }
-        #expect(try await irx.waitForTestRetirement())
+        #expect(try await releaseProbe.waitForRelease())
         #expect(await releaseProbe.count == 1)
-        #expect(await releaseProbe.retiresConnections == [true])
-        #expect(await irx.isClosed)
+        // The owner never used the lane, so no EOF reached the Mac and the
+        // admitted session stays usable by the owner that replaced it.
+        #expect(await releaseProbe.retiresConnections == [false])
+        #expect(await !irx.isClosed)
 
         let serverConnection = try #require(try await serverTask.value)
         await irx.close(code: .userRequested, origin: .local)

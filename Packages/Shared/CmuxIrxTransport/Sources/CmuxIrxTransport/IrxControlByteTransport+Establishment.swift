@@ -34,7 +34,10 @@ extension IrxControlByteTransport {
         guard let waiter = connectWaiters.removeValue(forKey: id) else { return }
         // The last owner releases the peer engine's waiter through the
         // establish task's cancellation handler. It never awaits native dial completion.
-        if connectWaiters.isEmpty { await close() }
+        if connectWaiters.isEmpty {
+            retiresLateEstablishment = true
+            await close()
+        }
         waiter.resume(throwing: CancellationError())
     }
 
@@ -46,7 +49,15 @@ extension IrxControlByteTransport {
         if isClosed {
             if case let .success((connection, lane)) = result {
                 lastConnection = connection
-                await closeEstablishedPair(connection: connection, lane: lane)
+                if retiresLateEstablishment {
+                    await closeEstablishedPair(connection: connection, lane: lane)
+                } else {
+                    // A newer RPC client generation replaced this owner before
+                    // it read or wrote the lane, so no EOF reached the Mac.
+                    // Hand the claim back and leave the admitted session and
+                    // its shared control lane to the replacement owner.
+                    await onClose?(connection, closeCode, false)
+                }
             }
             return
         }

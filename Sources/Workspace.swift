@@ -745,7 +745,10 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
+                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                resumeWithContinuation: localTmuxStartCommand == nil
+                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
+                    : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1942,7 +1945,7 @@ extension Workspace {
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
-                remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: nil)
+                remotePTYAttachStartupCommand(sessionID: $0, remoteCommand: remoteConfiguration?.configuredRemoteCommand)
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
@@ -2077,6 +2080,11 @@ extension Workspace {
                 return nil
             }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
+            UpdateRelaunchContinuationNudges.shared.registerRestoredPanel(
+                terminalPanel.id,
+                snapshot: snapshot.terminal,
+                resumesAgent: restoredAgentWillRunStartupInput
+            )
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -3077,7 +3085,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    @Published var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        didSet {
+            // Window titles append the host (`hostLabel`); refresh them only when
+            // an input of that label changed, not on every lease or relay update.
+            guard oldValue?.destination != remoteConfiguration?.destination
+                || oldValue?.port != remoteConfiguration?.port
+                || oldValue?.managedCloudVMID != remoteConfiguration?.managedCloudVMID
+                || oldValue?.sshOptions != remoteConfiguration?.sshOptions else { return }
+            owningTabManager?.workspaceHostLabelDidChange(self)
+        }
+    }
     /// The cloud machine whose cmux-tui session runs in this workspace's pane. Unlike
     /// `remoteConfiguration` (app-managed SSH/websocket transports) the session belongs
     /// to the pane's own `cmux vm-tui-connect` process, so this binding is what the
@@ -3102,6 +3120,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remoteDirectoryReportPanelIds.removeAll()
             remoteDirectoryTrustRequiredPanelIds.removeAll()
             notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
+            owningTabManager?.workspaceHostLabelDidChange(self)
         }
     }
     /// The workspace-owned state for the latest failed cloud terminal creation request.
@@ -3141,7 +3160,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var remoteLastDaemonErrorFingerprint: String?
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
-    var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    var activeRemoteTerminalSurfaceIds: Set<UUID> = [] {
+        didSet {
+            // A surface's remote session registering or ending changes which
+            // machine its shell runs on, so predicted echo classifies it again.
+            for surfaceID in activeRemoteTerminalSurfaceIds.symmetricDifference(oldValue) {
+                TerminalPredictionCenter.shared.surfaceMachineMayHaveChanged(surfaceID: surfaceID)
+            }
+        }
+    }
     var remoteTerminalSessionStatesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionState] = [:]
     var pendingRemoteTerminalConnectionsBySurfaceId: [UUID: PendingWorkspaceRemoteTerminalConnection] = [:]
     var remoteTerminalAttemptIDsBySurfaceId: [UUID: UUID] = [:]
@@ -3595,7 +3622,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "sidebarMatchTerminalBackground")
+        defaults.object(forKey: SidebarMatchTerminalBackgroundSettings.userDefaultsKey) as? Bool
+            ?? SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     }
 
     nonisolated static func usesWindowRootTerminalBackdrop() -> Bool {
@@ -3677,18 +3705,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
-    private nonisolated static func resolvedPaneBorderHex(
+    /// Ghostty's `split-divider-color` colors only the divider between
+    /// splits. Pane and tab-bar borders keep the chrome separator. An explicit
+    /// pane border color still colors every border, the divider included.
+    private nonisolated static func resolvedSplitDividerHex(
         configuredHex: String?,
-        splitDividerColor: NSColor?,
-        defaultBorderHex: String
-    ) -> String {
-        let splitDividerHex = splitDividerColor.map { color in
+        splitDividerColor: NSColor?
+    ) -> String? {
+        guard PaneChromeSettings.paneBorderColorHexIsUnset(configuredHex) else { return nil }
+        return splitDividerColor.map { color in
             color.hexString(includeAlpha: color.alphaComponent < 0.999)
         }
-        return PaneChromeSettings.resolvedPaneBorderHex(
-            configuredHex: configuredHex,
-            fallback: splitDividerHex ?? defaultBorderHex
-        )
     }
 
     /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
@@ -3719,10 +3746,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 increaseContrast: increaseContrast
             )
             .hexString(includeAlpha: true)
-        let borderHex = resolvedPaneBorderHex(
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            splitDividerColor: splitDividerColor,
-            defaultBorderHex: defaultBorderHex
+            fallback: defaultBorderHex
+        )
+        let dividerHex = resolvedSplitDividerHex(
+            configuredHex: paneBorderColorHex,
+            splitDividerColor: splitDividerColor
         )
 
         // Keep this decision on the same owner plan used by terminal surfaces.
@@ -3752,7 +3782,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                dividerHex: dividerHex
             )
         }
 
@@ -3767,7 +3798,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabBarBackgroundHex: surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            dividerHex: dividerHex
         )
     }
 
@@ -3784,10 +3816,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
-        let borderHex = resolvedPaneBorderHex(
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            splitDividerColor: splitDividerColor,
-            defaultBorderHex: defaultBorderHex
+            fallback: defaultBorderHex
+        )
+        let dividerHex = resolvedSplitDividerHex(
+            configuredHex: paneBorderColorHex,
+            splitDividerColor: splitDividerColor
         )
 
         if sharesWindowBackdrop {
@@ -3796,7 +3831,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 tabBarBackgroundHex: "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
-                borderHex: borderHex
+                borderHex: borderHex,
+                dividerHex: dividerHex
             )
         }
 
@@ -3811,7 +3847,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tabBarBackgroundHex: backgroundHex,
             splitButtonBackdropHex: backgroundHex,
             paneBackgroundHex: paneBackgroundHex,
-            borderHex: borderHex
+            borderHex: borderHex,
+            dividerHex: dividerHex
         )
     }
 
@@ -3823,7 +3860,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             lhs.tabBarBackgroundHex == rhs.tabBarBackgroundHex &&
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
-            lhs.borderHex == rhs.borderHex
+            lhs.borderHex == rhs.borderHex &&
+            lhs.dividerHex == rhs.dividerHex
     }
 
     private static func bonsplitChromeColorsLogDescription(
@@ -3833,7 +3871,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "tabBarBg=\(colors.tabBarBackgroundHex ?? "nil") " +
             "splitBackdrop=\(colors.splitButtonBackdropHex ?? "nil") " +
             "paneBg=\(colors.paneBackgroundHex ?? "nil") " +
-            "border=\(colors.borderHex ?? "nil")"
+            "border=\(colors.borderHex ?? "nil") " +
+            "divider=\(colors.dividerHex ?? "nil")"
     }
 
     private static func bonsplitAppearance(
@@ -4001,6 +4040,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
+        initialTerminalIsRemote: Bool = false,
         initialTerminalInput: String? = nil,
         initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalStartupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
@@ -4198,6 +4238,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
                 ),
+                isRemoteTerminal: initialTerminalIsRemote,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .immediate,
                     willRunStartupInput:
@@ -6721,11 +6762,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        let keysNeedingInput = sidebarStatusKeysNeedingInput()
         return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-            let lhsNeedsInput = keysNeedingInput.contains(lhs.key)
-            if lhsNeedsInput != keysNeedingInput.contains(rhs.key) { return lhsNeedsInput }
+            let lhsUrgency = sidebarStatusUrgencyRank(forKey: lhs.key)
+            let rhsUrgency = sidebarStatusUrgencyRank(forKey: rhs.key)
+            if lhsUrgency != rhsUrgency { return lhsUrgency > rhsUrgency }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
         }
@@ -7660,6 +7701,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return binding.vmID
     }
 
+    /// Where this workspace runs, derived from its Cloud machine or SSH
+    /// destination, never from the title the user typed. Window titles and
+    /// the Task Manager read this one value so they name the host the same way.
+    var hostLabel: WorkspaceHostLabel {
+        if let machineID = cloudVMID {
+            return WorkspaceHostLabel.cloud(
+                machineID: machineID,
+                machineName: cloudBindingState.machineNames[machineID]
+            ) ?? .local
+        }
+        if let remoteConfiguration {
+            // `cmux ssh` takes a port through `--ssh-option Port=...` as well as `--port`.
+            let optionPort = SSHAgentSocketResolver(environment: [:])
+                .optionValue(named: "Port", in: remoteConfiguration.sshOptions)
+                .flatMap { Int($0) }
+            return WorkspaceHostLabel.ssh(
+                destination: remoteConfiguration.destination,
+                port: remoteConfiguration.port ?? optionPort
+            ) ?? .local
+        }
+        return .local
+    }
+
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
         if let status = terminalPanel(for: surfaceId)?.deviceAttachment { return status.presentation }
         if let failure = cloudMaterializationFailures[surfaceId] {
@@ -7759,11 +7823,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 
     func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
@@ -7798,7 +7858,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return nil
         }
         let vmID = String(destination.dropLast(suffix.count))
-        guard vmID.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
+        guard vmID.range(of: #"^[A-Za-z0-9._-]+\z"#, options: .regularExpression) != nil else {
             return nil
         }
         return vmID
@@ -9054,6 +9114,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let splitWorkingDirectory = cwdResolution.resolvedWorkingDirectory
         let localWorkingDirectory = cwdResolution.localWorkingDirectory
         effectiveStartupEnvironment = cwdResolution.startupEnvironment
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -9073,7 +9134,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand, initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            isRemoteTerminal: tracksRemoteTerminalSurface
         )
         configureNewTerminalPanel(
             newPanel,
@@ -9081,7 +9143,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: effectiveRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -9387,6 +9448,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let cwdResolution = resolveRemoteTerminalWorkingDirectory(requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId, startupEnvironment: effectiveStartupEnvironment, explicitRemoteInitialWorkingDirectory: explicitRemoteInitialWorkingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil, inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback, resolveLocalFallback: inheritWorkingDirectoryFallback && startupCommand == nil)
         let localWorkingDirectory = cwdResolution.localWorkingDirectory
         effectiveStartupEnvironment = cwdResolution.startupEnvironment
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
 
         // Create new terminal panel. A restored panel reuses its persisted
         // surface id (the panel/surface id IS the ghostty surface id, a
@@ -9403,6 +9465,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
+            isRemoteTerminal: tracksRemoteTerminalSurface,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
@@ -9414,7 +9477,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: effectiveRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -9684,7 +9746,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: trimmedCommand,
             tmuxStartCommand: trimmedCommand,
-            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:]),
+            isRemoteTerminal: true
         )
         // Cloud VM loading swaps replace the panel object but keep the logical tab identity.
         replacementPanel.adoptStableSurfaceId(loadingPanel.stableSurfaceId)
@@ -11875,6 +11938,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             (.rename, .renameTab),
             (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
+            (.sizeToMyWindow, .sizeTerminalToMyWindow),
         ]
         for (contextAction, settingsAction) in mappings {
             let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
@@ -13158,6 +13222,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialCommand: startupCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
+            isRemoteTerminal: startupCommand != nil,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
@@ -15008,6 +15073,15 @@ extension Workspace: BonsplitDelegate {
              .forkConversationNewTab,
              .forkConversationNewWorkspace:
             handleForkConversationContextAction(action, for: tab, inPane: pane)
+        case .sizeToMyWindow,
+             .sizeModeLatest,
+             .sizeModeSmallest,
+             .sizeModeLargest,
+             .sizeModePriority,
+             .sizeModeFixed,
+             .toggleSizePanel,
+             .disconnectOtherClients:
+            handleTerminalSharingContextAction(action, for: tab)
         @unknown default:
             break
         }

@@ -72,6 +72,9 @@ public actor IrxControlByteTransport: CmxByteTransport {
     var establishmentCompletionTask: Task<Void, Never>?
     var connectWaiters: [UUID: CheckedContinuation<(IrxConnection, IrxLaneStream), any Error>] = [:]
     var isClosed = false
+    /// Set when the last establishment waiter was cancelled. Only then does a
+    /// late result retire the session; an explicit close only releases it.
+    var retiresLateEstablishment = false
     var controlTerminationObserved = false
     private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
     /// Increments each time a replacement stream takes over the control lane.
