@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,7 @@ import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 from test_ci_change_areas import (
     GUARD_WORKFLOW as GUARD_WORKFLOW_PATH,
     workflow_job_block,
+    workflow_job_step_script,
 )
 
 
@@ -412,6 +414,30 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             validator.newly_added_tests(main_tip, root),
             {"tests/test_mine.py"},
         )
+
+        # Execute the workflow fetch against the fixture's origin and observe
+        # the validator arguments, including the no-base push-event path.
+        git("remote", "add", "origin", str(root))
+        script = workflow_job_step_script(
+            "workflow-guard-tests",
+            "Validate Python test execution registry",
+            GUARD_WORKFLOW_PATH,
+        )
+        script = script.replace(
+            'python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"',
+            'printf "%s\\n" "${args[@]}"',
+        )
+        for base_ref, expected in (("main", ["--base-sha", main_tip]), ("", [""])):
+            with self.subTest(base_ref=base_ref):
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=root,
+                    env={**os.environ, "CMUX_TEST_REGISTRY_BASE_REF": base_ref},
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.stdout.splitlines(), expected)
 
 
 # Each fake test records its start, then waits until `peers` tests have
