@@ -486,6 +486,7 @@ mod tests {
             kind: SurfaceKind::Pty,
             browser_source: None,
             browser_frames_stalled: false,
+            remote_terminal: false,
             supports_clear_history_key_fallback: false,
             notification: None,
         }
