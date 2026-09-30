@@ -33,7 +33,25 @@ struct GhosttySplitDividerColorTests {
         defer { workspace.teardownAllPanels() }
         workspace.applyGhosttyChrome(from: config, reason: "test-split-divider-color")
 
-        #expect(workspace.bonsplitController.configuration.appearance.chromeColors.borderHex == "#78A9FF")
+        let chromeColors = workspace.bonsplitController.configuration.appearance.chromeColors
+        #expect(chromeColors.dividerHex == "#78A9FF")
+    }
+
+    @Test
+    func splitDividerColorLeavesPaneAndTabBarBordersOnTheChromeSeparator() {
+        let background = NSColor(hex: "#272822")!
+        let withoutDivider = Workspace.bonsplitChromeColors(
+            backgroundColor: background,
+            backgroundOpacity: 1
+        )
+        let withDivider = Workspace.bonsplitChromeColors(
+            backgroundColor: background,
+            backgroundOpacity: 1,
+            splitDividerColor: NSColor(hex: "#4A4C47")!
+        )
+
+        #expect(withDivider.borderHex == withoutDivider.borderHex)
+        #expect(withDivider.dividerHex == "#4A4C47")
     }
 
     @Test
@@ -46,5 +64,6 @@ struct GhosttySplitDividerColorTests {
         )
 
         #expect(colors.borderHex == "#123456")
+        #expect(colors.dividerHex == nil)
     }
 }

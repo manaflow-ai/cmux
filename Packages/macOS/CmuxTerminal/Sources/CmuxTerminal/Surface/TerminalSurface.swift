@@ -247,6 +247,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
+    /// Called when the pane's natural grid may have changed: its own
+    /// (uncapped) pixel size or its cell size (a font-size change) changed.
+    /// A shared-sizing host uses it to re-report the Mac pane's grid as a
+    /// participant viewport.
+    @MainActor public var onNaturalGridInputsChanged: (@MainActor () -> Void)?
+
+    /// Reports a cell-size change (the font size changed), which changes the
+    /// natural grid without changing the pane's pixel size.
+    @MainActor public func cellSizeDidChange() {
+        // A pin fixes pixels from the old cell size; recompute them so the
+        // assigned grid survives a font change.
+        if assignedGrid != nil { reapplyAssignedGrid() }
+        onNaturalGridInputsChanged?()
+    }
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
