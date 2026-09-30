@@ -3,9 +3,10 @@ import CmuxMobilePairedMac
 import Foundation
 
 extension MobileShellComposite {
-    /// Snapshot the authenticated foreground route before a destructive switch.
-    /// The saved row may already describe another tagged process on the same
-    /// physical Mac, so rollback must use live A rather than persisted B.
+    /// Snapshot the authenticated foreground route before a switch that may
+    /// require replacing the focused session. The saved row may already
+    /// describe another tagged process on the same physical Mac, so rollback
+    /// must use live A rather than persisted B.
     func liveForegroundMacForSwitchRestore() -> MobilePairedMac? {
         guard hasActiveMacConnection,
               let macDeviceID = foregroundMacDeviceID,
@@ -29,7 +30,8 @@ extension MobileShellComposite {
         )
     }
 
-    /// Resolves the live foreground Mac that a failed destructive switch should restore.
+    /// Resolves the live foreground Mac that a failed switch should restore
+    /// after its prior focused session was retired.
     func previousForegroundMacForSwitchRestore(
         previousForegroundMacDeviceID: String?,
         previousForegroundInstanceTag: String? = nil,
@@ -104,6 +106,17 @@ extension MobileShellComposite {
     /// instead of `MobileShellComposite.swift` to respect that file's length
     /// budget.
     public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
+
+    /// A Mac switch is an explicit foreground connect, so it supersedes
+    /// automatic recovery and any stored-Mac reconnect the way pairing does.
+    /// Left running, recovery redialed the saved Macs (the switch's target
+    /// among them), retired the switch's dial, and failed the switch.
+    func supersedeConnectionRecoveryForMacSwitch() {
+        pendingInactiveRecoveryTrigger = nil
+        connectionRecoveryOwner.cancel()
+        applyConnectionRecoveryOwnerState()
+        invalidateStoredMacReconnectAttempt()
+    }
 
     func cancelMacSwitchAttempt(_ attemptID: UUID) -> Task<Bool, Never>? {
         macSwitchAttemptID == attemptID ? cancelPendingMacSwitch(restorePreviousOnCancel: true) : nil

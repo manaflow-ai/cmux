@@ -94,7 +94,6 @@ import WebKit
         webView.layoutPassCount = 0
 
         portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
-
         // Observe the synchronous boundary before yielding to AppKit's display
         // cycle. Once the run loop spins, a dirty NSHostingView may be laid out
         // by the window system independently of the portal's deferred WebKit

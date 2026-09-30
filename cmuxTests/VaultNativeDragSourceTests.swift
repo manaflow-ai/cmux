@@ -29,6 +29,7 @@ struct VaultNativeDragSourceTests {
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
+            onOpen: nil,
             search: { _, _, _, _ in .init(entries: [], errors: []) },
             loadSnapshot: { cwd in
                 .init(cwd: cwd ?? "", entries: [], errors: [])
@@ -252,11 +253,6 @@ struct VaultNativeDragSourceTests {
 
         var previousSource: SessionDragSessionSource?
         for expectedStartCount in 1...3 {
-            if let previousSource {
-                // The new threshold-crossing event is the native boundary for
-                // the previous source, even when its endedAt callback was lost.
-                #expect(registry.entry(id: previousSource.dragID) == nil)
-            }
             #expect(coordinator.beginSessionDrag(
                 entry,
                 registry: registry,
@@ -266,6 +262,11 @@ struct VaultNativeDragSourceTests {
                 frame: frame,
                 image: image
             ))
+            if let previousSource {
+                // The new threshold-crossing event is the native boundary for
+                // the previous source, even when its endedAt callback was lost.
+                #expect(registry.entry(id: previousSource.dragID) == nil)
+            }
             #expect(startedSources.count == expectedStartCount)
 
             let source = startedSources[expectedStartCount - 1]

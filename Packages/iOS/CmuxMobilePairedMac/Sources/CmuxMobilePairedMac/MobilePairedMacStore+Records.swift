@@ -181,6 +181,15 @@ extension MobilePairedMacStore {
             .text(fromOwnerKey),
         ])
         try exec("""
+            UPDATE mac_route_removals
+            SET owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
             DELETE FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -282,16 +291,18 @@ extension MobilePairedMacStore {
 
     func fetchLegacyTailscaleRoutes(
         macDeviceID: String,
-        ownerKey: String
+        ownerKey: String,
+        origin: String? = nil
     ) throws -> [CmxAttachRoute] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
+        let originClause = origin == nil ? "" : " AND origin = ?"
         let result = sqlite3_prepare_v2(
             db,
             """
             SELECT endpoint_json
             FROM legacy_tailscale_route_grants
-            WHERE mac_device_id = ? AND owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?\(originClause)
             ORDER BY id ASC;
             """,
             -1,
@@ -301,7 +312,11 @@ extension MobilePairedMacStore {
         guard result == SQLITE_OK else {
             throw MobilePairedMacStoreError.prepareFailed(result, lastErrorMessage())
         }
-        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        var bindings: [BindValue] = [.text(macDeviceID), .text(ownerKey)]
+        if let origin {
+            bindings.append(.text(origin))
+        }
+        try bind(statement: statement, parameters: bindings)
         let decoder = JSONDecoder()
         var routes: [CmxAttachRoute] = []
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -316,7 +331,116 @@ extension MobilePairedMacStore {
         return routes
     }
 
+    func fetchRouteRemovalKeys(
+        macDeviceID: String,
+        ownerKey: String
+    ) throws -> Set<String> {
+        var removedStatement: OpaquePointer?
+        defer { sqlite3_finalize(removedStatement) }
+        let removedRC = sqlite3_prepare_v2(
+            db,
+            """
+            SELECT kind, endpoint_json
+            FROM mac_route_removals
+            WHERE mac_device_id = ? AND owner_key = ?;
+            """,
+            -1,
+            &removedStatement,
+            nil
+        )
+        guard removedRC == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(removedRC, lastErrorMessage())
+        }
+        try bind(
+            statement: removedStatement,
+            parameters: [.text(macDeviceID), .text(ownerKey)]
+        )
+        var removedKeys: Set<String> = []
+        while true {
+            let step = sqlite3_step(removedStatement)
+            if step == SQLITE_DONE {
+                break
+            }
+            guard step == SQLITE_ROW else {
+                throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+            }
+            guard let kind = Self.readNullableText(removedStatement, column: 0),
+                  let endpoint = Self.readNullableText(removedStatement, column: 1) else {
+                continue
+            }
+            removedKeys.insert("\(kind)\u{1F}\(endpoint)")
+        }
+        return removedKeys
+    }
+
+    /// Bound tombstone storage without evicting suppression state. Once a
+    /// scope exceeds the exact-marker budget for a transport kind, replace its
+    /// markers with one conservative kind-wide marker. Explicit pairing clears
+    /// that marker for the newly authorized destination set.
+    func compactRouteRemovalTombstones(
+        macDeviceID: String,
+        ownerKey: String,
+        kind: CmxAttachTransportKind
+    ) throws {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let rc = sqlite3_prepare_v2(
+            db,
+            "SELECT COUNT(*) FROM mac_route_removals WHERE mac_device_id = ? AND owner_key = ? AND kind = ? AND endpoint_json <> ?;",
+            -1,
+            &statement,
+            nil
+        )
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              sqlite3_column_int(statement, 0) > MobilePairedMacStore.routeRemovalTombstoneLimit else {
+            return
+        }
+        try exec("""
+            INSERT OR IGNORE INTO mac_route_removals (
+                mac_device_id, owner_key, kind, endpoint_json
+            ) VALUES (?, ?, ?, ?);
+        """, binding: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+        try exec("""
+            DELETE FROM mac_route_removals
+            WHERE mac_device_id = ? AND owner_key = ? AND kind = ?
+              AND endpoint_json <> ?;
+        """, binding: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(kind.rawValue),
+            .text(MobilePairedMacStore.routeRemovalWildcardEndpoint),
+        ])
+    }
+
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
+        let removedKeys = try fetchRouteRemovalKeys(
+            macDeviceID: macDeviceID,
+            ownerKey: ownerKey
+        )
+        let explicitlyGrantedKeys = Set<String>(
+            try fetchLegacyTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            ).compactMap { route in
+                guard let endpoint = try? Self.encodeRouteEndpoint(route) else { return nil }
+                return "\(route.kind.rawValue)\u{1F}\(endpoint)"
+            }
+        )
+
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
@@ -340,6 +464,16 @@ extension MobilePairedMacStore {
                   let route = try? decoder.decode(CmxAttachRoute.self, from: data) else {
                 pairedMacStoreLog.warning("dropping unparsable route row")
                 continue
+            }
+            if let endpoint = try? Self.encodeRouteEndpoint(route) {
+                let key = "\(route.kind.rawValue)\u{1F}\(endpoint)"
+                let wildcardKey =
+                    "\(route.kind.rawValue)\u{1F}\(MobilePairedMacStore.routeRemovalWildcardEndpoint)"
+                if removedKeys.contains(key)
+                    || (removedKeys.contains(wildcardKey)
+                        && !explicitlyGrantedKeys.contains(key)) {
+                    continue
+                }
             }
             routes.append(route)
         }
@@ -387,6 +521,16 @@ extension MobilePairedMacStore {
     static func encodeRoute(_ route: CmxAttachRoute) throws -> String {
         let encoder = JSONEncoder()
         let data = try encoder.encode(route)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw MobilePairedMacStoreError.decodeFailed
+        }
+        return string
+    }
+
+    static func encodeRouteEndpoint(_ route: CmxAttachRoute) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(route.endpoint)
         guard let string = String(data: data, encoding: .utf8) else {
             throw MobilePairedMacStoreError.decodeFailed
         }

@@ -16,13 +16,14 @@ struct AgentLifecycleReducerTests {
         pendingWork: Bool = false,
         isSubagent: Bool = false,
         unattributedReason: String? = nil,
-        declaredPhase: AgentLifecyclePhase? = nil
+        declaredPhase: AgentLifecyclePhase? = nil,
+        occurredAtMs: Int64? = nil
     ) -> AgentJournalEvent {
         let attributed = unattributedReason == nil
         let draft = AgentJournalEventDraft(
             eventId: "event-\(sequence)",
             kind: kind,
-            occurredAtMs: 1_000 + sequence,
+            occurredAtMs: occurredAtMs ?? 1_000 + sequence,
             source: "claude",
             agentKey: agentKey,
             sessionId: session,
@@ -71,9 +72,36 @@ struct AgentLifecycleReducerTests {
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .error)
     }
 
-    @Test func pendingWorkKeepsTurnCompletedRunning() {
+    @Test func pendingWorkUsesBackgroundPhase() {
         let state = fold([event(1, .turnStarted), event(2, .turnCompleted, pendingWork: true)])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .backgroundWorkPending)
+    }
+
+    @Test func toolActivityReopensASettledTurnAndLateStopIsIgnored() {
+        let state = fold([
+            event(1, .turnCompleted, occurredAtMs: 10),
+            event(2, .stateChanged, declaredPhase: .running, occurredAtMs: 20),
+            event(3, .turnCompleted, occurredAtMs: 10),
+        ])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
+    @Test func newTurnRemainsRunningWhileBackgroundWorkIsPending() {
+        let state = fold([
+            event(1, .turnStarted),
+            event(2, .turnCompleted, pendingWork: true),
+            event(3, .turnStarted, pendingWork: true),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
+    @Test func idleAttentionResolutionUsesDeclaredPhase() {
+        let state = fold([
+            event(1, .turnStarted),
+            event(2, .questionRequested),
+            event(3, .attentionResolved, declaredPhase: .idle),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
     @Test func sessionEndedClearsEntry() {
@@ -87,6 +115,14 @@ struct AgentLifecycleReducerTests {
         let once = fold(events)
         let twice = fold(events + events + [events[0]])
         #expect(once == twice)
+    }
+
+    @Test func newerSequenceCanApplyAfterTimestampSkew() {
+        var state = AgentLifecycleReducerState()
+        #expect(reducer.apply(event(1, .turnStarted), to: &state))
+        let correction = event(2, .stateChanged, declaredPhase: .idle, occurredAtMs: 1)
+        #expect(reducer.apply(correction, to: &state))
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
     @Test func outOfOrderDeliveryConvergesToSequenceOrder() {

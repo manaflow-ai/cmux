@@ -4,6 +4,63 @@ public import Foundation
 
 extension BackingUpPairedMacStore {
     @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let visible = try? await macFor(
+            macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team,
+            requiresExactInstanceTag: true
+        )
+        let mutationTeam = visible?.teamID ?? team
+        let wrote = try await inner.removeRouteIfAuthorized(
+            macDeviceID: macDeviceID,
+            route: route,
+            condition: condition,
+            stackUserID: stackUserID,
+            teamID: mutationTeam,
+            now: now
+        )
+        guard wrote, let account = stackUserID, !account.isEmpty else { return wrote }
+        lastSignedInAccount = account
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let verifiedDestination = await backupTeamStore.load(
+            key: backupTeamKey(
+                account: account,
+                rowTeamID: visible?.teamID,
+                pairingID: pairingID
+            )
+        )
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            account: account,
+            teamID: verifiedDestination ?? visible?.teamID,
+            includesCustomizations: false,
+            instanceAuthority: .compareAndSet,
+            resolvesNilTeam: false
+        )
+        return true
+    }
+
+    @discardableResult
     public func upsertRoutesIfAuthorized(
         macDeviceID: String,
         displayName: String?,

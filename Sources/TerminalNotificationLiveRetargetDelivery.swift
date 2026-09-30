@@ -10,6 +10,7 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,
         surfaceId: UUID?,
@@ -20,8 +21,9 @@ extension TerminalController {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
-        retargetsToLiveSurfaceOwner: Bool = true
-    ) {
+        retargetsToLiveSurfaceOwner: Bool = true,
+        origin: TerminalNotificationOrigin = .local
+    ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
             // Trusted local delivery follows the surface's CURRENT workspace.
@@ -30,7 +32,7 @@ extension TerminalController {
             guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
-            ) else { return }
+            ) else { return nil }
             target = liveTarget
         } else {
             // `notification.create_for_target` is relay-reachable and already
@@ -55,7 +57,7 @@ extension TerminalController {
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
-        TerminalNotificationStore.shared.addNotification(
+        return TerminalNotificationStore.shared.addNotification(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
@@ -65,7 +67,8 @@ extension TerminalController {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: correlationKey,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            origin: origin
         )
     }
 }
@@ -143,7 +146,8 @@ extension TerminalNotificationStore {
             isAppFocused: request.isAppFocused,
             isFocusedPanel: request.isFocusedPanel,
             agent: request.agent,
-            soundContext: request.soundContext
+            soundContext: request.soundContext,
+            origin: request.origin
         )
     }
 }

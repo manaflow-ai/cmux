@@ -110,13 +110,19 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
     @Test("Matching transient metadata authorizes an inherited-master reap")
     func matchingMetadataAuthorizesMasterReap() async throws {
-        let runner = InheritedForwardRecoveryProcessRunner(mode: .success)
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = InheritedForwardRecoveryProcessRunner(
+            mode: .success,
+            relayID: identity.relayID,
+            relayPort: identity.relayPort
+        )
         let launcher = RecordingReverseRelayLauncher()
         let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
                 reverseRelayLauncher: launcher,
+                identity: identity,
                 clock: clock
             )
         let coordinator = fixture.coordinator
@@ -140,12 +146,14 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             Self.isControlCommand("forward", in: $0.arguments)
         }
         let probe = try #require(
-            requests.first(where: Self.isMetadataOwnershipProbe)
+            requests.first(where: {
+                Self.isMetadataOwnershipProbe($0, relayID: identity.relayID)
+            })
         )
         #expect(forwards.count == 1)
         #expect(
             probe.arguments.contains(
-                "ControlPath=\(ResolvedControlPathFixture.path)"
+                "ControlPath=\(identity.controlPath)"
             )
         )
         #expect(probe.arguments.contains("BatchMode=yes"))
@@ -167,12 +175,15 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
     @Test("Mismatched metadata leaves an ambiguous listener untouched")
     func metadataMismatchFailsClosed() async throws {
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let runner = InheritedForwardRecoveryProcessRunner(
-            mode: .metadataMismatch
+            mode: .metadataMismatch,
+            relayID: identity.relayID,
+            relayPort: identity.relayPort
         )
         let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(runner: runner, clock: clock)
+            .makeCoordinator(runner: runner, identity: identity, clock: clock)
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
@@ -195,7 +206,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
                 Self.isControlCommand("forward", in: $0.arguments)
             }.count == 1
         )
-        #expect(requests.contains(where: Self.isMetadataOwnershipProbe))
+        #expect(requests.contains(where: {
+            Self.isMetadataOwnershipProbe($0, relayID: identity.relayID)
+        }))
         #expect(!requests.contains(where: {
             Self.isControlCommand("cancel", in: $0.arguments)
         }))
@@ -208,12 +221,15 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
     @Test("A rejected master exit does not cancel or retry the forward")
     func rejectedMasterExitFailsClosed() async throws {
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let runner = InheritedForwardRecoveryProcessRunner(
-            mode: .exitFailure
+            mode: .exitFailure,
+            relayID: identity.relayID,
+            relayPort: identity.relayPort
         )
         let clock = ManualBrokerClock()
         let fixture = try await RemoteSessionReverseRelayStartupTests
-            .makeCoordinator(runner: runner, clock: clock)
+            .makeCoordinator(runner: runner, identity: identity, clock: clock)
         let coordinator = fixture.coordinator
         defer {
             try? FileManager.default.removeItem(
@@ -250,8 +266,11 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
     @Test("A transient metadata failure can recover on the next relay attempt")
     func transientMetadataFailureRetriesRecovery() async throws {
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let runner = InheritedForwardRecoveryProcessRunner(
-            mode: .transientMetadataFailure
+            mode: .transientMetadataFailure,
+            relayID: identity.relayID,
+            relayPort: identity.relayPort
         )
         let host = ReverseRelayRecoveryHost()
         let clock = ManualBrokerClock()
@@ -259,6 +278,7 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             .makeCoordinator(
                 host: host,
                 runner: runner,
+                identity: identity,
                 clock: clock
             )
         let coordinator = fixture.coordinator
@@ -308,7 +328,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             }.count == 2
         )
         #expect(
-            requests.filter(Self.isMetadataOwnershipProbe).count == 2
+            requests.filter {
+                Self.isMetadataOwnershipProbe($0, relayID: identity.relayID)
+            }.count == 2
         )
         #expect(
             requests.filter {
@@ -324,7 +346,12 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
     @Test("A custom ControlPath never authorizes stale-forward recovery")
     func customControlPathFailsClosed() async throws {
-        let runner = InheritedForwardRecoveryProcessRunner(mode: .success)
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
+        let runner = InheritedForwardRecoveryProcessRunner(
+            mode: .success,
+            relayID: identity.relayID,
+            relayPort: identity.relayPort
+        )
         let fixture = try await RemoteSessionReverseRelayStartupTests
             .makeCoordinator(
                 runner: runner,
@@ -333,7 +360,8 @@ struct RemoteSessionInheritedForwardRecoveryTests {
                     "ControlMaster=auto",
                     "ControlPersist=600",
                     "ControlPath=~/.ssh/custom-%C",
-                ]
+                ],
+                identity: identity
             )
         let coordinator = fixture.coordinator
         defer {
@@ -344,8 +372,8 @@ struct RemoteSessionInheritedForwardRecoveryTests {
 
         let outcome = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(identity.relayPort):127.0.0.1:55001",
+                relayPort: identity.relayPort
             )
         }
 
@@ -359,7 +387,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
                 Self.isControlCommand("forward", in: $0.arguments)
             }.count == 1
         )
-        #expect(!requests.contains(where: Self.isMetadataOwnershipProbe))
+        #expect(!requests.contains(where: {
+            Self.isMetadataOwnershipProbe($0, relayID: identity.relayID)
+        }))
         #expect(!requests.contains(where: {
             Self.isControlCommand("cancel", in: $0.arguments)
         }))
@@ -367,7 +397,9 @@ struct RemoteSessionInheritedForwardRecoveryTests {
             Self.isControlCommand("exit", in: $0.arguments)
         }))
 
-        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+        _ = await coordinator.stopAndWait(
+            cleanupScope: RemoteRelayCleanupScope.transport
+        )
     }
 
     private static func isControlCommand(
@@ -380,13 +412,17 @@ struct RemoteSessionInheritedForwardRecoveryTests {
     }
 
     private static func isMetadataOwnershipProbe(
-        _ request: RemoteProcessRequest
+        _ request: RemoteProcessRequest,
+        relayID: String = "relay-startup-cancellation"
     ) -> Bool {
-        request.arguments.last?.contains("tr -d") == true &&
-            request.arguments.last?.contains("auth_file=") == true &&
-            request.arguments.last?.contains(
-                "relay-startup-cancellation"
-            ) == true
+        guard request.arguments.last == "sh -s",
+              let stdin = request.stdin,
+              let script = String(data: stdin, encoding: .utf8) else {
+            return false
+        }
+        return script.contains("tr -d") &&
+            script.contains("auth_file=") &&
+            script.contains(relayID)
     }
 
     private static func runShellScript(

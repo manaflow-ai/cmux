@@ -14,6 +14,7 @@ import SwiftUI
 /// primary line and dot switch to presence (green = the Mac is online and worth
 /// tapping), and the workspace count is dropped (it is stale while disconnected).
 struct MacComputerRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     /// How the row behaves and which status it leads with.
     enum Style {
         /// Computers screen: navigation to the detail view, phone-connection dot.
@@ -35,6 +36,10 @@ struct MacComputerRow: View {
     /// status dot). Re-entry is guarded by the owning list, not by disabling the
     /// button, so the row does not flash a dimmed state.
     var isConnecting: Bool = false
+    /// Whether the last authenticated attempt for this Mac was rejected by
+    /// the iOS minimum-version gate. This covers Macs absent from the
+    /// directory snapshot, which cannot expose a list-auth entry yet.
+    var hasVersionGateWarning: Bool = false
 
     @State private var showListAuthInfo = false
 
@@ -162,15 +167,21 @@ struct MacComputerRow: View {
     }
 
     /// Whether the account device list has a compatibility warning for this
-    /// Mac, either because it has not confirmed list-auth yet or because its
-    /// reported version is below the server's current minimum.
-    private var showsListAuthWarning: Bool {
-        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)
-        else { return false }
-        return entry.status == "seeded" || entry.isOutdated
+    /// Mac. A row with no remembered version warns until its first hello
+    /// records the build version in the durable overlay.
+    private var listAuthEntry: MobileMacListAuthState.Entry {
+        listAuthState?.compatibilityEntry(
+            pairingID: computer.id,
+            routes: computer.routes
+        ) ?? .init(status: "unknown", revoked: false, isFresh: false)
     }
 
-    /// Seeded rows carry a compact warning triangle beside the name; the
+    private var showsListAuthWarning: Bool {
+        hasVersionGateWarning
+            || ((listAuthState?.hasSnapshot == true) && listAuthEntry.isOutdated)
+    }
+
+    /// Outdated rows carry a compact warning triangle beside the name; the
     /// explanation lives in a popover so the row itself stays one avatar tall.
     /// Borderless keeps the tap target separate from the row's navigation.
     private var listAuthWarningButton: some View {
@@ -207,37 +218,27 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningTitle: String {
-        if MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true {
-            return L10n.string(
-                "computers.version.outdated.title",
-                defaultValue: "Mac update required"
-            )
-        }
         return L10n.string(
-            "computers.listauth.unverified.title",
-            defaultValue: "Not verified on the new connection system yet"
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
         )
     }
 
     private var listAuthWarningMessage: String {
-        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
-              entry.isOutdated,
-              let installed = entry.appVersion,
-              let required = entry.minimumSupportedVersion
-        else {
-            return L10n.string(
-                "computers.listauth.unverified.detail",
-                defaultValue:
-                    "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+        if listAuthEntry.isOutdated, let required = listAuthEntry.requiredVersionDisplay {
+            let requirement = "cmux \(required) or later"
+            return String(
+                format: L10n.string(
+                    "mobile.macUpdate.requiredOnMacFormat",
+                    defaultValue: "Requires %@ on your Mac."
+                ),
+                requirement
             )
         }
-        return String(
-            format: L10n.string(
-                "computers.version.outdated.detail",
-                defaultValue: "This Mac is running %@. Update it to %@ or later."
-            ),
-            installed,
-            required
+        guard showsListAuthWarning else { return "" }
+        return L10n.string(
+            "mobile.pairing.guidance.macUpdateRequired",
+            defaultValue: "Update cmux on this Mac to connect securely."
         )
     }
 

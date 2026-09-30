@@ -27,11 +27,14 @@ const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 pub struct RegistryNotificationProjection {
     pub id: NotificationPublicId,
     pub title: String,
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: String,
     pub terminal_id: Option<TerminalPublicId>,
     pub created_at_ms: u64,
     pub unread: bool,
+    /// Client ids that acknowledged this notification, sorted and unique.
+    pub read_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +45,19 @@ pub struct RegistryAgentProjection {
     pub source: String,
     pub updated_at_ms: u64,
     pub source_session: Option<String>,
+    pub agent: Option<String>,
+    /// The agent's native hook session id (`extra.agent_session_id`).
+    pub agent_session_id: Option<String>,
+}
+
+/// The agent value's `extra` object. `agent_session_id` is present only when
+/// a hook reported the agent's own session id.
+pub(crate) fn agent_projection_extra(agent: Option<&str>, agent_session_id: Option<&str>) -> Value {
+    let mut extra = json!({"agent": agent});
+    if let Some(agent_session_id) = agent_session_id {
+        extra["agent_session_id"] = json!(agent_session_id);
+    }
+    extra
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +69,10 @@ pub(crate) struct RegistryAgentHookState {
 }
 
 impl RegistryAgentProjection {
+    /// The public `AgentSnapshot` value for this projection, including
+    /// `extra.agent_session_id` when a hook reported one.
     pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
+        let extra = agent_projection_extra(self.agent.as_deref(), self.agent_session_id.as_deref());
         json!({
             "id": self.id,
             "session_id": session_id,
@@ -62,6 +81,7 @@ impl RegistryAgentProjection {
             "source": self.source,
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
+            "extra": extra,
         })
     }
 }
@@ -82,11 +102,18 @@ struct StoredNotification {
     id: NotificationPublicId,
     session_id: SessionPublicId,
     title: String,
+    #[serde(default)]
+    subtitle: Option<String>,
     body: String,
     level: StoredNotificationLevel,
     terminal_id: Option<TerminalPublicId>,
     created_at_ms: WireDecimal,
     unread: bool,
+    /// Read marks at commit time are always empty; the durable truth is the
+    /// `resource_notification_reads` table, so this field is decoded and
+    /// ignored.
+    #[serde(default)]
+    read_by: Vec<String>,
     #[serde(default)]
     extra: Option<HashMap<String, Value>>,
 }
@@ -120,6 +147,8 @@ struct StoredAgent {
     updated_at_ms: WireDecimal,
     source_session: Option<String>,
     #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
     extra: Option<HashMap<String, Value>>,
 }
 
@@ -151,6 +180,7 @@ enum StoredAgentSource {
     Hook,
     Socket,
     Detected,
+    Plugin,
 }
 
 impl StoredAgentSource {
@@ -159,6 +189,7 @@ impl StoredAgentSource {
             Self::Hook => "hook",
             Self::Socket => "socket",
             Self::Detected => "detected",
+            Self::Plugin => "plugin",
         }
     }
 }
@@ -204,6 +235,9 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Current agent projections, optionally filtered by terminal and state,
+    /// decoded from their stored results (adapter and hook session id
+    /// included).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -250,6 +284,9 @@ impl WorkspaceRegistry {
              WHERE operation = 'notification.create'
                AND state = 'committed'
                AND json_extract(outcome_json, '$.kind') = 'success'
+               AND json_extract(outcome_json, '$.value.id') NOT IN (
+                 SELECT notification_id FROM resource_notification_clears
+               )
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
@@ -258,6 +295,29 @@ impl WorkspaceRegistry {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        let mut reads = self.durable_notification_reads()?;
+        {
+            // Marks for notifications outside the retained window are dead
+            // weight after a restart (the in-memory prune queue did not
+            // survive). Drop them here so the table stays bounded.
+            let retained_ids = rows
+                .iter()
+                .filter_map(|(outcome_json, _)| {
+                    serde_json::from_str::<Value>(outcome_json)
+                        .ok()
+                        .and_then(|value| value["value"]["id"].as_str().map(str::to_string))
+                })
+                .collect::<HashSet<String>>();
+            let stale =
+                reads.keys().filter(|id| !retained_ids.contains(*id)).cloned().collect::<Vec<_>>();
+            for id in &stale {
+                self.connection.execute(
+                    "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
+                    [id.as_str()],
+                )?;
+                reads.remove(id);
+            }
+        }
         let mut notifications = Vec::with_capacity(rows.len());
         for (outcome_json, idempotency_key) in rows {
             let outcome: ResourceEffectOutcome = serde_json::from_str(&outcome_json)
@@ -284,9 +344,12 @@ impl WorkspaceRegistry {
                 self.session_id
             );
             let _ = stored.extra;
+            let _ = stored.read_by;
+            let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,
+                subtitle: stored.subtitle,
                 body: stored.body,
                 level: stored.level.as_str().to_string(),
                 terminal_id: stored
@@ -294,10 +357,39 @@ impl WorkspaceRegistry {
                     .filter(|terminal_id| live_terminals.contains(terminal_id)),
                 created_at_ms: stored.created_at_ms.get(),
                 unread: stored.unread,
+                read_by,
             });
         }
         notifications.reverse();
         Ok(notifications)
+    }
+
+    /// Read marks stored for one notification, for tests that verify pruning.
+    #[cfg(test)]
+    pub(crate) fn durable_notification_read_clients(
+        &self,
+        notification_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(self.durable_notification_reads()?.remove(notification_id).unwrap_or_default())
+    }
+
+    /// Per-client read marks keyed by notification id, each list sorted and
+    /// unique. Rows for notifications the ledger evicted are pruned at the
+    /// next acknowledgement, so this stays bounded.
+    fn durable_notification_reads(&self) -> anyhow::Result<HashMap<String, Vec<String>>> {
+        let mut statement = self.connection.prepare(
+            "SELECT notification_id, client_id
+             FROM resource_notification_reads
+             ORDER BY notification_id ASC, client_id ASC",
+        )?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut reads: HashMap<String, Vec<String>> = HashMap::new();
+        for (notification_id, client_id) in rows {
+            reads.entry(notification_id).or_default().push(client_id);
+        }
+        Ok(reads)
     }
 
     fn durable_agents(
@@ -350,7 +442,12 @@ impl WorkspaceRegistry {
                 stored.id,
                 stored.terminal_id
             );
-            let _ = stored.extra;
+            let agent_session_id = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("agent_session_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
             agents.push(RegistryAgentProjection {
                 id: stored.id,
                 terminal_id: stored.terminal_id,
@@ -358,6 +455,14 @@ impl WorkspaceRegistry {
                 source: stored.source.as_str().to_string(),
                 updated_at_ms: stored.updated_at_ms.get(),
                 source_session: stored.source_session,
+                agent: stored
+                    .extra
+                    .as_ref()
+                    .and_then(|extra| extra.get("agent"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or(stored.agent),
+                agent_session_id,
             });
         }
         agents.reverse();
@@ -657,6 +762,8 @@ mod tests {
                             },
                         },
                         ResourceChange::UpsertTab(RegistryTab {
+                            name_source: Default::default(),
+                            name_revision: 0,
                             public_id: tab.clone(),
                             pane_id: pane.clone(),
                             position: 0,

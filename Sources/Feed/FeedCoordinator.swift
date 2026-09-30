@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
@@ -8,7 +9,7 @@ import CmuxSettings
 import CmuxSidebar
 
 private enum FeedEventAcceptance: Sendable {
-    case accepted(event: WorkstreamEvent, itemId: UUID)
+    case accepted(event: WorkstreamEvent, item: WorkstreamItem)
     case notFound
     case unavailable
 }
@@ -28,8 +29,9 @@ final class FeedCoordinator: @unchecked Sendable {
 
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
-    @MainActor private(set) var store: WorkstreamStore!
-    @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+    @MainActor var store: WorkstreamStore!
+    @MainActor var notificationJournal: AgentJournalLifecycleCenter = .shared
+    @MainActor var userNotificationCenter: (any UserNotificationCenterServing)?
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
     /// the shared store's service covers the pre-install window.
@@ -40,8 +42,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
     /// handler signals the semaphore after filling the slot.
-    private let waiterLock = NSLock()
-    private var waiters: [String: PendingWaiter] = [:]
+    let waiterRegistry = FeedWaiterRegistry()
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -81,17 +82,50 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    /// Combines the two durable inputs to the mobile Feed into one monotonic
+    /// revision. The high and low 32-bit lanes preserve independent changes,
+    /// so a notification update cannot be hidden behind a larger workstream
+    /// revision (or vice versa).
+    static func combinedMobileFeedRevision(
+        workstream: Int,
+        notifications: Int
+    ) -> Int {
+        guard notifications > 0 else { return max(0, workstream) }
+        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        return Int(truncatingIfNeeded: (high << 32) | low)
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
         store: WorkstreamStore,
-        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil,
+        notificationJournal: AgentJournalLifecycleCenter = .shared
     ) {
+        waiterRegistry.discardInactive()
         self.store = store
+        self.notificationJournal = notificationJournal
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        // Mirror of the notification feed's `notification.feed.changed`
+        // contract: a revision-only invalidation tells subscribed phones to
+        // re-list the workstream feed (`feed.list`). Emission is a no-op
+        // without subscribers.
+        store.onRevisionChange = { revision in
+            MobileHostService.emitEvent(
+                topic: "feed.changed",
+                payload: [
+                    "revision": Self.combinedMobileFeedRevision(
+                        workstream: revision,
+                        notifications: TerminalNotificationStore.shared
+                            .notificationFeedHistory.revision
+                    )
+                ]
+            )
+        }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -134,10 +168,10 @@ final class FeedCoordinator: @unchecked Sendable {
         switch resolveDeliveryTarget(for: [event]) {
         case .accepted(let events):
             guard let revalidatedEvent = events.first,
-                  let itemId = ingestRevalidatedOnMainActor(revalidatedEvent) else {
+                  let item = ingestRevalidatedOnMainActor(revalidatedEvent) else {
                 return .unavailable
             }
-            return .accepted(event: revalidatedEvent, itemId: itemId)
+            return .accepted(event: revalidatedEvent, item: item)
         case .notFound:
             return .notFound
         case .unavailable:
@@ -145,14 +179,20 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Inserts a revalidated event and returns the item the store now holds for it.
     @MainActor
-    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
+    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> WorkstreamItem? {
         guard let store else { return nil }
-        store.ingest(event)
+        guard let item = store.ingestReturningItem(event) else { return nil }
+        observeSemanticLifecycle(event)
+        let retiredDecision = retirePendingDecisionsSuperseded(by: event)
+        if !retiredDecision {
+            clearAgentPromptNotificationsSuperseded(by: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
-        return store.items.last?.id
+        return item
     }
 
     /// Runs synchronous acknowledged ingress on the same ordered lane as zero-wait telemetry.
@@ -241,9 +281,9 @@ final class FeedCoordinator: @unchecked Sendable {
                 return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
             }
             switch acceptance {
-            case .accepted(let acceptedEvent, let itemId):
+            case .accepted(let acceptedEvent, let item):
                 return IngestBlockingOutcome(
-                    result: .acknowledged(itemId: itemId),
+                    result: .acknowledged(itemId: item.id),
                     authoritativeEvent: acceptedEvent
                 )
             case .notFound:
@@ -253,17 +293,18 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
 
-        // Resolve before entering the global delivery lane so hook-session disk
-        // I/O for one agent cannot stall otherwise unrelated Feed ingress.
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-            ? Self.resolveAttentionTargetSynchronously(event: event)
-            : nil
-        let remainingDeliveryTimeout = Self.remainingIngressTime(until: deliveryDeadline)
-        guard remainingDeliveryTimeout > 0 else {
+        guard let registration = waiterRegistry.register(requestID: requestId, event: event) else {
             return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
-        let semaphore = DispatchSemaphore(value: 0)
-        let waiter = PendingWaiter(semaphore: semaphore)
+        if !registration.isOwner { return awaitRegisteredDecision(registration, until: deliveryDeadline) }
+        // Duplicate hooks join before any session lookup or UI insertion.
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+            ? Self.resolveAttentionTargetSynchronously(event: event) : nil
+        let remainingDeliveryTimeout = Self.remainingIngressTime(until: deliveryDeadline)
+        guard remainingDeliveryTimeout > 0 else {
+            waiterRegistry.fail(registration, result: .unavailable)
+            return awaitRegisteredDecision(registration, until: deliveryDeadline)
+        }
 
         let acceptance = performAcceptedEventDelivery(
             for: [event],
@@ -275,18 +316,15 @@ final class FeedCoordinator: @unchecked Sendable {
                         guard ContinuousClock.now < deliveryDeadline else {
                             return FeedEventAcceptance.unavailable
                         }
-                        // Register in the commit boundary before the store sees
-                        // the event, so a fast reply cannot slip through.
-                        FeedCoordinator.shared.waiterLock.lock()
-                        FeedCoordinator.shared.waiters[requestId] = waiter
-                        FeedCoordinator.shared.waiterLock.unlock()
                         return FeedCoordinator.shared.acceptOnMainActor(event)
                     }) else {
                         return nil
                     }
-                    guard case .accepted(let acceptedEvent, _) = acceptance else {
+                    guard case .accepted(let acceptedEvent, let item) = acceptance else {
                         return nil
                     }
+                    FeedCoordinator.shared.waiterRegistry.accepted(registration, event: acceptedEvent, item: item)
+                    guard FeedCoordinator.shared.waiterRegistry.isAwaiting(requestId) else { return acceptedEvent }
                     // Surface in-app attention (needs-input status + workspace
                     // elevation) for the blocking decision. This fires
                     // regardless of app focus, unlike the desktop banner below,
@@ -316,18 +354,7 @@ final class FeedCoordinator: @unchecked Sendable {
                         resolved: attentionTarget,
                         tabManager: attentionTabManager
                     ) {
-                        var shouldConcludeImmediately = false
-                        FeedCoordinator.shared.waiterLock.lock()
-                        if let registeredWaiter = FeedCoordinator.shared.waiters[requestId],
-                           registeredWaiter.decision == nil {
-                            registeredWaiter.attentionTarget = target
-                        } else {
-                            // A reply raced attention publication. Its reply path
-                            // could not observe this target, so balance it here.
-                            shouldConcludeImmediately = true
-                        }
-                        FeedCoordinator.shared.waiterLock.unlock()
-                        if shouldConcludeImmediately {
+                        if !FeedCoordinator.shared.waiterRegistry.setAttention(target, requestID: requestId) {
                             FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
                         }
                     }
@@ -343,67 +370,39 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
         guard let acceptance else {
-            waiterLock.lock()
-            let attentionTarget = waiters.removeValue(forKey: requestId)?.attentionTarget
-            waiterLock.unlock()
-            concludeAttentionOnMain(attentionTarget)
-            cancelNotification(requestId: requestId)
-            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            waiterRegistry.fail(registration, result: .unavailable)
+            return awaitRegisteredDecision(registration, until: deliveryDeadline)
         }
-
-        let accepted: (event: WorkstreamEvent, itemId: UUID)
         switch acceptance {
-        case .accepted(let event, let itemId):
-            accepted = (event, itemId)
+        case .accepted(let event, _):
+            postNotificationIfStillAwaiting(event: event, requestId: requestId)
         case .notFound:
-            waiterLock.lock()
-            waiters.removeValue(forKey: requestId)
-            waiterLock.unlock()
-            return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
+            waiterRegistry.fail(registration, result: .notFound)
         case .unavailable:
-            waiterLock.lock()
-            waiters.removeValue(forKey: requestId)
-            waiterLock.unlock()
-            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+            waiterRegistry.fail(registration, result: .unavailable)
         }
-        // If this is a blocking actionable event and the app window isn't
-        // focused, post a native notification banner with inline action
-        // buttons so the user can respond without switching windows.
-        postNotificationIfStillAwaiting(event: accepted.event, requestId: requestId)
+        return awaitRegisteredDecision(registration, until: deliveryDeadline)
+    }
 
-        let remainingDecisionTimeout = Self.remainingIngressTime(until: deliveryDeadline)
-        let deadline: DispatchTime = .now() + max(remainingDecisionTimeout, 0)
-        let waitResult = semaphore.wait(timeout: deadline)
-
-        waiterLock.lock()
-        let w = waiters.removeValue(forKey: requestId)
-        waiterLock.unlock()
-
-        switch waitResult {
-        case .success:
-            if let decision = w?.decision {
-                // `deliverReply` concludes the attention overlay on resolve.
-                return IngestBlockingOutcome(
-                    result: .resolved(itemId: accepted.itemId, decision: decision),
-                    authoritativeEvent: accepted.event
-                )
-            }
-            cancelNotification(requestId: requestId)
-            concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(accepted.itemId)
-            return IngestBlockingOutcome(
-                result: .timedOut(itemId: accepted.itemId),
-                authoritativeEvent: accepted.event
-            )
-        case .timedOut:
-            cancelNotification(requestId: requestId)
-            concludeAttentionOnMain(w?.attentionTarget)
-            expireTimedOutItem(accepted.itemId)
-            return IngestBlockingOutcome(
-                result: .timedOut(itemId: accepted.itemId),
-                authoritativeEvent: accepted.event
-            )
+    private func awaitRegisteredDecision(_ registration: FeedWaiterRegistry.Registration,
+                                         until deadline: ContinuousClock.Instant) -> IngestBlockingOutcome {
+        _ = registration.semaphore.wait(timeout: .now() + max(Self.remainingIngressTime(until: deadline), 0))
+        let finished = waiterRegistry.finish(registration)
+        if finished.shouldCancel {
+            cancelNotification(requestId: registration.requestID)
+            concludeAttentionOnMain(finished.target)
+            expireTimedOutItem(finished.itemID)
+            waiterRegistry.cleanupStored(requestID: registration.requestID, groupID: registration.groupID)
         }
+        return finished.outcome
+    }
+
+    func invalidateSemanticRequest(requestId: String, source: String, sessionId: String) {
+        guard let (reply, itemID) = waiterRegistry.invalidate(requestID: requestId, source: source, sessionID: sessionId) else { return }
+        cancelNotification(requestId: requestId)
+        concludeAttentionOnMain(reply.target)
+        expireTimedOutItem(itemID)
+        waiterRegistry.cleanupStored(requestID: requestId, groupID: reply.groupID)
     }
 
     private func enqueueZeroWaitAcceptance(
@@ -487,26 +486,28 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
-        waiterLock.lock()
-        let attentionTarget = waiters[requestId]?.attentionTarget
-        if let waiter = waiters[requestId] {
-            waiter.decision = decision
-            waiter.semaphore.signal()
-        }
-        waiterLock.unlock()
+        let reply = waiterRegistry.resolve(requestID: requestId, decision: decision)
+        concludeAttentionOnMain(reply?.target)
 
-        // The user decided: conclude the needs-input overlay so the agent's
-        // running/idle state shows through (refcounted so an overlapping
-        // decision on the same panel keeps it lit until it too concludes).
-        concludeAttentionOnMain(attentionTarget)
-
-        let resolve: @Sendable () -> Void = { [requestId, decision] in
+        let resolve: @Sendable () -> Void = { [requestId, decision, reply] in
             MainActor.assumeIsolated {
-                let store = FeedCoordinator.shared.store
-                guard let store else { return }
-                if let itemId = Self.findItemId(for: requestId, in: store.items) {
+                if let event = reply?.event {
+                    FeedCoordinator.shared.notificationJournal.observeFeed(AgentFeedSemanticInput(event: event,
+                        agentKey: Self.lifecycleStatusKey(forSource: event.source),
+                        requestID: requestId, resolvesRequest: true))
+                }
+                FeedCoordinator.shared.clearSemanticFeedNotification(
+                    requestId: requestId,
+                    source: reply?.event.source,
+                    sessionId: reply?.event.sessionId,
+                    workspaceId: reply?.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                    surfaceId: reply?.event.surfaceId.flatMap(UUID.init(uuidString:))
+                )
+                if let store = FeedCoordinator.shared.store,
+                   let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
                 }
+                if let reply { FeedCoordinator.shared.waiterRegistry.replyStored(reply) }
             }
         }
         if Thread.isMainThread {
@@ -518,11 +519,86 @@ final class FeedCoordinator: @unchecked Sendable {
         cancelNotification(requestId: requestId)
     }
 
-    fileprivate func isAwaitingDecision(requestId: String) -> Bool {
-        waiterLock.lock()
-        defer { waiterLock.unlock() }
-        guard let waiter = waiters[requestId] else { return false }
-        return waiter.decision == nil
+    func isAwaitingDecision(requestId: String) -> Bool { waiterRegistry.isAwaiting(requestId) }
+
+    /// Whether `event` proves its agent already moved past every earlier
+    /// blocking decision in the same agent context.
+    ///
+    /// Claude Code runs its PermissionRequest hook beside its own permission
+    /// dialog and auto-mode classifier. When the user answers in the terminal
+    /// or the classifier decides, Claude keeps the abandoned hook waiting until
+    /// the hook's own timeout, so the Feed request and its "Needs input"
+    /// sidebar overlay outlived the decision by up to two minutes while the
+    /// agent was visibly running again. Claude fires PreToolUse before the
+    /// permission check, and the blocking hook is stamped only after its
+    /// ordering barrier delivered every earlier hook, so a later-stamped tool,
+    /// prompt, or stop hook can only follow the decision. AskUserQuestion and
+    /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
+    static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
+        guard event.feedHookSentAtMs != nil,
+              event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
+            return false
+        }
+        switch event.hookEventName {
+        case .preToolUse:
+            return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
+        case .postToolUse, .postToolUseFailure, .userPromptSubmit, .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Applies the same hook progression rule to terminal notifications even
+    /// when no Feed waiter exists, which is the normal Codex notify-hook path.
+    @MainActor
+    func clearAgentPromptNotificationsSuperseded(by event: WorkstreamEvent) {
+        guard Self.supersedesPendingDecisions(event),
+              let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
+              let surfaceId = event.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
+        let canonicalSessionId = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: event.source,
+            rawValue: event.sessionId
+        )
+        let sessionId = FeedWorkstreamIdentifier(rawValue: canonicalSessionId)?.sessionID ?? event.sessionId
+        let sentAt = event.feedHookSentAtMs.map {
+            Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+        }
+        _ = TerminalNotificationStore.shared.clearAgentAttentionNotification(
+            forTabId: workspaceId,
+            surfaceId: surfaceId,
+            agentKind: event.source,
+            sessionId: sessionId,
+            before: sentAt
+        )
+    }
+
+    /// Retires blocking requests that `event` proves were decided outside cmux:
+    /// the waiting hook returns no decision, the card expires, and the
+    /// needs-input overlay and banner clear, as when the user replies in Feed.
+    @MainActor
+    @discardableResult
+    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) -> Bool {
+        guard Self.supersedesPendingDecisions(event) else { return false }
+        var retiredDecision = false
+        for (reply, itemID) in waiterRegistry.supersede(by: event) {
+            retiredDecision = true
+            cancelNotification(requestId: reply.requestID)
+            concludeAttentionOnMain(reply.target)
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
+                agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
+                requestID: reply.requestID, resolvesRequest: true))
+            _ = clearSemanticFeedNotification(
+                requestId: reply.requestID,
+                source: reply.event.source,
+                sessionId: reply.event.sessionId,
+                workspaceId: reply.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                surfaceId: reply.event.surfaceId.flatMap(UUID.init(uuidString:))
+            )
+            expireTimedOutItem(itemID)
+            waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+        }
+        return retiredDecision
     }
 
     private static func findItemId(
@@ -670,7 +746,6 @@ extension FeedCoordinator {
 
         let owner: ControlSidebarPanelOwner
         let panelId: UUID?
-        let reorderWorkspaceId: UUID?
         if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
             guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
                   dock.containsPanel(resolvedPanelId) else {
@@ -683,7 +758,6 @@ extension FeedCoordinator {
             }
             owner = .dock(dock)
             panelId = resolvedPanelId
-            reorderWorkspaceId = nil
         } else {
             guard let tabManager,
                   let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {
@@ -699,7 +773,6 @@ extension FeedCoordinator {
             // Window-owned Docks have no workspace mute state and continue
             // through the separate branch above.
             guard !tab.isMuted else { return nil }
-            reorderWorkspaceId = tab.id
             if let surfaceId = resolved.surfaceId,
                let target = tab.surfaceOwnershipTarget(for: surfaceId) {
                 owner = .workspace(tab)
@@ -745,19 +818,9 @@ extension FeedCoordinator {
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
-            color: "#4C8DFF",
+            color: CmuxAccentColor.builtInAgentStatusHex,
             timestamp: Date()
         ), key: statusKey, panelId: panelId)
-
-        // Elevate the workspace so it floats to the top of the sidebar,
-        // honoring the user's Reorder on Notification preference.
-        if let reorderWorkspaceId,
-           let tabManager,
-           UserDefaultsSettingsClient(defaults: .standard).value(
-               for: SettingCatalog().app.reorderOnNotification
-           ) {
-            tabManager.moveTabToTopForNotification(reorderWorkspaceId)
-        }
 
         return target
     }
@@ -961,20 +1024,6 @@ private final class AttentionOverlayState {
     }
 }
 
-private final class PendingWaiter: @unchecked Sendable {
-    let semaphore: DispatchSemaphore
-    var decision: WorkstreamDecision?
-    /// The attention overlay target for this decision, if one was surfaced.
-    /// Set inside the ingest `main.sync` (before the card can render and a
-    /// reply can fire) and read when the decision concludes, so the
-    /// needs-input overlay is cleared exactly once. Guarded by
-    /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: FeedAttentionTarget?
-
-    init(semaphore: DispatchSemaphore) {
-        self.semaphore = semaphore
-    }
-}
 
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
@@ -1231,6 +1280,10 @@ private extension FeedCoordinator {
             effects: effects
         )
         let effectiveEffects = deliveryDecision.effects
+        guard deliveryDecision.disposition != .muted,
+              await acceptSemanticFeedNotification(event: event, requestId: requestId,
+                title: title, subtitle: subtitle, body: body, effects: effectiveEffects,
+                soundContext: soundContext) else { return }
         guard effectiveEffects.desktop || effectiveEffects.sound || effectiveEffects.command else {
             return
         }
@@ -1302,7 +1355,7 @@ private extension FeedCoordinator {
             case .authorized, .provisional:
                 break
             case .notDetermined:
-                var authorizationOptions: UNAuthorizationOptions = [.alert]
+                var authorizationOptions: UNAuthorizationOptions = [.alert, .badge]
                 if effectiveEffects.sound {
                     authorizationOptions.insert(.sound)
                 }
@@ -1465,13 +1518,7 @@ private extension FeedCoordinator {
         }
     }
 
-    func liveWaiterRequestIds() -> Set<String> {
-        waiterLock.lock()
-        defer { waiterLock.unlock() }
-        return Set(waiters.compactMap { requestId, waiter in
-            waiter.decision == nil ? requestId : nil
-        })
-    }
+    func liveWaiterRequestIds() -> Set<String> { waiterRegistry.liveRequestIDs() }
 
     @MainActor
     func addNotificationIfStillAwaiting(
@@ -1612,9 +1659,14 @@ private func makeFeedNotificationPolicyContext(
         ?? FileManager.default.homeDirectoryForCurrentUser.path
     var effects = TerminalNotificationPolicyEffects()
     effects.desktop = true
-    effects.record = false
-    effects.markUnread = false
-    effects.reorderWorkspace = false
+    // History, unread, and reorder are store-owned effects: the accepted Feed
+    // decision fans them out through the shared notification store, so they
+    // start enabled and only a hook or the delivery decision below turns them
+    // off. The actionable banner keeps its own attention overlay in place of
+    // a pane flash.
+    effects.record = true
+    effects.markUnread = true
+    effects.reorderWorkspace = true
     // Feed actionable notifications are part of the same sound-delivery
     // lane as terminal notifications.  The delivery decision below still
     // suppresses this effect for DND, muted workspaces, and focused surfaces.
@@ -1660,6 +1712,50 @@ private func normalizedFeedNotificationCWD(_ cwd: String?) -> String? {
 enum FeedSocketEncoding {
     private static let primaryTextLimit = 8_000
     private static let secondaryTextLimit = 2_000
+
+    /// The mobile Feed is a rendered event stream, so an item must carry at
+    /// least one field the phone can display or act on before it enters the
+    /// response. This gate keeps sparse persistence records from becoming
+    /// blank rows after the client maps them into a presentation model.
+    static func isMobileFeedRenderable(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .permissionRequest(let requestID, let toolName, _, _):
+            return hasText(requestID) && hasText(toolName)
+        case .exitPlan(let requestID, _, _):
+            return hasText(requestID)
+        case .question(let requestID, let questions):
+            guard hasText(requestID) else { return false }
+            return questions.contains { question in
+                hasText(question.header)
+                    || hasText(question.prompt)
+                    || question.options.contains { option in
+                        hasText(option.label) || hasText(option.description)
+                    }
+            }
+        case .toolUse, .userPrompt, .sessionStart, .sessionEnd:
+            return false
+        case .toolResult(let toolName, let result, let isError):
+            return isError && (hasText(toolName) || hasText(result))
+        case .assistantMessage(let text):
+            return hasText(text)
+        case .stop(let reason):
+            return hasText(reason)
+                || item.context.map { context in
+                    hasText(context.lastUserMessage)
+                        || hasText(context.assistantPreamble)
+                        || hasText(context.planSummary)
+                        || hasText(context.toolSummary)
+                } == true
+                || hasText(item.reply?.text)
+        case .todos(let todos):
+            return todos.contains { hasText($0.content) }
+        }
+    }
+
+    private static func hasText(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
         switch result {

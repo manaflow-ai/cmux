@@ -65,11 +65,20 @@ public struct AgentLifecycleReducer: Sendable {
             // this session.
             return false
         }
+        if let previous, event.draft.kind != .stateChanged,
+           event.draft.occurredAtMs < previous.lastOccurredAtMs {
+            // A raw lifecycle event that happened before the session's newest
+            // applied event is a late arrival, not a transition. An explicit
+            // phase assertion is exempt: corrections restore a known-good
+            // phase by journal order, so clock skew between the producer and
+            // the app cannot strand a session behind a skewed timestamp.
+            return false
+        }
         let next = AgentSessionLifecycleState(
             phase: transition.phase,
             ended: transition.ended,
             lastSequence: event.sequence,
-            lastOccurredAtMs: event.draft.occurredAtMs
+            lastOccurredAtMs: max(previous?.lastOccurredAtMs ?? 0, event.draft.occurredAtMs)
         )
         let combinedBefore = state.combinedPhase(surfaceId: surfaceId, agentKey: agentKey)
         state.updateSession(
@@ -90,9 +99,14 @@ public struct AgentLifecycleReducer: Sendable {
         case .sessionStarted:
             return (.unknown, false)
         case .turnStarted:
+            // A new turn is active even when the session still reports work
+            // from an earlier watcher or background task. Pending work only
+            // changes the completed-turn projection below.
             return (.running, false)
-        case .turnCompleted:
-            return (draft.pendingWork ? .running : .idle, false)
+        case .attentionResolved:
+            return (draft.declaredPhase ?? (draft.pendingWork ? .backgroundWorkPending : .idle), false)
+        case .turnCompleted, .idleObserved:
+            return (draft.pendingWork ? .backgroundWorkPending : .idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
         case .errorReported:
@@ -104,7 +118,7 @@ public struct AgentLifecycleReducer: Sendable {
             // state-changed events are observations.
             guard let declared = draft.declaredPhase else { return nil }
             return (declared, previous?.ended ?? false)
-        case .childSpawned, .childCompleted, .childFailed:
+        case .childSpawned, .childCompleted, .childFailed, .messagePublished:
             return nil
         }
     }

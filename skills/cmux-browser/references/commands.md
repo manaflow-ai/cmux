@@ -88,9 +88,14 @@ cmux browser --surface <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
 ```
 
 Empty `fill` text clears the field. Keyboard names follow Playwright/W3C
-conventions (`Enter`, `Tab`, `Escape`, `ArrowLeft`, `Space`). `Space`,
-`Spacebar`, and `space` emit DOM key `" "` with code `"Space"`; use `--key ' '`
-to pass the raw DOM key.
+conventions (`Enter`, `Tab`, `Escape`, `ArrowLeft`, `Space`). Supported keys
+use the native WebKit input path, preserving browser defaults such as
+contenteditable caret movement, selection, scrolling, and control activation;
+opaque tokens use a page-event compatibility fallback. `Space`, `Spacebar`,
+and `space` emit DOM key `" "` with code `"Space"`; use `--key ' '` to pass
+the raw DOM key. Use `keydown Shift`/`keyup Shift` (or another supported
+modifier) around an arrow press when a page editor should extend a selection;
+the modifier state is retained per browser surface.
 
 ## Wait
 
@@ -126,8 +131,20 @@ cmux browser --surface <surface> console list|clear
 cmux browser --surface <surface> errors list|clear
 cmux browser --surface <surface> highlight <selector>
 cmux browser --surface <surface> screenshot
+cmux browser --surface <surface> download list [--limit <1...25>]
 cmux browser --surface <surface> download wait --timeout-ms 10000
 ```
+
+`download list` returns the newest records for that browser surface without
+consuming `download wait` events. JSON records include `download_id`,
+`filename`, the actual saved `path` (or `null`), `status`, `bytes` when known,
+and `path_exists` when a path is present. The list is capped at 25 records;
+`--limit` may request a smaller positive count. Text output marks unavailable
+values explicitly.
+The legacy positional form treats a bare token as a destination path, so use
+the explicit `download wait <path>` or `download --path <path>` spelling when
+you want to make that intent unambiguous. `download list` is the only listing
+subcommand.
 
 `cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
 `--path`, another cookie filter, or `--all`). URL scope follows cookie

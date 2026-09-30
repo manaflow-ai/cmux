@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -28,7 +29,7 @@ private final class PrewarmPoolHarness {
             makeWebView: { _ in
                 let configuration = WKWebViewConfiguration()
                 configuration.websiteDataStore = dataStore
-                let webView = CmuxWebView(frame: .zero, configuration: configuration)
+                let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
                 recordWebView(webView)
                 return webView
             },

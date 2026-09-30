@@ -16,6 +16,25 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
+    @Test func workspaceListRecoveryShowsReconnectingStatusLine() {
+        #expect(chrome(
+            isRecoveringWorkspaceList: true,
+            connectionStatus: .unavailable
+        ) == .statusLine(.reconnecting))
+    }
+
+    @Test func reconnectingHidesWorkspaceEmptyState() {
+        #expect(!chrome(
+            isRecoveringWorkspaceList: true,
+            connectionStatus: .unavailable
+        ).showsWorkspaceEmptyState)
+        #expect(!chrome(connectionStatus: .reconnecting).showsWorkspaceEmptyState)
+    }
+
+    @Test func idleUnavailableShowsWorkspaceEmptyState() {
+        #expect(chrome(connectionStatus: .unavailable).showsWorkspaceEmptyState)
+    }
+
     @Test func unavailableStatusShowsNotConnectedStatusLine() {
         #expect(chrome(connectionStatus: .unavailable) == .statusLine(.notConnected))
     }
@@ -203,13 +222,13 @@ import Testing
             effectiveConnectionStatus: .unavailable,
             connectionRequiresReauth: true
         ))
-        // An active reconnect needs no manual entry, and a healthy
-        // connection offers none.
+        // An active reconnect owns recovery. A connected session can still
+        // have stale terminal contents and needs a manual refresh entry.
         #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
             effectiveConnectionStatus: .reconnecting,
             connectionRequiresReauth: false
         ))
-        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
             effectiveConnectionStatus: .connected,
             connectionRequiresReauth: false
         ))
@@ -224,6 +243,7 @@ import Testing
         connectionRequiresReauth: Bool = false,
         connectionRecoveryFailed: Bool = false,
         isRecoveringConnection: Bool = false,
+        isRecoveringWorkspaceList: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
@@ -234,6 +254,7 @@ import Testing
             connectionRequiresReauth: connectionRequiresReauth,
             connectionRecoveryFailed: connectionRecoveryFailed,
             isRecoveringConnection: isRecoveringConnection,
+            isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,

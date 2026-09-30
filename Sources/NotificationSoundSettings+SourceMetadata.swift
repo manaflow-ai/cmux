@@ -3,7 +3,7 @@ import Foundation
 
 /// Bounds managed custom-sound artifacts so repeated one-off selections do not
 /// grow the user's sound directory without limit.
-nonisolated struct NotificationSoundStagingArtifactCleaner: Sendable {
+struct NotificationSoundStagingArtifactCleaner: Sendable {
     private let maximumArtifacts = 64
     private let maximumAge: TimeInterval = 30 * 24 * 60 * 60
 

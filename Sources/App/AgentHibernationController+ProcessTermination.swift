@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -144,8 +145,9 @@ extension AgentHibernationController {
             snapshot = value
         case .nothingToProtect:
             snapshot = nil
-        case .unableToProtect:
-            // Forfeit hibernation rather than risk issue #6565 transcript loss.
+        case .unableToProtect, .backgroundWorkPending:
+            // Forfeit hibernation rather than risk issue #6565 transcript loss,
+            // or killing background work the agent is still waiting on.
             unableToProtectByPanel[record.key] = UnableToProtectMarker(
                 fingerprint: request.confirmationFingerprint,
                 lastActivityAt: request.effectiveLastActivityAt,
@@ -289,6 +291,10 @@ extension AgentHibernationController {
             [weak terminalPanel = record.terminalPanel] in
             terminalPanel?.beginAgentHibernationTerminationRecovery()
         }
+        let sessionEndIntent = AgentHibernationSessionEndIntent(
+            sessionID: agent.sessionId,
+            processIdentities: Set(scopedProcessTerminations.map(\.processIdentity))
+        )
         let finalCommitIsSafe: @MainActor @Sendable () -> Bool = {
             [weak self, weak terminalPanel = record.terminalPanel] in
             guard let self, let terminalPanel,
@@ -302,7 +308,14 @@ extension AgentHibernationController {
                   } ?? true) else {
                 return false
             }
-            return terminalPanel.surface.reserveAgentHibernationRuntimeTeardown()
+            guard terminalPanel.surface.reserveAgentHibernationRuntimeTeardown() else {
+                return false
+            }
+            self.armSessionEndPreservation(
+                panelKey: record.key,
+                intent: sessionEndIntent
+            )
+            return true
         }
         let processGroupLeaders = Self.processGroupLeaders(
             in: scopedProcessTerminations
@@ -356,6 +369,7 @@ extension AgentHibernationController {
         )
         switch terminationResult {
         case .rejected:
+            disarmSessionEndPreservation(panelKey: record.key)
             record.terminalPanel.surface
                 .cancelAgentHibernationRuntimeTeardownReservation()
             if let snapshot {

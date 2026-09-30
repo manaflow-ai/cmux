@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import unittest
 
 from runner import (
+    BINDINGS,
     FIXTURES,
     LANGUAGES,
     RAW_CATALOGS,
@@ -96,6 +98,50 @@ class FixtureTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(expected.values()))
+
+    def test_ergonomics_documents_current_inventory_and_matrix_count(self) -> None:
+        docs = (BINDINGS / "ERGONOMICS.md").read_text()
+        schema = json.loads((BINDINGS.parent / "spec" / "sdk-schema.json").read_text())
+        command_count = len(schema["commands"])
+        event_count = len(schema["events"])
+        fake_count = len(self.fixtures["fake_cases"])
+        real_count = len(self.fixtures["real_cases"])
+        check_count = len(LANGUAGES) * (fake_count + 1 + real_count)
+
+        inventory = re.search(
+            r"raw protocol inventory is a\s+separate compatibility surface with "
+            r"(?P<commands>\d+) commands and (?P<events>\d+) events\.",
+            docs,
+        )
+        self.assertIsNotNone(inventory)
+        assert inventory is not None
+        self.assertEqual(int(inventory.group("commands")), command_count)
+        self.assertEqual(int(inventory.group("events")), event_count)
+
+        go_readme = (BINDINGS / "go" / "raw" / "README.md").read_text()
+        go_inventory = re.search(
+            r"The Go SDK covers all (?P<commands>\d+) protocol-12 commands and "
+            r"(?P<events>\d+) event shapes",
+            go_readme,
+        )
+        self.assertIsNotNone(go_inventory)
+        assert go_inventory is not None
+        self.assertEqual(int(go_inventory.group("commands")), command_count)
+        self.assertEqual(int(go_inventory.group("events")), event_count)
+
+        matrix = re.search(
+            r"The separate raw protocol-12 suite runs\s+(?P<checks>\d+)\s+"
+            r"compatibility checks across seven language adapters:\s+"
+            r"(?P<fake>\d+) fake cases, one metadata\s+audit, and\s+"
+            r"(?P<real>three) live cases per language\.",
+            docs,
+        )
+        self.assertIsNotNone(matrix)
+        assert matrix is not None
+        self.assertEqual(int(matrix.group("checks")), check_count)
+        self.assertEqual(int(matrix.group("fake")), fake_count)
+        self.assertEqual(matrix.group("real"), "three")
+        self.assertEqual(real_count, 3)
 
 
 class MatchingTests(unittest.TestCase):

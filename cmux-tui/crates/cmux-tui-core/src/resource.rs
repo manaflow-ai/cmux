@@ -357,6 +357,10 @@ pub enum ResourceOperation {
     NotificationList,
     #[serde(rename = "notification.create")]
     NotificationCreate,
+    #[serde(rename = "notification.ack")]
+    NotificationAck,
+    #[serde(rename = "notification.clear")]
+    NotificationClear,
     #[serde(rename = "agent.list")]
     AgentList,
     #[serde(rename = "agent.report")]
@@ -379,7 +383,6 @@ pub enum ResourceOperation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-
 pub enum OperationClass {
     Read,
     Mutation,
@@ -633,6 +636,8 @@ impl ResourceOperation {
             Self::BrowserClose => "browser.close",
             Self::NotificationList => "notification.list",
             Self::NotificationCreate => "notification.create",
+            Self::NotificationAck => "notification.ack",
+            Self::NotificationClear => "notification.clear",
             Self::AgentList => "agent.list",
             Self::AgentReport => "agent.report",
             Self::SidebarViewGet => "sidebar_view.get",

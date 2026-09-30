@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 
 @testable import CmuxMobileTerminal
@@ -32,5 +33,17 @@ struct AccessoryEdgeFadeTests {
         #expect(abs(AccessoryEdgeFadeScrollView.fadeBandFraction(viewportWidth: 240, fadeWidth: 24) - 0.1) < 0.0001)
         #expect(AccessoryEdgeFadeScrollView.fadeBandFraction(viewportWidth: 10, fadeWidth: 24) == 1)
         #expect(AccessoryEdgeFadeScrollView.fadeBandFraction(viewportWidth: 0, fadeWidth: 24) == 0)
+    }
+
+    @Test("held glass gets vertical mask overscan")
+    func heldGlassMaskOverscan() {
+        let rowBounds = CGRect(x: 0, y: 0, width: 240, height: 28)
+        let maskBounds = AccessoryEdgeFadeScrollView.maskBounds(for: rowBounds)
+
+        #expect(maskBounds.minX == rowBounds.minX)
+        #expect(maskBounds.maxX == rowBounds.maxX)
+        #expect(maskBounds.minY < rowBounds.minY)
+        #expect(maskBounds.maxY > rowBounds.maxY)
+        #expect(maskBounds.midY == rowBounds.midY)
     }
 }

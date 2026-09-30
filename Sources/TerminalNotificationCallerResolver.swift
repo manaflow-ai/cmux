@@ -106,7 +106,7 @@ extension TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            self.deliverNotificationSynchronously(
+            let notificationID = self.deliverNotificationSynchronously(
                 tabId: target.workspaceId,
                 surfaceId: target.surfaceId,
                 title: title,
@@ -115,10 +115,12 @@ extension TerminalController {
                 replyShape: replyShape
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
-            result = .ok([
+            let payload: [String: Any] = [
                 "workspace_id": target.workspaceId.uuidString,
-                "surface_id": surfaceId
-            ])
+                "surface_id": surfaceId,
+                "id": notificationID?.uuidString ?? NSNull(),
+            ]
+            result = .ok(payload)
         }
         return result
     }

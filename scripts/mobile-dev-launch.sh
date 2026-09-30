@@ -48,6 +48,9 @@
 #   --iroh-release-gate <automatic|relayOnly|directOnly>
 #              simulator only: run the credential-free Iroh release-gate probe
 #              after sign-in and attach.
+#   --restore-pairing
+#              simulator release gate only: restore previously verified sign-in
+#              and pairing without injecting credentials or an attach URL.
 #   --credentials-file <absolute-path>
 #              load one 0600 credential file exclusively. Intended for an
 #              isolated temporary production release-gate account.
@@ -81,6 +84,7 @@ ATTACH_EXPLICIT=0
 ENSURE_MAC=0
 DETACH=0
 IROH_RELEASE_GATE_MODE=""
+RESTORE_PAIRING=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_PROFILE_EXPLICIT=0
@@ -123,6 +127,7 @@ while [[ $# -gt 0 ]]; do
     --check-auth-contract) CHECK_AUTH_CONTRACT=1; shift ;;
     --detach) DETACH=1; shift ;;
     --iroh-release-gate) IROH_RELEASE_GATE_MODE="${2:-}"; shift 2 ;;
+    --restore-pairing) RESTORE_PAIRING=1; ATTACH=0; ENSURE_MAC=0; ATTACH_EXPLICIT=1; shift ;;
     --credentials-file)
       [[ -n "${2:-}" ]] || { echo "error: --credentials-file requires a path" >&2; exit 2; }
       AUTH_CREDENTIALS_FILE="$2"; shift 2
@@ -131,6 +136,14 @@ while [[ $# -gt 0 ]]; do
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [[ "$RESTORE_PAIRING" -eq 1 ]] && {
+  [[ "$TARGET" != simulator || "$ATTACH" -ne 0 ]] \
+    || [[ "$IROH_RELEASE_GATE_MODE" != automatic && "$IROH_RELEASE_GATE_MODE" != relayOnly ]];
+}; then
+  echo "error: --restore-pairing requires a simulator release gate without injected attach" >&2
+  exit 2
+fi
 
 if [[ -z "$AUTH_PROFILE" ]]; then
   if [[ "$TARGET" == "device" ]]; then
@@ -388,15 +401,39 @@ if [[ "$TARGET" == "simulator" ]]; then
   if [[ "$DETACH" -ne 1 ]]; then
     launch_args+=(--console-pty)
   fi
+  SIMULATOR_LAUNCH_UPTIME_NS=""
+  if [[ -n "${CMUX_IROH_SOAK_PROFILE:-}" ]]; then
+    SIMULATOR_LAUNCH_UPTIME_NS="$(/usr/bin/python3 "$SCRIPT_DIR/lib/mach-clock-ns.py")"
+  fi
+  if [[ "${RESTORE_PAIRING:-0}" -eq 1 ]]; then
+    # A returning-user measurement must exercise persisted authentication and
+    # saved routes. Injecting either would select the dogfood attach startup
+    # owner and silently bypass the production restore path.
+    # Enrollment itself uses an in-memory onboarding bypass. Persist the one
+    # completion marker that a user would create by finishing the tour so the
+    # measured launch reaches the real workspace shell.
+    xcrun simctl spawn "$SIM_UDID" defaults write "$BUNDLE_ID" \
+      "dev.cmux.mobile.onboarding.redesign.progress.v1" complete >/dev/null
+    CMUX_UITEST_STACK_EMAIL=""
+    CMUX_UITEST_STACK_PASSWORD=""
+    ATTACH_URL=""
+    CMUX_DEV_AUTH_REPLACE_SESSION=0
+  fi
+  SIMCTL_CHILD_CMUX_IROH_UI_LAUNCH_UPTIME_NS="$SIMULATOR_LAUNCH_UPTIME_NS" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
-  SIMCTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="1" \
+  SIMCTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="${CMUX_DEV_AUTH_REPLACE_SESSION:-1}" \
   SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
+  SIMCTL_CHILD_CMUX_UITEST_ATTACH_URL="" \
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
+  SIMCTL_CHILD_CMUX_UITEST_SUPPRESS_WHATS_NEW="$([[ -n "$IROH_RELEASE_GATE_MODE" ]] && printf 1 || printf '%s' "${CMUX_UITEST_SUPPRESS_WHATS_NEW:-0}")" \
+  SIMCTL_CHILD_CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE="$([[ -n "$IROH_RELEASE_GATE_MODE" ]] && printf '%s' "${CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE:-1}" || printf '%s' "${CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE:-0}")" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
+  SIMCTL_CHILD_CMUX_IROH_SOAK_PROFILE="${CMUX_IROH_SOAK_PROFILE:-}" \
+  SIMCTL_CHILD_CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS="${CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS:-}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
     xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
@@ -417,7 +454,7 @@ else
   LAUNCH_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-mdl-launch-err.XXXXXX")"
   if ! DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
-  DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="1" \
+  DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="${CMUX_DEV_AUTH_REPLACE_SESSION:-1}" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
@@ -464,6 +501,11 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     RECEIPT_TARGET="simulator_injection"
     RECEIPT_TARGET_ID="$SIM_UDID"
   fi
+  INSTALLED_BUNDLE_METADATA="$(cmux_attach_installed_bundle_metadata \
+    "$RECEIPT_TARGET" "$RECEIPT_TARGET_ID" "$BUNDLE_ID")" || {
+    echo "error: authenticated session passed but installed bundle metadata could not be inspected" >&2
+    exit 1
+  }
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
   cmux_attach_write_readiness_receipt \
@@ -477,7 +519,8 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT" \
+    "$INSTALLED_BUNDLE_METADATA"
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
   if [[ "$TARGET" == "device" ]]; then

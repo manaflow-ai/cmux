@@ -3,6 +3,50 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func feedSearchBelongsToFeedAndKeepsOtherQueriesSeparate() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.notifications = "alerts"
+        coordinator.synchronizeSelection(.feed)
+        #expect(coordinator.scope.primaryTab == .feed)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText("agent response", for: coordinator.scope,
+                                           activationGeneration: coordinator.activationGeneration)
+        #expect(coordinator.commitSubmit() == .feed)
+        #expect(coordinator.notifications == "alerts")
+        #expect(coordinator.searchDestinationText(for: coordinator.scope) == "agent response")
+    }
+
+    @Test func beginSearchSelectsRequestedScopeBeforePresenting() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.notifications = "alerts"
+
+        coordinator.beginSearch(for: .notifications)
+
+        #expect(coordinator.scope == .notifications)
+        #expect(coordinator.isPresented)
+        #expect(coordinator.activeNativeSearchText() == "alerts")
+        #expect(coordinator.activationGeneration == 1)
+    }
+
+    @Test func beginSearchWhilePresentedRescopesTheSession() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.beginSearch(for: .workspaces)
+        coordinator.updateNativeSearchText(
+            "draft",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        coordinator.beginSearch(for: .notifications)
+
+        #expect(coordinator.scope == .notifications)
+        #expect(coordinator.isPresented)
+        // The new scope starts its own activation; the old scope's draft is
+        // not committed by a scope switch.
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.committedSearchText(for: .workspaces) == "")
+    }
+
     @Test func activePresentedSearchAcceptsExplicitClear() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)

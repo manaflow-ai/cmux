@@ -28,8 +28,20 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
     private var lastCheckStart: Date?
     private var pendingCheckTransitionTask: Task<Void, Never>?
+    /// The state captured by ``pendingCheckTransitionTask`` while its minimum-display delay is
+    /// pending. Keeping it separately lets cancellation causally finish callbacks (especially a
+    /// mandatory Sparkle update-choice reply) before the task drops its capture.
+    private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Holds an automatic install's relaunch until a quiet moment.
+    let relaunchGate: UpdateRelaunchGate
+    /// Whether cmux installs updates Sparkle downloaded in the background without asking.
+    /// Set by ``UpdateController`` from the user's setting.
+    var installsAutomatically: () -> Bool = { false }
+    /// Set between ``beginAutomaticInstall(_:)`` and Sparkle's relaunch question, so that
+    /// question can tell an automatic install from one the user asked for.
+    var automaticInstallRequested = false
 
     init(
         model: UpdateStateModel,
@@ -45,6 +57,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
+        self.relaunchGate = UpdateRelaunchGate(clock: clock, log: log)
         super.init()
     }
 
@@ -103,6 +116,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        endRelaunchHold()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -180,6 +194,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        endRelaunchHold()
         setState(.idle)
         acknowledgement()
     }
@@ -216,10 +231,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     // MARK: - State transition helpers
 
+    /// Replaces the visible state while first finishing any delayed callback-bearing transition.
+    /// Controller paths that supersede a check use this instead of mutating the model directly.
+    func replaceActiveState(with replacement: UpdateState) {
+        cancelPendingCheckTransition()
+        model.replaceActiveState(with: replacement)
+    }
+
     private func beginChecking(cancel: @escaping () -> Void) {
         model.setOverrideState(nil)
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         lastCheckStart = Date()
@@ -241,8 +262,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
 
@@ -260,23 +280,42 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
 
         let delay = minimumCheckDuration - elapsed
+        pendingCheckTransitionState = newState
         pendingCheckTransitionTask = Task { @MainActor [weak self] in
             // Bounded, cancellable minimum-display delay via the injected clock.
             try? await self?.clock.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
-            guard case .checking = self.model.state else { return }
+            guard case .checking = self.model.state else {
+                guard let pendingState = self.pendingCheckTransitionState else { return }
+                self.pendingCheckTransitionState = nil
+                self.pendingCheckTransitionTask = nil
+                pendingState.finishAsSuperseded()
+                return
+            }
+            self.pendingCheckTransitionState = nil
+            self.pendingCheckTransitionTask = nil
             self.lastCheckStart = nil
             self.applyState(newState)
         }
     }
 
-    private func setState(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+    func setState(_ newState: UpdateState) {
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         lastCheckStart = nil
         applyState(newState)
+    }
+
+    /// Cancels the minimum-display task after causally completing the callback-bearing state it
+    /// captured. Without this handoff, cancelling while still visibly checking drops Sparkle's
+    /// mandatory update-choice reply and strands its session behind `sessionInProgress`.
+    private func cancelPendingCheckTransition() {
+        pendingCheckTransitionTask?.cancel()
+        pendingCheckTransitionTask = nil
+        guard let pendingState = pendingCheckTransitionState else { return }
+        pendingCheckTransitionState = nil
+        pendingState.finishAsSuperseded()
     }
 
     private func scheduleCheckTimeout() {
@@ -364,6 +403,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         case .extracting(let extracting):
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
+            if let blockers = installing.relaunchBlockers {
+                return "installing(auto=\(installing.isAutoUpdate), held agents=\(blockers.agents.count) risky=\(blockers.riskyAgents.count) commands=\(blockers.runningCommandCount))"
+            }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
     }

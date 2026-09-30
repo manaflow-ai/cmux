@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxTerminal
 import CmuxTerminalCore
@@ -86,12 +87,14 @@ extension GhosttyApp {
             ) else {
                 return
             }
+            let readContent = RuntimeClipboardReadContent(admission: inputAdmission)
             var overflowCleanup: () -> Void = {}
 
             @MainActor
             func completeClipboardRequestOnMain(with text: String) {
                 callbackContext.completeRuntimeClipboardRead(
                     text,
+                    readContent: readContent,
                     requestID: clipboardRequestID,
                     stateAddress: clipboardRequestID,
                     surfaceAddress: requestSurfaceAddress,
@@ -103,6 +106,7 @@ extension GhosttyApp {
                 Task { @MainActor [weak callbackContext] in
                     callbackContext?.completeRuntimeClipboardRead(
                         text,
+                        readContent: readContent,
                         requestID: clipboardRequestID,
                         stateAddress: clipboardRequestID,
                         surfaceAddress: requestSurfaceAddress,
@@ -135,11 +139,15 @@ extension GhosttyApp {
                 .map(\.rawValue)
                 .joined(separator: ",")
 
-            let preparedContent = await TerminalImageTransferPlanner.prepare(
-                pasteboard: pasteboard,
-                mode: .paste,
-                using: preparationService
-            )
+            // A read the terminal program started never saves or uploads
+            // files or images; it only gets the pasteboard's plain text.
+            let preparationOutcome = await TerminalImageTransferPlanner
+                .prepareReportingFailure(
+                    pasteboard: pasteboard,
+                    mode: readContent == .pasteboard ? .paste : .plainText,
+                    using: preparationService
+                )
+            let preparedContent = preparationOutcome.content
             pasteboardReadLease.finish()
 
             guard !operation.isCancelled else {
@@ -169,12 +177,65 @@ extension GhosttyApp {
             )
 #endif
 
+            // The beep for a timed-out worker already played in the
+            // preparation service; an oversized image was silent. Both now
+            // also get a brief notice over the pasting terminal.
+            if let notice = TerminalPasteFailureNotice.notice(for: preparationOutcome) {
+                requestTerminalSurface.hostedView.showPasteFailureNotice(notice)
+            }
+
             switch preparedContent {
-            case .reject:
+            case .reject, .rejectOversizedImage:
                 completeClipboardRequest(with: "")
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
+                guard readContent == .pasteboard else {
+                    preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
+                    completeClipboardRequest(with: "")
+                    return
+                }
+                let target = await requestTerminalSurface
+                    .resolvedImageTransferTargetAsync()
+                guard !operation.isCancelled,
+                      requestSurfaceIdentity.matches(requestTerminalSurface) else {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: terminalPasteboard
+                    )
+                    completeClipboardRequest(with: "")
+                    return
+                }
+                let plan = TerminalImageTransferPlanner.plan(
+                    fileURLs: fileURLs,
+                    target: target
+                )
+                if case .pasteCloudImages = plan {
+                    // The daemon pastes on the authenticated lease. Complete the
+                    // Ghostty request empty so no Mac path enters manual I/O.
+                    requestTerminalSurface.hostedView.beginImageTransferIndicator(
+                        for: operation,
+                        onCancel: {}
+                    )
+                    let task = Task { @MainActor in
+                        defer {
+                            requestTerminalSurface.hostedView.endImageTransferIndicator(for: operation)
+                            completeClipboardRequest(with: "")
+                        }
+                        do {
+                            try await requestTerminalSurface.pasteCloudImages(
+                                fileURLs,
+                                operation: operation
+                            )
+                        } catch is CancellationError {
+                            _ = operation.cancel()
+                        } catch {
+                            _ = operation.finish()
+                        }
+                    }
+                    operation.installCancellationHandler { task.cancel() }
+                    return
+                }
+
                 let indicatorView = requestTerminalSurface.hostedView
                 indicatorView.beginImageTransferIndicator(
                     for: operation,
@@ -185,13 +246,6 @@ extension GhosttyApp {
                 overflowCleanup = {
                     indicatorView.endImageTransferIndicator(for: operation)
                 }
-
-                let target = requestTerminalSurface
-                    .resolvedImageTransferTarget()
-                let plan = TerminalImageTransferPlanner.plan(
-                    fileURLs: fileURLs,
-                    target: target
-                )
 
                 let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,
@@ -260,17 +314,33 @@ extension GhosttyApp {
                             }
                             completeClipboardRequest(with: text)
                         },
-                        onFailure: { _ in
-                            let shouldPresentFailure = MainActor.assumeIsolated {
+                        onFailure: { error in
+                            // Report the failure whether or not this is still the surface
+                            // the paste started on: the notification falls back to the
+                            // focused workspace when the origin surface is gone. The
+                            // identity check below only decides where TEXT may go.
+                            MainActor.assumeIsolated {
                                 indicatorView.endImageTransferIndicator(
                                     for: operation
                                 )
-                                return requestSurfaceIdentity.matches(
+                            }
+                            if ManagedFileTransferPolicy.isRefusal(error) {
+                                ManagedFileTransferPolicy.presentRefusal()
+                            } else {
+                                let outcome = MainActor.assumeIsolated {
+                                    TerminalUploadFailureNotification.post(
+                                        error: error,
+                                        surfaceId: callbackContext.surfaceId
+                                    )
+                                }
+                                if outcome == .unavailable { NSSound.beep() }
+                            }
+                            let shouldPresentFailure = MainActor.assumeIsolated {
+                                requestSurfaceIdentity.matches(
                                     requestTerminalSurface
                                 )
                             }
                             if shouldPresentFailure {
-                                NSSound.beep()
 #if DEBUG
                                 cmuxDebugLog(
                                     "terminal.remotePasteUpload.failed " +

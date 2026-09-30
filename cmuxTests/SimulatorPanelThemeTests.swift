@@ -15,7 +15,7 @@ import Testing
 @Suite("Simulator panel visibility", .serialized)
 struct SimulatorPanelVisibilityTests {
     @Test("Mobile demand starts a hidden Simulator panel")
-    func mobileDemandStartsHiddenPanel() async {
+    func mobileDemandStartsHiddenPanel() async throws {
         let client = SimulatorThemePaneClient(devices: [])
         let panel = SimulatorPanel(client: client)
         let consumerID = UUID()
@@ -26,10 +26,7 @@ struct SimulatorPanelVisibilityTests {
 
         panel.setMobileFrameDemand(true, consumerID: consumerID)
 
-        for _ in 0..<100 {
-            if await client.discoveryCount > 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.discoveryCount > 0 }
         #expect(await client.discoveryCount == 1)
     }
 
@@ -63,7 +60,16 @@ struct SimulatorPanelVisibilityTests {
         root.addSubview(firstHost!)
         root.addSubview(secondHost)
 
-        let window = NSWindow(
+        // The pane only takes framebuffer demand while its host window is on
+        // screen, which `simulatorHostWindowIsVisible` reads from
+        // `NSWindow.occlusionState`. The window server only reports `.visible`
+        // for the active app's on-screen windows, and the app-host test process
+        // runs headless and is usually not the active app, so an ordered-in
+        // test window reports `isVisible == true` with no `.visible` occlusion
+        // bit. Pin the on-screen status this scenario is premised on, so the
+        // suite asserts the coordinator's host refcounting rather than the CI
+        // host's window server.
+        let window = OnScreenTestWindow(
             contentRect: root.bounds,
             styleMask: [.borderless],
             backing: .buffered,
@@ -74,10 +80,7 @@ struct SimulatorPanelVisibilityTests {
         defer { window.orderOut(nil) }
         settle(root)
 
-        for _ in 0..<100 {
-            if await client.discoveryCount > 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.discoveryCount > 0 }
         #expect(await client.discoveryCount == 1)
         await client.emit(.status(.streaming))
         await client.emit(.frameTransport(SimulatorFrameTransportDescriptor(
@@ -88,10 +91,7 @@ struct SimulatorPanelVisibilityTests {
             slotCount: 2,
             sharedMemoryByteCount: 256
         )))
-        for _ in 0..<100 {
-            if panel.coordinator.frameTransport != nil { break }
-            await Task.yield()
-        }
+        try await waitUntil { panel.coordinator.frameTransport != nil }
         #expect(panel.coordinator.frameTransport != nil)
 
         firstHost?.removeFromSuperview()
@@ -140,6 +140,25 @@ struct SimulatorPanelVisibilityTests {
             view.displayIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
+    }
+
+    /// Polls `condition` until it holds, then requires it at the deadline.
+    ///
+    /// A fixed yield count is an implicit bound that tightens under CI load, so
+    /// it fails on correct code on a busy runner. Requiring the predicate here
+    /// rather than at each call site means a wait that runs out reports itself
+    /// instead of falling through into a weaker downstream assertion.
+    private func waitUntil(
+        timeout: Duration = .seconds(10),
+        sourceLocation: SourceLocation = #_sourceLocation,
+        _ condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(await condition(), sourceLocation: sourceLocation)
     }
 }
 
@@ -213,10 +232,32 @@ struct SimulatorPanelThemeTests {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
         let bounds = view.bounds.integral
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
-        bitmap.size = bounds.size
-        view.cacheDisplay(in: bounds, to: bitmap)
-        return bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)?.hexString()
+        // NSHostingView's cacheDisplay path can return the host window's
+        // material instead of the SwiftUI layer on macOS 26. Render the layer
+        // directly so this assertion observes the pane's actual background.
+        guard let layer = view.layer else { return nil }
+        let width = Int(bounds.width)
+        let height = Int(bounds.height)
+        guard width > 2, height > 2 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &bytes,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        layer.render(in: context)
+        let offset = (2 * width + 2) * 4
+        guard offset + 3 < bytes.count else { return nil }
+        return String(
+            format: "#%02X%02X%02X",
+            bytes[offset], bytes[offset + 1], bytes[offset + 2]
+        )
     }
 
 }
@@ -296,6 +337,16 @@ struct CanvasSimulatorPointerOwnershipTests {
         #expect(frontmost.acceptsPointerEntryEvent(event))
         #expect(!obscured.acceptsPointerEntryEvent(event))
     }
+}
+
+/// A window that reports the occlusion state an on-screen host window has in
+/// the running app. `simulatorHostWindowIsVisible` gates frame demand on
+/// `occlusionState.contains(.visible)`, which the window server reports only
+/// for the active app's on-screen windows; the headless app-host test process
+/// is usually not the active app, so a window it orders in reports no
+/// `.visible` bit and the Simulator pane never asks for a framebuffer.
+private final class OnScreenTestWindow: NSWindow {
+    override var occlusionState: NSWindow.OcclusionState { .visible }
 }
 
 private actor SimulatorThemePaneClient: SimulatorPaneClient {

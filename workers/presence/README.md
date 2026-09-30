@@ -121,6 +121,14 @@ bunx wrangler secret put STACK_PROJECT_ID
 bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
 ```
 
+Set `SENTRY_DSN` once for production and for each isolated dev Worker. The
+Worker sends application exceptions to this DSN using Sentry's envelope API;
+missing or unavailable telemetry never changes request behavior.
+
+```bash
+bunx wrangler secret put SENTRY_DSN
+```
+
 Optional plain var `STACK_API_URL` defaults to `https://api.stack-auth.com`.
 
 ### Dev/staging instance
