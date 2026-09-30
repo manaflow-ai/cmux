@@ -13,4 +13,13 @@ public enum TerminalTimings {
     static func surfaceCreated(_ duration: Duration) {
         onSurfaceCreated?(duration)
     }
+
+    /// Phases of the libghostty runtime's one-time start (`ghostty_init`,
+    /// config load, `ghostty_app_new`), in order.
+    public private(set) static var runtimePhases: [(name: String, duration: Duration)] = []
+
+    static func runtimePhase(_ name: String, _ duration: Duration) {
+        runtimePhases.append((name, duration))
+        signposter.emitEvent("runtime", "\(name, privacy: .public)")
+    }
 }

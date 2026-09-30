@@ -19,7 +19,8 @@ socket:
 Stalls are sampled from 8 ms (CMUX_NEXT_HANG_THRESHOLD_MS), so each result
 lists the top stacks of every stall over one 120 Hz frame with its CPU time
 (cpu close to duration: app work; much lower: the thread waited or the
-machine descheduled it).
+machine descheduled it). The *_stall_cpu_ms metrics (main-thread CPU time
+of the worst stall) are the less load-sensitive numbers on a busy machine.
 
 Several tags run interleaved (tag A run 1, tag B run 1, A run 2, ...), so
 machine load affects before and after alike:
@@ -49,6 +50,9 @@ DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 
 
 def app_binary(tag):
+    tagged = f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app/Contents/MacOS/cmux DEV"
+    if os.path.exists(tagged):
+        return tagged
     matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
     if not matches:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")
@@ -94,6 +98,9 @@ class Run:
         self.client = None
 
     def launch(self):
+        deadline = time.monotonic() + 15
+        while tag_pids(self.tag) and time.monotonic() < deadline:
+            time.sleep(0.5)  # a previous run's daemon may still be exiting
         if tag_pids(self.tag):
             raise SystemExit(f"tag {self.tag} already has processes running; quit them first (this bench only kills what it starts)")
         env = {
@@ -188,6 +195,7 @@ def one_run(tag, threshold_ms, tabs):
         metrics["launch.to_first_window_frame_ms"] = launch.get("first_window_frame_committed")
         metrics["launch.to_first_terminal_ms"] = launch.get("first_terminal_surface_created")
         metrics["launch.max_stall_ms"] = round(hangs.get("max_gap_ms", 0), 1)
+        metrics["launch.max_stall_cpu_ms"] = max((s["cpu_ms"] for s in run.stalls(hangs)), default=0)
         surfaces = timings.get("terminal_surfaces_ms", [])
         metrics["launch.first_surface_ms"] = surfaces[0] if surfaces else None
         detail.append({"label": "launch", "stalls": run.stalls(hangs), "surfaces_ms": surfaces})
@@ -196,6 +204,7 @@ def one_run(tag, threshold_ms, tabs):
             result = run.measure(f"palette open {index}", lambda: run.action("app command-palette"), settle=1.0)
             metrics[f"palette.open{index}_frame_ms"] = result["palette_open_ms"][0] if result["palette_open_ms"] else None
             metrics[f"palette.open{index}_max_gap_ms"] = result["max_gap_ms"]
+            metrics[f"palette.open{index}_stall_cpu_ms"] = max((s["cpu_ms"] for s in result["stalls"]), default=0)
             detail.append(result)
             run.action("app command-palette")  # toggles it closed
             time.sleep(0.5)
@@ -204,6 +213,7 @@ def one_run(tag, threshold_ms, tabs):
             result = run.measure(f"new tab {index}", lambda: run.action("tab new-terminal"), settle=2.0)
             key = "first" if index == 1 else "later"
             metrics.setdefault(f"tab.{key}_max_gap_ms", []).append(result["max_gap_ms"])
+            metrics.setdefault(f"tab.{key}_stall_cpu_ms", []).append(max((s["cpu_ms"] for s in result["stalls"]), default=0))
             if result["surfaces_ms"]:
                 metrics.setdefault(f"tab.{key}_surface_ms", []).append(result["surfaces_ms"][0])
             detail.append(result)
