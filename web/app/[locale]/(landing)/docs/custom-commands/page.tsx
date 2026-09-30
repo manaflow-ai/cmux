@@ -359,14 +359,7 @@ export default function CustomCommandsPage() {
 
       <DocsHeading level={3} id="setting-actions">{t("settingActions")}</DocsHeading>
       <p>
-        {renderRawRich(t.raw("settingActionsDesc"), {
-          path: inlineCode,
-          set: inlineCode,
-          toggle: inlineCode,
-          cycle: inlineCode,
-          unset: inlineCode,
-          presets: inlineCode,
-        })}
+        {t.rich("settingActionsDesc", codeTags("path", "set", "toggle", "cycle", "unset", "presets"))}
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">{`{
   "actions": {
@@ -395,17 +388,10 @@ export default function CustomCommandsPage() {
   }
 }`}</CodeBlock>
       <p>
-        {renderRawRich(t.raw("settingActionsCli"), {
-          set: inlineCode,
-          toggle: inlineCode,
-          preset: inlineCode,
-        })}
+        {t.rich("settingActionsCli", codeTags("set", "toggle", "preset"))}
       </p>
       <p>
-        {renderRawRich(t.raw("settingActionsLimits"), {
-          confirm: inlineCode,
-          byCwd: inlineCode,
-        })}
+        {t.rich("settingActionsLimits", codeTags("confirm", "byCwd"))}
       </p>
 
       <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>
