@@ -129,7 +129,7 @@ final class AppServices {
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            return registry.makeContextMenu(for: .browserProfile, target: target)
+            return self.registry.makeContextMenu(for: .browserProfile, target: target)
         }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
