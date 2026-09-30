@@ -62,6 +62,7 @@ extension AppServices {
         let journal = InputJournal.shared
         let monitor = inputMonitor
         var sinceCheckpoint = Int.max
+        controller.focus.settledObserver = { [weak self] state in self?.notifications.focusDidSettle(state) }
         controller.focus.observer = { [weak state = controller.state] observation in
             monitor?.noteChange()
             guard journal.isEnabled else { return }

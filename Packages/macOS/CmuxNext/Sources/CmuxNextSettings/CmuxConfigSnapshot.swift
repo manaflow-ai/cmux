@@ -65,6 +65,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
+    public var notifications = NotificationPreferences()
     public var diagnostics: [SettingsDiagnostic]
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
@@ -106,6 +108,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

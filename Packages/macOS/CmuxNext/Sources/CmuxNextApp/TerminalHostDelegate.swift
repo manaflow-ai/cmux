@@ -41,9 +41,18 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         return true
     }
 
+    /// OSC 9, OSC 777 and OSC 99 from a program in this terminal: a daemon
+    /// notification on this terminal's tab, tagged as a terminal source.
+    /// (Only terminals the app shows reach here; see notifications.md.)
     func terminalSession(_ session: TerminalSession, didPostNotification title: String, body: String) {
+        guard let services else { return }
+        let surface = services.cache.tabKey(for: session).flatMap { services.locateTab($0)?.0.surface }
         let text = body
-        services?.daemon.send("notify") { connection in _ = try await connection.notify(title: title, body: text) }
+        let notifications = services.notifications
+        services.daemon.send("notify") { connection in
+            let id = try await connection.notify(title: title, body: text, surface: surface)
+            await MainActor.run { notifications.record(id, source: .terminal) }
+        }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the

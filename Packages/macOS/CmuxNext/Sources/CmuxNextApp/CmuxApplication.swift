@@ -38,6 +38,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
     /// Set once by `AppServices`: sees every event first (input journal).
     var inputObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
+    /// (focus has moved to the clicked pane), with its window.
+    var mouseDownObserver: ((NSWindow?) -> Void)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     @objc(isHandlingSendEvent)
@@ -53,6 +56,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { handlingSendEvent = previous }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         super.sendEvent(event)
+        if event.type == .leftMouseDown || event.type == .rightMouseDown { mouseDownObserver?(event.window) }
     }
 
     // MARK: Accessibility windows

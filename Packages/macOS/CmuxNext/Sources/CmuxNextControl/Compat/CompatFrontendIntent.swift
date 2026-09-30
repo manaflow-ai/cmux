@@ -10,6 +10,9 @@ public enum CompatFrontendIntent: Sendable, Hashable {
     case newWindow(workspaceID: String?)
     case focusWindow(windowID: String)
     case closeWindow(windowID: String)
+    /// Tags daemon notification `id` with where it came from (`cli`,
+    /// `terminal`, `agent`) for per-source notification settings.
+    case noteNotification(id: UInt64, source: String)
 }
 
 public enum CompatBrowserOperation: Sendable, Hashable {

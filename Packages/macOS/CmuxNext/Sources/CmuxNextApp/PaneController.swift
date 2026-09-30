@@ -98,6 +98,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
             var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
+            if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {

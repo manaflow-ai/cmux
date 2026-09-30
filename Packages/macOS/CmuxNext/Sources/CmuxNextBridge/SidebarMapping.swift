@@ -11,10 +11,11 @@ public enum SidebarMapping {
     /// detail (tooltip, accessibility).
     public static func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
+                                showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            let rows = section.workspaces.map { row($0, machine: machine.id, status: statusLine($0.id)) }
+            let rows = section.workspaces.map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -30,9 +31,10 @@ public enum SidebarMapping {
         return [SidebarRowSection(kind: .machine(machine), nodes: nodes)]
     }
 
-    public static func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil) -> SidebarWorkspace {
+    /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
+    public static func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let unread = workspace.unreadCount
+        let unread = showsUnread ? workspace.unreadCount : 0
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,

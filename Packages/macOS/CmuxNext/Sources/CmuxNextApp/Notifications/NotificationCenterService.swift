@@ -1,0 +1,182 @@
+import AppKit
+import CmuxNextDaemon
+import CmuxNextSettings
+import CmuxNextWakeups
+import Observation
+
+/// Notifications in the app (plans/cmux-next/notifications.md). The daemon
+/// owns every notification and its unread marker; this service reacts to
+/// new ones (attention ring, banner, sound, timeout) and acknowledges them
+/// through `ack-tab-notifications` when `NotificationPolicy` says an
+/// interaction read them. Local daemon only; Cloud machines keep their
+/// markers until opened or dismissed.
+@MainActor
+@Observable
+final class NotificationCenterService {
+    /// `notifications.*` from cmux.json (the mute action updates it at once).
+    var preferences = NotificationPreferences()
+    @ObservationIgnored weak var services: AppServices?
+    @ObservationIgnored let desktop = DesktopNotifier()
+    /// Where each notification the app created came from; others are agent.
+    @ObservationIgnored private var origins: [UInt64: NotificationSource] = [:]
+    @ObservationIgnored private var originOrder: [UInt64] = []
+    @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
+    /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
+    @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
+    /// Banner ids posted per tab id, withdrawn once the tab is read.
+    @ObservationIgnored private var banners: [String: [String]] = [:]
+    @ObservationIgnored private var lastSeen: UInt64 = 0
+    @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// Recent arrivals and what was decided (for `debug.notifications`).
+    @ObservationIgnored private(set) var log: [String] = []
+    /// The deadline clock; tests inject their own.
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    private static let originLimit = 512
+    private static let logLimit = 64
+
+    func start(services: AppServices) {
+        self.services = services
+        desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
+        let store = services.daemon.store
+        lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
+        tasks.append(Task { [weak self] in
+            for await newest in Observations({ store.notifications.last?.notification.rawValue ?? 0 }) {
+                guard let self, newest > self.lastSeen else { continue }
+                let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
+                self.lastSeen = newest
+                for notification in fresh { self.arrived(notification) }
+            }
+        })
+        tasks.append(Task { [weak self] in
+            for await count in Observations({ Self.unreadCount(store) }) {
+                self?.updateDockBadge(count)
+            }
+        })
+    }
+
+    /// Follows `notifications.*` in every loaded snapshot.
+    func follow(_ settings: SettingsController) {
+        tasks.append(Task { [weak self] in
+            for await prefs in Observations({ settings.snapshot.notifications }) {
+                guard let self else { return }
+                if self.preferences != prefs { self.preferences = prefs }
+                self.updateDockBadge(Self.unreadCount(self.services?.daemon.store))
+            }
+        })
+    }
+
+    /// Tags a notification the app just created.
+    func record(_ id: NotificationID, source: NotificationSource) {
+        origins[id.rawValue] = source
+        originOrder.append(id.rawValue)
+        if originOrder.count > Self.originLimit { origins[originOrder.removeFirst()] = nil }
+    }
+
+    func source(of tab: TabModel) -> NotificationSource {
+        tab.notification.flatMap { origins[$0.notification.rawValue] } ?? .agent
+    }
+
+    // MARK: Interactions
+
+    /// A key reached `window`'s focused terminal or page (not an app shortcut).
+    func noteTyping(in window: NSWindow?) {
+        guard let tab = focusedTab(in: window) else { return }
+        lastKeystroke[tab] = .now
+        interacted(.keystroke, tabID: tab)
+    }
+
+    /// A mouse-down landed in `window` (after AppKit dispatched it).
+    func noteMouseDown(in window: NSWindow?) {
+        guard let tab = focusedTab(in: window) else { return }
+        interacted(.click, tabID: tab)
+    }
+
+    /// A window's focus settled: the viewed tab counts as focused while the
+    /// window is key and cmux is active.
+    func focusDidSettle(_ state: FocusState) {
+        guard state.windowKey, state.appActive, let tab = Self.contentTab(state.resolved) else { return }
+        interacted(.focus, tabID: tab)
+    }
+
+    /// Opens the tab of `surface` (banner click) and reads it per policy.
+    func open(surface: SurfaceID?) {
+        guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
+        let context = AppActionContext(services: services)
+        context.reveal(located)
+        interacted(.open, tabID: located.tab.id)
+    }
+
+    /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
+    func opened(_ tab: TabModel) {
+        interacted(.open, tabID: tab.id)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, tabID: String) {
+        guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
+        guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
+        note("\(trigger.rawValue) read \(tabID)")
+        acknowledge(tab)
+    }
+
+    /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
+    func acknowledge(_ tab: TabModel) {
+        timeouts.removeValue(forKey: tab.id)?.cancel()
+        desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
+        let surface = tab.surface
+        services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+    }
+
+    // MARK: Arrival
+
+    private func arrived(_ notification: DaemonNotification) {
+        guard let services else { return }
+        let store = services.daemon.store
+        let source = origins[notification.notification.rawValue] ?? .agent
+        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
+        var arrival = NotificationPolicy.Arrival(source: source)
+        arrival.appActive = NSApp.isActive
+        if let located {
+            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
+            arrival.paneIsViewed = isViewed(located.tab.id)
+            arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
+        }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        let decision = NotificationPolicy.decide(arrival, prefs: preferences)
+        note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
+        guard let located else {
+            if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            return
+        }
+        if decision.acknowledge {
+            acknowledge(located.tab)
+            return
+        }
+        if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
+        if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
+        if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+    }
+
+    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?) {
+        let id = "cmux-notification-\(notification.notification.rawValue)"
+        let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
+        desktop.post(id: id, title: title, body: notification.body, surface: notification.surface?.rawValue,
+                     workspace: workspace, defaultSound: sound == "default")
+        if let sound, sound != "default" { NotificationSounds.play(sound) }
+        if let tab { banners[tab.id, default: []].append(id) }
+    }
+
+    private func scheduleTimeout(_ seconds: Double, tabID: String) {
+        let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
+        timeouts[tabID] = timer
+        timer.schedule(after: .seconds(seconds)) { @MainActor [weak self] in
+            self?.timeouts[tabID] = nil
+            self?.interacted(.timeout, tabID: tabID)
+        }
+    }
+
+    private func note(_ line: String) {
+        log.append(line)
+        if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
+    }
+}

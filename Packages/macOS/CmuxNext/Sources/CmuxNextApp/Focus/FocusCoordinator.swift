@@ -34,6 +34,8 @@ final class FocusCoordinator {
 
     /// Called after every reduction, before its effects run.
     var observer: ((Observation) -> Void)?
+    /// Called once the queue drained and every effect ran (notifications).
+    var settledObserver: ((FocusState) -> Void)?
 
     func send(_ event: FocusEvent) {
         queue.append(event)
@@ -52,6 +54,7 @@ final class FocusCoordinator {
             applier.apply(effects, state: next)
             isApplying = false
         }
+        settledObserver?(state)
     }
 
     /// Starts a user intent that lands later (split, new tab). Pass the

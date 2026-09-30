@@ -55,6 +55,8 @@ final class AppServices {
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     let terminalDelegate = TerminalHostDelegate()
+    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
+    let notifications = NotificationCenterService()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) var keyRouter: KeyRouter!
     private(set) var chromiumWarmup: ChromiumWarmup!
@@ -111,6 +113,9 @@ final class AppServices {
         observePaletteForFocus()
         startInputVerification()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        notifications.start(services: self)
+        keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
+        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in self?.notifications.noteMouseDown(in: window) }
     }
 
     // MARK: Lookup

@@ -74,7 +74,7 @@ import Testing
         .terminal: 33,
         .browser: 78,
         .sidebar: 30,
-        .notifications: 10,
+        .notifications: 18,
         .agents: 16,
         .cloud: 23,
         .settings: 43,

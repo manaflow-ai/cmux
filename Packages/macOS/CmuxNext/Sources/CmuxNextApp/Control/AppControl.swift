@@ -60,6 +60,12 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.report(call.params, services: services))
             },
+            // Unread tabs, attention marks, banners and the dismissal log
+            // (plans/cmux-next/notifications.md); "click" runs a banner click.
+            .mainActor("debug.notifications") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugNotifications.handle(call.params, services: services))
+            },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }

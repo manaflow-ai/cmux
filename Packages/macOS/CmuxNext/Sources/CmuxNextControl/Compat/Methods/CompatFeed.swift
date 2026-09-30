@@ -12,8 +12,13 @@ import Foundation
 ///   at once and the agent falls back to its own prompt.
 /// - `agent_journal_append` (v1): lifecycle events update the surface's
 ///   agent state (`report-agent`: working, blocked, idle, done), which the
-///   sidebar activity indicator shows. The daemon keeps no journal, so the
-///   reply's sequence is this app process's counter, not a durable one.
+///   sidebar activity indicator shows. An event carrying a notification
+///   (`attention.notification`: turn complete, permission, question, plan
+///   review, idle reminder, error) also becomes a daemon notification on the
+///   surface, tagged as an agent source. A turn completion with pending
+///   background work does not notify (the old `agentTurnComplete: whenIdle`).
+///   The daemon keeps no journal, so the reply's sequence is this app
+///   process's counter, not a durable one.
 enum CompatFeed {
     static let table: [String: CompatHandler] = ["feed.push": .async(push)]
 
@@ -88,6 +93,7 @@ enum CompatFeed {
             let id = try await call.service.daemon("notify") {
                 try await $0.notify(title: attention.title, body: attention.body, surface: handle)
             }
+            _ = try? await call.perform(.noteNotification(id: id.rawValue, source: "agent"))
             ids.append(.string(String(id.rawValue)))
         }
         var result: [String: JSON] = ["status": .string(wait > 0 && decision ? "timed_out" : "acknowledged"),
@@ -129,6 +135,9 @@ enum CompatFeed {
         }
         let sequence = service.journal.next()
         let subagent = event["is_subagent"]?.boolValue ?? false
+        if !subagent, let surfaceID = event["surface_id"]?.stringValue, let note = journalNotification(event, kind: kind) {
+            await postJournalNotification(note, surfaceID: surfaceID, service: service)
+        }
         guard !subagent,
               let state = agentState(kind: kind, pendingWork: event["pending_work"]?.boolValue ?? false,
                                      declaredPhase: event["declared_phase"]?.stringValue),
@@ -147,5 +156,32 @@ enum CompatFeed {
             // A surface that closed since the event is not an error for the hook.
             return "OK \(sequence)"
         }
+    }
+
+    /// The notification an agent journal event carries, or nil.
+    static func journalNotification(_ event: [String: JSON], kind: String) -> (title: String, body: String, level: NotificationLevel)? {
+        guard case .object(let attention)? = event["attention"], case .object(let note)? = attention["notification"] else { return nil }
+        if kind == "agent.turn.completed", event["pending_work"]?.boolValue == true { return nil }
+        let title = note["title"]?.stringValue ?? ""
+        let body = [note["subtitle"]?.stringValue, note["body"]?.stringValue]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: "\n")
+        guard !title.isEmpty || !body.isEmpty else { return nil }
+        let level: NotificationLevel = switch kind {
+        case "agent.error.reported": .error
+        case "agent.approval.requested", "agent.question.requested", "agent.plan_review.requested": .warning
+        default: .info
+        }
+        return (title.isEmpty ? "Agent" : title, body, level)
+    }
+
+    static func postJournalNotification(_ note: (title: String, body: String, level: NotificationLevel), surfaceID: String,
+                                        service: CompatService) async {
+        guard let world = try? await service.world(),
+              let surface = try? world.resolveSurface(surfaceID, in: nil, refs: service.refs) else { return }
+        let handle = surface.handle
+        guard let id = try? await service.daemon("notify", {
+            try await $0.notify(title: note.title, body: note.body, level: note.level, surface: handle)
+        }) else { return }
+        _ = try? await service.perform(.noteNotification(id: id.rawValue, source: "agent"))
     }
 }

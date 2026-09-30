@@ -35,6 +35,7 @@ enum CompatNotificationMethods {
         let body = [call.string("subtitle"), call.string("body")].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: "\n")
         let handle = surface?.handle
         let id = try await call.service.daemon("notify") { try await $0.notify(title: title, body: body, surface: handle) }
+        _ = try? await call.perform(.noteNotification(id: id.rawValue, source: "cli"))
         var result = CompatJSON.ids(window: world.window(workspace.windowUUIDs.first), workspace: workspace, surface: surface)
         result["id"] = .string(String(id.rawValue))
         return .object(result)

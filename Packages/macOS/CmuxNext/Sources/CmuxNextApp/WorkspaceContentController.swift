@@ -19,6 +19,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
+    private var attentionObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -42,6 +43,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func teardown() {
         observation?.cancel()
         connectionObservation?.cancel()
+        attentionObservation?.cancel()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
         layoutView.removeFromSuperview()
@@ -60,6 +62,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let store = daemon.store
         connectionObservation = Task { [weak self] in
             for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
+        }
+        // Panes with an unread notification draw the attention ring.
+        let notifications = services.notifications
+        attentionObservation = Task { [weak self] in
+            for await marks in Observations({ notifications.attentionMarks(for: workspace) }) {
+                guard let self else { return }
+                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+            }
         }
     }
 

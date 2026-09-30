@@ -117,14 +117,15 @@ final class SidebarBridge {
     /// `profile` (all of them on a machine without that profile).
     static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, profile: ProfileID) -> [SidebarRowSection] {
         let status = { (id: String) in statuses.line(for: id) }
+        let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         var sections = SidebarMapping.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               statusLine: status)
+                                               showsUnread: showsUnread, statusLine: status)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: header, statusLine: status)
+                                                machine: header, showsUnread: showsUnread, statusLine: status)
         }
         return sections
     }

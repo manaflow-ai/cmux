@@ -70,6 +70,8 @@ final class AppCompatFrontend: CompatFrontend {
             services.windows.didActivate(controller)
         case .closeWindow(let windowID):
             try window(windowID).close()
+        case .noteNotification(let id, let source):
+            services.notifications.record(NotificationID(rawValue: id), source: NotificationSource(rawValue: source) ?? .agent)
         }
         return [:]
     }
