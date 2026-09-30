@@ -146,7 +146,7 @@ extension CMUXCLI {
             print(line["text"] as? String ?? "")
         }
         let duration = payload["duration_ms"] as? Int ?? 0
-        let color = ProcessInfo.processInfo.environment["NO_COLOR"] == nil
+        let color = ProcessInfo.processInfo.environment["NO_COLOR"] == nil && isatty(STDOUT_FILENO) != 0
         if let error = payload["error"] as? String {
             print(color ? "\u{1B}[31m\(error)\u{1B}[0m" : error)
             print(color ? "\u{1B}[31m[error | \(duration)ms]\u{1B}[0m" : "[error | \(duration)ms]")
