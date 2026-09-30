@@ -6,7 +6,13 @@
     "`cmux palette list` stays a decision instead of a side effect.",
     "dynamicFamilies also covers ids built by interpolation: the guard reads the static",
     "prefix in front of each `\\(` and fails until this file declares that family.",
-    "excludedCommandIds must match CommandPaletteAgentSurface.notAgentSurfaceCommandIds."
+    "excludedCommandIds must match CommandPaletteAgentSurface.notAgentSurfaceCommandIds.",
+    "probeBackedContextKeys names the context keys an availability probe answers, which",
+    "read false until the probe runs. The guard rejects them inside any contribution's",
+    "`when` argument, and inside any predicate named `...Enablement` passed to `when`,",
+    "because in the agent listing a false `when` removes the row while a false",
+    "`enablement` keeps it and reports isEnabled false. Each name must also carry the",
+    "`Probe-backed:` marker in its doc comment in CommandPaletteContextKeys.swift."
   ],
   "listedCommandIds": [
     "palette.addWorkspaceChecklistItem",
@@ -265,5 +271,8 @@
     "palette.pro.welcomeChecklist.invoke": "debug log tag in the welcome-checklist handler",
     "palette.currentWork.truncated": "Find Work sub-mode footer row, not a palette command",
     "palette.list": "control socket method name that shares the palette prefix"
+  },
+  "probeBackedContextKeys": {
+    "panelHasForkableAgent": "Answered by refreshCommandPaletteForkableAgentAvailabilityIfNeeded, which runs when the palette opens or refreshes. Until then it reads false, so a `when` gate on it hides the six fork commands from a fresh window's listing instead of reporting them disabled."
   }
 }

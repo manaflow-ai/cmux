@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """CI guard for ./scripts/check-command-palette-agent-surface.py.
 
-The guarded property: every `palette.*` id in the app sources is classified for
-the agent surface, so a palette command added later cannot reach `cmux palette
-list` before anyone decided it should. The negative cases below are what keep the
-guard from rotting into a no-op.
+Two guarded properties. First, every `palette.*` id in the app sources is
+classified for the agent surface, so a palette command added later cannot reach
+`cmux palette list` before anyone decided it should. Second, no contribution
+gates `when` on a probe-backed context key: in the agent listing a false `when`
+removes the row, so a key that reads false until its probe runs would report
+that the command does not exist on a window where it does. The negative cases
+below are what keep the guard from rotting into a no-op.
 
 Cases:
   (a) The real cmux checkout passes.
@@ -29,6 +32,19 @@ Cases:
       interpolated id has no closing quote for the literal scan to find.
   (o) An interpolation that completes an id mid-segment fails, because no
       inventory prefix can describe the ids it produces.
+  (p) A contribution gating `when` on a probe-backed context key fails. This is
+      the regression the rule exists for.
+  (q) The same test in `enablement` passes, so the guard is a rule about where
+      the key is read and not a ban on reading it.
+  (r) A `when` predicate that reaches the key indirectly, through a closure
+      named `...Enablement`, fails too.
+  (s) A probe-backed name the inventory lists but the doc comment no longer
+      marks fails, and so does a marked key the inventory does not list. The
+      marker and the inventory cannot drift apart.
+  (t) Dropping `probeBackedContextKeys` fails instead of turning the rule off.
+  (u) A contribution whose argument list will not parse fails, and so does a
+      source tree with contributions the scan cannot see. Blindness here has to
+      be loud, since this rule reads the constructions the id scan avoids.
 """
 
 import json
@@ -46,6 +62,10 @@ AGENT_SURFACE_RELATIVE = os.path.join(
     "Packages", "macOS", "CmuxCommandPalette", "Sources", "CmuxCommandPalette",
     "AgentSurface", "CommandPaletteAgentSurface.swift",
 )
+CONTEXT_KEYS_RELATIVE = os.path.join(
+    "Packages", "macOS", "CmuxCommandPalette", "Sources", "CmuxCommandPalette",
+    "Context", "CommandPaletteContextKeys.swift",
+)
 
 FIXTURE_SOURCE = """\
 import CmuxCommandPalette
@@ -55,7 +75,13 @@ extension ContentView {
 
     static func contributions() -> [CommandPaletteCommandContribution] {
         [
-            CommandPaletteCommandContribution(commandId: "palette.newWorkspace"),
+            CommandPaletteCommandContribution(
+                commandId: "palette.newWorkspace",
+                // A comment with a stray ( and "quote to parse past.
+                title: "New Workspace, please",
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) }
+            ),
             CommandPaletteCommandContribution(commandId: installCLICommandId),
         ]
     }
@@ -70,6 +96,21 @@ extension ContentView {
 }
 """
 
+FIXTURE_CONTEXT_KEYS = """\
+public struct CommandPaletteContextKeys: Sendable {
+    /// Whether the focused panel is a terminal.
+    public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
+    /// Whether the focused panel hosts a forkable agent.
+    ///
+    /// Probe-backed: an availability probe answers this.
+    public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
+}
+"""
+
+WHEN_BOTH = """\
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) }"""
+
 FIXTURE_SURFACE = """\
 public struct CommandPaletteAgentSurface: Sendable {
     public static let notAgentSurfaceCommandIds: Set<String> = [
@@ -81,6 +122,9 @@ public struct CommandPaletteAgentSurface: Sendable {
 
 def fixture_inventory():
     return {
+        "probeBackedContextKeys": {
+            "panelHasForkableAgent": "answered by the fork availability probe",
+        },
         "listedCommandIds": ["palette.newWorkspace"],
         "excludedCommandIds": ["palette.installCLI"],
         "dynamicFamilies": {
@@ -108,9 +152,11 @@ def make_fixture_root(
     source=FIXTURE_SOURCE,
     surface=FIXTURE_SURFACE,
     inventory=None,
+    context_keys=FIXTURE_CONTEXT_KEYS,
 ):
     write_text(os.path.join(directory, "Sources", "Fixture.swift"), source)
     write_text(os.path.join(directory, AGENT_SURFACE_RELATIVE), surface)
+    write_text(os.path.join(directory, CONTEXT_KEYS_RELATIVE), context_keys)
     write_text(
         os.path.join(directory, INVENTORY_RELATIVE),
         json.dumps(inventory if inventory is not None else fixture_inventory(), indent=2) + "\n",
@@ -278,6 +324,75 @@ def case_o_interpolation_mid_segment(tmp):
                    "palette.openTab", "completes mid-segment")
 
 
+def case_p_probe_backed_in_when(tmp):
+    source = FIXTURE_SOURCE.replace(
+        WHEN_BOTH,
+        """                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }""",
+    )
+    root = make_fixture_root(os.path.join(tmp, "p"), source=source)
+    expect_failure(root, "(p) probe-backed key in when",
+                   "`when` gates on the probe-backed context key panelHasForkableAgent",
+                   "Move the test into `enablement`")
+
+
+def case_q_probe_backed_in_enablement(tmp):
+    expect_pass(make_fixture_root(os.path.join(tmp, "q")),
+                "(q) probe-backed key in enablement")
+
+
+def case_r_indirect_predicate(tmp):
+    source = FIXTURE_SOURCE.replace(
+        WHEN_BOTH,
+        """                when: forkableAgentEnablement,
+                enablement: { $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) }""",
+    )
+    root = make_fixture_root(os.path.join(tmp, "r"), source=source)
+    expect_failure(root, "(r) indirect predicate in when",
+                   "`when` uses the predicate forkableAgentEnablement")
+
+
+def case_s_marker_drift(tmp):
+    context_keys = FIXTURE_CONTEXT_KEYS.replace(
+        "    /// Probe-backed: an availability probe answers this.\n", ""
+    )
+    root = make_fixture_root(os.path.join(tmp, "s1"), context_keys=context_keys)
+    expect_failure(root, "(s) marker removed",
+                   "probeBackedContextKeys panelHasForkableAgent is no longer marked")
+
+    inventory = fixture_inventory()
+    inventory["probeBackedContextKeys"] = {"panelIsTerminal": "wrong key"}
+    root = make_fixture_root(os.path.join(tmp, "s2"), inventory=inventory)
+    expect_failure(root, "(s) marked key unlisted",
+                   "context key panelHasForkableAgent is marked",
+                   "not listed in probeBackedContextKeys")
+
+
+def case_t_missing_bucket(tmp):
+    inventory = fixture_inventory()
+    del inventory["probeBackedContextKeys"]
+    root = make_fixture_root(os.path.join(tmp, "t"), inventory=inventory)
+    expect_failure(root, "(t) bucket removed",
+                   "probeBackedContextKeys must be a non-empty object")
+
+
+def case_u_blind_scan(tmp):
+    source = FIXTURE_SOURCE.replace(
+        "                enablement: { $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) }\n            ),",
+        "                enablement: { $0.bool(CommandPaletteContextKeys.panelHasForkableAgent) }\n            ,",
+    )
+    root = make_fixture_root(os.path.join(tmp, "u1"), source=source)
+    expect_failure(root, "(u) unparsable contribution",
+                   "could not read the argument list of this contribution")
+
+    source = FIXTURE_SOURCE.replace("CommandPaletteCommandContribution(", "PaletteRow(")
+    root = make_fixture_root(os.path.join(tmp, "u2"), source=source)
+    expect_failure(root, "(u) no contributions found",
+                   "found no `CommandPaletteCommandContribution(` constructions")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="palette-agent-surface-guard-") as tmp:
         case_a_real_repo()
@@ -295,6 +410,12 @@ def main():
         case_m_empty_universe(tmp)
         case_n_undeclared_interpolated_family(tmp)
         case_o_interpolation_mid_segment(tmp)
+        case_p_probe_backed_in_when(tmp)
+        case_q_probe_backed_in_enablement(tmp)
+        case_r_indirect_predicate(tmp)
+        case_s_marker_drift(tmp)
+        case_t_missing_bucket(tmp)
+        case_u_blind_scan(tmp)
     print("test_ci_command_palette_agent_surface_guard: ok")
     return 0
 

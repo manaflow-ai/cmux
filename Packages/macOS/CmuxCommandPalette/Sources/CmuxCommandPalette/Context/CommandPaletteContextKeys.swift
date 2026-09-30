@@ -68,6 +68,12 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
         rawValue: "panel.supportsDeepLinks"
     )
     /// Whether the focused panel hosts a forkable agent.
+    ///
+    /// Probe-backed: an availability probe answers this, and it reads false on
+    /// a panel the probe has not run for yet, so a command may only test it in
+    /// `enablement`. In `when` the fork rows would be absent from `cmux
+    /// palette list` on a fresh window, where absence means the command does
+    /// not exist. `scripts/check-command-palette-agent-surface.py` holds that.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
     /// Whether the focused panel has a custom name.
     public static let panelHasCustomName = CommandPaletteContextKeys(rawValue: "panel.hasCustomName")

@@ -43,20 +43,43 @@ entry can describe, so the guard rejects it and asks for a dotted prefix.
 The Swift exclusion constant is excluded from the scan, so an exclusion whose
 command no longer exists fails as a dead entry instead of vouching for itself.
 
+The guard holds a second property, about what a listed row *means*. A palette
+contribution carries two predicates: `when` decides whether the command exists
+in this context, `enablement` whether it can run right now. The on-screen
+palette requires both, so on screen the two are interchangeable. The agent
+listing is not symmetric: a false `when` removes the row, a false `enablement`
+keeps it and reports `isEnabled: false`. Some context keys are answered by an
+availability probe that has not run until the palette refreshes, so they read
+false on a panel nobody has probed yet. Gating `when` on one of those tells an
+agent the command does not exist, on a window where it does. Such a key is
+marked `Probe-backed:` in its doc comment in `CommandPaletteContextKeys.swift`,
+listed in the inventory's `probeBackedContextKeys`, and rejected inside any
+contribution's `when` argument. The same rule covers the indirect form: a
+predicate named `...Enablement` may only be passed to `enablement`.
+
+Reading the `when` arguments needs the contribution constructions, which the id
+scan deliberately avoids. Going blind here is cheaper to notice: a construction
+whose argument list will not parse is itself a failure, and so is finding no
+constructions at all.
+
 What this guard does NOT claim: that every `listedCommandIds` entry is reachable
 in the palette today. It is an accounting guard over the id namespace, not a
 proof of the rendered list. The package tests in
-`CommandPaletteAgentSurfaceTests` cover the filtering rules themselves.
+`CommandPaletteAgentSurfaceTests` cover the filtering rules themselves. Nor does
+it decide which keys are probe-backed; it only keeps the marked ones out of
+`when` and keeps the marker and the inventory saying the same thing.
 
 Usage:
     scripts/check-command-palette-agent-surface.py [--root PATH]
                                                    [--inventory PATH]
                                                    [--agent-surface-file PATH]
+                                                   [--context-keys-file PATH]
 
 Exit codes:
     0  every palette id is classified and every classification is still live
     1  an unclassified id, a dead entry, a bucket collision, an exclusion-list
-       mismatch, a missing reason, or an unreadable/unlocatable input
+       mismatch, a missing reason, a probe-backed context key gating `when`, an
+       unparsable contribution, or an unreadable/unlocatable input
 """
 
 import argparse
@@ -79,6 +102,18 @@ DEFAULT_AGENT_SURFACE_FILE = os.path.join(
     "Packages", "macOS", "CmuxCommandPalette", "Sources", "CmuxCommandPalette",
     "AgentSurface", "CommandPaletteAgentSurface.swift",
 )
+DEFAULT_CONTEXT_KEYS_FILE = os.path.join(
+    "Packages", "macOS", "CmuxCommandPalette", "Sources", "CmuxCommandPalette",
+    "Context", "CommandPaletteContextKeys.swift",
+)
+
+CONTRIBUTION_CALL = "CommandPaletteCommandContribution("
+ARGUMENT_LABEL = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*:")
+CONTEXT_KEY_DECLARATION = re.compile(
+    r"^\s*public static let (?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*="
+)
+PROBE_BACKED_MARKER = "Probe-backed:"
+ENABLEMENT_IDENTIFIER = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*Enablement)\b")
 
 PALETTE_LITERAL = re.compile(r'"(palette\.[A-Za-z0-9_.\-]+)"')
 # The static head of an interpolated id: `"palette.foo.\(bar)"`.
@@ -150,7 +185,222 @@ def load_inventory(path):
         return json.load(handle)
 
 
-def check(universe, interpolated_prefixes, inventory, swift_exclusions):
+def split_swift_arguments(source, open_paren):
+    """Splits the argument list of the call whose `(` is at `open_paren`.
+
+    Returns (arguments, index past the `)`), where each argument is the raw
+    text between the top-level commas, or (None, None) when the list does not
+    balance. The scan tracks string literals and their `\\(...)`
+    interpolations, `//` comments and nesting, so a predicate closure holding
+    commas, parens or a comment stays one argument. A closer that does not
+    match its opener counts as not balancing: the scan has lost the shape, and
+    guessing past that point is how a guard goes quiet.
+    """
+    closers = {"(": ")", "[": "]", "{": "}"}
+    stack = []
+    pieces = []
+    piece_start = None
+    interpolations = []
+    in_string = False
+    index = open_paren
+    length = len(source)
+    while index < length:
+        char = source[index]
+        if in_string:
+            if char == "\\" and index + 1 < length:
+                if source[index + 1] == "(":
+                    interpolations.append(len(stack))
+                    stack.append(")")
+                    in_string = False
+                    index += 2
+                    continue
+                index += 2
+                continue
+            if char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            index += 1
+            continue
+        if char == "/" and index + 1 < length and source[index + 1] == "/":
+            newline = source.find("\n", index)
+            index = length if newline == -1 else newline
+            continue
+        if char in closers:
+            stack.append(closers[char])
+            if len(stack) == 1:
+                piece_start = index + 1
+            index += 1
+            continue
+        if char in ")]}":
+            if not stack or stack[-1] != char:
+                return None, None
+            stack.pop()
+            if interpolations and len(stack) == interpolations[-1]:
+                interpolations.pop()
+                in_string = True
+                index += 1
+                continue
+            if not stack:
+                pieces.append(source[piece_start:index])
+                return pieces, index + 1
+            index += 1
+            continue
+        if char == "," and len(stack) == 1:
+            pieces.append(source[piece_start:index])
+            piece_start = index + 1
+            index += 1
+            continue
+        index += 1
+    return None, None
+
+
+def collect_when_arguments(root, skip_paths):
+    """Returns (`when` arguments, number of contributions read).
+
+    Each entry is (relative path, line, text), and text is None for a
+    construction whose argument list would not parse: the guard has to fail on
+    that rather than skip the file.
+    """
+    arguments = []
+    contributions = 0
+    for path in scan_source_files(root, skip_paths):
+        with open(path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+        relative = os.path.relpath(path, root)
+        index = source.find(CONTRIBUTION_CALL)
+        while index != -1:
+            contributions += 1
+            line = source.count("\n", 0, index) + 1
+            pieces, end = split_swift_arguments(
+                source, index + len(CONTRIBUTION_CALL) - 1
+            )
+            if pieces is None:
+                arguments.append((relative, line, None))
+                break
+            for piece in pieces:
+                match = ARGUMENT_LABEL.match(piece)
+                if match is not None and match.group(1) == "when":
+                    arguments.append((relative, line, piece))
+            index = source.find(CONTRIBUTION_CALL, end)
+    return arguments, contributions
+
+
+def parse_probe_backed_markers(path):
+    """Returns the context keys whose doc comment says `Probe-backed:`.
+
+    Raises ValueError when the file declares no context keys at all, so a move
+    or a rename fails the guard instead of emptying it.
+    """
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    marked = set()
+    declared = set()
+    doc = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("///"):
+            doc.append(stripped)
+            continue
+        match = CONTEXT_KEY_DECLARATION.match(line)
+        if match is not None:
+            name = match.group("name")
+            declared.add(name)
+            if any(PROBE_BACKED_MARKER in entry for entry in doc):
+                marked.add(name)
+        if stripped:
+            doc = []
+    if not declared:
+        raise ValueError("declares no `public static let` context keys")
+    return marked, declared
+
+
+def check_probe_backed_keys(
+    probe_backed,
+    when_arguments,
+    contribution_count,
+    probe_backed_markers,
+    declared_context_keys,
+):
+    """Returns the violations of the `when` rule for probe-backed keys."""
+    violations = []
+
+    if not isinstance(probe_backed, dict) or not probe_backed:
+        violations.append(
+            "probeBackedContextKeys must be a non-empty object; a key answered "
+            "by an availability probe belongs in it with a reason"
+        )
+        probe_backed = probe_backed if isinstance(probe_backed, dict) else {}
+    for name, reason in sorted(probe_backed.items()):
+        if not isinstance(reason, str) or not reason.strip():
+            violations.append(
+                "probeBackedContextKeys {0} needs a reason".format(name)
+            )
+        if name not in declared_context_keys:
+            violations.append(
+                "probeBackedContextKeys {0} is not a declared context key; "
+                "remove it or fix the name".format(name)
+            )
+        elif name not in probe_backed_markers:
+            violations.append(
+                "probeBackedContextKeys {0} is no longer marked `{1}` in its "
+                "doc comment; the marker and the inventory have to agree"
+                .format(name, PROBE_BACKED_MARKER)
+            )
+    for name in sorted(probe_backed_markers - set(probe_backed)):
+        violations.append(
+            "context key {0} is marked `{1}` but is not listed in "
+            "probeBackedContextKeys".format(name, PROBE_BACKED_MARKER)
+        )
+
+    if contribution_count == 0:
+        violations.append(
+            "found no `{0}` constructions under the scanned sources; the "
+            "`when` rule cannot be checked".format(CONTRIBUTION_CALL)
+        )
+
+    for relative, line, text in when_arguments:
+        if text is None:
+            violations.append(
+                "{0}:{1}: could not read the argument list of this "
+                "contribution; the `when` rule cannot be checked".format(
+                    relative, line
+                )
+            )
+            continue
+        for name in sorted(probe_backed):
+            if "CommandPaletteContextKeys.{0}".format(name) in text:
+                violations.append(
+                    "{0}:{1}: `when` gates on the probe-backed context key {2}; "
+                    "an unprobed panel would drop this row from `cmux palette "
+                    "list`, where absence means the command does not exist. "
+                    "Move the test into `enablement`, where it reports "
+                    "isEnabled false instead".format(relative, line, name)
+                )
+        indirect = ENABLEMENT_IDENTIFIER.search(text)
+        if indirect is not None:
+            violations.append(
+                "{0}:{1}: `when` uses the predicate {2}; a name ending in "
+                "Enablement may only be passed to `enablement`".format(
+                    relative, line, indirect.group(1)
+                )
+            )
+
+    return violations
+
+
+def check(
+    universe,
+    interpolated_prefixes,
+    inventory,
+    swift_exclusions,
+    when_arguments,
+    contribution_count,
+    probe_backed_markers,
+    declared_context_keys,
+):
     """Returns a list of human-readable violations."""
     violations = []
 
@@ -191,6 +441,16 @@ def check(universe, interpolated_prefixes, inventory, swift_exclusions):
     for entry, reason in sorted(not_commands.items()):
         if not isinstance(reason, str) or not reason.strip():
             violations.append("notCommandIds {0} needs a reason".format(entry))
+
+    violations.extend(
+        check_probe_backed_keys(
+            inventory.get("probeBackedContextKeys"),
+            when_arguments,
+            contribution_count,
+            probe_backed_markers,
+            declared_context_keys,
+        )
+    )
 
     families_declared = set(families)
     universe = dict(universe)
@@ -270,12 +530,17 @@ def main(argv=None):
                         help="inventory JSON (default: <root>/" + DEFAULT_INVENTORY + ")")
     parser.add_argument("--agent-surface-file", default=None,
                         help="Swift file declaring notAgentSurfaceCommandIds")
+    parser.add_argument("--context-keys-file", default=None,
+                        help="Swift file declaring CommandPaletteContextKeys")
     args = parser.parse_args(argv)
 
     root = os.path.abspath(args.root)
     inventory_path = args.inventory or os.path.join(root, DEFAULT_INVENTORY)
     agent_surface_path = args.agent_surface_file or os.path.join(
         root, DEFAULT_AGENT_SURFACE_FILE
+    )
+    context_keys_path = args.context_keys_file or os.path.join(
+        root, DEFAULT_CONTEXT_KEYS_FILE
     )
 
     try:
@@ -292,6 +557,15 @@ def main(argv=None):
             agent_surface_path, error), file=sys.stderr)
         return 1
 
+    try:
+        probe_backed_markers, declared_context_keys = parse_probe_backed_markers(
+            context_keys_path
+        )
+    except (OSError, ValueError) as error:
+        print("check-command-palette-agent-surface: {0}: {1}".format(
+            context_keys_path, error), file=sys.stderr)
+        return 1
+
     universe, interpolated_prefixes = collect_palette_literals(
         root, skip_paths=[agent_surface_path]
     )
@@ -303,16 +577,27 @@ def main(argv=None):
         )
         return 1
 
+    when_arguments, contribution_count = collect_when_arguments(
+        root, skip_paths=[agent_surface_path]
+    )
     violations = check(
-        universe, interpolated_prefixes, inventory, swift_exclusions
+        universe,
+        interpolated_prefixes,
+        inventory,
+        swift_exclusions,
+        when_arguments,
+        contribution_count,
+        probe_backed_markers,
+        declared_context_keys,
     )
     if violations:
         print("check-command-palette-agent-surface: FAILED", file=sys.stderr)
         for violation in violations:
             print("  - {0}".format(violation), file=sys.stderr)
         print(
-            "\nEvery palette command an agent can reach through `cmux palette "
-            "list` is a decision. Classify the id in {0}.".format(
+            "\nWhat an agent can reach through `cmux palette list`, and what a "
+            "listed row means, are both decisions. Classify the id or the "
+            "probe-backed context key in {0}.".format(
                 os.path.relpath(inventory_path, root)
             ),
             file=sys.stderr,
@@ -321,8 +606,11 @@ def main(argv=None):
 
     print(
         "check-command-palette-agent-surface: ok ({0} palette ids, {1} "
-        "interpolated families)".format(
-            len(universe), len(interpolated_prefixes)
+        "interpolated families, {2} contributions, {3} when predicates)".format(
+            len(universe),
+            len(interpolated_prefixes),
+            contribution_count,
+            len(when_arguments),
         )
     )
     return 0
