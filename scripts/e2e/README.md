@@ -23,7 +23,7 @@ simulator explicitly through flags.
 
 | Env | Meaning |
 | --- | --- |
-| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. The workflow obtains it from `scripts/dev-backend.sh url --tag`. |
+| `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. The workflow obtains it from `scripts/e2e/gcp-backend.sh url --tag`. |
 | `CMUX_IROH_BROKER_BASE_URL` | Same backend origin baked into both app builds for broker discovery. |
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account used by the Mac and simulator. The workflow stores it as `CMUX_UITEST_*` in a mode `0600` file for the `agent` profile. |
 

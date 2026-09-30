@@ -49,28 +49,30 @@ The persistent VM is `cmux-dev-backend-1` in GCP project `cmux-489202`. It is an
 port 8477, and the backend's Stack and APNs runtime files installed under
 `/srv/cmux-dev`. The VM has the Tailscale tag `tag:dev-backend`.
 
-The one-time VM installation is already owned by the backend administration
-flow:
+The one-time VM installation is owned by the backend administration flow in
+cmuxterm-hq:
 
 ```text
 ./scripts/dev-backend.sh vm-install
 ./scripts/dev-backend.sh vm-status
 ```
 
-The CI runner does this for each routed run:
+The checked-in cmux CI client does this for each routed run:
 
 ```text
-scripts/dev-backend.sh start --tag <tag> --checkout <cmux checkout> --transport direct
-scripts/dev-backend.sh url --tag <tag>
+scripts/e2e/gcp-backend.sh start --tag <tag> --checkout <cmux checkout>
+scripts/e2e/gcp-backend.sh url --tag <tag>
 ```
 
-The helper archives only `web/` from the PR checkout, sends it to the VM over
-Tailscale SSH, asks `devbackendd` to create or update the tagged Docker web and
-Postgres stack, and returns a private URL such as
+The CI client archives only `web/` from the PR checkout, sends it to the VM
+over Tailscale SSH, asks `devbackendd` to create or update the tagged Docker
+web and Postgres stack, and returns a private URL such as
 `https://cmux-dev-backend-1.tail137216.ts.net:3916/`. The allocated Serve port
 is in the reserved `3800-4799` range. The workflow places that URL in
 `CMUX_DEV_BACKEND_URL`, `CMUX_DEV_API_BASE_URL`, and
-`CMUX_IROH_BROKER_BASE_URL` before either app is built.
+`CMUX_IROH_BROKER_BASE_URL` before either app is built. The client purges the
+run's stack after the E2E step, including its registry entry and source
+snapshot.
 
 The backend's runtime secrets stay on the VM. The CI Stack account is kept on
 the runner in `$HOME/.secrets/cmuxterm-dev.env` with mode `0600`, read by the
@@ -79,12 +81,12 @@ agent auth profile, and removed in the final cleanup step.
 ## Why `CMUX_DEV_BACKEND_SSH_KEY` is unnecessary
 
 That secret would be a conventional SSH private key for `ubuntu` on the GCP
-VM. It was proposed when a Linux backend job was going to call the helper.
-The final topology runs the helper on the macOS job, where its existing local
-forwarder support works, and authenticates the SSH connection with the
-runner's Tailscale identity. The Tailscale OAuth client lets the runner join
-the tailnet as `tag:ci`; the Tailscale SSH ACL then authorizes `ubuntu` on the
-backend. The OAuth client and a VM SSH private key solve different problems.
+VM. It was proposed when a Linux backend job was going to call a helper from
+cmuxterm-hq. The checked-in CI client runs on the same macOS job as the app
+builds and authenticates its SSH connection with the runner's Tailscale node
+identity. The Tailscale OAuth client lets the runner join the tailnet as
+`tag:ci`; the Tailscale SSH ACL then authorizes `ubuntu` on the backend. The
+OAuth client and a VM SSH private key solve different problems.
 
 There is no `CMUX_DEV_BACKEND_SSH_KEY` reference in the workflow or required
 secret list. Removing it avoids another long-lived credential, key rotation,

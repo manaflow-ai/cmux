@@ -101,21 +101,6 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Checkout backend helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: manaflow-ai/cmuxterm-hq
-          ref: main
-          path: .cmuxterm-hq
-          persist-credentials: false
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /scripts/dev-backend.sh
-            /scripts/lib/dev-web-port.sh
-            /scripts/lib/dev-web-port-lease.py
-            /skills/infra/dev-backend/**
-
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -171,11 +156,10 @@ jobs:
         id: backend
         run: |
           set -euo pipefail
-          helper="$GITHUB_WORKSPACE/.cmuxterm-hq/scripts/dev-backend.sh"
+          helper="$GITHUB_WORKSPACE/scripts/e2e/gcp-backend.sh"
           "$helper" start \
             --tag "$CMUX_E2E_TAG" \
-            --checkout "$GITHUB_WORKSPACE" \
-            --transport direct
+            --checkout "$GITHUB_WORKSPACE"
           backend_url="$("$helper" url --tag "$CMUX_E2E_TAG")"
           case "$backend_url" in
             https://cmux-dev-backend-1.tail137216.ts.net:*) ;;
@@ -315,8 +299,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          helper="$GITHUB_WORKSPACE/.cmuxterm-hq/scripts/dev-backend.sh"
+          helper="$GITHUB_WORKSPACE/scripts/e2e/gcp-backend.sh"
           if [ -f "$HOME/.local/state/cmux/dev-backends/${CMUX_E2E_TAG}.json" ]; then
+            "$helper" remove --tag "$CMUX_E2E_TAG" || echo "::warning::[infra-preflight] backend cleanup failed"
+          elif [ -f "${CMUX_E2E_BACKEND_STATE_DIR:-${RUNNER_TEMP:-/tmp}/cmux-gcp-backend}/${CMUX_E2E_TAG}.json" ]; then
             "$helper" remove --tag "$CMUX_E2E_TAG" || echo "::warning::[infra-preflight] backend cleanup failed"
           fi
 
