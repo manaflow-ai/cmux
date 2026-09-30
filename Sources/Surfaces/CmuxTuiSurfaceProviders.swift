@@ -194,6 +194,36 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             installNotificationSync()
         }
     }
+
+    /// Stops machine-bound activity while retaining this provider and its graph.
+    /// The control plane may report the machine running again later.
+    func stopTransportResources() {
+        lifecycleGeneration &+= 1
+        guestURLService?.stop()
+        guestURLService = nil
+        displayCoordinator.stop()
+        portDiscovery.invalidate()
+        refreshCoordinator.cancel()
+        CloudNotificationSyncHub.shared.unregister(machineID: machineID)
+        notificationSync?.retire()
+        notificationSync = nil
+        if let notificationPlacementObserver {
+            NotificationCenter.default.removeObserver(notificationPlacementObserver)
+            self.notificationPlacementObserver = nil
+        }
+        changeWatcher?.cancel()
+        changeWatcher = nil
+        watchedLink = nil
+        changeWatcherID = nil
+        scheduledRefresh?.cancel()
+        scheduledRefresh = nil
+        stateRecoveryRefreshTask?.cancel()
+        stateRecoveryRefreshTask = nil
+        stateRecoveryRefreshQueued = false
+        for task in remoteTerminalProjectionTasks.values { task.cancel() }
+        remoteTerminalProjectionTasks.removeAll()
+    }
+
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
