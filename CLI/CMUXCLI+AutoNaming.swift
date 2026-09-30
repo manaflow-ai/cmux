@@ -288,6 +288,9 @@ struct CodexAutoNamingArguments: Sendable {
             return true
         }
         let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
+        if normalized == "headers" || normalized == "http_headers" {
+            return true
+        }
         return normalized.contains("token")
             || normalized.contains("secret")
             || normalized.contains("password")
