@@ -12,6 +12,46 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneDropTargetIdentityTests {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage?
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any?
+        let draggingSequenceNumber: Int
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
+            self.draggingDestinationWindow = window
+            self.draggingSourceOperationMask = .copy
+            self.draggingLocation = location
+            self.draggedImageLocation = location
+            self.draggedImage = nil
+            self.draggingPasteboard = pasteboard
+            self.draggingSource = nil
+            self.draggingSequenceNumber = 1
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? { nil }
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+    }
+
     private func browserOverlay(in slot: WindowBrowserSlotView) -> NSView? {
         // Browser drop overlays are drawn in the slot's parent container so they
         // can cover the slot without being clipped by its bounds.
@@ -162,8 +202,21 @@ struct PaneDropTargetIdentityTests {
         )
         defer { window.orderOut(nil) }
         window.contentView = slot
-        slot.setPortalDragDropZone(.left)
-        slot.setPortalDragDropZone(nil)
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID()
+        ))
+        let target = try #require(slot.paneDropTargetForDrop(at: NSPoint(x: 120, y: 60)))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.browser-pane-exit.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        #expect(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/drop-exit.txt") as NSURL]))
+        let dropPoint = slot.convert(NSPoint(x: 120, y: 60), to: nil)
+        let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+
+        #expect(target.draggingEntered(dragInfo) == .copy)
+        #expect(browserOverlay(in: slot)?.isHidden == false)
+        target.draggingExited(dragInfo)
 
         #expect(browserOverlay(in: slot)?.isHidden == true)
     }
