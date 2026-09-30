@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 
 /// Renders sidebar metadata-block markdown with a bounded memo cache so the
@@ -18,6 +19,11 @@ import Foundation
 /// cannot grow it without limit.
 @MainActor
 enum SidebarMetadataMarkdownRenderer {
+    /// Keyed on the markdown alone, which is every input ``parse`` has today.
+    /// Linkification passes a `nil` repository, so two rows with the same text
+    /// always render the same. Giving `parse` a real repository means giving
+    /// this key one too, or two workspaces in different repositories with
+    /// identical metadata will serve each other's links.
     private static var cache: [String: AttributedString?] = [:]
     private static var insertionOrder: [String] = []
     private static let capacity = 512
@@ -55,10 +61,27 @@ enum SidebarMetadataMarkdownRenderer {
         return parsed
     }
 
+    /// Linkifies GitHub references the parser leaves as plain text.
+    ///
+    /// Only `owner/repo#123` resolves here, because that is the one form that
+    /// names its own repository. A bare `#123`, a `GH-123` and a commit SHA all
+    /// need to know which repository the row is about, and
+    /// ``SidebarWorkspaceSnapshotBuilder`` carries no slug:
+    /// `PullRequestProbeService` resolves one per workspace on every probe cycle
+    /// and drops it at the package boundary, so bringing it through is the
+    /// change that turns those three on.
+    private static let linkifier = GitHubReferenceAttributedStringLinkifier()
+
     private static func parse(_ markdown: String) -> AttributedString? {
-        try? AttributedString(
+        guard let parsed = try? AttributedString(
             markdown: markdown,
             options: .init(interpretedSyntax: .full)
-        )
+        ) else {
+            return nil
+        }
+        // Inside `parse`, so the memo covers it and a row that re-evaluates its
+        // body does not re-scan. Linkifying changes attributes only, so the
+        // height stability this whole type exists for is untouched.
+        return linkifier.linkifying(parsed, repositorySlug: nil)
     }
 }

@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptHandoffResponse } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptSessionActionResponse } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 
 const writes: Record<string, string> = {};
@@ -39,13 +39,13 @@ if (!consumeOptimisticUserEcho(stuck, "next") || stuck.length !== 1 || stuck[0] 
   throw new Error("a later echo should match past an entry whose echo never landed");
 }
 
-if (!shouldAcceptHandoffResponse("session-1", "session-1", "session-1")) {
+if (!shouldAcceptSessionActionResponse("session-1", "session-1", "session-1")) {
   throw new Error("current pending handoff response should be accepted");
 }
-if (shouldAcceptHandoffResponse("session-1", null, "session-1")) {
+if (shouldAcceptSessionActionResponse("session-1", null, "session-1")) {
   throw new Error("cleared handoff must ignore a late response");
 }
-if (shouldAcceptHandoffResponse("session-1", "session-1", "session-2")) {
+if (shouldAcceptSessionActionResponse("session-1", "session-1", "session-2")) {
   throw new Error("handoff response from a session the user left must be ignored");
 }
 
