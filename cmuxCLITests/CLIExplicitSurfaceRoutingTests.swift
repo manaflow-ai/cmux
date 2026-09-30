@@ -43,6 +43,34 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func notificationCommandsRejectMalformedArgumentsBeforeDispatch() throws {
+        let cases: [[String]] = [
+            ["notify", "--clear", "--typo"],
+            ["notify", "--title"],
+            ["list-notifications", "--typo"],
+            ["dismiss-notification", "--all-read", "--typo"],
+            ["mark-notification-read", "--all", "--typo"],
+            ["open-notification", "--id", "n", "--typo"],
+            ["clear-notifications", "--workspace", "Work", "--typo"],
+        ]
+
+        for (index, arguments) in cases.enumerated() {
+            let execution = try runMockCommand(
+                arguments: arguments,
+                socketName: "notify-invalid-\(index)"
+            ) { line in
+                Self.malformedRequestResponse(raw: line)
+            }
+
+            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+            #expect(
+                execution.result.status != 0,
+                Comment(rawValue: execution.result.stderr + execution.result.stdout)
+            )
+            #expect(try execution.state.requestObjects().isEmpty)
+        }
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
