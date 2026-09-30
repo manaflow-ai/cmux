@@ -3034,6 +3034,7 @@
 		3C7EE8952CF38F7F62C9198B /* SessionScrollbackCheckpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192DFB82B39AB714FF4FD4BE /* SessionScrollbackCheckpointTests.swift */; };
 		9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
+		ECF5BD6A3F40F2538EC3DAD8 /* SessionSnapshotImportBrowserStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */; };
 		A1D5E1A70000000000000001 /* SessionSnapshotImportTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D5E1A70000000000000002 /* SessionSnapshotImportTrust.swift */; };
 		9D71C66D11D9F5E4F0C304E3 /* SessionSnapshotImportTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7845D78AAE0A08E748166F72 /* SessionSnapshotImportTrustTests.swift */; };
 		5390FEF581C8C1348F35FF40 /* SessionSnapshotOverwriteGuardAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */; };
@@ -7296,6 +7297,7 @@
 		192DFB82B39AB714FF4FD4BE /* SessionScrollbackCheckpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionScrollbackCheckpointTests.swift"; sourceTree = "<group>"; };
 		9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotCodingTrust.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
+		87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotImportBrowserStateTests.swift"; sourceTree = "<group>"; };
 		A1D5E1A70000000000000002 /* SessionSnapshotImportTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotImportTrust.swift; sourceTree = "<group>"; };
 		7845D78AAE0A08E748166F72 /* SessionSnapshotImportTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotImportTrustTests.swift"; sourceTree = "<group>"; };
 		DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotOverwriteGuardAppTests.swift"; sourceTree = "<group>"; };
@@ -13019,6 +13021,7 @@
 				C851974591E32B011E9704A7 /* ClaudeHookWorkStateTests.swift */,
 				2D3917E88FC3A4BFAD8ED176 /* SidebarAgentWorkStateTests.swift */,
 				EA6E81B689749BFCBB162559 /* AutoNamingOpenCodeArgumentsTests.swift */,
+				87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17628,6 +17631,7 @@
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
 				3C7EE8952CF38F7F62C9198B /* SessionScrollbackCheckpointTests.swift in Sources */,
+				ECF5BD6A3F40F2538EC3DAD8 /* SessionSnapshotImportBrowserStateTests.swift in Sources */,
 				9D71C66D11D9F5E4F0C304E3 /* SessionSnapshotImportTrustTests.swift in Sources */,
 				5390FEF581C8C1348F35FF40 /* SessionSnapshotOverwriteGuardAppTests.swift in Sources */,
 				077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */,
