@@ -52,7 +52,13 @@ extension AgentNotificationRegressionTests {
 
         // A later same-session hook proves that the prompt was answered even
         // when the original terminal notification had no producer key.
-        FeedCoordinator.shared.clearSemanticFeedNotification(requestId: "answered")
+        FeedCoordinator.shared.clearSemanticFeedNotification(
+            requestId: "answered",
+            source: source,
+            sessionId: "session",
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
 
         #expect(fixture.store.notifications.isEmpty)
         #expect(!fixture.store.hasVisibleNotificationIndicator(
@@ -64,7 +70,7 @@ extension AgentNotificationRegressionTests {
     private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
                                request: String = "approval", session: String = "session") -> AgentJournalEvent {
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
-            name: source, kind: source, command: "agent resume", checkpointId: "session", source: "agent-hook", updatedAt: 1)
+            name: source, kind: source, command: "agent resume", checkpointId: session, source: "agent-hook", updatedAt: 1)
         return AgentJournalEvent(sequence: sequence, committedAtMs: sequence,
             draft: AgentJournalEventDraft(kind: .approvalRequested, occurredAtMs: sequence,
                 source: source, agentKey: source == "claude" ? "claude_code" : source,

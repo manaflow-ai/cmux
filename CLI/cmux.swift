@@ -41130,6 +41130,17 @@ export default {
             ]
         }
 
+        // The synchronous Codex hook lane preserves agent order for
+        // telemetry-only progress events too. Detached wrapper telemetry does
+        // not carry this ordered marker or a send stamp.
+        if source == "codex", !isActionable {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
                 if let workspaceId = target.workspaceId {
