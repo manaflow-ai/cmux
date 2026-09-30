@@ -60,3 +60,14 @@ struct IncognitoRecordTests {
         withExtendedLifetime(services) {}
     }
 }
+
+/// A new incognito tab showed "about:blank" as its title; Chrome shows
+/// "New Tab".
+struct IncognitoTabTitleTests {
+    @Test func aBlankPageHasNoTitleOfItsOwn() {
+        #expect(TabContentCache.incognitoTitle("about:blank", url: URL(string: "about:blank")) == nil)
+        #expect(TabContentCache.incognitoTitle(nil, url: nil) == nil)
+        #expect(TabContentCache.incognitoTitle("", url: URL(string: "https://a.test/x")) == "a.test")
+        #expect(TabContentCache.incognitoTitle("Docs", url: URL(string: "https://a.test/x")) == "Docs")
+    }
+}
