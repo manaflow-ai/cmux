@@ -27,11 +27,24 @@ export const piAdapter: Adapter = {
   },
   async send(sess, prompt, generation?: number) {
     const st = state(sess);
-    await applyInitialOptions(sess);
-    // Initialization can outlive the process that started it. Re-resolve the
-    // current process before writing the prompt so a respawned Pi instance
-    // never receives a prompt through a stale stdin handle.
-    const proc = ensureProc(sess);
+    // Establish the process before checking initialization. If it exits while
+    // setup is in flight, ensureProc resets initialization for the replacement
+    // and this loop applies setup to that process before dispatching anything.
+    let proc = ensureProc(sess);
+    let initialized = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await applyInitialOptions(sess);
+      const current = ensureProc(sess);
+      if (current === proc && current.exitCode === null && !current.killed) {
+        initialized = true;
+        proc = current;
+        break;
+      }
+      proc = current;
+    }
+    if (!initialized || st.proc !== proc || proc.exitCode !== null || proc.killed) {
+      throw new Error("pi process changed during startup");
+    }
     const type = st.activeTurn ? "steer" : "prompt";
     if (type === "prompt") {
       st.activeTurn = true;
