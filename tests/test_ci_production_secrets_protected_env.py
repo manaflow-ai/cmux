@@ -50,9 +50,9 @@ def main():
             definition = document["jobs"].get(job, {})
             _check(definition.get("environment") == "release", f"{name} {job} runs in the release environment")
     gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)
-    condition = str(gate["jobs"]["simulator-e2e"].get("if", ""))
+    condition = " ".join(str(gate["jobs"]["simulator-e2e"].get("if", "")).split())
     _check(
-        "needs.resolve-ref.outputs.sha == github.sha" in condition,
+        condition == "${{ needs.resolve-ref.outputs.sha == github.sha }}",
         "iroh-release-gate simulator-e2e runs only the run's own revision",
     )
     if FAILURES:
