@@ -46,30 +46,47 @@ def main():
     job = workflow["jobs"]["update-cask"]
     step = next(s for s in job["steps"] if s.get("id") == "version")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        marker = os.path.join(tmp, "pwned")
-        hostile = f"$(touch${{IFS}}{marker})"
-        context = {
-            "github.event.workflow_run.head_branch": hostile,
-            "github.event.inputs.version": "",
-            "github.event_name": "workflow_run",
-        }
-        output = os.path.join(tmp, "output")
-        open(output, "w").close()
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": output}
-        for key, value in (step.get("env") or {}).items():
-            env[key] = render(value, context)
-        script = render(step["run"], context)
-        subprocess.run(["bash", "-e", "-c", script], env=env, cwd=tmp, capture_output=True, text=True)
-        _check(not os.path.exists(marker), "a hostile head_branch never runs as a command in the version step")
-        _check("skip=true" in open(output).read(), "a non-release branch name is skipped, not used as a version")
+    # A bare `$(...)` branch name, and one prefixed with a valid version. The
+    # second matters because the digits make it look like a release ref, so a
+    # regex widened to accept prerelease suffixes would let it through.
+    for label, branch in (
+        ("a hostile head_branch", "$(touch${IFS}%s)"),
+        ("a hostile head_branch behind a valid version", "v1.2.3$(touch${IFS}%s)"),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "pwned")
+            context = {
+                "github.event.workflow_run.head_branch": branch % marker,
+                "github.event.inputs.version": "",
+                "github.event_name": "workflow_run",
+            }
+            output = os.path.join(tmp, "output")
+            open(output, "w").close()
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_OUTPUT": output}
+            for key, value in (step.get("env") or {}).items():
+                env[key] = render(value, context)
+            script = render(step["run"], context)
+            subprocess.run(["bash", "-e", "-c", script], env=env, cwd=tmp, capture_output=True, text=True)
+            _check(not os.path.exists(marker), f"{label} never runs as a command in the version step")
+            _check("skip=true" in open(output).read(), f"{label} is skipped, not used as a version")
+
+    # The version the later steps consume is only as safe as this regex, so pin
+    # it rather than trusting the payloads above to cover every widening of it.
+    _check(
+        r"^[0-9]+\.[0-9]+\.[0-9]+$" in str(step["run"]),
+        "the version step accepts only a bare three-part semver",
+    )
 
     for name, job_def in workflow["jobs"].items():
         for s in job_def.get("steps", []):
             run = str(s.get("run", ""))
             for expr in re.findall(r"\$\{\{\s*([^}]+?)\s*\}\}", run):
                 _check(
-                    not expr.startswith(("github.event.workflow_run", "github.event.inputs")),
+                    not expr.startswith(
+                        # `inputs.` is the other spelling of a workflow_dispatch
+                        # input, and reaches the same attacker-influenced value.
+                        ("github.event.workflow_run", "github.event.inputs", "inputs."),
+                    ),
                     f"{name}: `{s.get('name')}` does not substitute {expr} into its script",
                 )
 
@@ -77,7 +94,8 @@ def main():
     for condition in (
         "github.event.workflow_run.path == '.github/workflows/release.yml'",
         "github.event.workflow_run.head_repository.full_name == github.repository",
-        "github.event.workflow_run.event == 'push'",
+        # A tag push or a trusted dispatch of release.yml, never pull_request.
+        "contains(fromJSON('[\"push\",\"workflow_dispatch\"]'), github.event.workflow_run.event)",
     ):
         _check(condition in gate_if, f"the gate requires {condition}")
 
