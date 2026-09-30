@@ -668,6 +668,10 @@ extension MobileShellComposite {
                 }
             }
             if let hostFailure, backendResult == nil {
+                guard !Task.isCancelled,
+                      currentSessionGeneration == sessionGeneration else {
+                    return
+                }
                 cacheTaskModels(hostFailure, for: key)
                 didUpdate?(hostFailure)
             }

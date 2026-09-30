@@ -51,7 +51,7 @@ extension TaskComposerSheet {
         workspaceGroupSelectionRequiresResolution = false
         // A folder chosen on another Mac must never follow the route switch.
         didEditDirectory = preferences?.didEditDirectory ?? false
-        if let preferences {
+        if preferences?.didEditDirectory == true, let preferences {
             directory = preferences.directory
         } else {
             syncSuggestedDirectory()

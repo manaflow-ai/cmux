@@ -29,7 +29,11 @@ struct MobileTaskModelPrefetchTests {
                 provider: .claude, macDeviceID: "test-mac", instanceTag: nil, maximumCacheAge: 300
             )
         }
-        while !composerStarted { await Task.yield() }
+        let composerStartDeadline = ContinuousClock.now + .seconds(1)
+        while !composerStarted && ContinuousClock.now < composerStartDeadline {
+            await Task.yield()
+        }
+        #expect(composerStarted)
         prefetch.cancel()
         #expect(await prefetch.value == .stopped(.cancelled))
         await router.setHoldTaskModelList(false)

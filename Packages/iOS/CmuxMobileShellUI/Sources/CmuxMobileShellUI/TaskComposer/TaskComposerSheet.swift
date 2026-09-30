@@ -300,9 +300,12 @@ struct TaskComposerSheet: View {
             draft?.didEditDirectory == true
                 || (draft?.templateID == selectedTemplateID && draftMatchesSelectedMac)
         )
+        let rememberedDirectory = rememberedPickers?.didEditDirectory == true
+            ? rememberedPickers?.directory
+            : nil
         let initialDirectory = canRestoreDraftDirectory
             ? draft?.directory ?? "~"
-            : rememberedPickers?.directory ?? Self.suggestedDirectory(
+            : rememberedDirectory ?? Self.suggestedDirectory(
                 template: selectedTemplate,
                 macDeviceID: selectedMacID,
                 instanceTag: selectedMacInstanceTag,
