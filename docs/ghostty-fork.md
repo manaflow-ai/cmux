@@ -12,6 +12,24 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### VT replay blank cells keep the default style
+
+- Branch: `fix-formatter-blank-cell-style`
+  ([manaflow-ai/ghostty#246](https://github.com/manaflow-ai/ghostty/pull/246))
+- Commits: `2439e8e7c` (regression test), `51c8da0ce` (fix)
+- Summary: the VT and HTML formatters wrote pending blank cells as spaces
+  before switching to the next cell's style, so the spaces took the previous
+  cell's colors. Claude Code's mascot sets a black background and skips three
+  cells with CHA, which a Cloud replay painted as a black box. The formatter
+  now closes a non-default style before the pending blanks.
+- Coverage: Ghostty's `Page VT unstyled blank cells do not inherit the
+  previous background`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-51c8da0cede775b8599c18bcfbe33c2ec6aaac88-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `16705a02949161a1e04ae7933bf2344b59c2f0756689c356cb893474fb18a664`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream has the same bug. Keep the close before
+  `splatByteAll(' ', blank_cells)`; it mirrors the row-break reset above it.
+
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`
