@@ -21,7 +21,7 @@ It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 
 ## Start from a template
 
-Custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled. Right-click the sidebar toggle button, choose **New from Template…**, then pick a template. cmux copies an editable file into `~/.config/cmux/sidebars/`, opens it in your preferred editor, and selects it in the sidebar.
+Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **New from Template…**, then pick a template. cmux copies an editable file into `~/.config/cmux/sidebars/`, opens it in your preferred editor, and selects it in the sidebar.
 
 The same templates are available from the CLI:
 
@@ -32,7 +32,7 @@ cmux sidebar new agents-board --from agents-board
 cmux sidebar open agents-board
 ```
 
-`cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The source files and manifest live in `Examples/CustomSidebars/`, so every installed template remains a normal file you can edit or keep in your dotfiles.
+`cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
 
 ## If you are an agent building this for someone
 

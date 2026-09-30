@@ -7,6 +7,7 @@ struct CustomSidebarTemplateCatalogTests {
     @Test
     func bundledManifestMatchesExamplesFolder() throws {
         let catalog = CustomSidebarTemplateCatalog()
+        let curatedIDs = ["agents-board", "btop-agents", "panel-sessions", "panel-subagents", "panel-todo", "workspaces"]
         let examplesDirectory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -23,8 +24,9 @@ struct CustomSidebarTemplateCatalogTests {
             .filter { $0 != "manifest.json" }
             .sorted()
         let bundledFiles = catalog.templates.map(\.file).sorted()
-        #expect(bundledFiles == exampleFiles)
-        #expect(catalog.templates.count == 19)
+        #expect(catalog.templates.map(\.id) == curatedIDs)
+        #expect(Set(bundledFiles).isSubset(of: Set(exampleFiles)))
+        #expect(catalog.templates.count == curatedIDs.count)
         for descriptor in catalog.templates {
             let exampleSource = try String(
                 contentsOf: examplesDirectory.appendingPathComponent(descriptor.file),

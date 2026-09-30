@@ -6,7 +6,7 @@ They do not need Xcode, signing, or a build step.
 The examples intentionally keep their labels inline because interpreted
 sidebars do not have a localization catalog yet.
 
-Start with a built-in template from the app or CLI:
+Start with one of the six curated built-in templates from the app or CLI:
 
 ```bash
 cmux sidebar templates
@@ -17,7 +17,8 @@ cmux sidebar open agents-board
 You can also copy any source file from this directory into
 `~/.config/cmux/sidebars/`. Enable **Settings -> Beta features -> Custom sidebars**
 then pick it from the sidebar toggle button's right-click menu. The manifest lists
-each template's display name, description, and intended placement.
+the bundled templates' display name, description, and intended placement. The other
+examples remain available here as authoring references.
 
 ## Included Sidebars
 
