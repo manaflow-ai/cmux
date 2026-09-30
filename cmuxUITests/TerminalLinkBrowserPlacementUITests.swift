@@ -31,14 +31,14 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     func testSplitPlacementCreatesSplit() throws {
-        try verifyLinkPlacement("split", expectedPanes: 2)
+        try verifyLinkPlacement("split")
     }
 
     func testSamePaneClickAndOpenCommandKeepOnePane() throws {
-        try verifyLinkPlacement("samePane", expectedPanes: 1)
+        try verifyLinkPlacement("samePane")
     }
 
-    private func verifyLinkPlacement(_ placement: String, expectedPanes: Int) throws {
+    private func verifyLinkPlacement(_ placement: String) throws {
         let app = XCUIApplication.cmuxTestApplication()
         application = app
         let stateURL = fixture.appendingPathComponent("state.json")
@@ -89,6 +89,8 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)
+        let initialPaneCount = try panes(workspace).count
+        let expectedPanes = initialPaneCount + (placement == "split" ? 1 : 0)
         let sourcePane = try XCTUnwrap(initial.first { $0["id"] as? String == source }?["pane_id"] as? String)
         attach(app, name: "\(placement)-before-terminal-link")
 
