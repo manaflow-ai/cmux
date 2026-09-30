@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
-import { markAccountCooldown } from "../services/coderouter/repository";
+import { markAccountCooldown, nextCapacityAvailableAt } from "../services/coderouter/repository";
 import type { CredentialKeyService } from "../services/coderouter/encryption";
 import {
   claudeAccountStore,
@@ -15,6 +15,7 @@ const CLAUDE_TEAM = "claude-cooldown-test";
 const NATIVE_TEAM = "native-cooldown-test";
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
 const ONE_HOUR_MS = 60 * 60 * 1_000;
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1_000;
 const TWENTY_SECONDS_MS = 20 * 1_000;
 let sql: Sql;
 
@@ -99,4 +100,121 @@ dbTest("preserves the longest Claude cooldown and failure reason", async () => {
   const [nativeAfterShort] = await sql`select cooldown_until, last_failure_code
     from coderouter_accounts where id = ${nativeAccountId}`;
   expect(new Date(String(nativeAfterShort!.cooldown_until)).getTime()).toBeGreaterThanOrEqual(nativeLongCooldownFloor);
+  expect(nativeAfterShort!.last_failure_code).toBe("rate_limited");
 });
+
+const cooldownSequences = [
+  {
+    name: "rate limit then invalid credential",
+    firstDuration: FIVE_HOURS_MS,
+    firstReason: "rate_limited",
+    secondDuration: FIFTEEN_MINUTES_MS,
+    secondReason: "invalid_credential",
+    expectedReason: "invalid_credential",
+  },
+  {
+    name: "invalid credential then upstream unavailable",
+    firstDuration: FIFTEEN_MINUTES_MS,
+    firstReason: "invalid_credential",
+    secondDuration: TWENTY_SECONDS_MS,
+    secondReason: "upstream_unavailable",
+    expectedReason: "invalid_credential",
+  },
+  {
+    name: "rate limit then upstream unavailable",
+    firstDuration: FIVE_HOURS_MS,
+    firstReason: "rate_limited",
+    secondDuration: TWENTY_SECONDS_MS,
+    secondReason: "upstream_unavailable",
+    expectedReason: "rate_limited",
+  },
+  {
+    name: "upstream unavailable then rate limit",
+    firstDuration: TWENTY_SECONDS_MS,
+    firstReason: "upstream_unavailable",
+    secondDuration: FIVE_HOURS_MS,
+    secondReason: "rate_limited",
+    expectedReason: "rate_limited",
+  },
+  {
+    name: "invalid credential then longer rate limit",
+    firstDuration: FIFTEEN_MINUTES_MS,
+    firstReason: "invalid_credential",
+    secondDuration: FIVE_HOURS_MS,
+    secondReason: "rate_limited",
+    expectedReason: "invalid_credential",
+  },
+];
+
+type StoredCooldown = {
+  deadline_ms: string;
+  last_failure_code: string | null;
+  updated_at: Date;
+};
+
+async function readCooldown(pool: "claude" | "native", accountId: string): Promise<StoredCooldown> {
+  const rows = pool === "claude"
+    ? await sql<StoredCooldown[]>`select extract(epoch from cooldown_until) * 1000 as deadline_ms,
+      last_failure_code, updated_at from coderouter_claude_accounts where id = ${accountId}`
+    : await sql<StoredCooldown[]>`select extract(epoch from cooldown_until) * 1000 as deadline_ms,
+      last_failure_code, updated_at from coderouter_accounts where id = ${accountId}`;
+  if (!rows[0]) throw new Error("missing cooldown fixture");
+  return rows[0];
+}
+
+for (const pool of ["claude", "native"] as const) {
+  for (const sequence of cooldownSequences) {
+    dbTest(`${pool} cooldown: ${sequence.name}`, async () => {
+      const accountId = pool === "claude" ? await insertClaudeAccount() : await insertNativeAccount();
+      const startedAt = Date.now();
+      if (pool === "claude") {
+        await claudeAccountStore.markCooldown(accountId, new Date(startedAt + sequence.firstDuration), sequence.firstReason);
+      } else {
+        await markAccountCooldown(accountId, sequence.firstDuration, undefined, sequence.firstReason);
+      }
+      const first = await readCooldown(pool, accountId);
+      expect(Number(first.deadline_ms)).toBeGreaterThanOrEqual(startedAt + sequence.firstDuration);
+      expect(first.last_failure_code).toBe(sequence.firstReason);
+
+      if (pool === "claude") {
+        await sql`update coderouter_claude_accounts set updated_at = '2000-01-01' where id = ${accountId}`;
+      } else {
+        await sql`update coderouter_accounts set updated_at = '2000-01-01' where id = ${accountId}`;
+      }
+      const secondStartedAt = Date.now();
+      if (pool === "claude") {
+        await claudeAccountStore.markCooldown(accountId, new Date(secondStartedAt + sequence.secondDuration), sequence.secondReason);
+      } else {
+        await markAccountCooldown(accountId, sequence.secondDuration, undefined, sequence.secondReason);
+      }
+      const after = await readCooldown(pool, accountId);
+      const deadline = Number(after.deadline_ms);
+      if (sequence.firstDuration > sequence.secondDuration) {
+        expect(deadline).toBe(Number(first.deadline_ms));
+      } else {
+        expect(deadline).toBeGreaterThanOrEqual(secondStartedAt + sequence.secondDuration);
+        expect(deadline).toBeLessThanOrEqual(Date.now() + sequence.secondDuration);
+      }
+      expect(after.last_failure_code).toBe(sequence.expectedReason);
+      expect(after.updated_at.getTime()).toBeGreaterThanOrEqual(secondStartedAt);
+
+      if (pool === "claude") {
+        const selection = await claude.select(CLAUDE_TEAM, { stickyKey: null });
+        expect(selection.kind).toBe("exhausted");
+        if (selection.kind !== "exhausted") throw new Error("cooling account was selected");
+        if (sequence.expectedReason === "invalid_credential") {
+          expect(selection.capacityRetryAfterSeconds).toBeNull();
+        } else {
+          expect(selection.capacityRetryAfterSeconds).toBeGreaterThan(0);
+        }
+      } else {
+        const capacity = await nextCapacityAvailableAt({ teamId: NATIVE_TEAM, provider: "openai-apikey" });
+        if (sequence.expectedReason === "invalid_credential") {
+          expect(capacity).toBeNull();
+        } else {
+          expect(capacity?.getTime()).toBe(deadline);
+        }
+      }
+    });
+  }
+}
