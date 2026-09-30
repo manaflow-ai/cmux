@@ -212,8 +212,8 @@ public struct AccountTeamCard: View {
                         model.remove(member)
                     }
                     .controlSize(.small)
-                    .accessibilityLabel(String(
-                        format: String(localized: "settings.team.remove", defaultValue: "Remove %@"),
+                    .accessibilityLabel(String.localizedStringWithFormat(
+                        String(localized: "settings.team.remove", defaultValue: "Remove %@"),
                         member.label
                     ))
                 }
@@ -324,15 +324,15 @@ final class AccountTeamCardModel {
                 : String(localized: "settings.team.subtitle.empty", defaultValue: "People who share this team's Cloud machines.")
         }
         if let limit = detail.memberLimit {
-            return String(
-                format: String(localized: "settings.team.seatSummary", defaultValue: "%1$@ · %2$d of %3$d seats used"),
+            return String.localizedStringWithFormat(
+                String(localized: "settings.team.seatSummary", defaultValue: "%1$@ · %2$d of %3$d seats used"),
                 detail.teamName,
                 detail.seatsUsed,
                 limit
             )
         }
-        return String(
-            format: String(localized: "settings.team.memberCount", defaultValue: "%1$@ · %2$d members"),
+        return String.localizedStringWithFormat(
+            String(localized: "settings.team.memberCount", defaultValue: "%1$@ · %2$d members"),
             detail.teamName,
             detail.members.count
         )
@@ -381,8 +381,8 @@ final class AccountTeamCardModel {
                 notice = String(localized: "settings.team.invite.sent", defaultValue: "Invitations sent.")
             } else {
                 inviteEmails = outcome.failedEmails.joined(separator: ", ")
-                notice = String(
-                    format: String(localized: "settings.team.invite.partial", defaultValue: "Could not invite: %@"),
+                notice = String.localizedStringWithFormat(
+                    String(localized: "settings.team.invite.partial", defaultValue: "Could not invite: %@"),
                     outcome.failedEmails.joined(separator: ", ")
                 )
             }
@@ -429,20 +429,20 @@ final class AccountTeamCardModel {
     func linkSummary(_ link: AccountTeamInviteLink) -> String {
         let uses: String
         if let maxUses = link.maxUses {
-            uses = String(
-                format: String(localized: "settings.team.link.usesOf", defaultValue: "%1$d of %2$d uses"),
+            uses = String.localizedStringWithFormat(
+                String(localized: "settings.team.link.usesOf", defaultValue: "%1$d of %2$d uses"),
                 link.useCount,
                 maxUses
             )
         } else {
-            uses = String(
-                format: String(localized: "settings.team.link.uses", defaultValue: "%d uses"),
+            uses = String.localizedStringWithFormat(
+                String(localized: "settings.team.link.uses", defaultValue: "%d uses"),
                 link.useCount
             )
         }
         guard let expiresAt = link.expiresAt else { return uses }
-        return String(
-            format: String(localized: "settings.team.link.summary", defaultValue: "%1$@ · expires %2$@"),
+        return String.localizedStringWithFormat(
+            String(localized: "settings.team.link.summary", defaultValue: "%1$@ · expires %2$@"),
             uses,
             expiresAt.formatted(date: .abbreviated, time: .omitted)
         )
