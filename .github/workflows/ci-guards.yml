@@ -770,6 +770,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
 
+      - name: Validate the Homebrew cask update keeps run metadata out of scripts
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_homebrew_untrusted_input.py
+
       - name: Validate universal GhosttyKit and Release build settings
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_universal_release_settings.sh
