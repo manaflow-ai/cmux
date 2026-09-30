@@ -27,6 +27,9 @@ When we change the fork, update this document and the parent submodule SHA.
   `redraw=1` cannot turn clearing back on.
 - Coverage: Ghostty's `Terminal: resize keeps a redrawable prompt when no
   shell can redraw it`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7404fd9dc829c833925d697c58a82b060fe863a6-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `a4b1c610da682a34bdfc1c6624960d426be7949871412999c91be76c17595140`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: upstream has no Manual backend. Keep the `.prompt_redraw`
   gate in `Terminal.resize` if upstream reshapes that call.
 
