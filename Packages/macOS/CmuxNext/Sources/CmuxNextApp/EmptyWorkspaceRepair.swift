@@ -57,6 +57,12 @@ final class EmptyWorkspaceRepair {
     private var populated: [WorkspaceKey: Int] = [:]
     /// The daemon store's connection epoch. Tests replace it.
     var epoch: @MainActor () -> Int
+    /// Whether the store holds a live snapshot. The launch snapshot's
+    /// provisional tree was not seen on any connection, so a workspace it
+    /// shows with a pane must not count as emptied when the live tree shows
+    /// it without one (the daemon restarted without its terminals): that one
+    /// is repaired. Tests replace it.
+    var isLive: @MainActor () -> Bool
     private var observation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
@@ -72,6 +78,7 @@ final class EmptyWorkspaceRepair {
             return false
         }
         epoch = { [weak daemon] in daemon?.store.connectionEpoch ?? 0 }
+        isLive = { [weak daemon] in daemon?.store.isLoaded ?? false }
         close = { [weak daemon] key in
             guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
             // No tab is left, so no terminal to end here.
@@ -98,6 +105,7 @@ final class EmptyWorkspaceRepair {
     }
 
     private func storeDidChange(_ store: DaemonStore) {
+        guard isLive() else { return }
         for workspace in store.workspaces {
             guard let key = workspace.key else { continue }
             if Self.hasPane(workspace) { notePopulated(key) } else { closeIfEmptied(key) }
@@ -144,7 +152,7 @@ final class EmptyWorkspaceRepair {
     /// emptied workspace closes; one empty since this connection first saw
     /// it gets one create-terminal, and `created` gets the new surface.
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
-        guard let key = workspace.key else { return }
+        guard let key = workspace.key, isLive() else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
         guard states[key] == nil, !closeIfEmptied(key), canCreate() else { return }
         states[key] = .awaitingPane

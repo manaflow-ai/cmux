@@ -60,7 +60,9 @@ final class ClosedTabTracker {
         var generations: [String: String] = [:]
         for daemon in daemons {
             let store = daemon.store
-            guard case .connected = store.connectionState else { continue }
+            // The launch snapshot's provisional tree is not live: a tab it
+            // shows that the live tree lacks was not closed in this app.
+            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional else { continue }
             let machine = daemon.machineID
             generations[machine] = store.generation?.rawValue ?? ""
             for workspace in store.workspaces {
