@@ -36,7 +36,9 @@ test("youtube.transcript: text, timestamps and segments from the caption track",
 test("youtube.transcript: a track that needs the player's token is read in a muted background tab, which closes", async () => {
   const before = await s.value("(await tabs.list()).length");
   assert.equal(await s.value('sites.youtube.transcript("https://www.youtube.com/watch?v=vidPlayer02")'), "Hello world from Player Captions");
-  assert.ok(env.state.requests.some((r) => /api\/timedtext\?v=vidPlayer02.*pot=player-token.*fmt=json3/.test(r.url)), "fetched the player's caption URL as json3");
+  // The player's own srv3 response is read; nothing refetches it.
+  assert.ok(env.state.requests.some((r) => /api\/timedtext\?v=vidPlayer02.*pot=player-token.*fmt=srv3/.test(r.url)));
+  assert.ok(!env.state.requests.some((r) => /v=vidPlayer02.*pot=player-token.*fmt=json3/.test(r.url)));
   assert.equal(await s.value("(await tabs.list()).length"), before);
 });
 

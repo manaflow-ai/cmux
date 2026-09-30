@@ -288,7 +288,13 @@ function watchPage(id) {
       el.getVideoData = () => ({ video_id: ${JSON.stringify(id)} });
       el.mute = () => { el.muted = true; };
       el.pauseVideo = () => {};
-      el.toggleSubtitlesOn = () => { if (!el.muted) throw new Error("must be muted first"); fetch("/api/timedtext?v=${id}&lang=en&pot=player-token&c=WEB"); };
+      // Like YouTube's player: an XHR for srv3 captions with the player's token.
+      el.toggleSubtitlesOn = () => {
+        if (!el.muted) throw new Error("must be muted first");
+        const x = new XMLHttpRequest();
+        x.open("GET", "/api/timedtext?v=${id}&lang=en&pot=player-token&c=WEB&fmt=srv3");
+        x.send();
+      };
     </script>`,
     `${v.title} - YouTube`,
     "<script>var ytcfg = { set() {} };</script>",
@@ -300,6 +306,7 @@ function youtube(req, url, body) {
   if (url.pathname === "/watch" && VIDEOS[id]) return { html: watchPage(id) };
   if (url.pathname === "/api/timedtext" && VIDEOS[id]) {
     if (VIDEOS[id].pot && !url.searchParams.get("pot")) return { status: 200, headers: { "content-type": "application/json" }, body: "" };
+    if (url.searchParams.get("fmt") === "srv3") return { status: 200, headers: { "content-type": "text/xml" }, body: `<?xml version="1.0" encoding="utf-8" ?><timedtext format="3"><body><p t="0" d="1500">Hello <s>world</s></p><p t="61000" d="2000">from ${VIDEOS[id].title}</p></body></timedtext>` };
     if (url.searchParams.get("fmt") !== "json3") return { status: 200, headers: { "content-type": "text/xml" }, body: "<transcript/>" };
     return { json: { events: [{ tStartMs: 0, dDurationMs: 1500, segs: [{ utf8: "Hello" }, { utf8: " world" }] }, { tStartMs: 1500 }, { tStartMs: 61000, dDurationMs: 2000, segs: [{ utf8: "from " + VIDEOS[id].title }] }] } };
   }
