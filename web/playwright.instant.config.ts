@@ -1,6 +1,21 @@
 import { defineConfig } from "@playwright/test";
 
 const port = 4173;
+// Run the same browser regressions against a running dev server or preview.
+const externalBaseURL = process.env.CMUX_WEB_TEST_BASE_URL;
+
+// Keep Stack configured in the production-style server. Requests have no
+// session cookie, so the server gate must redirect before it renders the shell.
+const dashboardTestEnv =
+  "NEXT_PUBLIC_STACK_PROJECT_ID=123e4567-e89b-12d3-a456-426614174000 " +
+  "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=pck_instant_navigation_test " +
+  "STACK_SECRET_SERVER_KEY=ssk_instant_navigation_test";
+// CI runs the repository-wide typecheck immediately before this suite. Keep
+// the standalone command type-safe for local callers, but let CI avoid a
+// second tsgo process after the preceding typecheck has already run.
+const typecheckCommand = process.env.CMUX_INSTANT_SKIP_TYPECHECK === "1"
+  ? ""
+  : `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bun run typecheck && `;
 
 export default defineConfig({
   testDir: "./e2e/instant",
@@ -9,12 +24,19 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL: externalBaseURL ?? `http://127.0.0.1:${port}`,
   },
-  webServer: {
+  webServer: externalBaseURL ? undefined : {
+    // The repository uses tsgo for its type gate. The split Next.js build runs
+    // compile and page generation without repeating the incompatible tsc gate.
     command:
-      `SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bunx next build && ` +
-      `SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bunx next start -p ${port}`,
+      typecheckCommand +
+      `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 ` +
+      `bunx next build --experimental-build-mode compile && ` +
+      `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 ` +
+      `bunx next build --experimental-build-mode generate && ` +
+      `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 ` +
+      `bunx next start -p ${port}`,
     port,
     reuseExistingServer: false,
     timeout: 180_000,

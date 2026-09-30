@@ -85,10 +85,12 @@ extension CmxIrohClientRuntime {
                 let state = try await registrationRefreshState(
                     expectedEndpointID: endpointID
                 )
-                guard state.requiresPublication(
+                // The spacing floor is a Mac host concern; a phone publishes
+                // every reachability change immediately.
+                guard state.publicationDecision(
                     after: lastRegistrationRefreshState,
                     now: now()
-                ) else { return .refreshed }
+                ) != .unchanged else { return .refreshed }
             }
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,

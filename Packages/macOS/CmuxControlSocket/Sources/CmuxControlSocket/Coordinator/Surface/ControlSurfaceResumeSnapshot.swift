@@ -20,8 +20,14 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let cleared: Bool
     /// The resulting resume binding, or `nil`.
     public let binding: ControlSurfaceResumeBinding?
-    /// Structured process data used by `cmux restore`.
+    /// Structured process data used by `cmux restore` or `cmux fork`.
     public let restoreRecord: ControlSurfaceRestoreRecord?
+    /// Whether an optional compare-and-claim request succeeded.
+    public let resumeClaimed: Bool?
+    /// For `surface.resume.set`: whether the stored binding still needs a
+    /// person to approve it in the app before it can auto-resume. The control
+    /// socket never presents that approval prompt; `nil` for other commands.
+    public let approvalRequired: Bool?
 
     /// Creates a resume snapshot.
     ///
@@ -32,6 +38,9 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
+    ///   - restoreRecord: Structured process data for `cmux restore` or `cmux fork`.
+    ///   - resumeClaimed: Whether an optional compare-and-claim request succeeded.
+    ///   - approvalRequired: Whether the binding still needs approval in the app.
     public init(
         windowID: UUID?,
         workspaceID: UUID,
@@ -39,7 +48,9 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         surfaceID: UUID,
         cleared: Bool,
         binding: ControlSurfaceResumeBinding?,
-        restoreRecord: ControlSurfaceRestoreRecord?
+        restoreRecord: ControlSurfaceRestoreRecord?,
+        resumeClaimed: Bool? = nil,
+        approvalRequired: Bool? = nil
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -48,5 +59,7 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.cleared = cleared
         self.binding = binding
         self.restoreRecord = restoreRecord
+        self.resumeClaimed = resumeClaimed
+        self.approvalRequired = approvalRequired
     }
 }

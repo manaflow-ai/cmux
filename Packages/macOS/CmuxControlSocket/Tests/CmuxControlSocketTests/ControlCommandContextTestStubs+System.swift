@@ -25,6 +25,12 @@ extension ControlSystemContext {
     func controlSessionRestorePrevious() -> ControlSessionRestoreResolution {
         .noSnapshot(message: "No previous session snapshot available")
     }
+    func controlSessionImport(source: ControlSessionImportSource) -> ControlSessionImportResolution {
+        .failed(code: "not_found", message: "No saved session", path: nil)
+    }
+    func controlSessionExport(path: String, overwrite: Bool) -> ControlSessionExportResolution {
+        .failed(code: "not_found", message: "No saved session", path: nil)
+    }
     func controlSettingsOpen(targetRaw: String?, requestedActivate: Bool) -> ControlSettingsOpenResolution {
         .opened(target: targetRaw ?? "general")
     }
@@ -40,6 +46,7 @@ extension ControlSystemContext {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution { .tabManagerUnavailable }
     func controlSystemSurfaceNotFoundMessage() -> String { "Surface not found" }

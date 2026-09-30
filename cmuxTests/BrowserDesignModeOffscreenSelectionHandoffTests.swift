@@ -456,7 +456,10 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
             includingPropertiesForKeys: nil
         ) else { return 0 }
         return enumerator.compactMap { $0 as? URL }.reduce(into: 0) { count, url in
-            if url.lastPathComponent.hasSuffix("-screenshot.png") {
+            // Handoff lease markers include the artifact filename as a suffix;
+            // count only the actual store-owned surface files.
+            if url.lastPathComponent.hasPrefix("surface-"),
+               url.lastPathComponent.hasSuffix("-screenshot.png") {
                 count += 1
             }
         }

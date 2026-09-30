@@ -39,7 +39,7 @@ extension WorkspacesModel {
             if let groupId = currentWorkspace.groupId,
                let group = workspaceGroups.first(where: { $0.id == groupId }) {
                 candidates = tabs.filter {
-                    $0.groupId == groupId && $0.id != group.anchorWorkspaceId
+                    $0.groupId == groupId && $0.id != group.liveAnchorWorkspaceId
                 }
             } else {
                 candidates = tabs

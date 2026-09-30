@@ -301,10 +301,10 @@ struct SSHPTYAttachNoProgressRetryTests {
         }
 
         let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
+        // Observe the Process termination callback directly. A background
+        // waitUntilExit worker can miss the callback handoff under the
+        // app-host runner, reporting a completed shell as a timeout.
+        process.terminationHandler = { _ in exited.signal() }
         let timedOut = exited.wait(timeout: .now() + 5) == .timedOut
         if timedOut {
             process.terminate()

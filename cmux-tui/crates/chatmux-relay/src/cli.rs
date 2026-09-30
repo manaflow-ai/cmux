@@ -36,6 +36,7 @@ pub struct ParsedArgs {
     /// The raw flag string that selected `command` (for conflict messages).
     command_flag: Option<String>,
     pub backend: Option<String>,
+    pub config_path: Option<String>,
     pub enrollment_file: Option<String>,
     pub allow_root: Vec<String>,
     pub no_onboard: bool,
@@ -59,15 +60,15 @@ fn missing_value(flag: &str) -> CliUsageError {
 }
 
 fn is_value_flag(argument: &str) -> bool {
-    matches!(argument, "--backend" | "--allow-root" | "--enrollment-file")
+    matches!(argument, "--backend" | "--config" | "--allow-root" | "--enrollment-file")
 }
 
 fn is_mode_flag(argument: &str) -> bool {
     matches!(argument, "--no-onboard" | "--code" | "--managed")
 }
 
-fn is_command_flag(argument: &str) -> bool {
-    Command::from_flag(argument).is_some()
+fn is_known_option(argument: &str) -> bool {
+    is_value_flag(argument) || is_mode_flag(argument) || Command::from_flag(argument).is_some()
 }
 
 pub fn parse_cli_args<I, S>(args: I) -> Result<ParsedArgs, CliUsageError>
@@ -82,15 +83,21 @@ where
         let argument = args[index].as_str();
 
         if is_value_flag(argument) {
-            let value = args.get(index + 1).map(String::as_str);
-            let usable = value.is_some_and(|value| value != "--" && !value.starts_with('-'));
-            if !usable {
-                return Err(missing_value(argument));
-            }
-            let value = value.unwrap_or_default().to_owned();
+            let value = match args.get(index + 1).map(String::as_str) {
+                Some(value)
+                    if !value.is_empty()
+                        && value != "--"
+                        && !value.starts_with("--")
+                        && !is_known_option(value) =>
+                {
+                    value.to_owned()
+                }
+                _ => return Err(missing_value(argument)),
+            };
             match argument {
                 "--allow-root" => parsed.allow_root.push(value),
                 "--backend" => parsed.backend = Some(value),
+                "--config" => parsed.config_path = Some(value),
                 _ => parsed.enrollment_file = Some(value),
             }
             index += 2;
@@ -107,11 +114,11 @@ where
             continue;
         }
 
-        if is_command_flag(argument) {
+        if let Some(command) = Command::from_flag(argument) {
             if parsed.command_flag.as_deref().is_some_and(|previous| previous != argument) {
                 return Err(usage("cmux-relay: only one top-level command can be used at a time."));
             }
-            parsed.command = Command::from_flag(argument);
+            parsed.command = Some(command);
             parsed.command_flag = Some(argument.to_owned());
             index += 1;
             continue;
@@ -205,6 +212,13 @@ mod tests {
     }
 
     #[test]
+    fn accepts_dash_prefixed_config_and_rejects_empty_config() {
+        let parsed = parse(&["--config", "-relay.toml"]).expect("dash value parses");
+        assert_eq!(parsed.config_path.as_deref(), Some("-relay.toml"));
+        assert!(parse(&["--config", ""]).is_err());
+    }
+
+    #[test]
     fn reserves_coderouter_and_rejects_every_other_positional_without_reflection() {
         let coderouter = parse(&["coderouter", "grant"]).expect_err("coderouter refused");
         assert_eq!(coderouter.code, "coderouter_unavailable");
@@ -224,6 +238,7 @@ mod tests {
             &["--backend", "--code"][..],
             &["--backend", "--"][..],
             &["--allow-root", "--status"][..],
+            &["--config", "--confg"][..],
         ] {
             let error = parse(args).expect_err("missing value refused");
             assert!(error.message.contains("requires a value"), "{args:?}: {}", error.message);

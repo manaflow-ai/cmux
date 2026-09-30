@@ -40,3 +40,33 @@ revokes each session without logging tokens or keys.
 `SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` remain deployed until the
 mapping table is empty. Account deletion retires both mapped legacy tenants and
 hosted tenants before removing the Stack user.
+
+## Capacity and session contract
+
+Hosted Subrouter owns provider-account placement and capacity failover. The
+cmux broker must keep the following boundary intact:
+
+- A model request must carry one stable session or conversation identity for
+  every turn. Native clients should send `X-Subrouter-Session` with the
+  provider thread or conversation ID; a new chat gets a new value, while a
+  resume or fork keeps the parent identity according to the client protocol.
+- The hosted proxy is responsible for classifying provider quota and capacity
+  signals, including failures embedded in an otherwise successful SSE or
+  WebSocket response. It should retry before output is visible, mark the
+  exhausted account, and select another eligible account without changing the
+  requested model silently.
+- A lease holder reports a quota response as `rate_limited` through the lease
+  event endpoint. The cmux routes intentionally expose that existing outcome
+  rather than inventing a new outcome name; hosted Subrouter uses it to update
+  account and model-pool cooldown state.
+- Requests that have already emitted model output must not be replayed by the
+  cmux broker. The client can reconnect or start the next turn, but replaying a
+  partial turn would duplicate tool calls or assistant output.
+
+The hosted deployment must therefore be upgraded before clients rely on this
+behavior. A useful smoke test is to send a controlled `server_is_overloaded`
+or quota event through both the SSE and WebSocket transports and verify that
+the first account is cooled, the same session is routed to a different
+eligible account, and no capacity error reaches the client. Keep the
+`x-coderouter-request-id` or equivalent request ID alongside the Subrouter
+session ID so cmux can show which account and fallback decision served a turn.

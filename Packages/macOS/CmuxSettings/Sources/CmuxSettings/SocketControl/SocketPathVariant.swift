@@ -1,13 +1,15 @@
 /// A flavor of the cmux app, used to derive per-flavor socket and marker file paths.
 ///
-/// Stable, nightly, staging, and dev builds each run side by side with isolated control
+/// Stable, nightly, rc, staging, and dev builds each run side by side with isolated control
 /// sockets so they never collide. The associated `slug` (when present) further scopes
-/// nightly/staging/dev builds that carry a tag in their bundle identifier or `CMUX_TAG`.
+/// nightly/rc/staging/dev builds that carry a tag in their bundle identifier or `CMUX_TAG`.
 public enum SocketPathVariant: Equatable, Sendable {
     /// The shipping release build.
     case stable
     /// A nightly build, optionally tag-scoped by `slug`.
     case nightly(slug: String?)
+    /// A release-candidate build, optionally tag-scoped by `slug`.
+    case rc(slug: String?)
     /// A staging build, optionally tag-scoped by `slug`.
     case staging(slug: String?)
     /// A local debug/dev build, optionally tag-scoped by `slug`.
@@ -24,6 +26,11 @@ public enum SocketPathVariant: Equatable, Sendable {
                 return "nightly-\(slug)-last-socket-path"
             }
             return "nightly-last-socket-path"
+        case .rc(let slug):
+            if let slug = Self.sanitizedSlug(slug) {
+                return "rc-\(slug)-last-socket-path"
+            }
+            return "rc-last-socket-path"
         case .staging(let slug):
             if let slug = Self.sanitizedSlug(slug) {
                 return "staging-\(slug)-last-socket-path"
@@ -47,6 +54,11 @@ public enum SocketPathVariant: Equatable, Sendable {
                 return "/tmp/cmux-nightly-\(slug)-last-socket-path"
             }
             return "/tmp/cmux-nightly-last-socket-path"
+        case .rc(let slug):
+            if let slug = Self.sanitizedSlug(slug) {
+                return "/tmp/cmux-rc-\(slug)-last-socket-path"
+            }
+            return "/tmp/cmux-rc-last-socket-path"
         case .staging(let slug):
             if let slug = Self.sanitizedSlug(slug) {
                 return "/tmp/cmux-staging-\(slug)-last-socket-path"

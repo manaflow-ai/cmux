@@ -10,6 +10,47 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test("Workspace-only blocking events retain their session surface")
+    func workspaceOnlyAttentionUsesSessionSurface() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString
+        )
+
+        #expect(FeedCoordinator.explicitAttentionTarget(for: event) == nil)
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: surfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == surfaceID)
+    }
+
+    @Test("A complete wire target remains authoritative over a stale session match")
+    func completeAttentionTargetWinsOverSessionSurface() {
+        let workspaceID = UUID()
+        let eventSurfaceID = UUID()
+        let staleSurfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: eventSurfaceID.uuidString
+        )
+
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: staleSurfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == eventSurfaceID)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
@@ -605,9 +646,11 @@ struct FeedCoordinatorTests {
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
+        let previousAppFocusOverride = AppFocusState.overrideIsFocused
 
         defer {
             Self.resetFeedCoordinatorTestHooks()
+            AppFocusState.overrideIsFocused = previousAppFocusOverride
         }
 
         await MainActor.run {
@@ -620,7 +663,7 @@ struct FeedCoordinatorTests {
                     decision: .permission(.once)
                 )
             }
-            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
+            AppFocusState.overrideIsFocused = false
             FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
                 notifications.record(postedRequestId)
             }
@@ -722,6 +765,92 @@ struct FeedCoordinatorTests {
             "a blocking PermissionRequest must request in-app needs-input attention surfacing"
         )
         #expect(attention.events.first?.hookEventName == .permissionRequest)
+    }
+
+    /// Claude Code keeps its PermissionRequest hook waiting after the user
+    /// answers the prompt in the terminal or the auto-mode classifier decides,
+    /// so the Feed request (and the "Needs input" overlay it owns) outlived the
+    /// decision until the hook timed out, beside the agent's own "Running".
+    /// A later hook from the same agent proves the decision was made elsewhere.
+    @Test func laterClaudeHookRetiresPermissionDecidedOutsideFeed() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestId = "claude-decided-in-terminal-request"
+        let sessionId = "claude-decided-in-terminal-session"
+        let ingested = DispatchSemaphore(value: 0)
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                if ingestedRequestId == requestId { ingested.signal() }
+            }
+        }
+
+        let permission = WorkstreamEvent(
+            sessionId: sessionId,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Write",
+            toolInputJSON: #"{"file_path":"/tmp/memory.md"}"#,
+            requestId: requestId,
+            extraFieldsJSON: #"{"_hook_sent_at_ms":2000}"#
+        )
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        let startedAt = ContinuousClock.now
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(event: permission, waitTimeout: 5)
+            done.signal()
+        }
+        guard waitForFeedTestSignal(ingested, timeout: .now() + 2) == .success else {
+            Issue.record("the blocking PermissionRequest was never ingested")
+            return
+        }
+
+        func deliver(_ event: WorkstreamEvent) {
+            // Acknowledged (non-decision) ingress commits before returning.
+            let delivered = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 1)
+                delivered.signal()
+            }
+            #expect(waitForFeedTestSignal(delivered, timeout: .now() + 2) == .success)
+        }
+        // The tool's own PreToolUse is sent before its permission request.
+        deliver(WorkstreamEvent(
+            sessionId: sessionId, hookEventName: .preToolUse, source: "claude",
+            toolName: "Write", extraFieldsJSON: #"{"_hook_sent_at_ms":1990}"#
+        ))
+        // A subagent's tool proves nothing about the main agent's prompt.
+        deliver(WorkstreamEvent(
+            sessionId: sessionId, hookEventName: .preToolUse, source: "claude",
+            toolName: "Bash", extraFieldsJSON: #"{"_hook_sent_at_ms":3000,"agent_id":"subagent-1"}"#
+        ))
+        #expect(
+            FeedCoordinator.shared.isAwaitingDecision(requestId: requestId),
+            "earlier or other-agent hooks must not retire a live permission request"
+        )
+
+        // The user answered in the terminal; Claude moved on to the next tool.
+        deliver(WorkstreamEvent(
+            sessionId: sessionId, hookEventName: .preToolUse, source: "claude",
+            toolName: "Bash", extraFieldsJSON: #"{"_hook_sent_at_ms":3000}"#
+        ))
+        guard waitForFeedTestSignal(done, timeout: .now() + 2) == .success else {
+            Issue.record("a later PreToolUse must retire the permission request decided in the terminal")
+            return
+        }
+        #expect(startedAt.duration(to: .now) < .seconds(4))
+        guard case .unavailable = resultBox.value else {
+            Issue.record("the superseded hook must return no decision, got \(String(describing: resultBox.value))")
+            return
+        }
+        let status = await MainActor.run {
+            FeedCoordinator.shared.store.items.first { $0.kind == .permissionRequest }?.status
+        }
+        guard case .expired = status else {
+            Issue.record("the superseded permission card must stop being actionable")
+            return
+        }
     }
 
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
@@ -869,7 +998,6 @@ struct FeedCoordinatorTests {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
                 FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
             }

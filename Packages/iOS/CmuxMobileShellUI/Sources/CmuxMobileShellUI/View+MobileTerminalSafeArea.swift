@@ -35,6 +35,18 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
                 content
             }
         }
+        // The surface owns the whole keyboard interaction in its own UIKit
+        // coordinate system (dock seat + render pin), so its hosting view
+        // must be KEYBOARD-INVARIANT. Without this, SwiftUI's keyboard
+        // avoidance re-shapes the representable by the home-indicator band
+        // on every toggle, which resizes the terminal grid (a shared-PTY
+        // renegotiation with the Mac) and produces a stale one-cell gap at
+        // the top plus reflow row-blanking while the round trip settles.
+        // Ignoring the keyboard here is necessary but NOT sufficient: while
+        // the keyboard is up the home-indicator band is re-attributed to the
+        // CONTAINER region, which the terminal leaf ignores itself (see
+        // `WorkspaceDetailView.terminalArtifactSurface`).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .background {
             MobileTerminalWindowOrientationReader { orientation in
                 windowOrientation = orientation

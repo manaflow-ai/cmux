@@ -96,9 +96,14 @@ final class SettingsWindowPresenter: NSObject {
         // the window (never the singleton), so instance presenters — e.g.
         // the real-factory regression tests — drain their own navigation.
         self.init(windowFactory: { presenter in
-            SettingsWindowFactory.makeSettingsWindow(onContentAppear: { [weak presenter] in
-                presenter?.deliverPendingNavigationAfterContentAppears()
-            })
+            SettingsWindowFactory.makeSettingsWindow(
+                // A targeted show records its target before building the
+                // window, so the content mounts that section first.
+                initialNavigationTarget: presenter.pendingNavigationTarget,
+                onContentAppear: { [weak presenter] in
+                    presenter?.deliverPendingNavigationAfterContentAppears()
+                }
+            )
         })
     }
 

@@ -111,7 +111,24 @@ struct RenderableSystemSymbolTests {
         #expect(image.isTemplate)
         #expect(image.representations.count == 2)
         #expect(image.representations.allSatisfy { $0 is NSBitmapImageRep })
+        #expect(image.representations
+            .compactMap { $0 as? NSBitmapImageRep }
+            .allSatisfy { PixelFootprint(bitmap: $0) != nil })
         #expect(image.tiffRepresentation != nil)
+    }
+
+    /// Blank materializations are rejected instead of becoming reusable cache entries.
+    @Test @MainActor func transparentBitmapIsNotConsideredRenderable() throws {
+        let bitmap = try #require(Self.bitmap(pixels: 8))
+        #expect(PixelFootprint(bitmap: bitmap) == nil)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        NSColor.systemBlue.setFill()
+        NSRect(origin: .zero, size: bitmap.size).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        #expect(PixelFootprint(bitmap: bitmap) != nil)
     }
 
     @MainActor
@@ -158,6 +175,26 @@ struct RenderableSystemSymbolTests {
         #expect(abs(actual.minY - expected.minY) <= 1)
         #expect(abs(actual.maxY - expected.maxY) <= 1)
         #expect(abs(actual.alphaCoverage - expected.alphaCoverage) <= expected.alphaCoverage * 0.05)
+    }
+
+    @MainActor
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func materializedTemplatePreservesFilledSymbolCutout(appearanceName: NSAppearance.Name) throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let appearance = try #require(NSAppearance(named: appearanceName))
+        var rendered: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            rendered = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "xmark.circle.fill", pointSize: 24
+            )
+        }
+        let image = try #require(rendered)
+        for bitmap in image.representations.compactMap({ $0 as? NSBitmapImageRep }) {
+            let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+            let circle = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 6))
+            #expect(center.alphaComponent < 0.1)
+            #expect(circle.alphaComponent > 0.9)
+        }
     }
 
     @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
@@ -232,6 +269,33 @@ struct RenderableSystemSymbolTests {
         #expect(resolveCount == 2)
     }
 
+    @Test func blankAppKitImageRetryCacheCoalescesRepeatedAttempts() {
+        var now = Date(timeIntervalSince1970: 2_000)
+        var cache = RenderableSystemSymbol.AppKitImageRetryCache(
+            limit: 8,
+            retryInterval: 60,
+            now: { now }
+        )
+        let key = RenderableSystemSymbol.AppKitImageCacheKey(
+            systemName: "folder.fill",
+            rasterSize: 14,
+            weightRawValue: NSFont.Weight.regular.rawValue
+        )
+
+        let initialAttempt = cache.shouldAttempt(key)
+        #expect(initialAttempt)
+        cache.recordFailure(for: key)
+        let attemptBeforeRetryInterval = cache.shouldAttempt(key)
+        #expect(!attemptBeforeRetryInterval)
+
+        now = now.addingTimeInterval(61)
+        let attemptAfterRetryInterval = cache.shouldAttempt(key)
+        #expect(attemptAfterRetryInterval)
+        cache.recordSuccess(for: key)
+        let attemptAfterSuccess = cache.shouldAttempt(key)
+        #expect(attemptAfterSuccess)
+    }
+
     @MainActor
     private static func renderedBitmap(
         _ image: NSImage,
@@ -274,6 +338,26 @@ struct RenderableSystemSymbolTests {
             respectFlipped: true,
             hints: nil
         )
+        return bitmap
+    }
+
+    @MainActor
+    private static func bitmap(pixels: Int) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+        bitmap.size = NSSize(width: pixels, height: pixels)
         return bitmap
     }
 }

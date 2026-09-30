@@ -11,7 +11,7 @@ extension CmuxTopProcessSnapshot {
     ) -> [String: Any] {
         let appResources = summaryPayload(for: [appPID], rootPIDs: [appPID])
         let appProcess = processesByPID[appPID]
-        let childPIDs = descendantPIDs(rootPID: appPID, includeRoot: false)
+        let childPIDs = expandedPIDs(rootPIDs: [appPID]).subtracting([appPID])
             .filter { processesByPID[$0] != nil }
         let childSummary = summary(for: childPIDs)
         let groups = memoryDiagnosticGroups(

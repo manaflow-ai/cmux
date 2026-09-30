@@ -9,6 +9,8 @@
     }
   ],
   "defaultOptions" : {
+    "preferredScreenCaptureFormat" : "video",
+    "uiTestingScreenshotsLifetime" : "keepAlways",
     "targetForVariableExpansion" : {
       "containerPath" : "container:cmux-ios.xcodeproj",
       "identifier" : "8B41F6442DEDD0D5001A66F9",

@@ -45,9 +45,13 @@ struct SimulatorFramebufferFramePacingTests {
             kIOSurfaceAllocSize: 4_096,
             kIOSurfacePixelFormat: UInt32(0x4247_5241),
         ] as CFDictionary))
+        // The idle interval is far longer than the wait below, so a frame that
+        // arrives at all proves the interactive interval was used. The wait
+        // only bounds the CIContext readback, whose latency belongs to the
+        // runner: a 250 ms bound failed on shared CI Macs with no code change.
         let publisher = try await SimulatorFramebufferFramePublisher(
             initialSurface: surface,
-            minimumFrameInterval: .seconds(10),
+            minimumFrameInterval: .seconds(600),
             interactiveFrameInterval: .milliseconds(16),
             onFrameTransportChange: { _ in }
         )
@@ -56,13 +60,14 @@ struct SimulatorFramebufferFramePacingTests {
         publisher.prioritizeNextFrame()
         publisher.enqueue(surface)
 
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(250))
+        let started = ContinuousClock.now
+        let deadline = started.advanced(by: .seconds(30))
         while try publishedSequence(in: publisher.initialDescriptor) < 2,
               ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }
         let sequence = try publishedSequence(in: publisher.initialDescriptor)
-        #expect(sequence == 2)
+        #expect(sequence == 2, "published after \(ContinuousClock.now - started)")
     }
 
     private func publishedSequence(

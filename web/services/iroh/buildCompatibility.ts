@@ -23,6 +23,26 @@ export function canIOSBindingUseMac(
   return iosBindingMacLaneCompatible(caller, target, true);
 }
 
+/** Personal Mac discovery keeps the native viewer's exact channel policy. */
+export function canMacBindingUseMac(caller: BuildBinding, target: BuildBinding): boolean {
+  if (caller.platform !== "mac" || target.platform !== "mac") return false;
+  if (caller.deviceUuid === target.deviceUuid) return false;
+  if (!caller.clientNamespace.startsWith("mac:") || !target.clientNamespace.startsWith("mac:")) return false;
+  if (caller.tag === target.tag) return true;
+  return !NON_DEVELOPMENT_MAC_TAGS.has(caller.tag)
+    && (target.tag === "default" || target.tag === "nightly");
+}
+
+/** The caller is already bound to the authenticated account by the repository query. */
+export function canBindingDiscoverPeer(
+  caller: BuildBinding,
+  target: BuildBinding & { readonly pairingEnabled: boolean },
+): boolean {
+  if (caller.platform === "ios") return canIOSBindingUseMac(caller, target);
+  if (target.platform === "ios") return canIOSBindingUseMac(target, caller);
+  return target.pairingEnabled && canMacBindingUseMac(caller, target);
+}
+
 /**
  * Forgetting revokes the Mac's binding, so the legacy fallback that pairing
  * gets does not extend here: a namespace-less caller keeps exact tag matching.

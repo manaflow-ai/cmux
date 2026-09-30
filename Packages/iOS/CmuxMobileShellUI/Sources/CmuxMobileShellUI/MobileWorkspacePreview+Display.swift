@@ -72,10 +72,11 @@ extension MobileWorkspacePreview {
 
     func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
         var parts: [String] = []
-        // The unread dot itself is accessibility-hidden; VoiceOver hears the
-        // state here instead, leading like Messages does.
+        // The unread indicator itself is accessibility-hidden; VoiceOver hears
+        // the state here instead, leading like Messages does, with the exact
+        // count when the Mac reports one.
         if hasUnread {
-            parts.append(L10n.string("mobile.workspace.unread", defaultValue: "Unread"))
+            parts.append(L10n.unreadLabel(count: unreadState.count))
         }
         if let displayDescription {
             parts.append(displayDescription)

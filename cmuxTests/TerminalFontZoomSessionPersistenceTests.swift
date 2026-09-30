@@ -102,7 +102,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             workspaceId: workspace.id,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+        workspace.requiredDockSplitForTesting.panels[dockPanel.id] = dockPanel
 
         let explicitLineages = [
             TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true),
@@ -288,7 +288,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             workspaceId: workspace.id,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+        workspace.requiredDockSplitForTesting.panels[dockPanel.id] = dockPanel
 
         firstPanel.surface.recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true)
@@ -466,7 +466,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
         #expect(firstWorkspace.closePanel(firstPanelID, force: true))
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = try #require(manager.addTab(select: false))
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
@@ -577,7 +577,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             )
         )
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = try #require(manager.addTab(select: false))
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
@@ -923,7 +923,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 1)
         #expect(workspace._dockSplit == nil)
 
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
         let dockPanelID = try #require(
             dock.newSurface(kind: .terminal, inPane: rootPane, focus: false)
@@ -938,7 +938,7 @@ struct TerminalFontZoomSessionPersistenceTests {
     @Test("workspace zoom refreshes existing legacy Dock inheritance")
     func workspaceZoomRefreshesExistingLegacyDock() throws {
         let workspace = Workspace()
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
         let firstDockPanelID = try #require(
             dock.newSurface(kind: .terminal, inPane: rootPane, focus: false)
@@ -1005,12 +1005,14 @@ struct TerminalFontZoomSessionPersistenceTests {
 
         let firstMirrorPanel = try #require(mirror.panel(forPane: 11))
         let secondMirrorPanel = try #require(mirror.panel(forPane: 22))
-        firstMirrorPanel.surface.recordCurrentFontSizeLineage(
-            TerminalFontSizeLineage(basePoints: 6, isExplicitOverride: true)
-        )
-        secondMirrorPanel.surface.recordCurrentFontSizeLineage(
-            TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
-        )
+        // Manual-I/O panes already have a runtime: adjust the live font, not
+        // only its durable cache, which the next live snapshot replaces.
+        // Mirror panes inherit the outer 8pt source, so these deltas land them
+        // at 6pt and 4pt before the workspace-wide -1.
+        #expect(firstMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 8)
+        #expect(secondMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 8)
+        #expect(firstMirrorPanel.surface.adjustFontSize(byRuntimePoints: -2))
+        #expect(secondMirrorPanel.surface.adjustFontSize(byRuntimePoints: -4))
 
         #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 3)
         #expect(outerPanel.surface.fontSizeLineageSnapshot()?.basePoints == 7)

@@ -18,25 +18,57 @@ public protocol CloseTabWarningReading: Sendable {
 }
 
 extension CloseTabWarningReading {
-    /// Whether closing should show a confirmation dialog, combining the
-    /// caller's per-tab `requiresConfirmation` state with the warning
-    /// toggles per ``CloseTabCloseSource``.
+    /// The warning toggles that make this close ask first; empty when it
+    /// closes without a dialog. A dialog's "Don't ask again" checkbox turns
+    /// off exactly these.
     ///
     /// Semantics are kept verbatim from the legacy
     /// `CloseTabConfirmationPolicy` namespace: the shortcut path warns only
     /// when the tab requires confirmation and the shortcut warning is
     /// enabled; the X-button path additionally warns whenever the X-button
     /// warning is enabled, regardless of the tab's state.
+    public func warningKinds(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> CloseWarningKinds {
+        var kinds: CloseWarningKinds = []
+        if requiresConfirmation && warnsBeforeClosingTab {
+            kinds.insert(.tab)
+        }
+        if source == .tabCloseButton && warnsBeforeClosingTabXButton {
+            kinds.insert(.tabCloseButton)
+        }
+        return kinds
+    }
+
+    /// Whether closing should show a confirmation dialog, combining the
+    /// caller's per-tab `requiresConfirmation` state with the warning
+    /// toggles per ``CloseTabCloseSource``.
     public func shouldConfirmClose(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource
     ) -> Bool {
-        switch source {
-        case .shortcut:
-            return requiresConfirmation && warnsBeforeClosingTab
-        case .tabCloseButton:
-            return warnsBeforeClosingTabXButton
-                || (requiresConfirmation && warnsBeforeClosingTab)
-        }
+        !warningKinds(requiresConfirmation: requiresConfirmation, source: source).isEmpty
+    }
+
+    /// Whether a close should be gated by either the user's warning setting or
+    /// an active process that must never be killed silently.
+    public func shouldConfirmCloseIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        requiresConfirmation || shouldConfirmClose(
+            requiresConfirmation: requiresConfirmation,
+            source: source
+        )
+    }
+
+    public func warningKindsIncludingSafety(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> CloseWarningKinds {
+        var kinds = warningKinds(requiresConfirmation: requiresConfirmation, source: source)
+        if requiresConfirmation { kinds.insert(.safety) }
+        return kinds
     }
 }

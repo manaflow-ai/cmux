@@ -39,7 +39,11 @@ struct MobileInjectedAttachStartupTests {
             cancelledAttempt,
             retryLaunchRoute: true
         ))
-        #expect(coordinator.claimStoredReconnect() == nil)
+        // A retryable release returns startup to unclaimed rather than
+        // failed, so the launch route is retried instead of falling back to
+        // the stored Mac. Probing claimStoredReconnect here would take the
+        // unclaimed owner and block the retry below.
+        #expect(!coordinator.shouldFallBackFromInjectedAttach)
 
         let retryAttempt = try #require(coordinator.claimInjectedAttach())
 
