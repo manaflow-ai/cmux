@@ -70,8 +70,16 @@ import Testing
     @Test
     func severalReferencesInOneRunEachGetTheirOwnLink() throws {
         let result = try linkified("#847 then #15221 then manaflow-ai/cmux#1")
+        let pairs = links(result)
 
-        #expect(links(result).map(\.0) == ["#847", "#15221", "manaflow-ai/cmux#1"])
+        #expect(pairs.map(\.0) == ["#847", "#15221", "manaflow-ai/cmux#1"])
+        #expect(
+            pairs.map(\.1) == [
+                "https://github.com/manaflow-ai/cmux/issues/847",
+                "https://github.com/manaflow-ai/cmux/issues/15221",
+                "https://github.com/manaflow-ai/cmux/issues/1",
+            ]
+        )
     }
 
     @Test
@@ -124,6 +132,48 @@ import Testing
         // one on screen. Pointing somewhere the reader was not shown is worse
         // than leaving it plain.
         let result = try linkified("see manaflow-ai/cmux#84**7** please")
+
+        #expect(links(result).isEmpty)
+    }
+
+    @Test
+    func aBoldReferenceFollowedByPunctuationStillLinks() throws {
+        // The whole reference is inside the bold run, so nothing is truncated,
+        // but the sentence's period sits in the next run pressed against it.
+        // Reading that as a cut token drops an ordinary sentence's link.
+        let result = try linkified("see **manaflow-ai/cmux#847**.")
+        let pairs = links(result)
+
+        #expect(pairs.map(\.0) == ["manaflow-ai/cmux#847"])
+        #expect(pairs.map(\.1) == ["https://github.com/manaflow-ai/cmux/issues/847"])
+    }
+
+    @Test
+    func aBoldReferenceInsideParenthesesStillLinks() throws {
+        // Same shape on the other side: the opening paren is a run of its own
+        // ahead of the reference.
+        let result = try linkified("(**manaflow-ai/cmux#847**)")
+
+        #expect(links(result).map(\.1) == ["https://github.com/manaflow-ai/cmux/issues/847"])
+    }
+
+    @Test
+    func aReferenceCutBeforeTrimmedPunctuationIsNotLinked() throws {
+        // `manaflow-ai/cmux#84.**7**` hands the scanner `manaflow-ai/cmux#84.`,
+        // whose trailing period is trimmed away, so the hit ends before the run
+        // does and a run-edge check sees nothing wrong. It still points at the
+        // wrong issue.
+        let result = try linkified("see manaflow-ai/cmux#84.**7** please")
+
+        #expect(links(result).isEmpty)
+    }
+
+    @Test
+    func aReferenceWhoseRepositoryIsStyledIsNotLinked() throws {
+        // The repository is bold and the number is not, so the scanner sees a
+        // bare `#847` and would resolve it against the pane's repository
+        // instead of the one written on screen.
+        let result = try linkified("see **other-owner/other-repo**#847 please")
 
         #expect(links(result).isEmpty)
     }
