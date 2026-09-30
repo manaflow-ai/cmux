@@ -43,6 +43,9 @@ public final class DaemonStore {
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
+    /// True while the tree is the daemon's launch snapshot (drawn before
+    /// connecting) and no live snapshot has replaced it yet.
+    public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
     /// applies without needing a resync, and to a snapshot's barrier once
     /// that snapshot is applied. Readers compare it with
@@ -122,6 +125,29 @@ public final class DaemonStore {
     /// Replaces the tree, reusing records by durable identity, then reapplies
     /// optimistic patches still waiting for their echo.
     public func apply(snapshot tree: DaemonTree) {
+        applyTree(tree)
+        if isProvisional { isProvisional = false }
+        if !isLoaded { isLoaded = true }
+        structureChanged()
+        reapplyPendingPatches()
+        workspaceListMayHaveChanged()
+    }
+
+    /// Shows the daemon's launch snapshot (`LaunchSnapshot`) before the
+    /// first connection: the same models as a live snapshot, reused by
+    /// durable identity when the live one arrives (so nothing is rebuilt
+    /// when the layout did not change), but `isLoaded` stays false, so
+    /// nothing that waits for the live tree (window restore, membership,
+    /// workspace-list hooks) runs from it. Ignored once a live snapshot
+    /// applied.
+    public func applyProvisional(snapshot tree: DaemonTree) {
+        guard !isLoaded else { return }
+        applyTree(tree)
+        isProvisional = true
+        structureChanged()
+    }
+
+    private func applyTree(_ tree: DaemonTree) {
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -137,10 +163,6 @@ public final class DaemonStore {
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }
-        if !isLoaded { isLoaded = true }
-        structureChanged()
-        reapplyPendingPatches()
-        workspaceListMayHaveChanged()
     }
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
