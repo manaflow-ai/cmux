@@ -3919,12 +3919,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         with visibleMacs: [MobilePairedMac]
     ) {
         let visibleKeys = Set(visibleMacs.map(MacPairingKey.init))
+        let visibleDeviceIDs = Set(visibleMacs.map { cmxCanonicalDeviceID($0.macDeviceID) })
         let liveControlKeys = Set(secondaryMacSubscriptions.keys)
         let liveForegroundKey = foregroundMacKey
         let reconciled = workspacesByMac.filter { key, state in
-            (key == liveForegroundKey || liveControlKeys.contains(key))
+            key == Self.demonstrationPairingKey
+                || (key == liveForegroundKey || liveControlKeys.contains(key))
                 && state.status == .connected
                 || visibleKeys.contains(key)
+                // Older sessions key their shared physical workspace state by
+                // device ID alone. Keep that state while any tagged instance
+                // of the same Mac remains visible, then prune it after the
+                // final instance is hidden.
+                || key.normalizedInstanceTag == nil
+                    && visibleDeviceIDs.contains(key.canonicalMacDeviceID)
                 || sshOwnsPairingKey(key)
         }
         workspacesByMac = reconciled
@@ -9235,11 +9243,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // foreground-owned would route its open through a tagged build's
         // client. `sameStoredAuthority(nil, nil)` still matches the ordinary
         // untagged-foreground case.
-        let rowIsForegroundPairing = ownerMacDeviceID == foregroundMacDeviceID
+        let rowIsForegroundPairing = demonstrationOwnsMac(
+            deviceID: ownerMacDeviceID,
+            instanceTag: ownerInstanceTag
+        ) || (ownerMacDeviceID == foregroundMacDeviceID
             && macInstanceTagAuthority.sameStoredAuthority(
                 ownerInstanceTag,
                 activeMacInstanceTag
-            )
+            ))
         if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
