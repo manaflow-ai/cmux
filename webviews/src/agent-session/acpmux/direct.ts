@@ -58,7 +58,7 @@ export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows
 
 export function removeQueuedPrompt(queue: { id: string; prompt: string }[], promptId?: string, text?: string): { id: string; prompt: string }[] {
   if (!promptId && !text) return queue;
-  return queue.filter((entry) => entry.id !== promptId && (!text || entry.prompt !== text));
+  return queue.filter((entry) => promptId ? entry.id !== promptId : entry.prompt !== text);
 }
 
 function textFromContent(content: any): string {

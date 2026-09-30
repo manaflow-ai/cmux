@@ -65,5 +65,6 @@ describe("direct acpmux event helpers", () => {
 
   test("removes a queued prompt when its user message starts", () => {
     expect(removeQueuedPrompt([{ id: "p1", prompt: "run it" }, { id: "p2", prompt: "later" }], "p1", "run it")).toEqual([{ id: "p2", prompt: "later" }]);
+    expect(removeQueuedPrompt([{ id: "p1", prompt: "same" }, { id: "p2", prompt: "same" }], "p1", "same")).toEqual([{ id: "p2", prompt: "same" }]);
   });
 });
