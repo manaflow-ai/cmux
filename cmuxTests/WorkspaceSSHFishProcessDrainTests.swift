@@ -24,7 +24,8 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "trap '' TERM; printf ready >&2; exec /bin/sleep 60"],
             environment: ProcessInfo.processInfo.environment,
-            timeout: 5
+            timeout: 2,
+            readinessMarker: Data("ready".utf8)
         )
         #expect(result.timedOut)
         #expect(result.status == SIGKILL)
@@ -50,7 +51,10 @@ struct WorkspaceSSHFishProcessDrainTests {
             executablePath: "/bin/sh",
             arguments: ["-c", "/bin/sleep 15 & echo $! > \"$CMUX_DRAIN_PID_FILE\"; printf parent-exited >&2"],
             environment: environment,
-            timeout: 5
+            timeout: 5,
+            // The backgrounded writer holds the pipes past the parent's exit,
+            // so the drain always runs to its bound; a short one proves the same.
+            drainTimeout: 0.5
         )
         #expect(!result.timedOut)
         #expect(result.status == 0)
@@ -79,7 +83,9 @@ enum SSHFishProcessRunner {
         executablePath: String,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        drainTimeout: TimeInterval = 2,
+        readinessMarker: Data? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -112,6 +118,7 @@ enum SSHFishProcessRunner {
         // after exit deadlocks a child that writes more than the pipe buffer:
         // it blocks on write while we block on its exit.
         let capturedStderr = CapturedOutput()
+        let readiness = DispatchSemaphore(value: 0)
         let drains = DispatchGroup()
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
@@ -123,9 +130,18 @@ enum SSHFishProcessRunner {
                 let chunk = stderrHandle.availableData
                 if chunk.isEmpty { break }
                 capturedStderr.append(chunk)
+                if let readinessMarker, capturedStderr.value.range(of: readinessMarker) != nil {
+                    readiness.signal()
+                }
             }
         }
 
+        // Readiness is emitted after the child installs its termination trap.
+        // The watchdog bounds setup failure, but startup does not spend the kill budget.
+        if readinessMarker != nil {
+            #expect(readiness.wait(timeout: .now() + 30) == .success,
+                    "the child must become ready before the kill deadline begins")
+        }
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
@@ -139,7 +155,7 @@ enum SSHFishProcessRunner {
         // these write ends and holds them open past the direct child's exit,
         // so EOF may never arrive. Bound the drain and report what we read
         // rather than hanging the suite on it.
-        _ = drains.wait(timeout: .now() + 2)
+        _ = drains.wait(timeout: .now() + drainTimeout)
         let stderr = String(data: capturedStderr.value, encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.terminationStatus,
