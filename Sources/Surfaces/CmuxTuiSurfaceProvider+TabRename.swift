@@ -49,7 +49,7 @@ extension CmuxTuiSurfaceProvider {
         switch authority {
         case .currentGraph:
             guard let previous, let observedCursor else {
-                throw ProviderError.stateUnavailable(machineID)
+                throw ProviderError.tabStateUnavailable(machineID)
             }
             do {
                 let receipt = try await sendRenameTab(
@@ -78,7 +78,7 @@ extension CmuxTuiSurfaceProvider {
             }
         case .pendingReceipt:
             guard let receipt = pendingReceipt else {
-                throw ProviderError.stateUnavailable(machineID)
+                throw ProviderError.tabStateUnavailable(machineID)
             }
             let committed = try await sendRenameTab(
                 id: id,
@@ -91,7 +91,7 @@ extension CmuxTuiSurfaceProvider {
         case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
         case .unavailable:
-            throw ProviderError.stateUnavailable(machineID)
+            throw ProviderError.tabStateUnavailable(machineID)
         case .targetMissing:
             // This path renames any tab by id, whatever its content kind, so a
             // browser or a display row reaches it too. The terminal-scoped

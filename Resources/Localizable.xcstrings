@@ -571335,115 +571335,115 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux は新しいフォーク セッションを安全にバインドできませんでした。親ペインからもう一度フォークしてください。"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux konnte die neue Fork-Sitzung nicht sicher binden. Starten Sie den Fork erneut im übergeordneten Pane."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux n’a pas pu lier la nouvelle session forkée en toute sécurité. Relancez le fork depuis le volet parent."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "تعذر على cmux ربط جلسة التفريع الجديدة بأمان. أعد بدء التفريع من الجزء الأصلي."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux no pudo vincular de forma segura la nueva sesión bifurcada. Inicia el fork de nuevo desde el panel principal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux 無法安全繫結新的分支工作階段。請從父窗格重新開始分支。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux 无法安全绑定新的分支会话。请从父窗格重新开始分支。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux가 새 포크 세션을 안전하게 연결하지 못했습니다. 부모 패널에서 포크를 다시 시작하세요."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux nije mogao sigurno povezati novu sesiju račvanja. Ponovo pokrenite račvanje iz nadređenog okna."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux kunne ikke binde den nye forgreningssession sikkert. Start forgreningen igen fra forældreruden."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux non ha potuto associare in sicurezza la nuova sessione fork. Avvia di nuovo il fork dal riquadro principale."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux មិនអាចភ្ជាប់សម័យ fork ថ្មីដោយសុវត្ថិភាពបានទេ។ ចាប់ផ្ដើម fork ម្ដងទៀតពីផ្ទាំងមេ។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux kunne ikke binde den nye forgreningsøkten på en trygg måte. Start forgreningen på nytt fra den overordnede ruten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux nie mógł bezpiecznie powiązać nowej sesji forka. Uruchom fork ponownie z panelu nadrzędnego."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "O cmux não conseguiu vincular com segurança a nova sessão bifurcada. Inicie o fork novamente no painel principal."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux не удалось безопасно привязать новый сеанс форка. Запустите форк снова из родительской панели."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux ไม่สามารถผูกเซสชันที่แยกใหม่ได้อย่างปลอดภัย เริ่มการแยกอีกครั้งจากบานหน้าต่างหลัก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux yeni fork oturumunu güvenli bir şekilde bağlayamadı. Fork'u üst panelden yeniden başlatın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "cmux не вдалося безпечно прив’язати новий сеанс форка. Запустіть форк ще раз із батьківської панелі."
           }
         }
@@ -585525,6 +585525,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "中斷連線"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTabUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current state for tab %@ is unavailable. Refresh and retry before renaming."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktuelle Zustand von Tab %@ ist nicht verfügbar. Aktualisieren Sie die Ansicht und versuchen Sie die Umbenennung erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état actuel de l’onglet %@ n’est pas disponible. Actualisez la page et réessayez de le renommer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحالة الحالية لعلامة التبويب %@ غير متاحة. حدّث الصفحة وحاول إعادة التسمية مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado actual de la pestaña %@ no está disponible. Actualiza la página y vuelve a intentar cambiarle el nombre."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁 %@ 的目前狀態無法使用。請重新整理後再試一次重新命名。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页 %@ 的当前状态不可用。请刷新后重试重命名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 %@의 현재 상태를 사용할 수 없습니다. 새로 고친 후 이름을 다시 바꾸십시오."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ %@ の現在の状態を取得できません。更新してから名前の変更をもう一度お試しください。"
           }
         }
       }

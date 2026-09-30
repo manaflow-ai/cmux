@@ -55,8 +55,12 @@ import Testing
             ) {
                 try await catalog.renameRemoteTab(on: provider.machine, id: "tab-closed", name: "After")
             }
-            let requests = (try? String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
-            #expect(!requests.contains("tab.rename"))
+            let requests = try String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)
+                .split(separator: "\n")
+                .compactMap { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            #expect(!requests.isEmpty)
+            #expect(requests.contains { ($0["operation"] as? String) == "session.snapshot" })
+            #expect(!requests.contains { ($0["operation"] as? String) == "tab.rename" })
         }
     }
 
@@ -107,18 +111,14 @@ import Testing
         #expect(provider.installSnapshotIfNewer(initial))
         provider.publish(initial, ports: [])
 
-        do {
-            let value = try await body(catalog, provider, root)
+        defer {
             catalog.unregister(machine: provider.machine)
-            await provider.stop()
-            await links.disconnect()
-            return value
-        } catch {
-            catalog.unregister(machine: provider.machine)
-            await provider.stop()
-            await links.disconnect()
-            throw error
+            Task {
+                await links.disconnect()
+                await provider.stop()
+            }
         }
+        return try await body(catalog, provider, root)
     }
 
     /// Runs one catalog rename against the daemon fixture. Returns the accepted
