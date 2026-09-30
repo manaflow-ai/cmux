@@ -155,7 +155,10 @@ extension GhosttyNSView {
             }
         }
 
+        terminalAccessibilityText.scheduleValueChanged(for: self) { [weak self] in
+            self?.releaseAccessibilityValueChangedFrameDemand()
+        }
         terminalAccessibilityText.invalidate()
-        terminalAccessibilityText.scheduleValueChanged(for: self)
+        retainAccessibilityValueChangedFrameDemand()
     }
 }

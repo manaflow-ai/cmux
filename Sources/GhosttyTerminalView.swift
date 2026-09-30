@@ -3812,6 +3812,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _renderedFrameFlushScheduled = false
     private var _pendingRenderedFrameDeliveryReasons:
         TerminalRenderedFrameDeliveryReasons = []
+    private var accessibilityValueChangedFrameDemandRelease: (any RenderDemandRetention)?
     /// Pane-local frame demand lets a terminal-specific consumer observe a
     /// late render without enabling notifications on every terminal surface.
     let localRenderedFrameNotificationDemand = RenderDemandCounter()
@@ -3978,6 +3979,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.unlock()
     }
 
+    func retainAccessibilityValueChangedFrameDemand() {
+        guard accessibilityValueChangedFrameDemandRelease == nil else { return }
+        accessibilityValueChangedFrameDemandRelease = localRenderedFrameNotificationDemand.retain()
+    }
+
+    func releaseAccessibilityValueChangedFrameDemand() {
+        accessibilityValueChangedFrameDemandRelease?.release()
+        accessibilityValueChangedFrameDemandRelease = nil
+    }
+
     func enqueueRenderedFrameUpdate(
         reasons: TerminalRenderedFrameDeliveryReasons
     ) {
@@ -3998,6 +4009,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameFlushScheduled = false
         let reasons = _pendingRenderedFrameDeliveryReasons
         _pendingRenderedFrameDeliveryReasons = []
+
+        if reasons.contains(.notification),
+           terminalAccessibilityText.screenDidChange(read: { [weak self] in
+               self?.terminalSurface?.readText(region: .active)
+           }) {
+            releaseAccessibilityValueChangedFrameDemand()
+        }
 
         if reasons.contains(.keyboardCopyModeCursor),
            keyboardCopyModeActive,

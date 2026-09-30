@@ -35,7 +35,10 @@ final class TerminalAccessibilityText {
         vendedValueHistory.map(\.value)
     }
     private var vendedValueHistory: [VendedValue] = []
+    private weak var valueChangedElement: NSView?
     private var valueChangedTimer: Timer?
+    private var valueChangedBaseline: String?
+    private var valueChangedCompletion: (() -> Void)?
 
     nonisolated init() {}
 
@@ -61,21 +64,52 @@ final class TerminalAccessibilityText {
         snapshot = nil
     }
 
-    /// Posts one debounced `valueChanged` for `element` after an AX insertion.
-    func scheduleValueChanged(for element: NSView) {
+    /// Waits for the terminal's next screen update before announcing an AX
+    /// insertion. The timer is only an acknowledgement fallback for input
+    /// that produces no visible screen echo (password prompts and full-screen
+    /// applications, for example).
+    func scheduleValueChanged(for element: NSView, onComplete: (() -> Void)? = nil) {
         valueChangedTimer?.invalidate()
-        let timer = Timer(timeInterval: Self.valueChangedDelay, repeats: false) { [weak self, weak element] timer in
+        valueChangedElement = element
+        valueChangedBaseline = snapshot ?? vendedValueHistory.last?.value
+        valueChangedCompletion = onComplete
+        let timer = Timer(timeInterval: Self.valueChangedDelay, repeats: false) { [weak self] timer in
             // This timer is registered only on RunLoop.main below.
             MainActor.assumeIsolated {
                 guard let self, self.valueChangedTimer === timer else { return }
                 self.valueChangedTimer = nil
-                self.invalidate()
-                guard let element else { return }
-                NSAccessibility.post(element: element, notification: .valueChanged)
+                self.finishValueChangedNotification()
             }
         }
         valueChangedTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Completes a pending AX notification after a rendered frame has made the
+    /// terminal's screen text authoritative. Returns whether the pending
+    /// notification was posted.
+    @discardableResult
+    func screenDidChange(read: () -> String?) -> Bool {
+        guard valueChangedTimer != nil else { return false }
+        let current = read() ?? ""
+        guard let baseline = valueChangedBaseline, current != baseline else { return false }
+        valueChangedTimer?.invalidate()
+        valueChangedTimer = nil
+        finishValueChangedNotification()
+        return true
+    }
+
+    private func finishValueChangedNotification() {
+        invalidate()
+        let element = valueChangedElement
+        let completion = valueChangedCompletion
+        valueChangedElement = nil
+        valueChangedBaseline = nil
+        valueChangedCompletion = nil
+        if let element {
+            NSAccessibility.post(element: element, notification: .valueChanged)
+        }
+        completion?()
     }
 
     /// Returns the text an AX client meant to insert when it sets the whole value.
