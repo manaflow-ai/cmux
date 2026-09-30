@@ -134,7 +134,7 @@ def generated_claude_hook_settings() -> str:
 PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
 
 
-def prime_first_exec(path: Path, *args: str) -> None:
+def prime_first_exec(path: Path, *args: str, env: dict[str, str] | None = None) -> None:
     """Pay macOS's first-exec assessment for a new executable before timing it.
 
     The first exec of every newly written file, a copy included, blocks in
@@ -144,9 +144,11 @@ def prime_first_exec(path: Path, *args: str) -> None:
     Installed binaries were executed before, so only a fixture pays this, and
     it must not pay it inside those budgets.
     """
+    if env is None:
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"}
     subprocess.run(
         [str(path), *args],
-        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+        env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -165,6 +167,17 @@ def make_executable(path: Path, content: str) -> None:
     path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
     prime_first_exec(path)
+
+
+def install_wrapper_copy(path: Path) -> None:
+    """Copy the wrapper and pay its first exec before any timed run.
+
+    The wrapper has no priming guard. With only PATH=/usr/bin:/bin it finds no
+    claude and exits 127 before it writes anything.
+    """
+    shutil.copy2(SOURCE_WRAPPER, path)
+    path.chmod(0o755)
+    prime_first_exec(path, env={"PATH": "/usr/bin:/bin"})
 
 
 def write_helper_info(path: Path, bundle_identifier: str) -> None:
@@ -222,8 +235,7 @@ def run_wrapper(
         bundled_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        shutil.copy2(SOURCE_WRAPPER, wrapper)
-        wrapper.chmod(0o755)
+        install_wrapper_copy(wrapper)
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
@@ -459,8 +471,7 @@ def run_wrapper_terminal_env_probe(
         real_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        shutil.copy2(SOURCE_WRAPPER, wrapper)
-        wrapper.chmod(0o755)
+        install_wrapper_copy(wrapper)
 
         env_log = tmp / "real-env.log"
         args_log = tmp / "real-args.log"
@@ -591,8 +602,7 @@ def run_wrapper_auth_env(
         real_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "cmux-claude-wrapper"
-        shutil.copy2(SOURCE_WRAPPER, wrapper)
-        wrapper.chmod(0o755)
+        install_wrapper_copy(wrapper)
 
         auth_env_log = tmp / "auth-env.log"
         args_log = tmp / "args.log"
@@ -1745,11 +1755,17 @@ def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) ->
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     start_new_session=True)
             pids: list[int] = []
+
+            def reported_pids() -> list[int]:
+                # The shell creates the log before printf writes both lines.
+                text = pid_log.read_text(encoding="utf-8") if pid_log.exists() else ""
+                return [int(pid) for pid in text.splitlines()] if text.count("\n") >= 2 else []
+
             try:
                 deadline = time.monotonic() + 15
-                while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
+                while not reported_pids() and proc.poll() is None and time.monotonic() < deadline:
                     time.sleep(0.01)
-                pids = [int(pid) for pid in read_lines(pid_log)]
+                pids = reported_pids()
                 if len(pids) != 2:
                     failures.append(f"cancellation {interrupt}: help process was not reached")
                     return
