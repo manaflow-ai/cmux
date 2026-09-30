@@ -197,11 +197,9 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.displayTitle
         case .display(let resource, _, let remoteView):
-            let title = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let title, !title.isEmpty { return title }
-            return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
+            return CloudTreeResourceName(resource: resource, remoteView: remoteView).displayName
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
-        case .browser(let row): return row.resource.title
+        case .browser(let row): return CloudTreeResourceName(resource: row.resource, remoteView: row.remoteView).browserName
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
@@ -234,18 +232,21 @@ final class CloudTreeNode: NSObject {
                 remoteWorkspaceID: view.workspace.id
             )
         }
-        if case .browser(let row) = kind,
-           let view = row.remoteView {
-            return SurfaceResourceGroup(
-                title: row.resource.title,
-                placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
-                remoteWorkspaceID: view.workspace.id
-            )
-        }
+        // No `.browser` branch: `isDragSource` admits only terminals and
+        // displays, and `CloudTreeDragRegistration` is the only reader of a leaf
+        // row's group, so a browser row never gets here. Granting browsers a
+        // projection capability is a separate decision, not a naming fix.
         if case .display(let resource, _, let view) = kind,
            let view {
+            // The group's title names the local workspace the drag produces, so
+            // it has to be the name the row is showing. Reading `resource.title`
+            // raw dropped a rename on the way out: a display renamed to "Docs"
+            // landed under its bare resource title instead. An empty title was
+            // never nameless — `localWorkspaceTitle(hostName:)` falls back to
+            // the machine — it just lost the name the user typed.
+            let name = CloudTreeResourceName(resource: resource, remoteView: view)
             return SurfaceResourceGroup(
-                title: resource.title,
+                title: name.displayName,
                 placements: [SurfaceResourcePlacement(resource: resource.id, remoteView: view)],
                 remoteWorkspaceID: view.workspace.id
             )

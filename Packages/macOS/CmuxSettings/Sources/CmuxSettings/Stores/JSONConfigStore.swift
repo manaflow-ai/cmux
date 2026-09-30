@@ -598,7 +598,7 @@ public actor JSONConfigStore {
                 data,
                 to: writeURL,
                 expected: document.originalData,
-                isTargetCurrent: { Self.resolvedWriteURL(for: fileURL) == writeURL }
+                isTargetCurrent: { Self.resolvedWriteURL(for: self.fileURL) == writeURL }
             )
         } catch {
             // A filesystem exchange can have happened before a later validation
