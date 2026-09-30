@@ -377,9 +377,11 @@ struct AutoNamingEngine: Sendable {
     }
 
     private func isCodexInjectedContext(_ text: String) -> Bool {
-        if text.hasPrefix("# AGENTS.md instructions") {
+        if text.hasPrefix("# AGENTS.md instructions for "),
+           text.contains("\n<INSTRUCTIONS>") {
             return true
         }
+
         let tagNames = [
             "environment_context",
             "user_instructions",
@@ -389,11 +391,28 @@ struct AutoNamingEngine: Sendable {
             "turn_aborted"
         ]
         return tagNames.contains { tagName in
-            let prefix = "<\(tagName)"
-            guard text.hasPrefix(prefix) else { return false }
-            guard text.count > prefix.count else { return false }
-            let boundary = text[text.index(text.startIndex, offsetBy: prefix.count)]
-            return boundary == ">" || boundary.isWhitespace
+            let openPrefix = "<\(tagName)"
+            guard text.hasPrefix(openPrefix), text.count > openPrefix.count else {
+                return false
+            }
+            let openBoundary = text[text.index(text.startIndex, offsetBy: openPrefix.count)]
+            guard openBoundary == ">" || openBoundary.isWhitespace else {
+                return false
+            }
+
+            let closePrefix = "</\(tagName)"
+            guard let closeRange = text.range(of: closePrefix, options: .backwards),
+                  closeRange.upperBound < text.endIndex else {
+                return false
+            }
+            let closeBoundary = text[closeRange.upperBound]
+            guard closeBoundary == ">" || closeBoundary.isWhitespace,
+                  let closeEnd = text[closeRange.upperBound...].firstIndex(of: ">") else {
+                return false
+            }
+            let trailing = text[text.index(after: closeEnd)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trailing.isEmpty
         }
     }
 
