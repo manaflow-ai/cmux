@@ -41,4 +41,20 @@ describe("settings navigation", () => {
     const active = groups.flatMap((group) => group.items).filter((item) => item.active);
     expect(active.map((item) => item.href)).toEqual(["/dashboard/settings/sessions"]);
   });
+
+  test("marks a team active on its encoded path and nested pages only", () => {
+    const teams = [
+      { id: "team/1", displayName: "Encoded", profileImageUrl: null },
+      { id: "ab", displayName: "Prefix", profileImageUrl: null },
+      { id: "abc", displayName: "Longer", profileImageUrl: null },
+    ];
+    const activeOn = (pathname: string) =>
+      settingsNavGroups({ pathname, allowUserApiKeys: true, teams, label })
+        .flatMap((group) => group.items)
+        .filter((item) => item.active)
+        .map((item) => item.href);
+    expect(activeOn("/dashboard/teams/team%2F1/members")).toEqual(["/dashboard/teams/team%2F1"]);
+    expect(activeOn("/dashboard/teams/abc")).toEqual(["/dashboard/teams/abc"]);
+    expect(activeOn("/dashboard/teams/ab")).toEqual(["/dashboard/teams/ab"]);
+  });
 });

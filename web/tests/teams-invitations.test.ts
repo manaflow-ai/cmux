@@ -119,6 +119,36 @@ describe("email invitations", () => {
     expect(stack.invitations).toHaveLength(1);
   }, 15_000);
 
+  test("a failed re-invite keeps the previous invitation's stored role", async () => {
+    const { store, access } = await adminSetup();
+    await inviteTeamMembers(access, { emails: ["w@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
+    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
+      throw new Error("stack down");
+    };
+    await inviteTeamMembers(access, { emails: ["w@example.com"], role: "member", callbackUrl: CALLBACK }, { store });
+    const invitations = await listTeamInvitations(access, { store });
+    expect(invitations.map((invitation) => invitation.role)).toEqual(["admin"]);
+  }, 15_000);
+
+  test("a failed first invite stores no role", async () => {
+    const { store, access } = await adminSetup();
+    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
+      throw new Error("stack down");
+    };
+    await inviteTeamMembers(access, { emails: ["v@example.com"], role: "admin", callbackUrl: CALLBACK }, { store });
+    expect(store.roles.size).toBe(0);
+  }, 15_000);
+
+  test("a failed resend keeps the original invitation", async () => {
+    const { stack, store, access } = await adminSetup();
+    const [sent] = (await inviteTeamMembers(access, { emails: ["u@example.com"], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
+    (access.team as { inviteUser: typeof access.team.inviteUser }).inviteUser = async () => {
+      throw new Error("stack down");
+    };
+    await resendTeamInvitation(access, sent!.id, CALLBACK, { store }).catch(() => undefined);
+    expect(stack.invitations.map((invitation) => invitation.id)).toEqual([sent!.id]);
+  }, 15_000);
+
   test("resend replaces the invitation and keeps its stored role", async () => {
     const { stack, store, access } = await adminSetup();
     const [sent] = (await inviteTeamMembers(access, { emails: ["z@example.com"], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
