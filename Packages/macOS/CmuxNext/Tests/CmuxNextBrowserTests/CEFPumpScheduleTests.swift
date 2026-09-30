@@ -48,8 +48,9 @@ private let immediately = -TimeInterval.infinity
         #expect(schedule.nextWake?.deadline == immediately)
     }
 
-    @Test func passThatUsedTheTimeSliceRunsAgain() {
-        var schedule = CEFPumpSchedule(safetyNet: .none)
+    // An older fork does not ask again when its slice cuts work off.
+    @Test func passThatUsedTheTimeSliceRunsAgainWithAnOlderFork() {
+        var schedule = CEFPumpSchedule(safetyNet: CEFPumpSchedule.standard)
         #expect(begin(&schedule, 10))
         schedule.endWork(now: 10.0101, elapsed: CEFPumpSchedule.timeSlice + 0.0001)
         #expect(schedule.nextWake?.deadline == immediately)
@@ -90,5 +91,12 @@ private let immediately = -TimeInterval.infinity
         schedule.request(milliseconds: 0, now: 10.2105)
         schedule.endWork(now: 10.2115, elapsed: 0.0105)
         #expect(schedule.nextWake?.deadline == immediately)
+    }
+
+    @Test func demandDrivenForkDropsTheFollowUps() {
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 7) == .none)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 8) == .none)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 6) == CEFPumpSchedule.standard)
+        #expect(CEFPumpSchedule.safetyNet(forkAPIVersion: 0) == CEFPumpSchedule.standard)
     }
 }

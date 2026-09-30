@@ -277,7 +277,10 @@ final class CEFRuntime {
         self.shim = shim
         self.layout = layout
 
-        let pump = CEFMessagePump(work: { [weak self] in self?.shim?.doWork() })
+        let pump = CEFMessagePump(
+            work: { [weak self] in self?.shim?.doWork() },
+            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
+        )
         self.pump = pump
         pump.start()
 
