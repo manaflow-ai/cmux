@@ -214,7 +214,7 @@ start_workers() {
   # HMACs, and relay credentials target this run's relay.
   E2E_VAR_API_TICKET_KEYS="$(python3 -c 'import base64,json,os; print(json.dumps({"ci": base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()}))')"
   E2E_VAR_API_TICKET_CURRENT_KEY_ID=ci
-  E2E_VAR_RELAY_SIGNING_KEY="$(openssl genpkey -algorithm ed25519 2>/dev/null)"
+  E2E_VAR_RELAY_SIGNING_KEY="$(openssl genpkey -algorithm ed25519 2>/dev/null || true)"
   E2E_VAR_RELAY_KEY_ID=ci
   E2E_VAR_RELAY_URLS="$(printf '["https://%s:10000/"]' "$NAME")"
   E2E_VAR_DATABASE_URL="postgres://cmux:${pg_password}@${NAME}:5432/cmux_v2"
@@ -266,7 +266,7 @@ up() {
   mkdir -p "$LOGS"
   [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && printf '### Backend bring-up\n| phase | since start |\n| --- | --- |\n' >>"$GITHUB_STEP_SUMMARY"
   local ts_ip pg_password
-  ts_ip="$(tailscale ip -4)"
+  ts_ip="$(tailscale ip -4 || true)"
   [[ -n "$ts_ip" ]] || die tailnet "runner has no tailnet IPv4 address"
   pg_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
 
@@ -303,6 +303,7 @@ hold() {
     fi
     local pid_file
     for pid_file in "$STATE"/*.pid; do
+      [[ -f "$pid_file" ]] || continue
       kill -0 "$(cat "$pid_file")" 2>/dev/null \
         || die crash "$(basename "$pid_file" .pid) exited while clients were using it"
     done
