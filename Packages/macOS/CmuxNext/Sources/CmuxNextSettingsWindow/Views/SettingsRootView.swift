@@ -32,6 +32,7 @@ struct SettingsRootView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.automatic)
+            .scrollEdgeFade()
         }
         .background(SettingsStyle.background)
         .tint(SettingsStyle.tint)

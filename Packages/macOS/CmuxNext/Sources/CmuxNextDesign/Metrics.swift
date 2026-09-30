@@ -71,6 +71,10 @@ public enum Metrics {
     /// Gap between niri columns.
     public static var columnGap: CGFloat { pick(6, 8, .columnGap) }
     /// Divider thickness between split panes (hit area is wider).
+    /// Height of the fade at a scrolling list's top or bottom edge while
+    /// content is hidden beyond it (`ScrollEdgeFade`).
+    public static var scrollEdgeFade: CGFloat { pick(18, 22) }
+
     public static let dividerThickness: CGFloat = 1
     public static let dividerHitWidth: CGFloat = 7
 
