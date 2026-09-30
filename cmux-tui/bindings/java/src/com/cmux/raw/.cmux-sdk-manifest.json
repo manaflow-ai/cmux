@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b179f5b9476df22cf90fbe2b430cbb2c1f1e659dc431022ec1e0a8a22f02b96e",
-      "size": 48248
+      "sha256": "b4aeb4dff77f92512ddc0c3ca31e0753c35115a496f969716e1cf20fd9d232be",
+      "size": 48324
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -402,8 +402,8 @@
     },
     {
       "path": "CreateTerminalRequest.java",
-      "sha256": "e284fb2555585db2bf9438419bcecd6f504a16b9a99a6a5dcc4d2b7d8be19dc0",
-      "size": 11479
+      "sha256": "21b75b202302511dc444f08c6cd7dfddbd42ed07a7c23b03a7dc4dc3f14b909b",
+      "size": 12117
     },
     {
       "path": "CreateWorkspaceGroupRequest.java",
@@ -1137,7 +1137,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b16ce05925fddfeb7cf22a910faa8f0623c12a9373e03af07dca8662b0536e7b",
+      "sha256": "d010e2de8945286c0d8fb1421115df9c26698d73c6f979bc369459faca6ae3f0",
       "size": 4696
     },
     {
@@ -1867,8 +1867,8 @@
     },
     {
       "path": "TerminalPlacement.java",
-      "sha256": "dac1c0f9828e387d889a1a6cf097a2545f34d6f7b254f2aaef38f8d749c7553c",
-      "size": 11717
+      "sha256": "d65a405328b933ec4700a20887e4e5a6353fcb76b237e9757dae5d323d644b67",
+      "size": 12545
     },
     {
       "path": "TerminalReapedEvent.java",
@@ -2117,7 +2117,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5dc3942a6cd7b727431f48a97b9f7d5fc3543756145353f400b49bf6c09dd189",
+  "ir_sha256": "15fb774cfcbcc4c1e854cc1f3a5d97b71f4d8c2b42f44493d4403988f60ffbd9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

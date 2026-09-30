@@ -7783,6 +7783,11 @@ Result<Json> Codec<TerminalPlacement>::encode(const TerminalPlacement& value) {
     } else {
         object.emplace("terminal_incarnation", Json(nullptr));
     }
+    if (value.terminal_resource_id) {
+        auto encoded = encode_value(*value.terminal_resource_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_resource_id", std::move(encoded).value());
+    }
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
@@ -7927,6 +7932,12 @@ Result<TerminalPlacement> Codec<TerminalPlacement>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.terminal_incarnation = std::move(decoded).value();
         }
+    }
+    const Json* field_terminal_resource_id = value.find("terminal_resource_id");
+    if (field_terminal_resource_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_resource_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_resource_id = std::move(decoded).value();
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (!field_terminal_revision) {
@@ -11322,6 +11333,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("cwd", std::move(encoded).value());
     }
+    if (value.detached) {
+        auto encoded = encode_value(*value.detached);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("detached", std::move(encoded).value());
+    }
     if (!value.env.is_absent()) {
         auto encoded = encode_value(value.env);
         if (!encoded) return std::move(encoded).error();
@@ -11423,6 +11439,12 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.cwd = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_detached = value.find("detached");
+    if (field_detached) {
+        auto decoded = decode_value<bool>(*field_detached);
+        if (!decoded) return std::move(decoded).error();
+        result.detached = std::move(decoded).value();
     }
     const Json* field_env = value.find("env");
     if (field_env) {
@@ -25236,7 +25258,8 @@ constexpr std::array<CommandFieldRequirement, 6> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand34FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand36FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand36FieldRequirements{{
+    {"detached", 12U, "detached-terminals-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"terminal_id", 9U, ""},

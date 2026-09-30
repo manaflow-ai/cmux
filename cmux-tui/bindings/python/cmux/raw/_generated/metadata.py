@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5dc3942a6cd7b727431f48a97b9f7d5fc3543756145353f400b49bf6c09dd189'
+IR_SHA256 = '15fb774cfcbcc4c1e854cc1f3a5d97b71f4d8c2b42f44493d4403988f60ffbd9'
 
 
 @dataclass(frozen=True)
@@ -550,6 +550,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5dc3942a6cd7b727431f48a97b9f7d5fc3543756145353f400b49bf6c09dd189. */
+/* cmux-tui mux protocol 12, IR 15fb774cfcbcc4c1e854cc1f3a5d97b71f4d8c2b42f44493d4403988f60ffbd9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5dc3942a6cd7b727431f48a97b9f7d5fc3543756145353f400b49bf6c09dd189" as const;
+export const SDK_IR_SHA256 = "15fb774cfcbcc4c1e854cc1f3a5d97b71f4d8c2b42f44493d4403988f60ffbd9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -517,6 +517,10 @@ export const COMMAND_METADATA = {
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "detached": {
+        "since": 12,
+        "capability": "detached-terminals-v1"
+      },
       "env": {
         "since": 12,
         "capability": "terminal-env-v1"
@@ -532,7 +536,8 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1)."
+      "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
+      "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id."
     ]
   },
   "create-workspace": {
@@ -8053,6 +8058,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_resource_id": {
+        "capability": "detached-terminals-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "terminal_revision": {
         "nullable": false,
         "presence": "required",
@@ -10463,7 +10478,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "constraints": [
-        "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
+        "At least one of workspace and key must be supplied unless detached is true; when both are supplied they must identify the same workspace. detached forbids workspace and key.",
         "argv and command are mutually exclusive and must be nonempty when supplied.",
         "cols and rows must be supplied together.",
         "origin and mutation_id are either both present or both absent.",
@@ -10508,6 +10523,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "detached": {
+          "capability": "detached-terminals-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "env": {

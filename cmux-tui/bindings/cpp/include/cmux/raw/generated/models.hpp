@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5dc3942a6cd7b727431f48a97b9f7d5fc3543756145353f400b49bf6c09dd189";
+inline constexpr std::string_view kProtocolIrSha256 = "15fb774cfcbcc4c1e854cc1f3a5d97b71f4d8c2b42f44493d4403988f60ffbd9";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1236,6 +1236,7 @@ struct CreateTerminalRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
     Field<std::string> cwd{};
+    std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -3332,6 +3333,7 @@ struct TerminalPlacement {
     std::optional<Id> surface{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
