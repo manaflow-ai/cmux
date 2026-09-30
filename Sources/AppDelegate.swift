@@ -15134,17 +15134,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+           matchConfiguredShortcut(event: event, action: .agentInbox) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
+            return true
+        }
+
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
                 requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
-                return true
-            }
-
-            if CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
-               matchConfiguredShortcut(event: event, action: .agentInbox) {
-                let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-                requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
                 return true
             }
 

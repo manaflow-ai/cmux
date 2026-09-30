@@ -244,7 +244,8 @@ struct AgentInboxView: View {
                 title: String(localized: "agentInbox.permission.title", defaultValue: "Permission"),
                 labels: item.permissionModes.map(\.localizedLabel),
                 action: { index in
-                    actions.approvePermission(itemID(for: item), item.permissionModes[index])
+                    guard let itemID = AgentInboxDecisionTarget.id(for: item.replyTarget) else { return }
+                    actions.approvePermission(itemID, item.permissionModes[index])
                     onDismiss()
                 }
             )
@@ -253,7 +254,8 @@ struct AgentInboxView: View {
                 title: String(localized: "agentInbox.plan.title", defaultValue: "Plan approval"),
                 labels: item.planModes.map(\.localizedLabel),
                 action: { index in
-                    actions.approveExitPlan(itemID(for: item), item.planModes[index], nil)
+                    guard let itemID = AgentInboxDecisionTarget.id(for: item.replyTarget) else { return }
+                    actions.approveExitPlan(itemID, item.planModes[index], nil)
                     onDismiss()
                 }
             )
@@ -262,8 +264,9 @@ struct AgentInboxView: View {
                 title: String(localized: "agentInbox.question.title", defaultValue: "Choose an answer"),
                 labels: item.questionOptions.enumerated().map { "\($0.offset + 1). \($0.element.label)" },
                 action: { index in
+                    guard let itemID = AgentInboxDecisionTarget.id(for: item.replyTarget) else { return }
                     questionSelection = item.questionOptions[index].id
-                    actions.replyQuestion(itemID(for: item), [item.questionOptions[index].label])
+                    actions.replyQuestion(itemID, [item.questionOptions[index].label])
                     onDismiss()
                 }
             )
@@ -356,9 +359,19 @@ struct AgentInboxView: View {
                 workstreamTarget: nil
             )
         case let .workstream(workstreamID):
+            let selectedWorkstreamID = selectedID.flatMap { selectedID in
+                visibleItems.first(where: { $0.id == selectedID })?.workstreamId
+            } ?? item.workstreamId
             Task { @MainActor in
                 guard let target = await FeedCoordinator.shared.resolveTarget(workstreamID) else {
                     replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+                    replySubmissionGate.finish()
+                    return
+                }
+                guard AgentInboxReplyResolutionPolicy.shouldApply(
+                    resolvedWorkstreamID: workstreamID,
+                    selectedItemID: selectedWorkstreamID
+                ) else {
                     replySubmissionGate.finish()
                     return
                 }
@@ -395,11 +408,6 @@ struct AgentInboxView: View {
             replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
         }
         replySubmissionGate.finish()
-    }
-
-    private func itemID(for item: AgentInboxItem) -> UUID {
-        guard case let .feed(id) = item.replyTarget else { return UUID() }
-        return id
     }
 
     private func selectFirstIfNeeded() {

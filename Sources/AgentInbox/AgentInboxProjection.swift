@@ -17,6 +17,36 @@ enum AgentInboxReplyTarget: Equatable, Sendable {
     case workstream(String)
 }
 
+enum AgentInboxDecisionTarget {
+    static func id(for target: AgentInboxReplyTarget?) -> UUID? {
+        guard case let .feed(id) = target else { return nil }
+        return id
+    }
+}
+
+enum AgentInboxReplyResolutionPolicy {
+    static func shouldApply(
+        resolvedWorkstreamID: String,
+        selectedItemID: String?
+    ) -> Bool {
+        guard let selectedItemID else { return false }
+        return resolvedWorkstreamID == selectedItemID
+    }
+}
+
+enum CommandPaletteOverlayState: Equatable, Sendable {
+    case closed
+    case palette
+    case agentInbox
+
+    var isCommandPalettePresented: Bool {
+        self != .closed
+    }
+
+    var isAgentInboxPresented: Bool {
+        self == .agentInbox
+    }
+}
 
 enum AgentInboxReplyError: Error, Equatable, Sendable {
     case emptyBody
@@ -74,7 +104,14 @@ struct AgentInboxReadStateStore {
               let ids = try? JSONDecoder().decode([String].self, from: data) else {
             return []
         }
-        return Set(ids)
+        let trimmedIDs = ids.count > Self.maxFinishedTurnIDs
+            ? Array(ids.suffix(Self.maxFinishedTurnIDs))
+            : ids
+        if trimmedIDs.count != ids.count,
+           let trimmedData = try? JSONEncoder().encode(trimmedIDs) {
+            defaults.set(trimmedData, forKey: Self.finishedTurnIDsKey)
+        }
+        return Set(trimmedIDs)
     }
 
     func markFinishedTurnRead(_ id: String) {

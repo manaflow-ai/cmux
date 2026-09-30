@@ -956,8 +956,7 @@ struct ContentView: View {
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
     @State private var sidebarResizerCursorStabilizer = MainActorRepeatingActionScheduler()
-    @State private var isCommandPalettePresented = false
-    @State private var isAgentInboxPresented = false
+    @State private var commandPaletteOverlayState: CommandPaletteOverlayState = .closed
     @State private var agentInboxItems: [AgentInboxItem] = []
     @State private var agentInboxMoveRequest = 0
     @State private var agentInboxSubmitRequest = 0
@@ -978,6 +977,14 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+
+    private var isCommandPalettePresented: Bool {
+        commandPaletteOverlayState.isCommandPalettePresented
+    }
+
+    private var isAgentInboxPresented: Bool {
+        commandPaletteOverlayState.isAgentInboxPresented
+    }
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var commandPaletteTaskStore = MainActorTaskStore<CommandPaletteTaskKey>()
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
@@ -10132,8 +10139,7 @@ struct ContentView: View {
             workstreamItems: feedItems,
             workspaceTitles: workspaceTitles
         )
-        isCommandPalettePresented = true
-        isAgentInboxPresented = true
+        commandPaletteOverlayState = .agentInbox
 
         Task { @MainActor in
             let targets = await FeedCoordinator.shared.resolveTargets(for: workstreamIDs)
@@ -10153,8 +10159,7 @@ struct ContentView: View {
 
     private func dismissAgentInbox() {
         agentInboxOpenGeneration &+= 1
-        isAgentInboxPresented = false
-        isCommandPalettePresented = false
+        commandPaletteOverlayState = .closed
         agentInboxItems = []
     }
 
@@ -10337,7 +10342,7 @@ struct ContentView: View {
         } else {
             commandPaletteRestoreFocusTarget = nil
         }
-        isCommandPalettePresented = true
+        commandPaletteOverlayState = .palette
         commandPaletteAgentLauncherAvailabilityGeneration &+= 1
         commandPaletteAgentLauncherAvailability = nil
         commandPaletteForkableAgentActivePanelKey = nil
@@ -10472,7 +10477,7 @@ struct ContentView: View {
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
         commandPaletteSearchRequestID &+= 1
-        isCommandPalettePresented = false
+        commandPaletteOverlayState = .closed
         commandPaletteCurrentWorkSnapshot = nil
         commandPaletteMode = .commands
         commandPaletteQuery = ""
