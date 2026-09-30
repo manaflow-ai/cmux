@@ -125,6 +125,9 @@ final class AppControl {
             .mainActor("debug.extensions.menu") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.menu(call.params, $0) } ?? .null)
             },
+            .mainActor("debug.extensions.drag") { [weak services] call in
+                .value(services.map { DebugExtensionToolbar.drag(call.params, $0) } ?? .null)
+            },
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },

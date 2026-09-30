@@ -52,6 +52,18 @@ public final class MockExtensionBackend: BrowserExtensionBackend {
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { change(id) { $0.isEnabled = enabled } }
     public func setPinned(_ id: String, _ pinned: Bool) -> Bool { change(id) { $0.isPinned = pinned } }
     public func reload(_ id: String) -> Bool { change(id) { $0.isTerminated = false } }
+    public var supportsPinnedOrder: Bool { supportsManagement }
+
+    /// Reorders like Chromium: pinned extensions first, in pin order.
+    public func movePinned(_ id: String, to index: Int) -> Bool {
+        guard !refuses, let from = extensions.firstIndex(where: { $0.id == id && $0.isPinned }) else { return false }
+        let item = extensions.remove(at: from)
+        let pinned = extensions.indices.filter { extensions[$0].isPinned }
+        let target = index < pinned.count ? pinned[max(0, index)] : (pinned.last.map { $0 + 1 } ?? 0)
+        extensions.insert(item, at: target)
+        onChange?()
+        return true
+    }
 
     public func uninstall(_ id: String) -> Bool {
         guard !refuses, extensions.contains(where: { $0.id == id }) else { return false }

@@ -53,6 +53,11 @@ extension BrowserChromeView {
     /// Extensions button when it is not pinned or has no room).
     public func runExtensionAction(_ id: String) { extensionToolbar.run(id) }
 
+    /// Moves a pinned extension to `index` among the pinned ones (the
+    /// toolbar drag). False when the runtime cannot reorder (fork API < 6).
+    @discardableResult
+    public func moveExtensionAction(_ id: String, to index: Int) -> Bool { extensionToolbar.movePinned(id, to: index) }
+
     /// The Extensions menu or an extension's menu while it is open.
     public var presentedExtensionsMenu: NSMenu? { extensionToolbar.presentedMenu }
 

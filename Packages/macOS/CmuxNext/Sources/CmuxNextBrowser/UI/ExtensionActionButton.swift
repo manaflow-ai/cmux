@@ -8,6 +8,11 @@ final class ExtensionActionButton: NSButton {
     let actionID: String
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
+    /// Drag to reorder (pinned order): whether a drag may start, then the
+    /// horizontal offset while dragging and when released.
+    var canDrag: (() -> Bool)?
+    var onDragMoved: ((CGFloat) -> Void)?
+    var onDragEnded: ((CGFloat) -> Void)?
 
     private let density = DensityBinding()
     private var isHovering = false { didSet { updateFill() } }
@@ -56,6 +61,32 @@ final class ExtensionActionButton: NSButton {
     }
 
     @objc private func run() { onRun?() }
+
+    /// A click runs the action; a horizontal drag past 3 pt reorders the
+    /// pinned buttons (Chrome's toolbar drag).
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled, let window else { return super.mouseDown(with: event) }
+        let start = event.locationInWindow
+        var dragging = false
+        isHighlighted = true
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            let dx = next.locationInWindow.x - start.x
+            if next.type == .leftMouseUp {
+                isHighlighted = false
+                if dragging {
+                    onDragEnded?(dx)
+                } else if bounds.contains(convert(next.locationInWindow, from: nil)) {
+                    onRun?()
+                }
+                return
+            }
+            if !dragging, abs(dx) > 3, canDrag?() == true {
+                dragging = true
+                isHighlighted = false
+            }
+            if dragging { onDragMoved?(dx) }
+        }
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let window else { return }

@@ -48,6 +48,15 @@ enum ExtensionHandlers {
         bindToggle(registry, context, "browser.extension.disable") { $0.setEnabled($1, false) }
         bindToggle(registry, context, "browser.extension.remove") { $0.uninstall($1) }
         bindToggle(registry, context, "browser.extension.reload") { $0.reload($1) }
+        registry.bind("browser.extension.move", run: { invocation in
+            let entry = try chromiumEntry(context, invocation)
+            guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
+            let id = try known(invocation, tab.extensionStore)
+            let index = invocation["index"]?.intValue ?? 0
+            guard tab.extensionStore.supportsPinnedOrder, entry.chrome.moveExtensionAction(id, to: index) else {
+                throw ActionFailure(message: ExtensionStrings.refused)
+            }
+        })
         registry.bind("browser.extension.command", run: { invocation in
             let (tab, store) = try managedStore(context, invocation)
             let id = try known(invocation, store)

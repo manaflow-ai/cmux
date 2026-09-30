@@ -82,6 +82,14 @@ enum DebugExtensionToolbar {
         return .object(["open": .bool(true), "items": .array(items), "chose": .string(choose)])
     }
 
+    /// `{extension, to}`: moves a pinned button to index `to`, as the
+    /// toolbar drag does when released there.
+    static func drag(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
+        guard let chrome = chrome(params, services) else { return failure("no browser chrome") }
+        guard let id = params["extension"]?.stringValue, let to = params["to"]?.intValue else { return failure("extension and to required") }
+        return .object(["ok": .bool(chrome.moveExtensionAction(id, to: to))])
+    }
+
     static func popup(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         guard let chrome = chrome(params, services),
               let host = chrome.tab as? any BrowserExtensionActionHosting else { return failure("no Chromium tab") }

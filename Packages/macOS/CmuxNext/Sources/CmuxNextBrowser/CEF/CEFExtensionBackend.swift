@@ -14,6 +14,7 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
     }
 
     var supportsManagement: Bool { runtime.forkAPIVersion >= 3 }
+    var supportsPinnedOrder: Bool { runtime.forkAPIVersion >= 6 }
 
     /// Any live Chromium browser of this profile.
     private var anchor: Int32? {
@@ -33,6 +34,10 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
 
     func setEnabled(_ id: String, _ enabled: Bool) -> Bool { call { $0.extSetEnabled($1, id, enabled ? 1 : 0) } }
     func uninstall(_ id: String) -> Bool { call { $0.extUninstall($1, id) } }
+
+    func movePinned(_ id: String, to index: Int) -> Bool {
+        supportsPinnedOrder && call { $0.extMovePinned($1, id, Int32(index)) }
+    }
 
     /// Fork API v5 reloads in place; older forks disable and enable again.
     func reload(_ id: String) -> Bool {

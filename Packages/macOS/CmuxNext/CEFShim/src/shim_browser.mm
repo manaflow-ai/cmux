@@ -149,6 +149,10 @@ int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enab
   return fork_api().ext_set_enabled && extension_id ? fork_api().ext_set_enabled(browser_id, extension_id, enabled) : 0;
 }
 
+int cmux_shim_ext_move_pinned(int browser_id, const char* extension_id, int index) {
+  return fork_api().ext_move_pinned && extension_id ? fork_api().ext_move_pinned(browser_id, extension_id, index) : 0;
+}
+
 int cmux_shim_ext_reload(int browser_id, const char* extension_id) {
   return fork_api().ext_reload && extension_id ? fork_api().ext_reload(browser_id, extension_id) : 0;
 }

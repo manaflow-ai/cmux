@@ -14,11 +14,21 @@ public protocol BrowserExtensionBackend: AnyObject {
     func uninstall(_ id: String) -> Bool
     /// Reloads an extension, also a terminated (crashed) one.
     func reload(_ id: String) -> Bool
+    /// Moves a pinned extension to `index` among the pinned ones.
+    func movePinned(_ id: String, to index: Int) -> Bool
+    /// Pinned extensions can be reordered (fork API v6).
+    var supportsPinnedOrder: Bool { get }
     func setPinned(_ id: String, _ pinned: Bool) -> Bool
     func openOptions(_ id: String, from tab: (any BrowserTab)?) -> Bool
     func loadUnpacked(at path: String) -> Bool
     /// Dispatches `commands.onCommand` (not `_execute_action`).
     func runCommand(_ command: BrowserExtensionCommand, in tab: any BrowserTab) -> Bool
+}
+
+extension BrowserExtensionBackend {
+    /// Backends without an order API keep Chromium's pinned order.
+    public var supportsPinnedOrder: Bool { false }
+    public func movePinned(_ id: String, to index: Int) -> Bool { false }
 }
 
 /// The installed extensions and their keyboard shortcuts of one browser
@@ -53,6 +63,11 @@ public final class BrowserExtensionStore {
     /// `cmux_ext_reload`; older forks disable then enable (Chromium moves a
     /// terminated extension to the disabled set and loads it on enable).
     public func reload(_ id: String) -> Bool { perform { $0.reload(id) } }
+
+    /// Moves a pinned extension among the pinned ones (the toolbar drag);
+    /// Chromium persists the order per profile.
+    public func movePinned(_ id: String, to index: Int) -> Bool { perform { $0.movePinned(id, to: index) } }
+    public var supportsPinnedOrder: Bool { backend.supportsPinnedOrder }
 
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { perform { $0.setEnabled(id, enabled) } }
     public func uninstall(_ id: String) -> Bool { perform { $0.uninstall(id) } }

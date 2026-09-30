@@ -190,6 +190,20 @@ import Testing
         #expect(ExtensionsMenu.operations(for: tab.extensionStore.extensions[2], supportsManagement: true) == [.run, .pin, .siteAccess])
     }
 
+    @Test func dragReordersPinnedButtons() async {
+        let h = Harness(width: 1400)
+        await h.settle()
+        let step = OmnibarStyle.buttonSize + BrowserMetrics.buttonSpacing
+        #expect(h.chrome.extensionToolbar.dragTarget("ext0", dx: step * 2.2) == 2)
+        #expect(h.chrome.extensionToolbar.dragTarget("ext3", dx: -step * 9) == 0)
+        #expect(h.chrome.extensionToolbar.dragTarget("ext1", dx: 1) == 1)
+        #expect(h.chrome.moveExtensionAction("ext0", to: 2))
+        await h.settle()
+        #expect(h.chrome.toolbarReport.visibleActions == ["ext1", "ext2", "ext0", "ext3"])
+        // An unpinned extension cannot move among the pinned ones.
+        #expect(!h.chrome.moveExtensionAction("ext5", to: 0))
+    }
+
     @Test func crashedOrUnpackedExtensionsOfferReload() {
         let crashed = BrowserExtensionInfo(id: "c", name: "Crashed", isTerminated: true, hasAction: true)
         let unpacked = BrowserExtensionInfo(id: "u", name: "Dev", location: .unpacked, hasAction: true)
