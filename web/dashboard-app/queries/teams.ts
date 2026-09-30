@@ -86,11 +86,6 @@ export function teamDetailQuery(teamId: string) {
   return rpc.teams.detail.queryOptions({
     input: { teamId },
     context: timeout.context,
-    // 4xx refusals mean "not a member"; retrying cannot change that.
-    retry: (failureCount, error) => {
-      const status = dashboardRefusal(error)?.status;
-      return !(status !== undefined && status >= 400 && status < 500) && failureCount < 2;
-    },
   });
 }
 
