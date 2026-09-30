@@ -10249,7 +10249,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator()
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
     var hasVisibilityRevealRefreshScheduled = false
     var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
