@@ -3,15 +3,22 @@ import Foundation
 
 extension SurfaceResumeBindingSnapshot {
     /// Arms explicit in-memory observation for a restored process binding.
-    mutating func armRestoredProcessDetectionObservation(at now: ContinuousClock.Instant = .now) {
+    mutating func armRestoredProcessDetectionObservation() {
         guard isProcessDetected else { return }
         var observation = RestoredProcessDetectionObservation()
-        observation.arm(at: now)
+        observation.arm()
         restoredProcessDetectionObservation = observation
     }
 
+    /// Starts the bounded observation window once the restored runtime exists.
+    ///
+    /// - Returns: Whether the observation state changed.
+    mutating func recordRestoredRuntimeSpawn(at now: SuspendingClock.Instant = .now) -> Bool {
+        restoredProcessDetectionObservation?.recordRuntimeSpawn(at: now) == true
+    }
+
     /// Returns whether this binding remains protected from an empty process scan.
-    func preservesRestoredProcessDetection(at now: ContinuousClock.Instant = .now) -> Bool {
+    func preservesRestoredProcessDetection(at now: SuspendingClock.Instant = .now) -> Bool {
         isProcessDetected && restoredProcessDetectionObservation?.preserves(at: now) == true
     }
 

@@ -3,24 +3,33 @@ import Testing
 
 @Suite struct RestoredProcessDetectionObservationTests {
     @Test func armedLifecycleStatePreservesUntilCleared() {
-        let armedAt = ContinuousClock.now
         var observation = RestoredProcessDetectionObservation()
-        #expect(!observation.preserves(at: armedAt))
-        observation.arm(at: armedAt)
-        #expect(observation.preserves(at: armedAt))
+        #expect(!observation.preserves())
+        observation.arm()
+        #expect(observation.preserves())
         observation.clear()
-        #expect(!observation.preserves(at: armedAt))
+        #expect(!observation.preserves())
     }
 
-    @Test func observationExpiresWithoutEvidence() {
-        // A restored binding whose command never launches, or whose shell never
-        // reports a prompt transition, must not be protected from empty scans
-        // forever; after the window it retires like any unobserved binding.
-        let armedAt = ContinuousClock.now
+    @Test func observationWaitsForTheRuntimeSpawnBeforeItsWindowStarts() {
+        // A paced or unviewed restored terminal may spawn long after restore;
+        // its command cannot have run, so the window must not start early.
         var observation = RestoredProcessDetectionObservation()
-        observation.arm(at: armedAt)
+        observation.arm()
+        let spawnedAt = SuspendingClock.now.advanced(by: .seconds(3_600))
+        #expect(observation.preserves(at: spawnedAt))
+        #expect(observation.recordRuntimeSpawn(at: spawnedAt))
+        #expect(!observation.recordRuntimeSpawn(at: spawnedAt.advanced(by: .seconds(10))))
         let window = RestoredProcessDetectionObservation.observationWindow
-        #expect(observation.preserves(at: armedAt.advanced(by: window - .seconds(1))))
-        #expect(!observation.preserves(at: armedAt.advanced(by: window)))
+        #expect(observation.preserves(at: spawnedAt.advanced(by: window - .seconds(1))))
+        #expect(!observation.preserves(at: spawnedAt.advanced(by: window)))
+    }
+
+    @Test func aClearedObservationIgnoresALateSpawn() {
+        var observation = RestoredProcessDetectionObservation()
+        observation.arm()
+        observation.clear()
+        #expect(!observation.recordRuntimeSpawn())
+        #expect(!observation.preserves())
     }
 }

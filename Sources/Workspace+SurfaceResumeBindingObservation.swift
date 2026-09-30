@@ -7,6 +7,7 @@ extension Workspace {
     ) {
         guard surfaceResumeBindingIndex.isAvailable else { return }
         for panelId in panels.keys {
+            recordRestoredRuntimeSpawnIfNeeded(panelId: panelId)
             let initialStoredBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
             if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
@@ -126,6 +127,7 @@ extension Workspace {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
+        recordRestoredRuntimeSpawnIfNeeded(panelId: panelId)
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
         guard let surfaceResumeBindingIndex, surfaceResumeBindingIndex.isAvailable else {
             guard var storedBinding,
@@ -166,6 +168,16 @@ extension Workspace {
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
         return storedBinding
+    }
+
+    /// Starts a restored binding's observation window once its shell can run.
+    private func recordRestoredRuntimeSpawnIfNeeded(panelId: UUID) {
+        guard var binding = surfaceResumeBindingsByPanelId[panelId],
+              terminalPanel(for: panelId)?.surface.surface != nil,
+              binding.recordRestoredRuntimeSpawn() else {
+            return
+        }
+        surfaceResumeBindingsByPanelId[panelId] = binding
     }
 
 }

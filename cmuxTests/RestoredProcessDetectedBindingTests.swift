@@ -80,12 +80,15 @@ struct RestoredProcessDetectedBindingTests {
 
     @Test func anUnobservedRestoreBindingRetiresAfterTheObservationWindow() throws {
         // With no queued launch or prompt transition, nothing clears the
-        // observation; it must still expire so an empty scan can retire it.
-        let armedAt = ContinuousClock.now
+        // observation. It must still expire once the runtime has spawned so
+        // an empty scan can retire the stale binding.
         var pending = binding(kind: "tmux")
-        pending.armRestoredProcessDetectionObservation(at: armedAt)
-        let expired = armedAt.advanced(by: RestoredProcessDetectionObservation.observationWindow)
-        #expect(pending.preservesRestoredProcessDetection(at: armedAt))
+        pending.armRestoredProcessDetectionObservation()
+        let spawnedAt = SuspendingClock.now
+        #expect(pending.preservesRestoredProcessDetection(at: spawnedAt.advanced(by: .seconds(3_600))))
+        #expect(pending.recordRestoredRuntimeSpawn(at: spawnedAt))
+        let expired = spawnedAt.advanced(by: RestoredProcessDetectionObservation.observationWindow)
+        #expect(pending.preservesRestoredProcessDetection(at: spawnedAt))
         #expect(!pending.preservesRestoredProcessDetection(at: expired))
     }
 

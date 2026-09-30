@@ -30,6 +30,12 @@ extension DockSplitStore {
             ? index?.bindingForStablePanel(workspaceId: observationWorkspaceId, panelId: panelId)
             : nil
         let detectedIsAmbiguous = index?.isAvailable == true && index?.hasAmbiguousPanel(panelId) == true
+        if var restoredBinding = surfaceResumeBindingsByPanelId[panelId],
+           (panels[panelId] as? TerminalPanel)?.surface.surface != nil,
+           restoredBinding.recordRestoredRuntimeSpawn() {
+            // The observation window starts when the restored shell can run.
+            surfaceResumeBindingsByPanelId[panelId] = restoredBinding
+        }
         var stored = surfaceResumeBindingsByPanelId[panelId]
         if detected != nil {
             stored?.clearRestoredProcessDetectionObservation()
