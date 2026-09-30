@@ -64,6 +64,16 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// When enabled, native agent-session panels receive a cmux-owned,
+    /// per-session `TMPDIR` under `~/.local/state/cmux/agent-artifacts`.
+    /// This gives cmux a bounded ownership boundary for future retention and
+    /// cleanup without rewriting provider-owned transcript directories.
+    public let canonicalAgentScratch = DefaultsKey<Bool>(
+        id: "automation.canonicalAgentScratch",
+        defaultValue: false,
+        userDefaultsKey: "canonicalAgentScratchEnabled"
+    )
+
     // Several agent-integration toggles are intentionally exposed under both
     // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
     // with the same `userDefaultsKey`, so writes through either namespace land
