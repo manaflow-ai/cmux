@@ -145,6 +145,11 @@ public final class SettingsController {
             try await file.set(value, at: ["layout", key])
         } else {
             try await file.remove(["layout", key])
+            // The last pane key going back to its default takes the empty
+            // `layout` object with it.
+            if case .object(let members)? = try await file.value(at: ["layout"]), members.isEmpty {
+                try await file.remove(["layout"])
+            }
         }
     }
 
