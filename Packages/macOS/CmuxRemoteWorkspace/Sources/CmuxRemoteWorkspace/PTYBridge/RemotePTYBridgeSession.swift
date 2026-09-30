@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 internal import CmuxRemoteDaemon
 internal import Foundation
 internal import Network
@@ -173,7 +174,7 @@ extension RemotePTYBridgeServer {
             }
             guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any],
                   let receivedToken = payload["token"] as? String,
-                  receivedToken == token else {
+                  RemoteRelayAuthentication.constantTimeEqual(receivedToken, token) else {
                 close(detach: false)
                 return
             }

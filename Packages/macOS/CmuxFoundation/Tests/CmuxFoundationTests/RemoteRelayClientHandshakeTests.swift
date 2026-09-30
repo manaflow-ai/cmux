@@ -38,6 +38,22 @@ private final class FakeRelay {
 }
 
 @Suite
+struct RemoteRelayConstantTimeEqualTests {
+    @Test(arguments: [
+        ("token-abc", "token-abc", true),
+        ("token-abc", "token-abd", false),
+        ("token-abc", "token-ab", false),
+        ("token-abc", "token-abcd", false),
+        ("", "", true),
+        ("", "x", false),
+    ])
+    func comparesStrings(lhs: String, rhs: String, expected: Bool) {
+        #expect(RemoteRelayAuthentication.constantTimeEqual(lhs, rhs) == expected)
+        #expect(RemoteRelayAuthentication.constantTimeEqual(Data(lhs.utf8), Data(rhs.utf8)) == expected)
+    }
+}
+
+@Suite
 struct RemoteRelayClientHandshakeTests {
     private static let relayID = "relay-handshake-test"
     private static let token = Data((0..<32).map { UInt8($0) })
