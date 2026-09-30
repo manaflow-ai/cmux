@@ -1334,9 +1334,8 @@ jobs:
       # build could not get it, so asking at job start meant waiting glaeda's
       # 240 s for the same busy token and then being refused. glaeda's hook
       # gives this job none at job start (class gui-step); the token is taken
-      # here, after the product download and before the tests' restore takes
-      # the producer's canonical root (the order every GUI job takes them in),
-      # and held to the end of the job. An older hook gave the token at job
+      # here, after the product download and before the tests start, and held
+      # to the end of the job. An older hook gave the token at job
       # start, so take-gui returns 0 at once; one without take-gui exits 2.
       # Blacksmith has no helper.
       - name: Take this Mac's gui token
