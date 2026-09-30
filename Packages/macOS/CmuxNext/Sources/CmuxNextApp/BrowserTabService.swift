@@ -30,6 +30,10 @@ final class BrowserTabService {
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
+    /// True for a pane of an incognito window (the App sets it).
+    var isIncognitoPane: @MainActor (PaneID) -> Bool = { _ in false }
+    /// True for a tab of an incognito window, by tab id (the App sets it).
+    var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private(set) var openedSurfaces: Set<SurfaceID> = []
@@ -55,6 +59,12 @@ final class BrowserTabService {
         }
     }
 
+    /// The daemon record URL of an incognito tab.
+    static let incognitoPlaceholderURL = "about:blank"
+
+    /// The URL a new page of `tab` starts on.
+    func startURL(for tab: TabModel) -> String? { tab.url }
+
     func cefAvailable() -> Bool { cefUnavailable() == nil }
 
     /// Why Chromium cannot open a tab (localized), nil when it can.
@@ -76,7 +86,7 @@ final class BrowserTabService {
 
     /// Creates the daemon record for `choice` in `pane` and records a
     /// fallback against the new surface (its page shows the notice).
-    func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String) async throws -> SurfaceID {
+    func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil) async throws -> SurfaceID {
         let surface = try await create(pane, url, choice.engine)
         openedSurfaces.insert(surface)
         if let reason = choice.fallback {

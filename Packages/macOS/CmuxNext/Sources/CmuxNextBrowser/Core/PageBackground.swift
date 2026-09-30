@@ -16,6 +16,9 @@ nonisolated enum PageBackground {
         return url.absoluteString == "about:blank" || url.absoluteString.isEmpty
     }
 
+    /// Whether a new page starts on the theme color.
+    static func startsWithTheme(openedByPage: Bool) -> Bool { true }
+
     /// `Palette.pageBackground` as opaque 0xAARRGGBB, the form
     /// `CefBrowserSettings.background_color` takes.
     @MainActor static var themeARGB: UInt32 {

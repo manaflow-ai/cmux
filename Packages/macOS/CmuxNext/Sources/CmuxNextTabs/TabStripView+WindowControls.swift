@@ -24,6 +24,14 @@ extension TabStripView {
         return max(0, (clear * 2).rounded(.up) / 2)
     }
 
+    /// Leading points a strip at `strip` (window coordinates) keeps clear of
+    /// the traffic lights and the window's titlebar accessory (pure).
+    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat) -> CGFloat {
+        guard let lights, strip.minY < lights.maxY, strip.maxY > lights.minY, strip.minX < lights.maxX, strip.maxX > lights.minX else { return 0 }
+        let clear = lights.maxX + Metrics.space3 - strip.minX - padding
+        return max(0, (clear * 2).rounded(.up) / 2)
+    }
+
     /// Whether empty strip space acts as a titlebar right now.
     var actsAsTitlebar: Bool {
         dragsWindowFromEmptySpace && WindowTitlebar.isInTopRow(self)
