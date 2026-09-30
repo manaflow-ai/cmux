@@ -22,7 +22,8 @@ Relay callers see only what they need. `notification.create_for_target` takes no
 `reply_shape`, and the app delivers it with the relay origin, no reply and the
 remote destination in the title. `workspace.remote.status` and the
 `terminal_session_*` lifecycle methods return only `enabled`, `state` and
-`connected` in `remote` for a relay caller.
+`connected` in `remote` for a relay caller, and omit `window_id` and
+`window_ref`.
 
 ## Checklist
 
