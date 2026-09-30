@@ -88,6 +88,7 @@ extension SidebarListView {
 
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
+        if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
 

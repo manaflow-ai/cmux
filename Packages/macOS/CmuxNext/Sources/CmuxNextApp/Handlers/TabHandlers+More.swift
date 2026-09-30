@@ -39,7 +39,7 @@ extension TabHandlers {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
                     return "move-tab-to-new-workspace failed (see the app log)"
                 }
-                if let state = ctx.services.windows.active?.state { ctx.services.windows.show(workspaceID: key.rawValue, in: state) }
+                if let state = ctx.services.windows.active?.state { ctx.services.windows.claim(workspaceID: key.rawValue, in: state) }
                 return nil
             })
         })
@@ -47,7 +47,7 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
             Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else { return }
-                ctx.services.windows.open(record: nil, workspaceID: key.rawValue)
+                ctx.services.windows.openWindow(workspaces: [key.rawValue])
             }
         })
     }

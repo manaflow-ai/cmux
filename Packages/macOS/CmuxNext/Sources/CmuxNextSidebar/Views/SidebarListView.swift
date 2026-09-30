@@ -33,6 +33,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     var rename: Rename?
     var autoscrollLink: CADisplayLink?
     var external: ExternalDrag?
+    /// Offered a row drag whose pointer left the sidebar sideways (another
+    /// window, outside every window); true takes it over.
+    var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
 
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)

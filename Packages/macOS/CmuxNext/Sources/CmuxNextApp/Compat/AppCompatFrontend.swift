@@ -56,8 +56,13 @@ final class AppCompatFrontend: CompatFrontend {
             if let pane = controller.content?.panes.values.first(where: { $0.paneKey == paneID }) { pane.select(StripTabID(tabID)) }
             services.windows.stateDidChange(controller.state)
         case .newWindow(let workspaceID):
-            let id = workspaceID ?? services.windows.active?.state.workspaceID ?? services.daemon.store.workspaces.first?.id
-            let controller = services.windows.open(record: nil, workspaceID: id)
+            // A window lists its own workspaces: a given workspace moves
+            // into the new window; without one the window gets a new
+            // workspace (opening once the daemon created it).
+            guard let workspaceID else { return ["window_id": .string(services.windows.newWindow())] }
+            guard let controller = services.windows.openWindow(workspaces: [workspaceID]) else {
+                throw ControlError(code: "not_found", message: "Workspace not found: \(workspaceID)")
+            }
             return ["window_id": .string(controller.state.id)]
         case .focusWindow(let windowID):
             let controller = try window(windowID)
@@ -78,8 +83,9 @@ final class AppCompatFrontend: CompatFrontend {
         return controller
     }
 
-    /// Shows `workspaceID` in the named window, else the active one, else a
-    /// new window. Returns the window.
+    /// Shows `workspaceID` in the named window (which takes it), else in the
+    /// window that lists it, else the active one, else a new window.
+    /// Returns the window.
     @discardableResult
     private func show(workspaceID: String, windowID: String?) throws -> WindowController {
         guard services.workspace(id: workspaceID) != nil else {
@@ -87,14 +93,13 @@ final class AppCompatFrontend: CompatFrontend {
         }
         if let windowID {
             let controller = try window(windowID)
-            services.windows.show(workspaceID: workspaceID, in: controller.state)
+            services.windows.claim(workspaceID: workspaceID, in: controller.state)
             return controller
         }
-        if let controller = services.windows.active {
-            services.windows.show(workspaceID: workspaceID, in: controller.state)
-            return controller
+        guard let controller = services.windows.reveal(workspaceID: workspaceID) else {
+            throw ControlError(code: "not_found", message: "Workspace not found: \(workspaceID)")
         }
-        return services.windows.open(record: nil, workspaceID: workspaceID)
+        return controller
     }
 
     /// Records the focus (applied when the window's content switches to the

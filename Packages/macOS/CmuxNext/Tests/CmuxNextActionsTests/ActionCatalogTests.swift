@@ -64,7 +64,7 @@ import Testing
     /// `ActionCatalog+Layout.swift` (26 pane/column/screen, 6 tab, 10 terminal).
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 22,
-        .workspace: 79,
+        .workspace: 80,
         .pane: 72,
         .tab: 71,
         .terminal: 33,

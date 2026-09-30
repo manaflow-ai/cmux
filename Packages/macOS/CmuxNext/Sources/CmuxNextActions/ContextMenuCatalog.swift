@@ -86,7 +86,7 @@ public enum ContextMenuCatalog {
                 "palette.workspaceColor", "palette.resetWorkspaceColor", "palette.toggleWorkspacePin",
                 "palette.markWorkspaceRead", "palette.markWorkspaceUnread")
         + [.separator]
-        + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow",
+        + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
                   "moveWorkspaceToGroup", "removeWorkspaceFromGroup")
         + [.separator]
         + actions("reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "palette.copyWorkspaceID",

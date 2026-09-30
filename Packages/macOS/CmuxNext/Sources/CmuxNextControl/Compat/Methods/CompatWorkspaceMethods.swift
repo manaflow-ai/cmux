@@ -14,14 +14,16 @@ enum CompatWorkspaceMethods {
         "workspace.next": .async({ call in try await step(call, by: 1) }),
         "workspace.previous": .async({ call in try await step(call, by: -1) }),
         "workspace.reorder": .async(reorder),
+        "workspace.move_to_window": .async(moveToWindow),
     ]
 
     static func list(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
         let window = try call.target(world).window()
         var result = CompatJSON.ids(window: window, include: ["window"])
-        result["workspaces"] = .array(world.workspaces.map {
-            .object(CompatJSON.workspace($0, selected: $0.uuid == (window?.workspaceUUID ?? world.workspaces.first?.uuid), in: world))
+        let listed = world.workspaces(in: window)
+        result["workspaces"] = .array(listed.map {
+            .object(CompatJSON.workspace($0, selected: $0.uuid == (window?.workspaceUUID ?? listed.first?.uuid), in: world))
         })
         return .object(result)
     }
@@ -82,6 +84,19 @@ enum CompatWorkspaceMethods {
         return .object(CompatJSON.ids(window: shownIn, workspace: workspace))
     }
 
+    /// Moves a workspace into `window_id`'s sidebar (each workspace belongs
+    /// to one window) and shows it there.
+    static func moveToWindow(_ call: CompatCall) async throws -> JSON {
+        let world = try await call.world()
+        let missing = { (name: String) in CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", name)) }
+        guard let raw = call.string("workspace_id") else { throw missing("workspace_id") }
+        guard let rawWindow = call.string("window_id") else { throw missing("window_id") }
+        let workspace = try world.resolveWorkspace(raw, refs: call.service.refs)
+        let window = try world.resolveWindow(rawWindow, refs: call.service.refs)
+        try await call.perform(.showWorkspace(workspaceID: workspace.modelID, windowID: window.modelID))
+        return .object(CompatJSON.ids(window: window, workspace: workspace))
+    }
+
     static func close(_ call: CompatCall) async throws -> JSON {
         let world = try await call.world()
         guard let raw = call.string("workspace_id") else { throw CompatErrors.invalid(ControlStrings.format("control.error.missingOrInvalidParam", "Missing or invalid %@", "workspace_id")) }
@@ -110,11 +125,11 @@ enum CompatWorkspaceMethods {
     static func step(_ call: CompatCall, by offset: Int) async throws -> JSON {
         let world = try await call.world()
         let window = try call.target(world).window()
-        guard let current = world.currentWorkspace(window: window), !world.workspaces.isEmpty else {
+        let peers = world.workspaces(in: window)
+        guard let current = world.currentWorkspace(window: window), let position = peers.firstIndex(where: { $0.uuid == current.uuid }) else {
             throw CompatErrors.notFound("workspace", "selected")
         }
-        let count = world.workspaces.count
-        let next = world.workspaces[((current.index + offset) % count + count) % count]
+        let next = peers[((position + offset) % peers.count + peers.count) % peers.count]
         try await call.perform(.showWorkspace(workspaceID: next.modelID, windowID: window?.modelID))
         return .object(CompatJSON.ids(window: window, workspace: next))
     }

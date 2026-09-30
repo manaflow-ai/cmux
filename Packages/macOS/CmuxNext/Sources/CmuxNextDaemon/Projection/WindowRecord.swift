@@ -27,6 +27,10 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var id: String
     /// Workspace this window shows (durable key).
     public var workspaceKey: WorkspaceKey?
+    /// Every workspace this window's sidebar lists, in order. Each workspace
+    /// belongs to exactly one window. Empty in records from older builds,
+    /// where every window listed every workspace.
+    public var workspaceKeys: [WorkspaceKey]
     /// Machine whose daemon holds that workspace: nil for the local daemon,
     /// else a Cloud machine id. Lets a window wait for its machine to
     /// reconnect after relaunch instead of falling back to a local workspace.
@@ -35,32 +39,43 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var screenID: ResourceID?
     /// Screen coordinates (AppKit, bottom-left origin).
     public var frame: WindowFrame?
+    /// Display UUID the window was on, to re-place it when the frame is off
+    /// every connected screen.
+    public var display: String?
     public var isFullScreen: Bool
     public var sidebarWidth: Double?
     public var sidebarCollapsed: Bool
+    /// The window's screen switcher is shown.
+    public var showsScreenSwitcher: Bool
     /// Selected tab per pane (pane resource id -> tab resource id).
     public var selectedTabs: [String: String]
     /// Front-to-back order key; lower is further front.
     public var order: Int
 
-    public init(id: String, workspaceKey: WorkspaceKey? = nil, machine: String? = nil, screenID: ResourceID? = nil, frame: WindowFrame? = nil,
-                isFullScreen: Bool = false, sidebarWidth: Double? = nil, sidebarCollapsed: Bool = false,
+    public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
+                screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
+                sidebarWidth: Double? = nil, sidebarCollapsed: Bool = false, showsScreenSwitcher: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0) {
         self.id = id
         self.workspaceKey = workspaceKey
+        self.workspaceKeys = workspaceKeys
         self.machine = machine
         self.screenID = screenID
         self.frame = frame
+        self.display = display
         self.isFullScreen = isFullScreen
         self.sidebarWidth = sidebarWidth
         self.sidebarCollapsed = sidebarCollapsed
+        self.showsScreenSwitcher = showsScreenSwitcher
         self.selectedTabs = selectedTabs
         self.order = order
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, frame, order, machine
+        case id, frame, order, machine, display
         case workspaceKey = "workspace_key"
+        case workspaceKeys = "workspace_keys"
+        case showsScreenSwitcher = "shows_screen_switcher"
         case screenID = "screen_id"
         case isFullScreen = "full_screen"
         case sidebarWidth = "sidebar_width"
@@ -72,6 +87,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         workspaceKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .workspaceKey)
+        workspaceKeys = try c.decodeIfPresent([WorkspaceKey].self, forKey: .workspaceKeys) ?? []
+        display = try c.decodeIfPresent(String.self, forKey: .display)
+        showsScreenSwitcher = try c.decodeIfPresent(Bool.self, forKey: .showsScreenSwitcher) ?? false
         machine = try c.decodeIfPresent(String.self, forKey: .machine)
         screenID = try c.decodeIfPresent(ResourceID.self, forKey: .screenID)
         frame = try c.decodeIfPresent(WindowFrame.self, forKey: .frame)
