@@ -8,17 +8,10 @@ MODE="${1:-write}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-diff-types.XXXXXX")"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-normalize_generated() {
-  local directory="$1"
-  find "$directory" -type f -name '*.ts' -print0 \
-    | xargs -0 perl -pi -e 's/[ \t]+$//'
-}
-
 TS_RS_EXPORT_DIR="$TEMP_DIR" TS_RS_LARGE_INT=number \
   "$ROOT/scripts/run-diff-sidecar-cargo.sh" run --quiet --locked --manifest-path "$CRATE" --bin generate_types
 
 if [[ "$MODE" == "--check" ]]; then
-  normalize_generated "$TEMP_DIR"
   diff -ru "$OUTPUT_DIR" "$TEMP_DIR"
   exit 0
 fi
@@ -29,4 +22,3 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 rsync -a --delete "$TEMP_DIR/" "$OUTPUT_DIR/"
-normalize_generated "$OUTPUT_DIR"
