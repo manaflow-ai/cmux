@@ -47,6 +47,8 @@ map_hosts() {
   local budget="${1:-300}" deadline ip=""
   local peer="${CMUX_E2E_BACKEND_TAILNET_HOSTNAME:?CMUX_E2E_BACKEND_TAILNET_HOSTNAME is required}"
   deadline=$(( $(date +%s) + budget ))
+  # `tailscale ip` accepts a peer or service hostname as its final argument;
+  # resolve through Tailscale so the ACL's ephemeral backend name is enough.
   until ip="$(tailscale ip -4 "$peer" 2>/dev/null)" && [[ -n "$ip" ]]; do
     if (( $(date +%s) >= deadline )); then
       echo "::error::[infra-preflight] backend runner $peer never joined the tailnet (backend job log has the cause)" >&2

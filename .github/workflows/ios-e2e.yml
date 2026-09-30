@@ -310,7 +310,7 @@ jobs:
       success()
       && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
@@ -391,7 +391,7 @@ jobs:
       contents: read
       actions: read
     outputs:
-      label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      label: ${{ steps.pool.outputs.label }}
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
@@ -500,7 +500,7 @@ jobs:
       success()
       && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
       CMUX_E2E_TAG: ${{ needs.route.outputs.backend_tag }}
@@ -567,7 +567,7 @@ jobs:
       success()
       && needs.route.outputs.run_clients == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     environment: ios-e2e
     permissions:
@@ -653,7 +653,7 @@ jobs:
           # into both apps by the reload scripts. web/ is not on the path under
           # test: its side paths (device registry, push, What's New, the Mac
           # compatibility policy, the legacy broker) use shared staging.
-          ./scripts/e2e/backend-env.sh env >> "$GITHUB_ENV"
+          ./scripts/e2e/backend-env.sh env --simctl >> "$GITHUB_ENV"
           {
             echo "CMUX_DEV_BACKEND_MODE=local"
             echo "CMUX_DEV_API_BASE_URL=https://cmux-staging.vercel.app"
