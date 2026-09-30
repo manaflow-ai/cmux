@@ -739,17 +739,18 @@ final class SidebarHeaderGlyphButton: NSButton {
 
 /// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
 /// the shadow while the inner view clips its fill to the capsule; putting both
-/// on one unclipped layer squares it off. The fill is Liquid Glass tinted
-/// with ``ShortcutHintPalette/glassTint(for:)`` where `NSGlassEffectView`
-/// exists (macOS 26), the opaque palette background before that. The glass
-/// class is looked up at runtime so the file still builds with Swift 6.0.
+/// on one unclipped layer squares it off. Where `NSGlassEffectView` exists
+/// (macOS 26) a glass capsule shows as a ``ShortcutHintPalette/glassRimWidth``
+/// rim around the opaque center; before that the opaque fill carries a border.
+/// The glass class is looked up at runtime so the file still builds with
+/// Swift 6.0.
 @MainActor
 final class SidebarShortcutHintPillView: NSView {
     private static let horizontalPadding: CGFloat = 4
     private static let visibilityAnimationKey = "shortcutHintVisibility"
 
-    private let materialView: NSView
-    private let usesGlass: Bool
+    private let glassView: NSView?
+    private let fillView = NSView()
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
     private var emphasis: Double = 1.0
@@ -763,27 +764,23 @@ final class SidebarShortcutHintPillView: NSView {
         }
     ) {
         self.reduceMotionProvider = reduceMotionProvider
-        if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
-            materialView = glassClass.init(frame: .zero)
-            usesGlass = true
-        } else {
-            materialView = NSView()
-            usesGlass = false
-        }
+        glassView = (NSClassFromString("NSGlassEffectView") as? NSView.Type)?.init(frame: .zero)
         super.init(frame: .zero)
         wantsLayer = true
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 2
         layer?.shadowOffset = CGSize(width: 0, height: -1)
 
-        materialView.wantsLayer = true
-        materialView.layer?.masksToBounds = true
-        materialView.layer?.borderWidth = 0.8
-        addSubview(materialView)
+        if let glassView {
+            addSubview(glassView)
+        }
+        fillView.wantsLayer = true
+        fillView.layer?.masksToBounds = true
+        fillView.layer?.borderWidth = glassView == nil ? 0.8 : 0
+        addSubview(fillView)
 
         label.alignment = .center
         label.lineBreakMode = .byClipping
-        // A sibling above the fill, so glass never re-renders or dims the text.
         addSubview(label)
         layer?.opacity = 0
         isHidden = true
@@ -810,15 +807,8 @@ final class SidebarShortcutHintPillView: NSView {
         label.stringValue = text
         label.font = .monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold)
         label.textColor = ShortcutHintPalette.foreground(for: colorScheme)
-        if usesGlass {
-            let tintSelector = NSSelectorFromString("setTintColor:")
-            if materialView.responds(to: tintSelector) {
-                materialView.perform(tintSelector, with: ShortcutHintPalette.glassTint(for: colorScheme))
-            }
-        } else {
-            materialView.layer?.backgroundColor = ShortcutHintPalette.background(for: colorScheme).cgColor
-        }
-        materialView.layer?.borderColor = ShortcutHintPalette.border(for: colorScheme).cgColor
+        fillView.layer?.backgroundColor = ShortcutHintPalette.background(for: colorScheme).cgColor
+        fillView.layer?.borderColor = ShortcutHintPalette.border(for: colorScheme).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22 * emphasis).cgColor
         setRevealed(true, animated: !identityChanged)
     }
@@ -835,10 +825,15 @@ final class SidebarShortcutHintPillView: NSView {
     override func layout() {
         super.layout()
         let radius = bounds.height / 2
-        materialView.frame = bounds
-        materialView.layer?.cornerRadius = radius
-        if usesGlass {
-            materialView.setValue(radius, forKey: "cornerRadius")
+        if let glassView {
+            glassView.frame = bounds
+            glassView.setValue(radius, forKey: "cornerRadius")
+            let rim = ShortcutHintPalette.glassRimWidth
+            fillView.frame = bounds.insetBy(dx: rim, dy: rim)
+            fillView.layer?.cornerRadius = radius - rim
+        } else {
+            fillView.frame = bounds
+            fillView.layer?.cornerRadius = radius
         }
         label.frame = bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
         layer?.shadowPath = CGPath(
