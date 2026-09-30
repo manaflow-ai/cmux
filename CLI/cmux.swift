@@ -4343,6 +4343,18 @@ struct CMUXCLI {
     }
 
     static let claudeCodeStatusKey = "claude_code"
+    /// The SF Symbol a running-with-subagents row shows: several connected
+    /// points, distinct from the git-branch symbol the sidebar already uses.
+    static let subagentsStatusIcon = "point.3.filled.connected.trianglepath.dotted"
+
+    /// Whether a PreToolUse tool name is Claude Code's subagent spawn.
+    /// Claude Code renamed the spawn tool "Task" -> "Agent" (2.x); both names
+    /// remain on the wire depending on CLI version, so both must count (see
+    /// `AgentChatSessionRegistry.isTaskSpawn`, which says the same thing for
+    /// the mobile child-run tracker).
+    static func spawnsSubagents(toolName: String?) -> Bool {
+        toolName == "Task" || toolName == "Agent"
+    }
 
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
@@ -6821,7 +6833,8 @@ struct CMUXCLI {
             guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(windowID)", client: client)
+            let force = commandArgs.contains("--force")
+            let response = try sendV1Command("close_window \(windowID)\(force ? " --force" : "")", client: client)
             print(response)
 
         case "resize-window":
@@ -7337,6 +7350,7 @@ struct CMUXCLI {
                 sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             }
             if let sfId { params["surface_id"] = sfId }
+            params["force"] = commandArgs.contains("--force")
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
@@ -7558,6 +7572,22 @@ struct CMUXCLI {
                 includeContextInPlainOutput: true
             )
 
+        case "record":
+            try runRecordCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
+        case "shot", "screenshot":
+            try runShotCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
+
         case "read-screen":
             let selectionOnly = commandArgs.contains("--selection")
             if selectionOnly {
@@ -7678,6 +7708,17 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let keyArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
+            if keyArgs.count > 1 {
+                let trailing = keyArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key",
+                    trailing
+                ))
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7722,6 +7763,17 @@ struct CMUXCLI {
             let skpArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
+            if skpArgs.count > 1 {
+                let trailing = skpArgs.dropFirst().joined(separator: " ")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    "send-key-panel",
+                    trailing
+                ))
+            }
             var params: [String: Any] = ["key": key]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -10445,7 +10497,7 @@ struct CMUXCLI {
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
 
-        var positional = rem5
+        var positional = rem5.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10509,6 +10561,7 @@ struct CMUXCLI {
         if let description, !description.isEmpty {
             params["description"] = description
         }
+        params["force"] = commandArgs.contains("--force")
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10546,7 +10599,7 @@ struct CMUXCLI {
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (windowOpt, rem7) = parseOption(rem6, name: "--window")
 
-        var positional = rem7
+        var positional = rem7.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -10611,6 +10664,7 @@ struct CMUXCLI {
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        params["force"] = commandArgs.contains("--force")
         try applyTabActionFocusOption(focusOpt, to: &params)
         let payload = try client.sendV2(method: "tab.action", params: params)
         var summaryParts = ["OK", "action=\(action)"]
@@ -10921,10 +10975,12 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        let force = commandArgs.contains("--force")
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
+        if force { params["force"] = true }
         let payload = try client.sendV2(method: "workspace.close", params: params)
         if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
             try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
@@ -12239,7 +12295,8 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
-                sshFallbackCommand: initialSSHStartupCommand
+                sshFallbackCommand: initialSSHStartupCommand,
+                sshFallbackLauncherPaths: launchScripts.unlaunchedPaths
             )
             remoteTerminalSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
@@ -19424,12 +19481,13 @@ struct CMUXCLI {
             """
         case "close-window":
             return """
-            Usage: cmux close-window --window <id|ref|index>
+            Usage: cmux close-window --window <id|ref|index> [--force]
 
             Close the specified window.
 
             Flags:
               --window <id|ref|index>   Window to close (required)
+              --force                   Close even when live processes would be terminated
 
             Example:
               cmux close-window --window 0
@@ -19601,6 +19659,7 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --force                      Close even when a live process would be killed
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -19640,6 +19699,7 @@ struct CMUXCLI {
               --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
+              --force                      Close even when a live process would be killed
 
             Example:
               cmux tab-action --tab tab:3 --action pin
@@ -20106,6 +20166,7 @@ struct CMUXCLI {
               --panel <id|ref|index>      Alias for --surface
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
+              --force                     Close even when a live process would be killed
 
             Example:
               cmux close-surface
@@ -20528,6 +20589,10 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "record":
+            return Self.recordHelp
+        case "shot", "screenshot":
+            return Self.shotHelp
         case "paste":
             return Self.pasteHelp
         case "send":
@@ -28578,9 +28643,11 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
-                // blocked once. That flag describes hook recursion, not work
-                // still running; only authoritative background-work signals
-                // should keep the sidebar in Running.
+                // blocked once. That flag describes hook recursion, not pending
+                // work: it must not mark the turn pending, but it does keep the
+                // sidebar pill in Running. Only authoritative background-work
+                // signals mark the turn pending and show Waiting.
+                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -28640,18 +28707,34 @@ struct CMUXCLI {
                 )
                 if let stopFailure {
                     try? setClaudeStopFailureStatus(stopFailure, client: client, workspaceId: workspaceId, surfaceId: surfaceId)
-                } else if hasUnsettledWork {
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
                     // generic-agent status strings so the pill stays localized.
+                    //
+                    // A background task or cron is a deterministic wakeup the pane
+                    // is parked on, which reads as Waiting. A re-entrant Stop
+                    // (`stop_hook_active`) keeps the pill on Running separately
+                    // because it does not represent pending background work.
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.waiting", defaultValue: "Waiting"),
+                        icon: "hourglass",
+                        color: "#8E8E93",
+                        workState: .waiting
+                    )
+                } else if isReentrantStop {
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        color: "#4C8DFF",
+                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -28846,7 +28929,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                workState: .running
             )
             printClaudeHookAck()
 
@@ -29541,10 +29625,28 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
 
+            // A spawn call blocks the parent inside the tool until its
+            // subagents finish, so no other parent hook can fire meanwhile:
+            // the subagent state holds for exactly that span, and the next
+            // parent PreToolUse or Stop clears it. No counter to drift.
+            let runsSubagents = Self.spawnsSubagents(
+                toolName: parsedInput.object?["tool_name"] as? String
+            )
+            let waits = Self.waitsOnDeterministicEvent(
+                toolName: parsedInput.object?["tool_name"] as? String,
+                toolInput: parsedInput.object?["tool_input"]
+            )
             let statusValue: String
-            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
-               let toolStatus = describeToolUse(parsedInput.object) {
+            if waits {
+                statusValue = String(localized: "agent.generic.status.waiting", defaultValue: "Waiting")
+            } else if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+                      let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
+            } else if runsSubagents {
+                statusValue = String(
+                    localized: "agent.generic.status.runningSubagents",
+                    defaultValue: "Running subagents"
+                )
             } else {
                 statusValue = "Running"
             }
@@ -29553,9 +29655,10 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
-                icon: "bolt.fill",
+                icon: runsSubagents ? Self.subagentsStatusIcon : (waits ? "hourglass" : "bolt.fill"),
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                workState: runsSubagents ? .subagents : (waits ? .waiting : .running)
             )
             printClaudeHookAck()
 
@@ -31476,6 +31579,8 @@ struct CMUXCLI {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
 
+            // Taken before the reads, so a write after them wakes the wait below.
+            let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
@@ -31579,7 +31684,8 @@ struct CMUXCLI {
             waitForCodexTranscriptChange(
                 path: transcriptPath,
                 leasePath: leasePath,
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining)
+                timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
+                observedState: observedTranscriptState
             )
         }
         return nil
@@ -40917,6 +41023,7 @@ export default {
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
+            "_cmux_ordered_hook": true,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
         if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
@@ -41006,11 +41113,24 @@ export default {
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        // Codex progress hooks must use the ordered request lane so the host
+        // can retire the prompt only after this event is accepted. Detached
+        // wrapper telemetry does not carry this marker or send stamp.
+        let isOrderedCodexProgress = source == "codex" && !isActionable && [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if isOrderedCodexProgress {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
