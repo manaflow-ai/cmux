@@ -262,7 +262,7 @@ jobs:
     # lifetime after the one-hour workload.  Keep enough room for the hosted
     # build, simulator setup, artifact upload, and runner cleanup so a passing
     # report is not converted into a cancelled job at the hard deadline.
-    timeout-minutes: 145
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
