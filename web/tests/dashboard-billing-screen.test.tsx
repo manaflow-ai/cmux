@@ -71,7 +71,12 @@ mock.module("next-intl", () => ({
     }),
 }));
 
+// bun's mock.module is process-global: carry every real export so a later
+// suite file in the same shard (dashboard-layout imports the purchase
+// service) still finds promoteStackUserFromAnonymousViaApi and the rest.
+const realStack = await import("../app/lib/stack");
 mock.module("../app/lib/stack", () => ({
+  ...realStack,
   getStackServerApp: () => ({ getUser: async () => currentUser }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,

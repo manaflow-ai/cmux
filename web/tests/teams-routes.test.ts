@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AuthedUser } from "../services/vms/auth";
 import { ADMIN_ID, MEMBER_ID, MemoryInviteStore, noLock, OUTSIDER_ID, standardTeam, TEAM_ID, type FakeStack } from "./teams-fixture";
 
@@ -51,15 +51,6 @@ mock.module("../services/billing/pro", () => ({
   ...realPro,
   hasActiveTeamSubscriptionForTeam: async () => activeSubscription,
 }));
-
-// bun's mock.module is process-global: later suite files (billing-team-routes
-// reads the real plan resolver) must see the real modules again.
-afterAll(() => {
-  mock.module("../services/vms/auth", () => realAuth);
-  mock.module("../services/teams/repository", () => realRepository);
-  mock.module("../services/teams/seatSync", () => realSeatSync);
-  mock.module("../services/billing/pro", () => realPro);
-});
 
 const teamsRoute = await import("../app/api/teams/route");
 const teamRoute = await import("../app/api/teams/[teamId]/route");
