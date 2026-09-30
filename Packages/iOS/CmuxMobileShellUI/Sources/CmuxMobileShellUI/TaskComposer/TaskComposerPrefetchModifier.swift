@@ -5,6 +5,7 @@ import SwiftUI
 struct TaskComposerPrefetchModifier: ViewModifier {
     let store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
+    @State private var targetChangePrefetchTask: Task<Void, Never>?
 
     private var prefetchTargets: [MobileTaskModelPrefetchTarget] {
         store.taskModelPrefetchTargets
@@ -30,9 +31,18 @@ struct TaskComposerPrefetchModifier: ViewModifier {
                 oldTargetsByPairing[pairingKey(for: $0)] != $0
             }
             guard !changedTargets.isEmpty else { return }
-            Task { @MainActor in
+            targetChangePrefetchTask?.cancel()
+            targetChangePrefetchTask = Task { @MainActor in
                 await store.prefetchTaskModels(for: changedTargets)
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            targetChangePrefetchTask?.cancel()
+            targetChangePrefetchTask = nil
+        }
+        .onDisappear {
+            targetChangePrefetchTask?.cancel()
         }
     }
 }
