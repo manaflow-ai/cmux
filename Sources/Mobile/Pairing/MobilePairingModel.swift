@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileHost
 import Foundation
 import Observation
 
@@ -96,7 +97,9 @@ final class MobilePairingModel {
     }
 
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { updatePreparationDeadline() }
+    }
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
     /// Exact iOS apps this Mac build can intentionally address.
@@ -105,15 +108,24 @@ final class MobilePairingModel {
     private(set) var selectedIOSAppTarget: MobileIOSAppTarget
 
     private let host: MobileHostService
+    private let coordinatorOverride: AuthCoordinator?
+    private let isListeningEnabled: @MainActor () -> Bool
     private let ticketTTL: TimeInterval
     private let iosAppTargetStore: MobileIOSPairingTargetStore
     /// Observes host status while a code is shown and tracks new connections.
     /// Cancelled on each refresh.
-    private var connectionObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionObservationTask: Task<Void, Never>?
+    /// Observes the coordinator's team-scope stream while the sheet is open.
+    /// Kept separate from host status observation so the recovery refresh stays
+    /// owned and cancellable for the entire sheet lifetime.
+    @ObservationIgnored private var teamScopeRecoveryTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
     private var refreshGeneration = 0
+    private let preparationClock: any Clock<Duration>
+    private let preparationTimeout: Duration
+    @ObservationIgnored var preparationTimeoutTask: Task<Void, Never>?
 
     /// Creates a pairing model.
     ///
@@ -126,9 +138,20 @@ final class MobilePairingModel {
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
     ///     side effect; the displayed Tailscale QR carries no token and never
     ///     expires.
-    init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
+    init(
+        host: MobileHostService? = nil,
+        coordinator: AuthCoordinator? = nil,
+        isListeningEnabled: @escaping @MainActor () -> Bool = { MobileHostService.isListeningEnabled },
+        ticketTTL: TimeInterval = 600,
+        preparationClock: any Clock<Duration> = ContinuousClock(),
+        preparationTimeout: Duration = .seconds(30)
+    ) {
         self.host = host ?? .shared
+        self.coordinatorOverride = coordinator
+        self.isListeningEnabled = isListeningEnabled
         self.ticketTTL = ticketTTL
+        self.preparationClock = preparationClock
+        self.preparationTimeout = preparationTimeout
         let targetStore = MobileIOSPairingTargetStore()
         iosAppTargetStore = targetStore
         let targets = targetStore.availableNamespaces.map { namespace in
@@ -146,7 +169,13 @@ final class MobilePairingModel {
         } ?? targets[0]
     }
 
-    private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
+    deinit {
+        connectionObservationTask?.cancel()
+        teamScopeRecoveryTask?.cancel()
+        preparationTimeoutTask?.cancel()
+    }
+
+    private var coordinator: AuthCoordinator? { coordinatorOverride ?? AppDelegate.shared?.auth?.coordinator }
 
     /// Selects one exact iOS app for legacy compatibility previews.
     func selectIOSAppTarget(_ target: MobileIOSAppTarget) async {
@@ -168,8 +197,16 @@ final class MobilePairingModel {
     /// Re-evaluates sign-in and pairing opt-in before starting the v2 listener.
     /// Safe to call repeatedly when auth or settings change.
     func refresh() async {
+        await refresh(cancelTeamScopeRecovery: true)
+    }
+
+    private func refresh(cancelTeamScopeRecovery: Bool) async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        if cancelTeamScopeRecovery {
+            teamScopeRecoveryTask?.cancel()
+            teamScopeRecoveryTask = nil
+        }
         refreshGeneration &+= 1
         let generation = refreshGeneration
         state = .loading
@@ -182,19 +219,46 @@ final class MobilePairingModel {
             )
             return
         }
+        // Enter the bounded state before waiting for auth restoration. A host
+        // whose bootstrap never completes must not leave the pairing sheet in
+        // an indefinite loading spinner.
+        state = .preparing
         await coordinator.awaitBootstrapped()
-        guard generation == refreshGeneration else { return }
+        // The preparation deadline limits the spinner, not this refresh's
+        // authority. Auth can finish later, or still need recovery observation.
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
             return
         }
         signedInEmail = coordinator.currentUser?.primaryEmail
-        guard MobileHostService.isListeningEnabled else {
+        guard isListeningEnabled() else {
             state = .pairingDisabled
             return
         }
-        state = .preparing
+        // The host starts only for a signed-in team scope. A session whose
+        // team list has not loaded retries in the background; opening the
+        // sheet or pressing Try Again retries now instead of waiting.
+        if coordinator.authenticatedTeamScope == nil {
+            await coordinator.revalidateSession()
+            guard generation == refreshGeneration, !Task.isCancelled else { return }
+            guard coordinator.isAuthenticated else {
+                signedInEmail = nil
+                state = .signedOut
+                return
+            }
+            guard coordinator.authenticatedTeamScope != nil else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.teamUnavailable",
+                        defaultValue: "Could not load your cmux team. Check your internet connection, then try again."
+                    )
+                )
+                observeTeamScopeRecovery(coordinator)
+                return
+            }
+        }
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
@@ -205,10 +269,13 @@ final class MobilePairingModel {
                     defaultValue: "Could not start the pairing listener on this Mac."
                 )
             )
+            // The runtime keeps retrying its own setup. Keep watching so the
+            // sheet turns ready when it does, without Try Again.
+            observeHostStatus()
             return
         }
-        guard generation == refreshGeneration else { return }
-        state = Self.v2StatusTransition(status, baselineConnectionCount: status.activeConnectionCount)
+        guard generation == refreshGeneration, !Task.isCancelled else { return }
+        receiveHostStatus(status, baselineConnectionCount: status.activeConnectionCount)
         observeHostStatus()
     }
 
@@ -253,6 +320,31 @@ final class MobilePairingModel {
         refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        teamScopeRecoveryTask?.cancel()
+        teamScopeRecoveryTask = nil
+        preparationTimeoutTask?.cancel()
+        preparationTimeoutTask = nil
+    }
+
+    /// Refreshes once the coordinator restores the team scope, so an open sheet
+    /// recovers without Try Again.
+    private func observeTeamScopeRecovery(_ coordinator: AuthCoordinator) {
+        connectionObservationTask?.cancel()
+        teamScopeRecoveryTask?.cancel()
+        let generation = refreshGeneration
+        teamScopeRecoveryTask = Task { [weak self] in
+            for await scope in coordinator.authenticatedTeamScopes() where scope != nil {
+                guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
+                // Keep this refresh in the owned task. The refresh skips
+                // cancelling its own observer, while stopObserving() can still
+                // cancel the whole operation before listener startup.
+                await self.refresh(cancelTeamScopeRecovery: false)
+                if generation == self.refreshGeneration {
+                    self.teamScopeRecoveryTask = nil
+                }
+                return
+            }
+        }
     }
 
     /// Watches the mobile host's status while the window is open and flips
@@ -268,14 +360,11 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                guard MobileHostService.isListeningEnabled else {
+                guard self.isListeningEnabled() else {
                     self.state = .pairingDisabled
                     return
                 }
-                let next = Self.v2StatusTransition(status, baselineConnectionCount: baseline)
-                if next != self.state {
-                    self.state = next
-                }
+                self.receiveHostStatus(status, baselineConnectionCount: baseline)
             }
         }
     }
@@ -286,12 +375,48 @@ final class MobilePairingModel {
         _ status: MobileHostServiceStatus,
         baselineConnectionCount: Int
     ) -> State {
-        guard status.isRunning, status.isPairingReady else { return .preparing }
+        guard status.isRunning else { return .failed(preparationFailureMessage) }
+        guard status.isPairingReady else {
+            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
+        }
         let ready = State.ready(Ready(
             attachURL: "", tailscaleLines: [], manualEntry: nil,
             reachableViaIroh: true, v2Only: true
         ))
         return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+    }
+
+    /// A retry starts in `refresh`; repeated pending status cannot hide an error.
+    func receiveHostStatus(_ status: MobileHostServiceStatus, baselineConnectionCount: Int) {
+        let next = Self.v2StatusTransition(status, baselineConnectionCount: baselineConnectionCount)
+        if case .failed = state, next == .preparing { return }
+        if next != state { state = next }
+    }
+
+    private static var preparationFailureMessage: String {
+        String(localized: "mobile.pairing.error.preparationFailed",
+               defaultValue: "Pairing could not finish. Check your connection and try again.")
+    }
+
+    private func updatePreparationDeadline() {
+        guard state == .preparing else {
+            preparationTimeoutTask?.cancel()
+            preparationTimeoutTask = nil
+            return
+        }
+        guard preparationTimeoutTask == nil else { return }
+        let clock = preparationClock
+        let timeout = preparationTimeout
+        let generation = refreshGeneration
+        // This deadline bounds the visible preparing state, including a bound
+        // endpoint whose authenticated registration has not completed.
+        preparationTimeoutTask = Task { @MainActor [weak self, clock] in
+            do { try await clock.sleep(for: timeout) } catch { return }
+            guard !Task.isCancelled, let self, self.refreshGeneration == generation,
+                  self.state == .preparing else { return }
+            self.preparationTimeoutTask = nil
+            self.state = .failed(Self.preparationFailureMessage)
+        }
     }
 
     /// Computes the next render state from a host status event. Pure, so the

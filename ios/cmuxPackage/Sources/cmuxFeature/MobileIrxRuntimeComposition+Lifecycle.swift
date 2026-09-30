@@ -4,6 +4,13 @@ import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
+    private struct DetachedRuntime: Sendable {
+        let control: V2ControlService?
+        let endpointSupervisor: IrxEndpointSupervisor?
+        let directEndpointSupervisor: IrxEndpointSupervisor?
+        let engines: [IrxPeerEngine]
+    }
+
     /// Observes account/team authority for the lifetime of the app.
     public func configure(auth: AuthCoordinator) async {
         guard authTask == nil else { return }
@@ -24,7 +31,8 @@ extension MobileIrxRuntimeComposition {
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
         guard epoch == currentEpoch, let scope else { return }
         provisionTask = Task { [weak self] in
             var delay: TimeInterval = 1
@@ -57,6 +65,8 @@ extension MobileIrxRuntimeComposition {
             deviceID: deviceID, environment: configuration.environment,
             projectID: configuration.projectID, teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
+        let stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
+            fileManager: FileManager(), identityKey: key)
         // A corrupt disposable cache is recoverable through a signed v2 setup;
         // the identity seed and Stack authentication are never erased.
         let restored = try? await stateStore.load(identity: tuple)
@@ -64,7 +74,8 @@ extension MobileIrxRuntimeComposition {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
             identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
-            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal)
+            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
+            diagnosticLog: diagnosticLog)
         self.identity = identity
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
@@ -103,7 +114,8 @@ extension MobileIrxRuntimeComposition {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw CompositionError.scopeChanged }
                 return try key.sign(data)
-            })
+            },
+            journal: journal)
         let service = V2ControlService(configuration: try V2ControlConfiguration(
             baseURL: configuration.baseURL, device: device), dependencies: dependencies, store: stateStore)
         try await assertScope(scope, epoch: currentEpoch)
@@ -111,7 +123,9 @@ extension MobileIrxRuntimeComposition {
         controlTask = Task { [weak self] in
             for await snapshot in await service.events() {
                 guard !Task.isCancelled else { return }
-                await self?.apply(snapshot, scope: scope, epoch: currentEpoch)
+                guard let self else { return }
+                await self.apply(snapshot, scope: scope, epoch: currentEpoch)
+                await service.acknowledgeApplied(sequence: snapshot.sequence)
             }
         }
         await service.start()
@@ -150,7 +164,7 @@ extension MobileIrxRuntimeComposition {
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
         if snapshot.cache.authorityRevoked {
-            await MainActor.run { MobileMacListAuthState.shared.clear() }
+            await MainActor.run { self.macListAuthState.clear() }
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
@@ -207,6 +221,7 @@ extension MobileIrxRuntimeComposition {
     func recordEndpointReady(cached: Bool) {
         journal.record("v2-lifecycle", "endpoint-ready", ["cached": String(cached),
             "launchMs": String(Int(Date().timeIntervalSince(launchTime) * 1000))])
+        publish()
     }
 
     /// Retains healthy IROH sessions while the operating system suspends this process.
@@ -230,6 +245,11 @@ extension MobileIrxRuntimeComposition {
         journal.record("v2-lifecycle", "foreground", ["backgroundMs": backgroundTime.map {
             String(Int(Date().timeIntervalSince($0) * 1000)) } ?? "0", "admittedSessions": String(admittedSessionCount)])
         backgroundTime = nil
+        // iroh disables its sleep detection on iOS, so the network may have
+        // changed while suspended without iroh noticing; tell it before the
+        // peer probes run so they measure fresh paths.
+        await notifyNetworkChange()
+        guard generation == activityGeneration else { return }
         // Backend renewal starts before peer probes; neither waits for the other.
         foregroundTask?.cancel()
         let service = control
@@ -247,10 +267,11 @@ extension MobileIrxRuntimeComposition {
         guard activeScope == captured else { return }
         epoch &+= 1
         activeScope = nil
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
     }
 
-    func clearCurrentRuntime() async {
+    private func detachCurrentRuntime() async -> DetachedRuntime {
         provisionTask?.cancel(); provisionTask = nil
         controlTask?.cancel(); controlTask = nil
         foregroundTask?.cancel(); foregroundTask = nil
@@ -264,11 +285,36 @@ extension MobileIrxRuntimeComposition {
         lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
+        let oldEventLaneHubs = eventLaneHubs.values.map(\.hub)
+        eventLaneHubs.removeAll()
+        for hub in oldEventLaneHubs { Task { await hub.stop() } }
         publish()
-        await MainActor.run { MobileMacListAuthState.shared.clear() }
-        await oldControl?.stop()
-        for engine in oldEngines { await engine.stop() }
-        await oldSupervisor?.deactivate()
-        await oldDirectSupervisor?.deactivate()
+        await MainActor.run { self.macListAuthState.clear() }
+        return DetachedRuntime(
+            control: oldControl,
+            endpointSupervisor: oldSupervisor,
+            directEndpointSupervisor: oldDirectSupervisor,
+            engines: oldEngines
+        )
+    }
+
+    private func scheduleShutdown(of runtime: DetachedRuntime) {
+        Task {
+            await runtime.control?.stop()
+            for engine in runtime.engines {
+                await engine.stop()
+            }
+            await runtime.endpointSupervisor?.deactivate()
+            await runtime.directEndpointSupervisor?.deactivate()
+        }
+    }
+
+    /// Forwards a platform network change to every live iroh endpoint so
+    /// paths that died with the old network are abandoned immediately.
+    public func notifyNetworkChange() async {
+        let supervisors = [endpointSupervisor, directEndpointSupervisor].compactMap { $0 }
+        for supervisor in supervisors {
+            await supervisor.notifyNetworkChange()
+        }
     }
 }

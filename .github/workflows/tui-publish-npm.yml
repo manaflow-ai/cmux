@@ -29,7 +29,7 @@ jobs:
     # becomes npm `latest`. Only strict stable X.Y.Z may go through here; a
     # nightly-form version on latest would put a nightly in front of every
     # `npx cmux` user (nightlies publish via cmux-tui-nightly.yml with --tag nightly).
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: read

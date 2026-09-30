@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxFoundation
+@testable import CmuxMobileHost
 import Foundation
 import Testing
 
@@ -26,7 +27,8 @@ struct AgentChatSessionRegistryLifecycleTests {
         ))
 
         #expect(record.sessionID == sessionID)
-        #expect(record.hookStoreSessionID == sessionID)
+        #expect(record.hookStoreLookupSessionID == sessionID)
+        #expect(record.hookStoreSessionID == nil)
     }
 
     @MainActor

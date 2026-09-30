@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { posthog } from "../lib/posthog-client";
-import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../../services/billing/plans";
+import {
+  GO_PRICING_USD,
+  MAX_PRICING_USD,
+  PRO_PRICING_USD,
+  TEAM_PRICING_USD,
+} from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
-import { CHECKOUT_PLACEMENT_PARAM, withCheckoutAttribution } from "../../services/analytics/checkoutAttribution";
+import {
+  CHECKOUT_PLACEMENT_PARAM,
+  checkoutAttributionParamsFrom,
+  withCheckoutAttribution,
+} from "../../services/analytics/checkoutAttribution";
 import { withExternalBrowserIntent } from "../lib/billing";
 import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
@@ -13,7 +22,13 @@ type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
 type PricingPlan = "go" | "pro" | "max" | "team";
 
 /** Pricing-view analytics remain active when there is no billing-period control. */
-export function PricingView({ children, surface }: { children: ReactNode; surface: PricingSurface }) {
+export function PricingView({
+  children,
+  surface,
+}: {
+  children: ReactNode;
+  surface: PricingSurface;
+}) {
   const capturedView = useRef(false);
   useEffect(() => {
     if (capturedView.current) return;
@@ -64,16 +79,21 @@ export function PricingCheckoutButton({
   size?: PricingActionSize;
 }) {
   const pricing = PLAN_PRICES[plan];
-  const checkoutHref = withCheckoutAttribution(href, { [CHECKOUT_PLACEMENT_PARAM]: location });
-  const checkoutURL = new URL(checkoutHref, "https://cmux.com");
-  checkoutURL.searchParams.set("cmux_after_sign_in", "1");
-  const signInHref = vaultSignInHref(`${checkoutURL.pathname}${checkoutURL.search}`);
-  const destination = requiresSignIn
-    ? (checkoutURL.searchParams.get("cmux_external_browser") === "1" ? withExternalBrowserIntent(signInHref) : signInHref)
-    : checkoutHref;
   return (
     <CheckoutButton
-      href={destination}
+      href={pricingDestination(href, location, requiresSignIn)}
+      resolveHref={() =>
+        pricingDestination(
+          withCheckoutAttribution(
+            href,
+            checkoutAttributionParamsFrom(
+              Object.fromEntries(new URLSearchParams(window.location.search)),
+            ),
+          ),
+          location,
+          requiresSignIn,
+        )
+      }
       size={size}
       onClick={() => {
         if (requiresSignIn) {
@@ -104,4 +124,25 @@ export function PricingCheckoutButton({
       {children}
     </CheckoutButton>
   );
+}
+
+/** Also used on click so a streamed offer keeps attribution before account data arrives. */
+function pricingDestination(
+  href: string,
+  location: string,
+  requiresSignIn: boolean,
+) {
+  const checkoutHref = withCheckoutAttribution(href, {
+    [CHECKOUT_PLACEMENT_PARAM]: location,
+  });
+  const checkoutURL = new URL(checkoutHref, "https://cmux.com");
+  checkoutURL.searchParams.set("cmux_after_sign_in", "1");
+  const signInHref = vaultSignInHref(
+    `${checkoutURL.pathname}${checkoutURL.search}`,
+  );
+  return requiresSignIn
+    ? checkoutURL.searchParams.get("cmux_external_browser") === "1"
+      ? withExternalBrowserIntent(signInHref)
+      : signInHref
+    : checkoutHref;
 }

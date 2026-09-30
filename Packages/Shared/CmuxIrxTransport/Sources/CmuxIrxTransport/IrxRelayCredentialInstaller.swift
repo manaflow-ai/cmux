@@ -61,6 +61,11 @@ actor IrxRelayCredentialInstaller {
         installed.removeAll()
     }
 
+    /// Waits for the current installation pass, including its retries, to finish.
+    func waitUntilSettled() async {
+        await task?.value
+    }
+
     private func run(id: UUID) async {
         defer {
             if taskID == id {
@@ -71,17 +76,36 @@ actor IrxRelayCredentialInstaller {
         var failures = 0
         while !Task.isCancelled, !stopped, taskID == id {
             let observedRevision = revision
-            let pending = desired.values.filter {
-                $0.isUsable(at: now()) && installed[$0.relayURL] != $0
-            }.sorted { $0.relayURL < $1.relayURL }
+            let observedAt = now()
+            var unusable = 0
+            var pending: [IrxRelayCredential] = []
+            for credential in desired.values {
+                guard credential.isUsable(at: observedAt) else {
+                    unusable += 1
+                    continue
+                }
+                if installed[credential.relayURL] != credential {
+                    pending.append(credential)
+                }
+            }
+            pending.sort { $0.relayURL < $1.relayURL }
+            if unusable > 0 {
+                // Expired or not-yet-valid credentials silently shrink the
+                // fleet; make the drop visible next to the install outcomes.
+                journal.record("endpoint", "relay-credential-unusable", ["count": String(unusable)])
+            }
             guard !pending.isEmpty else { return }
             var failed = false
             for credential in pending {
                 guard !Task.isCancelled, !stopped, taskID == id else { return }
                 guard desired[credential.relayURL] == credential,
                       credential.isUsable(at: now()) else { continue }
+                // A started event with no matching outcome is the signature of
+                // a native install hung inside the driver.
+                journal.record("endpoint", "relay-credential-install-started", ["relay": credential.relayURL])
                 do {
                     guard try await install(credential, ownership: ownership) else {
+                        journal.record("endpoint", "relay-credential-install-superseded", ["relay": credential.relayURL])
                         if revision != observedRevision { break }
                         return
                     }

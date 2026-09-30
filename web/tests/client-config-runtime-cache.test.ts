@@ -85,7 +85,7 @@ describe("client config runtime cache", () => {
   test("stores and reads complete results with a five-minute TTL", async () => {
     mutableEnv.NODE_ENV = "production";
     const config = {
-      featureFlags: { "pro-upgrade-ui-enabled-release": true },
+      featureFlags: { enabled: true },
       featureFlagPayloads: {},
       errorsWhileComputingFlags: false,
     } as const;

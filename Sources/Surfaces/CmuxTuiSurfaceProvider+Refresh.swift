@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -36,6 +37,7 @@ extension CmuxTuiSurfaceProvider {
     // Matches the protocol's Void return type so existential catalog reads
     // preserve force instead of falling through to its legacy default.
     func refresh(force: Bool) async {
+        if force { await refreshDisplays() }
         await refreshCurrentGraph(force: force)
     }
 

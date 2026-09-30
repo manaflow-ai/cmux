@@ -19,18 +19,25 @@ extension CMUXCLI {
     }
 
     /// Reports a persistently throttled hook failure without serializing raw transport details.
+    ///
+    /// `failureKind` overrides the reported `underlying_error_type` with a
+    /// stable, privacy-safe kind; otherwise it is the error's type, or
+    /// `unresolved-target` when neither is given.
     func reportAgentHookFailure(
         stage: AgentHookFailureStage,
         agentName: String,
         sessionId: String,
         event: String,
         error: Error? = nil,
+        failureKind: String? = nil,
         store: ClaudeHookSessionStore,
         telemetry: CLISocketSentryTelemetry,
         deadline: Date? = nil
     ) {
         let shortSessionId = String(sessionId.prefix(12))
-        let errorType = error.map { String(reflecting: type(of: $0)) } ?? "unresolved-target"
+        let errorType = failureKind
+            ?? error.map { String(reflecting: type(of: $0)) }
+            ?? "unresolved-target"
         let failureDescription: String
         switch stage {
         case .targetResolution:

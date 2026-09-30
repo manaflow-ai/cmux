@@ -171,6 +171,30 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--timeout", "30", "--help"]))
         #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--wait", "-h"]))
     }
+
+    /// `--focus` takes an optional value only when the next token is exactly a
+    /// boolean word, so a prompt after a bare `--focus` stays the prompt.
+    @Test(arguments: ["claude", "codex", "opencode", "pi"])
+    func focusFlagsStayVMOptions(agent: String) {
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "true", "fix it"])
+                == ["--agent", agent, "--focus", "true", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "fix it"])
+                == ["--agent", agent, "--focus", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus=no", "--no-focus", "fix it"])
+                == ["--agent", agent, "--focus=no", "--no-focus", "--", "fix it"]
+        )
+    }
+
+    @Test func focusFlagValueAcceptsOnlyBooleanWords() {
+        for token in ["true", "TRUE", "1", "yes"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == true) }
+        for token in ["false", "0", "No"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == false) }
+        for token in ["", "fix", "truely", "on"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == nil) }
+    }
 }
 
 // `cmux coderouter <status|machines|claude>` drives the app's `coderouter.*`
@@ -590,6 +614,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-coderouter-agent-home-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
+        let agentDirectory = home.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+        let agentPath = agentDirectory.appendingPathComponent("claude").path
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$@"
+        """.write(toFile: agentPath, atomically: true, encoding: .utf8)
+        chmod(agentPath, 0o755)
 
         let (result, state) = try runCoderouterCLI(
             ["coderouter", "agent", "claude", "--machine", "vm-agent-test", "--no-open", "--json", "--", "reply exactly pong"],
@@ -599,8 +631,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard method == "surface.new_terminal" else { return nil }
             XCTAssertEqual(params["machine"] as? String, "vm-agent-test")
             let command = params["command"] as? [String] ?? []
-            XCTAssertEqual(command.first, "bash")
-            XCTAssertTrue(command.last?.contains("exec 'claude' '-p' 'reply exactly pong'") == true, command.description)
+            XCTAssertEqual(Array(command.prefix(2)), ["bash", "-lc"])
             return self.okResponse([
                 "machine": "vm-agent-test",
                 "terminal_id": "term_agent_test",
@@ -614,7 +645,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(payload["agent"] as? String, "claude")
         XCTAssertEqual(payload["terminal_id"] as? String, "term_agent_test")
         XCTAssertEqual(payload["workspace_id"] as? String, "ws_agent_test")
-        XCTAssertTrue(state.commands.contains { $0.contains(#""method":"surface.new_terminal""#) })
+        XCTAssertEqual(payload["command"] as? [String], ["claude", "-p", "reply exactly pong"])
+        let terminalRequest = try XCTUnwrap(state.commands.compactMap(jsonObject).first {
+            $0["method"] as? String == "surface.new_terminal"
+        })
+        let params = try XCTUnwrap(terminalRequest["params"] as? [String: Any])
+        let command = try XCTUnwrap(params["command"] as? [String])
+        let environment = [
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+        // Execute the returned shell command against a local agent fixture, so
+        // equivalent quoting still has to preserve the exact provider argv.
+        let launch = runProcess(
+            executablePath: "/bin/bash",
+            arguments: Array(command.dropFirst()),
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(launch.timedOut, launch.stderr)
+        XCTAssertEqual(launch.status, 0, launch.stderr)
+        XCTAssertEqual(launch.stdout, "-p\nreply exactly pong\n")
     }
 
     func testProviderFirstAgentAliasAddsTheCanonicalSeparator() {
@@ -625,6 +676,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             CMUXCLI.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
             ["--agent", "codex", "--", "exec", "summarize"]
+        )
+        // Focus flags belong to `vm agent`, not to the agent's prompt.
+        XCTAssertEqual(
+            CMUXCLI.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
         )
     }
 

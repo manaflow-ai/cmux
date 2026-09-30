@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -138,7 +140,9 @@ struct CloudWorkspaceMembershipTests {
 
     @Test("Explicit local VNC panes belong only to their current bound workspace")
     func localDesktopMembership() async throws {
-        let first = UUID(), second = UUID(), viewer = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let first = live.id(), second = UUID(), viewer = UUID()
         let coordinator = CloudPlacementCoordinator(binding: { id in
             guard id == first || id == second else { return nil }
             return WorkspaceCloudVMBinding(
@@ -146,7 +150,7 @@ struct CloudWorkspaceMembershipTests {
                 remoteWorkspaceID: id == first ? "ws_a" : "ws_b"
             )
         })
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         let current = try state(desktops: [:])
@@ -198,11 +202,13 @@ struct CloudWorkspaceMembershipTests {
 
     @Test("Workspace groups open live local displays and reject a closed placement")
     func localDisplayGroupOpen() async throws {
-        let source = UUID(), viewer = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let source = live.id(), viewer = live.id()
         let coordinator = CloudPlacementCoordinator(binding: { id in
             id == source ? WorkspaceCloudVMBinding(vmID: "membership-test", isBase: false, remoteWorkspaceID: "ws_a") : nil
         })
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: coordinator)
         catalog.register(CloudPlacementTestProvider(machine: machine))
         publish(try state(desktops: ["desk_b": "b"]), to: catalog)
         let desktop = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
@@ -226,11 +232,13 @@ struct CloudWorkspaceMembershipTests {
 
     @Test("A local VNC pane never adopts or closes another workspace's daemon tab")
     func localDesktopBesideRemotePlacement() async throws {
-        let workspace = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let workspace = live.id()
         let coordinator = CloudPlacementCoordinator(binding: { _ in
             WorkspaceCloudVMBinding(vmID: "membership-test", isBase: false, remoteWorkspaceID: "ws_a")
         })
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator)
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         let current = try state(desktops: ["desk_b": "b"])

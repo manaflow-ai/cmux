@@ -1,7 +1,7 @@
 // Database loaders behind the reflection route: the owner's machines and the
 // owner's identity snapshot. Kept apart from services/vms/reflection.ts so the
 // payload builders stay pure.
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
 import { readIdentitySnapshot } from "../auth/identitySnapshot";
@@ -20,13 +20,12 @@ const OWNER_SNAPSHOT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1_000;
 
 /** Every live machine the same owner has (the caller included). */
 export async function listOwnerLiveVms(self: VmPrincipalRow): Promise<VmPrincipalRow[]> {
-  const ownerScope = self.billingTeamId
-    ? eq(cloudVms.billingTeamId, self.billingTeamId)
-    : and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, self.userId));
+  const ownerScope = eq(cloudVms.ownerTeamId, self.ownerTeamId);
   const rows = await cloudDb()
     .select({
       id: cloudVms.id,
       userId: cloudVms.userId,
+      ownerTeamId: cloudVms.ownerTeamId,
       billingTeamId: cloudVms.billingTeamId,
       billingPlanId: cloudVms.billingPlanId,
       provider: cloudVms.provider,

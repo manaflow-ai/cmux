@@ -27,6 +27,7 @@ cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
+flate2.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true

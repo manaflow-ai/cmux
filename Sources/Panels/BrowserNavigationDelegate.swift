@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import CmuxBrowser
+import CmuxCore
 import CmuxSettings
 import Foundation
 import WebKit
@@ -222,6 +224,14 @@ import WebKit
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if owner?.refusesProxyAuthenticationChallenges == true {
+            let disposition = ManagedProxySessionDelegate.disposition(for: challenge.protectionSpace)
+            if disposition == .cancelAuthenticationChallenge {
+                completionHandler(disposition, nil)
+                return
+            }
+        }
+
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust,
            BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {
@@ -293,7 +303,7 @@ import WebKit
         return .urlOnly
     }
 
-    func activeErrorPageRetryForAutomation() -> BrowserErrorPageRetry? {
+    func activeErrorPageRetry() -> BrowserErrorPageRetry? {
         guard activePolicyBlockedURL == nil else { return .disabled }
         guard let failedURL = activeErrorPageDisplayURL?.absoluteString else { return nil }
         return retryForFailedNavigation(failedURL: failedURL)
@@ -323,6 +333,17 @@ import WebKit
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+           let rewritten = owner?.cloudAccess.rewrittenLoopbackURL(url), rewritten != url {
+            var request = navigationAction.request
+            request.url = rewritten
+            decisionHandler(.cancel)
+            requestNavigation?(request, .currentTab, nil)
+            return
+        }
 
         if let url = navigationAction.request.url,
            url.scheme == "cmux-browser-action",
@@ -623,6 +644,36 @@ import WebKit
             in: webView,
             decisionHandler: decisionHandler
         ) {
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner {
+            // WebKit decodes the response after this decision. Defer only the
+            // accepted main-frame action while the bounded file probe runs so
+            // other navigation policy branches remain synchronous.
+            let encodingPolicy = owner.localFileEncodingPolicy
+            Task { @MainActor [weak owner, weak webView, encodingPolicy] in
+                guard let owner, let webView,
+                      owner.webView === webView else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                // Capture the policy for the initiating WebView. A replacement
+                // can occur while the detached probe is suspended; using the
+                // panel's current policy here would mutate that replacement
+                // before the identity check below can reject this navigation.
+                guard await encodingPolicy.prepare(for: url) else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                guard owner.webView === webView else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                decisionHandler(.allow)
+            }
             return
         }
         decisionHandler(.allow)

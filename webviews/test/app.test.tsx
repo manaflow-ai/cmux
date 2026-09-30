@@ -58,6 +58,30 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   expect(fetched).toBe(false);
 });
 
+test("patch-file viewer keeps its configured title when repo context is present", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          repoRoot: "/tmp/repo",
+          sourceLabel: "git branch",
+          statusMessage: "Rendered diff",
+          title: "cmux diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.title === "cmux diff");
+  expect(dom.window.document.title).toBe("cmux diff");
+});
+
 test("custom-scheme pending pages wait for native navigation without HTTP polling", () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/opening.html");
   let fetched = false;
@@ -142,18 +166,20 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
         payload: {
           capabilityToken: "0123456789abcdef",
           pendingReplacement: true,
+          repoRoot: "/tmp/repo",
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+          sourceLabel: "git branch",
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
             { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
             { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
           ],
           repoOptions: [
-            { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
-            { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+            { label: "repo", message: "/tmp/repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
+            { label: "other-repo", message: "/tmp/other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
           ],
           statusMessage: "Loading diff",
-          title: "Diff",
+          title: "Branch diff",
           transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
         },
       }}
@@ -162,16 +188,22 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   );
 
   await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
+  await waitFor(() => dom?.window.document.title === "Branch diff — repo");
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
-  await waitFor(() => commentRequests.length === 1);
-  expect(commentRequests[0].params.repoRoot).toBe("/tmp/repo");
+  // The comments bridge also carries the viewerPrefs.get boot request.
+  const commentLists = () => commentRequests.filter((request) => request.method === "comments.list");
+  await waitFor(() => commentLists().length === 1);
+  expect(commentLists()[0].params.repoRoot).toBe("/tmp/repo");
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
   const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  expect(repoSelect.title).toBe("/tmp/repo");
   repoSelect.value = "/tmp/other-repo";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  await waitFor(() => dom?.window.document.title === "Branch diff — other-repo");
+  expect(repoSelect.title).toBe("/tmp/other-repo");
   dom.window.document.getElementById("options-button")?.click();
   await waitFor(() => Boolean(copyGitApplyButton()));
   copyGitApplyButton()?.click();
@@ -572,7 +604,10 @@ test("layout toggle persists user choice while explicit payload layout wins", as
 
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
   dom.window.document.getElementById("layout-toggle")?.click();
-  await waitFor(() => dom?.window.localStorage.getItem("cmux.diffViewer.layout") === "split");
+  await waitFor(() => {
+    const raw = dom?.window.localStorage.getItem("cmux.diffViewer.options");
+    return raw != null && JSON.parse(raw).layout === "split";
+  });
   expect(dom.window.document.documentElement.dataset.layout).toBe("split");
   flushSync(() => root?.unmount());
   root = null;
@@ -609,6 +644,204 @@ test("layout toggle persists user choice while explicit payload layout wins", as
   );
 
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
+test("layout persisted under the legacy localStorage key is still honored", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  dom.window.localStorage.setItem("cmux.diffViewer.layout", "split");
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.layout).toBe("split");
+});
+
+test("viewerOptions payload seeds persisted display toggles", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          statusMessage: "Rendered diff",
+          title: "Diff",
+          viewerOptions: { wordWrap: true, diffIndicators: "classic", layout: "split", bogus: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.wordWrap).toBe("true");
+  expect(dom.window.document.documentElement.dataset.diffIndicators).toBe("classic");
+  // Layout is owned by payload.layout/layoutSource, not viewerOptions.
+  expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
+test("viewer preferences sync from the native bridge and persist option changes", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/diff.html");
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const prefsRequests: any[] = [];
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          prefsRequests.push(request);
+          if (request.method === "viewerPrefs.get") {
+            return { ok: true, value: { preferences: { layout: "split", wordWrap: true, junk: 1 } } };
+          }
+          return { ok: true, value: { preferences: {} } };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          layoutSource: "explicit",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.documentElement.dataset.wordWrap === "true");
+  // An explicit --layout still wins over the persisted layout.
+  expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+  expect(prefsRequests.filter((request) => request.method === "viewerPrefs.get")).toHaveLength(1);
+
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(menuButton("Hide line numbers")));
+  menuButton("Hide line numbers")?.click();
+  await waitFor(() => prefsRequests.some((request) => request.method === "viewerPrefs.set"));
+  expect(prefsRequests.find((request) => request.method === "viewerPrefs.set").params)
+    .toEqual({ preferences: { lineNumbers: false } });
+
+  // Collapse state stays session-local.
+  menuButton("Collapse all diffs")?.click();
+  await waitFor(() => Boolean(menuButton("Expand all diffs")));
+  expect(prefsRequests.filter((request) => request.method === "viewerPrefs.set")).toHaveLength(1);
+});
+
+test("refresh re-streams the typed session in place and keeps viewer options", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  const requests: any[] = [];
+  const fetched: string[] = [];
+  installDomGlobals(dom, (input) => {
+    fetched.push(String(input));
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 128,
+                  revision: 1,
+                },
+                source: request.params.source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          pendingReplacement: true,
+          repoRoot: "/tmp/repo",
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          sourceLabel: "git unstaged",
+          statusMessage: "Loading diff",
+          title: "Unstaged diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => fetched.length === 1);
+  expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
+  dom.window.document.getElementById("layout-toggle")?.click();
+  await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(menuButton("Enable word wrap")));
+  menuButton("Enable word wrap")?.click();
+  await waitFor(() => dom?.window.document.documentElement.dataset.wordWrap === "true");
+
+  menuButton("Refresh")?.click();
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  await waitFor(() => fetched.length === 2);
+  expect(requests.filter((request) => request.method === "sessionClose").length).toBeGreaterThan(0);
+  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source)
+    .toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+  // The soft refresh never reloads the page, so layout and toggles survive.
+  expect(dom.window.document.documentElement.dataset.layout).toBe("split");
+  expect(dom.window.document.documentElement.dataset.wordWrap).toBe("true");
+});
+
+test("hunk navigation actions are handled by the viewer app", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  renderApp(
+    <App
+      config={{
+        payload: { statusMessage: "Rendered diff" },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const action = dom.window.__cmuxPerformDiffViewerNavigationAction;
+  // Handled even with nothing to jump to: a false reply marks the renderer
+  // unavailable on the native side.
+  expect(action?.("diffViewerNextHunk")).toBe(true);
+  expect(action?.("diffViewerPreviousHunk")).toBe(true);
 });
 
 test("adjacent diff file navigation moves in order and stops at the edges", () => {
@@ -691,6 +924,11 @@ function renderApp(element: React.ReactNode): void {
   flushSync(() => {
     root?.render(element);
   });
+}
+
+function menuButton(text: string): HTMLButtonElement | undefined {
+  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
+    .find((button) => button.textContent?.includes(text));
 }
 
 function copyGitApplyButton(): HTMLButtonElement | undefined {

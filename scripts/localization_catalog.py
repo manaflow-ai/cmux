@@ -363,8 +363,8 @@ def apply_changes(text: str, changes: list[tuple[int, int, str]]) -> str:
     return "".join(pieces)
 
 
-def merge(path: Path, locale: str, rows: list[dict], omissions: dict) -> int:
-    text = path.read_text(encoding="utf-8")
+def merge_text(text: str, locale: str, rows: list[dict], omissions: dict) -> tuple[str, int]:
+    """Validate and compose one locale without changing the source catalog."""
     indexed = {}
     for entry in catalog_entries(text):
         indexed.setdefault((entry.key, canonical_text(source(entry.value))), []).append(entry)
@@ -394,9 +394,14 @@ def merge(path: Path, locale: str, rows: list[dict], omissions: dict) -> int:
                 changes.append(replace_locale(text, entry, locale, localization))
     text = apply_changes(text, changes)
     catalog_entries(text)
+    return text, len(changes)
+
+
+def merge(path: Path, locale: str, rows: list[dict], omissions: dict) -> int:
+    text, changes = merge_text(path.read_text(encoding="utf-8"), locale, rows, omissions)
     if changes:
         atomic_write(path, text)
-    return len(changes)
+    return changes
 
 
 def main() -> int:

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Carbon.HIToolbox
 import Testing
 import WebKit
@@ -10,7 +11,7 @@ import ObjectiveC.runtime
 @testable import cmux
 #endif
 
-private var cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = false
+private var cmuxUnitTestCmuxWebViewKeyDownOriginalIMP: IMP?
 private var cmuxUnitTestCmuxWebViewKeyDownHook: ((CmuxWebView, NSEvent) -> Bool)?
 
 private final class FakeWKInspectorUndoResponderView: NSView {
@@ -26,28 +27,44 @@ private final class BrowserUndoMenuActionSpy: NSObject {
     }
 }
 
-extension CmuxWebView {
-    @objc func cmuxUnitTest_keyDown(with event: NSEvent) {
-        if cmuxUnitTestCmuxWebViewKeyDownHook?(self, event) == true {
+/// Hooks `CmuxWebView.keyDown(with:)` for the duration of one test window.
+///
+/// WHY scoped, not process-wide: other suites in the same app host (for
+/// example `CmuxWebViewWebContentUndoTests`) swizzle the same key path on
+/// `WKWebView` and exercise `CmuxWebView.keyDown` with no hook set. A
+/// permanent swizzle left behind by this suite made those tests recurse until
+/// the stack overflowed whenever the two suites shared a process. The hook
+/// calls the captured original implementation directly and is removed again
+/// in `uninstallCmuxUnitTestCmuxWebViewKeyDownOverride()`.
+private func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
+    guard cmuxUnitTestCmuxWebViewKeyDownOriginalIMP == nil else { return }
+
+    let selector = #selector(CmuxWebView.keyDown(with:))
+    guard let method = class_getInstanceMethod(CmuxWebView.self, selector) else {
+        fatalError("Unable to locate CmuxWebView keyDown method for swizzling")
+    }
+
+    typealias KeyDownIMP = @convention(c) (AnyObject, Selector, NSEvent) -> Void
+    let originalIMP = method_getImplementation(method)
+    let original = unsafeBitCast(originalIMP, to: KeyDownIMP.self)
+    let hooked: @convention(block) (CmuxWebView, NSEvent) -> Void = { webView, event in
+        if cmuxUnitTestCmuxWebViewKeyDownHook?(webView, event) == true {
             return
         }
-        cmuxUnitTest_keyDown(with: event)
+        original(webView, selector, event)
     }
+    cmuxUnitTestCmuxWebViewKeyDownOriginalIMP = originalIMP
+    method_setImplementation(method, imp_implementationWithBlock(hooked))
 }
 
-private func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
-    guard !cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled else { return }
-
-    let originalSelector = #selector(CmuxWebView.keyDown(with:))
-    let swizzledSelector = #selector(CmuxWebView.cmuxUnitTest_keyDown(with:))
-
-    guard let originalMethod = class_getInstanceMethod(CmuxWebView.self, originalSelector),
-          let swizzledMethod = class_getInstanceMethod(CmuxWebView.self, swizzledSelector) else {
-        fatalError("Unable to locate CmuxWebView keyDown methods for swizzling")
-    }
-
-    method_exchangeImplementations(originalMethod, swizzledMethod)
-    cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = true
+private func uninstallCmuxUnitTestCmuxWebViewKeyDownOverride() {
+    guard let originalIMP = cmuxUnitTestCmuxWebViewKeyDownOriginalIMP,
+          let method = class_getInstanceMethod(
+              CmuxWebView.self,
+              #selector(CmuxWebView.keyDown(with:))
+          ) else { return }
+    method_setImplementation(method, originalIMP)
+    cmuxUnitTestCmuxWebViewKeyDownOriginalIMP = nil
 }
 
 @Suite(.serialized)
@@ -80,7 +97,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -101,7 +118,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -122,7 +139,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -180,7 +197,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -244,7 +261,7 @@ final class CmuxWebViewKeyDownReentryTests {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
-        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
 
@@ -259,6 +276,7 @@ final class CmuxWebViewKeyDownReentryTests {
         defer {
             cmuxUnitTestCmuxWebViewKeyDownHook = nil
             window.orderOut(nil)
+            uninstallCmuxUnitTestCmuxWebViewKeyDownOverride()
         }
 
         #expect(window.makeFirstResponder(webView))

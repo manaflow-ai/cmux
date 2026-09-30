@@ -697,5 +697,29 @@
     "arguments": [
       2
     ]
+  },
+  "cloudTree.device.workspaceCount.other": {
+    "source": "%lld workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "update.relaunch.resumesMidTask": {
+    "source": "%lld agents will be resumed mid-task.",
+    "arguments": [
+      1
+    ]
+  },
+  "update.relaunch.runningCommands": {
+    "source": "%lld running commands",
+    "arguments": [
+      1
+    ]
+  },
+  "terminalSharing.chip.hiddenColumns": {
+    "source": "%ld cols hidden",
+    "arguments": [
+      1
+    ]
   }
 }

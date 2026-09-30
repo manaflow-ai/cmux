@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The geometry a machine workspace should open with on this Mac: the daemon screen's
@@ -6,7 +7,7 @@ import Foundation
 /// walks it so a clicked workspace row (or `cmux vm workspace open`) reproduces the
 /// machine's splits, ratios and tabs instead of a generic grid.
 indirect enum SurfaceProjectionLayout: Hashable, Sendable {
-    /// One local pane: `placements[0]` is what the pane shows, the rest are tabs in it.
+    /// One local pane in tab-bar order; the provider's selected tab is shown first.
     case leaf(placements: [SurfaceResourcePlacement])
     /// Two panes or subtrees side by side (`.right`) or stacked (`.down`). `ratio` is the
     /// first child's share of the split, already clamped to `0.1…0.9`.
@@ -40,8 +41,8 @@ indirect enum SurfaceProjectionLayout: Hashable, Sendable {
     }
 }
 
-/// A provider that can report a workspace's current geometry. Only the cmux-tui machine
-/// provider conforms; This Mac and test providers do not, and every caller treats a
+/// A provider that can report a workspace's current geometry. Cloud machines and
+/// connected Macs supply their authoritative pane trees; every caller treats a
 /// missing or failed answer as "open the way you always did".
 @MainActor
 protocol SurfaceProjectionLayoutProviding: AnyObject {
@@ -84,7 +85,8 @@ enum CloudWorkspaceLayoutTranslator {
         var trees: [SurfaceProjectionLayout] = []
         for screen in tables.screens {
             guard let document = screen.layout else { return nil }
-            let root = document["root"] ?? (document["kind"] != nil ? document : nil)
+            var root = document["root"]
+            if root == nil, document["kind"] != nil { root = document }
             do {
                 if let tree = try build(root, screen: screen, tables: tables) { trees.append(tree) }
             } catch {

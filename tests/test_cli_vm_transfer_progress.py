@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise transfer progress with the real CLI, a PTY, and a fake VM socket."""
+"""Exercise exec-based pull progress; push output is covered by test_vm_scp.py."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class TransferProgressTests(unittest.TestCase):
     def test_transfer_progress(self) -> None:
         cli = os.environ.get("CMUX_CLI_BIN")
         self.assertTrue(cli and os.access(cli, os.X_OK), "Set CMUX_CLI_BIN to the built CLI")
-        for direction in ("push", "pull"):
+        for direction in ("pull",):
             for tty in (False, True):
                 for fail_second_chunk in (False, True):
                     with self.subTest(direction=direction, tty=tty, failure=fail_second_chunk):

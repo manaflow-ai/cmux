@@ -8,6 +8,15 @@ import CmuxMobileSupport
 import PhotosUI
 import SwiftUI
 
+private extension Duration {
+    var millisecondsClamped: Int {
+        let components = components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        return Int(min(max(0, milliseconds), Int64(UInt32.max)))
+    }
+}
+
 struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -777,7 +786,8 @@ struct TaskComposerSheet: View {
             connectionIdentity: store.taskModelConnectionIdentity(
                 macDeviceID: selectedMacDeviceID,
                 instanceTag: selectedMacInstanceTag
-            )
+            ),
+            connectionState: store.connectionState
         )
     }
 
@@ -829,19 +839,56 @@ struct TaskComposerSheet: View {
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
-            await store.refreshTaskModels(
-                provider: provider,
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            ) { result in
-                guard !Task.isCancelled,
-                      modelRefreshOperationID == operationID,
-                      modelRefreshID == refreshID else { return }
-                displayedModels = result.models
-                displayedDefaultModel = result.defaultModel
-                displayedModelError = result.error
-                reconcileSelectedEffort()
-            }
+            var retryAttempt = 0
+            await MobileTaskModelRefreshLoop().run(
+                shouldContinue: {
+                    !Task.isCancelled
+                        && modelRefreshOperationID == operationID
+                        && modelRefreshID == refreshID
+                },
+                refresh: {
+                    let outcome = await store.refreshTaskModels(
+                        provider: provider,
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ) { result in
+                        guard !Task.isCancelled,
+                              modelRefreshOperationID == operationID,
+                              modelRefreshID == refreshID else { return }
+                        displayedModels = result.models
+                        displayedDefaultModel = result.defaultModel
+                        displayedModelError = result.error
+                        reconcileSelectedEffort()
+                    }
+                    guard !Task.isCancelled,
+                          modelRefreshOperationID == operationID,
+                          modelRefreshID == refreshID else {
+                        return .stopped(.cancelled)
+                    }
+                    switch outcome {
+                    case .retry(let failure):
+                        retryAttempt += 1
+                        let delay = MobileTaskModelRefreshLoop().delay(for: retryAttempt - 1)
+                        store.recordAppEvent(
+                            .taskModelListRetryScheduled,
+                            correlationID: macDeviceID,
+                            elapsedMilliseconds: UInt32(delay.millisecondsClamped),
+                            failure: failure,
+                            count: retryAttempt
+                        )
+                    case .stopped(let reason):
+                        store.recordAppEvent(
+                            .taskModelListRetryStopped,
+                            correlationID: macDeviceID,
+                            failure: outcome.diagnosticFailure,
+                            count: reason.rawValue
+                        )
+                    case .succeeded:
+                        break
+                    }
+                    return outcome
+                }
+            )
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,
                   modelRefreshID == refreshID else { return }

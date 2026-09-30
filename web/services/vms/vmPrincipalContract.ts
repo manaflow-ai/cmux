@@ -11,6 +11,8 @@ export type VmPrincipalLiveStatus = (typeof VM_PRINCIPAL_LIVE_STATUSES)[number];
 export type VmPrincipalRow = {
   readonly id: string;
   readonly userId: string;
+  readonly ownerTeamId: string;
+  readonly coderouterPoolId?: string | null;
   readonly billingTeamId: string | null;
   readonly billingPlanId: string | null;
   readonly provider: string;
@@ -26,9 +28,9 @@ export type VmPrincipalRow = {
 
 export type VmPrincipal = {
   readonly vm: VmPrincipalRow;
-  /** The Stack user the token was issued for: the machine's owner. */
+  /** The Stack user who issued the token, retained for audit attribution. */
   readonly userId: string;
-  /** The billing team the token was issued for. */
+  /** The immutable resource team the token was issued for. */
   readonly teamId: string;
 };
 

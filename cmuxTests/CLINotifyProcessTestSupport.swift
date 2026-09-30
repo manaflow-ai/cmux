@@ -170,7 +170,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startBridgeReadyThenCloseServer(
         listenerFD: Int32,
         replay: Data = Data(),
-        liveOutput: Data = Data()
+        liveOutput: Data = Data(),
+        beforeClose: (@Sendable () -> Void)? = nil
     ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -223,6 +224,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
             }
+            beforeClose?()
         }
         return handled
     }
@@ -410,78 +412,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = standardInput == nil ? nil : Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = CLIChildEnvironment(appHostEnvironment: ProcessInfo.processInfo.environment).normalizing(environment)
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        Self.runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: processTimeout(timeout)
+        )
+    }
 
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        if let standardInput, let stdinPipe {
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? stdinPipe.fileHandleForWriting.close()
-        }
-
-        let outputLock = NSLock()
-        var stdoutData = Data()
-        var stderrData = Data()
-        let outputGroup = DispatchGroup()
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stdoutData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stderrData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        _ = outputGroup.wait(timeout: .now() + 2)
-
-        outputLock.lock()
-        let finalStdoutData = stdoutData
-        let finalStderrData = stderrData
-        outputLock.unlock()
-        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
+    static func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        // Implementation lives in CLIHookProcessRunner so the hook helpers that
+        // only need the built CLI can compile into the product-level test
+        // bundle, which does not have this app-host suite.
+        let result = CLIHookProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: timeout
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
         )
     }
 

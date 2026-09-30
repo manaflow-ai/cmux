@@ -49,7 +49,7 @@ export async function GET(
       const vm = run.value;
       // The machine's team is its billing team; a personal machine reports the
       // caller's resolved billing scope, which is what its own token carries.
-      const teamId = vm.billingTeamId ?? account.entitlements.billingTeamId;
+      const teamId = vm.ownerTeamId;
       const [siblings, recordedOwner] = await Promise.all([
         listOwnerLiveVms(vm),
         loadReflectionOwner({ vm, userId: vm.userId, teamId }),

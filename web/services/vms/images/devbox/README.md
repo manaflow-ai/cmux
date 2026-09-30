@@ -295,9 +295,12 @@ unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
 at the VM's IPv6 address, so the listener must be dual-stack), reads the
 platform instance id from the metadata service, wipes the remote identity
 when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create; it heals pin drift and a missing listener on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
-ships only the supervisor and waits for a driver install.
+bootstrap at create and no guest work on attach, so nothing on a running
+machine changes its cmux-tui: upgrade running machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
+`scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
+docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
+supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
@@ -517,3 +520,25 @@ public ingress, installs a system VPN, or changes an existing machine. A
 cleanup failure names the resource requiring operator attention and fails the
 command. Run this alongside `devbox:verify` when validating a new image or a
 new Cloud client.
+
+## Terminal browser openers
+
+Human authentication is installed by `guestBrowser.ts` through the provider's
+create/attach/exec paths, rather than baked into the immutable snapshot. It installs
+`cmux-open-url`, web-only OS opener wrappers, and shell defaults while retaining
+Chrome/CDP/CUA on the guest desktop. The daemon's ephemeral `url-open` request
+is scoped to the source terminal and needs a live Mac acknowledgement within
+five seconds. Headless or older clients print the URL and return success.
+The opener installation needs no image promotion. Automatic forwarding needs
+the updated daemon and matching Mac client. Existing images keep their pinned
+daemon until a normal image upgrade; those older daemons print the fallback URL.
+
+端末の URL オープナーはプロバイダーの作成・接続・実行処理で導入します。
+自動転送には更新済みのデーモンと Mac クライアントが必要です。既存イメージは
+通常の更新まで固定されたデーモンを維持し、旧バージョンでは URL を表示して
+正常終了します。ゲストデスクトップの Chrome/CDP/CUA には影響しません。
+
+HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundled
+`xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
+HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
+Chrome の直接起動は変更しません。

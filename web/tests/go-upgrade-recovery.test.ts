@@ -15,7 +15,7 @@ import type { VmProviderGatewayShape } from "../services/vms/providerGateway";
 test("a paid upgrade cancels a stale Go pause instead of stopping the upgraded VM", async () => {
   const calls: string[] = [];
   const repo = {
-    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", billingPlanId: "go", status: "running",
+    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, billingPlanId: "go", status: "running",
       provider: "freestyle", providerVmId: "vm", providerMetadata: { cmuxGoPauseIntent: { requestedAt: "2026-09-01T00:00:00Z" } } }),
     mergeProviderMetadata: ({ patch }: { patch: Record<string, unknown> }) => Effect.sync(() => { writes.push(patch); }),
     markProviderObservedStatus: () => Effect.succeed(true),

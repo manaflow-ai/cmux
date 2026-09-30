@@ -39,7 +39,11 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 
 Public callers only use `/api/vm/*`. Each route calls Stack Auth first and returns `401` before any Postgres or provider operation when the caller is unauthenticated.
 
-Ownership checks happen inside the Effect workflow by loading the VM row with both `user_id` and `provider_vm_id`. A user cannot destroy, exec, attach, or mint SSH credentials for a VM owned by another Stack Auth user.
+Ownership checks load the VM under its immutable `owner_team_id`, validated
+against the caller's current Stack team membership. The creator's user id and
+billing attribution do not independently grant access. Personal machines use
+the user's personal scope. Model credentials are further constrained by the
+machine's coderouter pool; see `services/coderouter/README.md`.
 
 Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
 calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
@@ -248,19 +252,14 @@ Provider SDKs remain Promise-based adapters under `drivers/`, but all route-visi
 
 Vercel runs the Next.js application and all VM REST routes. Postgres is the persistent control plane. There is no Rivet deployment for this feature.
 
-Production and staging use Vercel Marketplace AWS Aurora PostgreSQL with OIDC federation and RDS IAM auth. The runtime does not need a long-lived database password.
+Production and staging use PlanetScale PostgreSQL. The Vercel runtime and explicit migration jobs use the PlanetScale connection URL.
 
 Set these Vercel environment variables per production/staging environment:
 
-- `CMUX_DB_DRIVER=aws-rds-iam`.
-- `AWS_ROLE_ARN`, IAM role Vercel assumes.
-- `AWS_REGION`, Aurora region.
-- `PGHOST`, Aurora cluster endpoint.
-- `PGPORT`, usually `5432`.
-- `PGUSER`, IAM-enabled Postgres role.
-- `PGDATABASE`, app database name.
+- `CMUX_DB_DRIVER=url`.
+- `DATABASE_URL`, a PlanetScale PostgreSQL connection URL. Keep it in the Vercel project secret store.
 - `CMUX_DB_POOL_MAX`, small pool size for Vercel Functions. Start with `5`.
-- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, optional. Leave unset for the current Vercel Marketplace Aurora databases so Node uses its default trust store.
+- Preserve `sslmode=verify-full` on the PlanetScale URL.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
 - `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
@@ -301,7 +300,9 @@ Set these Vercel environment variables per production/staging environment:
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 
-Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls deployed Vercel env. The GitHub Actions path uses the minimal DB metadata copied into protected GitHub environments, generates an RDS IAM auth token, and applies Drizzle migrations:
+Use `bun run cloud-vm:migrate -- staging --check` to verify access without changing schema. Operator jobs use the branch's direct port (5432) and verify its TLS certificate. `DIRECT_DATABASE_URL` takes precedence when set. With process-provided credentials, set `CMUX_CLOUD_VM_ENV_SOURCE=process`; otherwise the command pulls the selected Vercel project.
+
+Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls the selected Vercel project `DATABASE_URL`. The GitHub Actions path reads the protected `DATABASE_URL` secret and applies Drizzle migrations:
 
 ```bash
 bun run cloud-vm:migrate -- staging
@@ -350,6 +351,27 @@ bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
 
+## Startup benchmarks
+
+`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
+lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
+scripts and only ever create, measure and delete their own resources:
+
+```bash
+cd web
+bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
+bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
+```
+
+The two SDK benchmarks read the provider credential the way the runtime does
+(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
+from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
+a sensitive (empty) value from the process environment, and sends its throwaway
+session only to the project's own https origin; a deployment that Vercel's API
+attributes to the project also needs `--allow-preview`, and any other https host
+`--allow-any-url`.
+
 ## Telemetry
 
 Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
@@ -357,7 +379,9 @@ Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`),
 - Axiom (`cmux-prod-otel-traces`, 100% of VM traces): route span with `cmux.vm.timing.<stage>_ms`, `cmux.vm.request_duration_ms`, `cmux.vm.request_success`, `cmux.vm.error_*` (code, phase, provider, image, env var, reason), `cmux.client.*`, `cmux.user_id`, `cmux.vercel.request_id`; provider spans under it record the wrapped cause chain (`cmux.error_cause_chain`, `cmux.error_cause_http_status`, `cmux.error_cause_code`). Error and non-polled responses force a bounded span flush in `after()` so an error-heavy instance cannot drop the trace.
 - PostHog (production, or `CMUX_VM_ANALYTICS_FORCE=1`): `cloud_vm_request` (schema 2) for every failure and for the successes a user waits on (create, attach, base open, restore, fork, ...) with `duration_ms`, `status`, `error_code`, `error_phase`, `operator_fault`, `trace_id`, `client_*`, plus the provider `vm_id` from the URL, `plan_id`, `billing_customer_type`, `billing_team_id` and the `stack_team` group; polled reads (`list`, `status`, `stats`, `list_sessions`, `get_tunnel`, `approve_cmux_remote_enrollment`) succeed silently. Every failure also emits a `$exception` (Error Tracking) fingerprinted by error code. `cloud_vm_provision` (schema 3, failures of create-like operations, feeds the alert) carries the same scope plus `trace_id`, `duration_ms`, `error_phase` and client fields.
 - PostHog product events (production, or `CMUX_SERVER_ANALYTICS_FORCE=1`): every allowlisted `cloud_vm_usage_events` ledger row is mirrored after a successful Postgres insert by `productAnalytics.ts` as `cloud_vm_created`, `cloud_vm_destroyed`, `cloud_vm_attached`, `cloud_vm_exec`, `cloud_vm_forked`, `cloud_vm_resumed`, `cloud_vm_snapshot_created`, `cloud_vm_port_opened`, `cloud_vm_base_opened`, `cloud_vm_base_reset`, keyed by the Stack user id with the billing team as the `stack_team` group and `billing_plan` on the person. Their `vm_id` is the internal `cloud_vms.id` UUID, not the provider id in request telemetry. Catalog, identity model and query shapes: `docs/posthog/cloud-product-analytics.md`.
-- Sentry (shared project, `subsystem: cloud_vm_api`): every VM error, `error` level for operator faults and `warning` for user faults, fingerprint `["cmux-vm-error", code, provider]`, tags `vm.error_code`, `vm.phase`, `vm.operation`, `vm.provider`, `client.*`, `trace_id`, and a trace context holding the same ids.
+- Sentry (shared project, `subsystem: cloud_vm_api`): every VM error, `error` level for operator faults and `warning` for user faults, fingerprint `["cmux-vm-error", code, provider]`, tags `vm.error_code`, `vm.phase`, `vm.operation`, `vm.provider`, `vm_id`, `client.*` (including `client.request_id`), `trace_id`, and a trace context holding the same ids.
+
+`operator_fault` is true for a 5xx or a deployment-configuration code, and never for a permanent client-state code (`vm_not_found`, `vm_snapshot_not_found`, `vm_tunnel_not_found`, `vm_access_revoked`, `vm_access_grant_not_found`, `vm_attach_transport_unsupported`, `vm_memory_size_unknown`) or the expected `vm_operation_unsupported` 501, whatever status a route answers with (`isOperatorFaultVmError`). Every `cmux-vm-error:<code>` exception on a per-machine route carries the path `vm_id`; every one carries `client_request_id` and the client name and version, and Sentry gets `vm_id` and `client.request_id` as tags. To tell one looping client from a broad outage, split the fingerprint by machine and person: `SELECT properties.error_code, count(), uniq(distinct_id), uniq(properties.vm_id), uniq(properties.client_request_id), uniq(properties.client_version) FROM events WHERE event = '$exception' AND properties.$exception_fingerprint = 'cmux-vm-error:<code>' AND timestamp > now() - INTERVAL 1 DAY GROUP BY properties.error_code`. A high count with one `vm_id` and one distinct id is a client retrying a permanent error; many machines and people is an incident.
 
 Client side, `VMClientTelemetry` (`Sources/Cloud/VMClientTelemetry.swift`) measures every request: `os.log` category `CloudVM` for all of them, a Sentry breadcrumb for all, PostHog `cmux_cloud_vm_request` for failures plus non-polled successes, and a Sentry event for failures (5xx and transport failures `error`, 4xx `warning`). Client failures are throttled per operation and code (60 s PostHog, 300 s Sentry) so a polling loop during an outage produces one event per window.
 
@@ -392,12 +416,9 @@ They use these GitHub Environments:
 
 Each environment needs:
 
-- variable `AWS_REGION`, usually `us-west-2`
-- variables `PGHOST`, `PGPORT`, `PGUSER`, and `PGDATABASE`
-- variable `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, usually `true`
+- secret `DATABASE_URL` for the target branch
 - variables `NEXT_PUBLIC_STACK_PROJECT_ID` and `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
 - secret `STACK_SECRET_SERVER_KEY` for smoke workflows
-- secret `AWS_MIGRATION_ROLE_ARN` for migration workflows
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 
@@ -466,39 +487,41 @@ The current port-preview and model-plane paths have different trust boundaries:
   Revoking network access is not a promise to erase content already cached by a browser.
 - **Model-plane edge injection** — an egress rule `{ vmId } → { public }` on the
   CodeRouter origin with a headers transform. The edge overwrites the guest's
-  placeholder `authorization` and injects the explicit `x-coderouter-route-token`
-  plus `x-cmux-vm-id` binding header in flight. The persisted env file carries only
+  placeholder `authorization` and injects one signed `x-cmux-authorization`
+  header in flight. The persisted env file carries only
   placeholder keys, and a compromised guest has no credential to exfiltrate. Header
   values are write-only at the provider (read back as `***`); provisioning fails
   closed if the rule cannot be installed.
 
 ## In-VM cmux CLI and machine-to-machine links
 
-The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) atomically at
-create/attach heal (a devbox bake may later ship it preinstalled; that lands with its
-promotion): a POSIX shim over the machine's own cmux-tui
-binary. Local verbs use cmux-tui's grammar against
-the machine's daemon session; `cmux vm …` verbs talk to peer machines through cmux-remote
-existing grants in `~/.cmux/peers/<dst>.json`. Main replaced the enrollment-based Mac
-attach flow with a trusted private-network listener; this branch no longer provides the
-old Mac `vm link` broker. New peer-grant creation is not shipped here and must not be
-advertised as verified. No control-plane credential enters a VM.
+The driver installs `/usr/local/bin/cmux`, `coderouter`, and `cr` as aliases of
+one Rust facade (`cmux-tui/crates/cmux-cloud-cli`). The facade forwards the complete
+CodeRouter argument list to the official Rust core and local/peer commands to the
+guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
+`cmux cr` use the same CodeRouter implementation as the top-level aliases.
 
-The guest consumes connection-ready events through private FIFOs and keeps a cancellable
-30-second readiness deadline using Bash's blocking `read -t` (Bash is installed in the
-machine image). It no longer rescans output files or sleeps between probes. Messages and
-help come from `guestCLI` in both web catalogs and select `LC_ALL`, `LC_MESSAGES`, then
-`LANG`; unknown locales use English.
+The facade and CodeRouter core are one checksum-pinned archive described by
+`guestCliDistribution.json`. Create and attach heal this distribution separately
+from the persistent terminal daemon, so a CLI upgrade does not restart terminals.
+Downloads must match the archive and executable checksums before aliases change.
+The adapter at `/usr/local/libexec/cmux-cloud-adapter` retains the existing cmux
+session grammar and Cloud extensions (`status`, `machines`, `models`, and `agent`).
+`usage` uses the official CodeRouter account/quota view; `machines` retains the
+VM spend view.
 
-日本語: この PR で追加した契約の説明は [README.ja.md](README.ja.md) を参照してください。
+CodeRouter loads the baked TLS origin without reading or writing a user login.
+Requests carry only the placeholder; the provider's outbound TLS rule injects
+the VM identity. The backend derives its team and pool from that identity.
+`add`, `remove`, and Claude account mutations use the same scope, including SQL
+checks on deletion and pool grants during import. VM imports are team-visible;
+private imports and credentials outside the assigned pool remain inaccessible.
+Login, logout, team switching, and cross-team transfers are unavailable in Cloud.
+`org current` and `org list` display only the VM's fixed team.
 
-The shim keeps the shared CLI contract for the operations that are safe to run from inside a
-machine: `cmux auth status [--json]` reports the local daemon, TLS reachability, and whether
-the VM-bound CodeRouter route was accepted; `cmux coderouter status|usage|models` reads the
-machine's own model plane; and `cmux coderouter agent <claude|codex|opencode|pi> …` (or the
-short `cmux agent …`) launches a preinstalled agent through that plane. A bare prompt is
-converted to the provider's one-shot form. `cmux auth login/logout` and account/upstream
-management remain host-owned, so the VM never needs a Stack session token.
+The initial integration pin is a development artifact from the official
+CodeRouter source, with source commits, test runs, and checksums recorded in the
+manifest. The standalone npm release continues to use that same source core.
 
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
@@ -588,11 +611,10 @@ health with `bun run cloud-vm:stress -- <target> --provider default`.
 No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `modelPlane`
 provisioner (`services/vms/modelPlaneGateway.ts` adapting
 `services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
-provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
+provider call, it mints one signed authorization token bound to the row id (`coderouter_route_tokens.vm_id`)
 and returns one edge rule: domain `coderouter.cmux.internal` (the alias every guest dials;
 `CMUX_VM_EDGE_ALIAS_DOMAIN` overrides it per deployment, never per machine), destination host
-this deployment's API host, and headers `authorization`, `x-coderouter-route-token`, and
-`x-cmux-vm-id`. The
+this deployment's API host, and header `x-cmux-authorization`. The
 Freestyle driver passes the rule inline as `tls.rules` on the create; the platform resolves the
 alias to its edge, installs its CA in the guest at boot, terminates TLS for the alias, forwards
 to the destination host, and injects (and overwrites) those headers on every request.
@@ -631,3 +653,19 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 ### Pricing is flat
 
 Go includes one active VM with the starter resource shape. Pro and Max include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with independent CPU, memory, and disk for each VM. Go is capped by active VM count until usage metering is added. There is no overage billing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. Legacy resource metadata does not block new machines or consume another machine's capacity.
+# Signed VM model-plane authorization
+
+VM model traffic uses one `x-cmux-authorization: Bearer <JWT>` header. The
+token is signed with HMAC-SHA-256 and contains `vm_id`, `team_id`, `owner_id`,
+`aud`, `iat`, `exp`, `jti`, and a `kid` key-version claim. The signing key is
+provided to the web deployment as the base64url value `CMUX_VM_AUTH_SIGNING_KEY`
+and its active version as `CMUX_VM_AUTH_SIGNING_KEY_ID`. During rotation, keep
+old verification keys in the JSON map `CMUX_VM_AUTH_SIGNING_PREVIOUS_KEYS`,
+then remove them after the longest token lifetime (30 days).
+
+The verifier requires the `cmux` issuer and `cmux-vm-model-plane` audience,
+rejects malformed, expired, wrong-owner, and wrong-VM claims, and checks the
+hashed token row for revocation and live VM ownership. Destroying a VM or
+revoking its tokens therefore takes effect immediately even before a signing
+key is retired. The edge injects this single header; guest clients and upstream
+providers never receive the signing key or a separate VM-id credential header.

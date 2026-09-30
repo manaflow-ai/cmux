@@ -3,22 +3,21 @@ import Foundation
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
 /// Adding a handler parameter does not expose it remotely until it is reviewed here.
 struct RemoteRelayRoutingSchema {
+    /// Returns the reviewed parameter names for a relay method, or `nil` when
+    /// the method is not exposed through the relay.
     func parameters(for method: String) -> Set<String>? {
         let workspace: Set<String> = ["workspace_id"]
         let surface = workspace.union(["surface_id"])
         let terminal = surface.union(["terminal_id"])
         switch method {
         case "system.ping", "system.capabilities": return []
-        case "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
+        case "workspace.list", "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
-        case "workspace.remote.reconnect": return surface
         case "workspace.equalize_splits": return workspace.union(["orientation"])
         case "surface.read_text": return terminal.union(["scrollback", "lines"])
         case "surface.read_selection": return terminal
         case "surface.close", "surface.clear_git_branch": return surface
         case "surface.send_text": return surface.union(["text"])
-        case "surface.split":
-            return surface.union(["direction", "type", "focus", "initial_divider_position", "remote_tmux_unsupported_options"])
         case "surface.report_tty":
             return surface.union(["tty_name", "terminal_lifecycle_id", "attempt_id"])
         case "surface.report_pwd": return surface.union(["path", "directory"])
@@ -32,23 +31,55 @@ struct RemoteRelayRoutingSchema {
             return surface.union(["terminal_lifecycle_id", "attempt_id", "relay_port", "session_id", "lifecycle_id"])
         case "workspace.remote.terminal_session_end":
             return surface.union(["terminal_lifecycle_id", "relay_port", "session_id", "lifecycle_id", "lifecycle_only"])
-        case "surface.resume.set":
-            return terminal.union(["command", "name", "kind", "cwd", "checkpoint_id", "checkpointId",
-                "source", "environment", "launch_command", "permission_mode", "auto_resume", "resume_evidence_provenance"])
-        case "surface.resume.get":
-            return terminal.union(["claim_checkpoint_id", "claim_source", "claim_updated_at"])
-        case "surface.resume.clear":
-            return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
-        case "agent.restore.admit": return surface.union(["kind", "session_id", "record_session_id"])
-        case "agent.restore.release": return surface.union(["kind", "session_id", "claim_id"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
-        case "notification.create", "notification.create_for_target":
-            return surface.union(["title", "subtitle", "body", "reply_shape"])
+        case "agent.hook.enqueue":
+            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+        case "notification.create_for_target":
+            return surface.union(["title", "subtitle", "body"])
         default: return nil
         }
     }
 
+    /// Claude lifecycle events a relay host may admit. Decision hooks
+    /// (permission feed, CronCreate guard) and auxiliary workers stay local-only,
+    /// so a remote host can report state but never answer for the agent.
+    static let relayAgentHookSubcommands: Set<String> = [
+        "session-start", "prompt-submit", "stop", "notification", "session-end", "pre-tool-use",
+    ]
+    static let maximumRelayAgentHookPayloadBytes = 8 * 1_024
+    static let maximumRelayAgentHookCallerTTYBytes = 256
+
+    /// Returns the first `agent.hook.enqueue` parameter outside the relay
+    /// contract. Routing is carried only by the scoped `workspace_id` and
+    /// `surface_id` selectors; the app rebuilds the hook environment from them.
+    func agentHookContractViolation(in parameters: [String: Any]) -> String? {
+        guard parameters["agent"] as? String == "claude" else { return "agent" }
+        guard let subcommand = parameters["subcommand"] as? String,
+              Self.relayAgentHookSubcommands.contains(subcommand) else { return "subcommand" }
+        guard let payload = parameters["payload"] as? String,
+              payload.utf8.count <= Self.maximumRelayAgentHookPayloadBytes,
+              !payload.contains("\0") else { return "payload" }
+        guard parameters["relay_backed"] as? Bool == true else { return "relay_backed" }
+        if let rawTTY = parameters["caller_tty"], !(rawTTY is NSNull) {
+            guard let callerTTY = rawTTY as? String,
+                  callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
+                  !callerTTY.contains("\0") else { return "caller_tty" }
+        }
+        return nil
+    }
+
+    /// Returns the first parameter outside the method's reviewed contract, or
+    /// `nil` when every key and value shape is allowed. Both relay gates report
+    /// it with their existing "parameter not permitted" denial.
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        // Hook routing comes only from the owner-checked selectors, so a remote
+        // host can report lifecycle state for its own surfaces and cannot pick
+        // a decision hook or carry local replay environment.
+        if method == "agent.hook.enqueue", let key = agentHookContractViolation(in: parameters) {
+            return key
+        }
+        // `_cmux_remote_relay_authentication_code` is a retired resume MAC that
+        // old remote clients may still send; ingress strips it, so allow it here.
         let provenance: Set<String> = [
             RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey,
             "_cmux_remote_connection_id", "_cmux_remote_relay_authentication_code",

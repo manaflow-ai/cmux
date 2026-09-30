@@ -136,8 +136,34 @@ export const codexAdapter: Adapter = {
     }
   },
   stop(sess) {
+    const st = codexState(sess);
     const threadId = sess.internal.threadId as string | undefined;
-    if (threadId && shared) shared.request("turn/interrupt", { threadId }).catch(() => {});
+    const srv = shared;
+    if (!threadId || !srv || !st.turnActive) return;
+
+    const generation = st.activeGeneration;
+    const interrupt = (turnId: string) => {
+      // A turn can finish while Stop waits for `turn/started`; never apply the
+      // late ID to a subsequent turn on the same thread.
+      if (!codexStopGenerationMatches(st, generation) || sess.internal.threadId !== threadId) return;
+      const params = codexInterruptParams(threadId, turnId);
+      if (!params) return;
+      srv.request("turn/interrupt", params).catch((err) => {
+        sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
+      });
+    };
+
+    const params = codexInterruptParams(threadId, st.currentTurnId);
+    if (params) {
+      srv.request("turn/interrupt", params).catch((err) => {
+        sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
+      });
+      return;
+    }
+
+    void waitForTurnId(st).then((turnId) => {
+      if (turnId) interrupt(turnId);
+    });
   },
   dispose(sess) {
     const threadId = sess.internal.threadId as string | undefined;
@@ -497,6 +523,36 @@ function codexSendRoute(st: Pick<CodexState, "turnActive" | "currentTurnId">): "
   return codexSendRouteForTest(st);
 }
 
+function codexStopGenerationMatches(st: Pick<CodexState, "turnActive" | "activeGeneration">, generation: number | undefined): boolean {
+  return st.turnActive && st.activeGeneration === generation;
+}
+
+export function codexStopGenerationMatchesForTest(
+  st: { turnActive?: boolean; activeGeneration?: number },
+  generation: number | undefined,
+): boolean {
+  return codexStopGenerationMatches({
+    turnActive: st.turnActive ?? false,
+    activeGeneration: st.activeGeneration,
+  }, generation);
+}
+
+function codexInterruptParams(threadId: unknown, turnId: unknown): { threadId: string; turnId: string } | null {
+  if (typeof threadId !== "string" || !threadId.trim()) return null;
+  if (typeof turnId !== "string" || !turnId.trim()) return null;
+  return { threadId, turnId };
+}
+
+export function codexInterruptParamsForTest(threadId: unknown, turnId: unknown): { threadId: string; turnId: string } | null {
+  return codexInterruptParams(threadId, turnId);
+}
+
+// Lets a test drive codexAdapter.stop() against a fake app server instead of
+// spawning `codex app-server`; stop() reads the shared connection directly.
+export function codexSetSharedServerForTest(srv: unknown): void {
+  shared = (srv as AppServer | null) ?? null;
+}
+
 function waitForTurnId(st: CodexState): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
   return new Promise((resolve) => {
@@ -594,7 +650,7 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true, handoff: true } });
 }
 
 function buildOptions(st: CodexState): SessionOption[] {
