@@ -589,10 +589,10 @@ struct CloudTreeMachineMenuTests {
 
         let trailingPoint = cell.convert(
             NSPoint(x: cell.bounds.maxX - 4, y: cell.bounds.midY),
-            to: outline
+            to: try #require(outline.superview)
         )
-        let hit = outline.hitTest(trailingPoint)
-        #expect(!(hit?.isDescendant(of: buttons) ?? false))
+        let hit = try #require(outline.hitTest(trailingPoint))
+        #expect(!hit.isDescendant(of: buttons))
     }
 
     @Test("Reused cells hide stale hover controls on buttonless rows")
