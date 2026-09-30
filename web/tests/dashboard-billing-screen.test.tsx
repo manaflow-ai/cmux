@@ -71,7 +71,12 @@ mock.module("next-intl", () => ({
     }),
 }));
 
+// bun's mock.module is process-global: carry every real export so a later
+// suite file in the same shard (dashboard-layout imports the purchase
+// service) still finds promoteStackUserFromAnonymousViaApi and the rest.
+const realStack = await import("../app/lib/stack");
 mock.module("../app/lib/stack", () => ({
+  ...realStack,
   getStackServerApp: () => ({ getUser: async () => currentUser }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
@@ -423,7 +428,7 @@ describe("dashboard billing screen", () => {
     expect(await renderBillingPage({ team: "team-pro" })).toContain(">$28</span> <span class=\"text-xs text-muted\">per seat per month, billed annually<");
   });
 
-  test("nudges admins when members exceed paid seats without blocking", async () => {
+  test("explains a seat count that has not caught up with the members", async () => {
     const team = teamWithMembers("team-pro", "Team Pro", 6);
     proUser.selectedTeam = team;
     subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "team", scope: "team", seats: 4 })];
@@ -431,8 +436,8 @@ describe("dashboard billing screen", () => {
     const html = await renderBillingPage({ team: "team-pro" });
 
     expect(html).toContain("6 of 4 used");
-    expect(html).toContain("Team Pro has 6 members and 4 paid seats.");
-    expect(html).toContain("Add seats");
+    expect(html).toContain("Team Pro has 6 members and 4 paid seats. Joining still works; add seats to cover everyone.");
+    expect(html).not.toContain("Add seats");
   });
 
   test("shows team members a read-only Team plan without billing actions", async () => {

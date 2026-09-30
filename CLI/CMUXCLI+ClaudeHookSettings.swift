@@ -56,6 +56,7 @@ extension CMUXCLI {
         )
         hooks["SessionStart", default: []].append(inboxWait)
         hooks["Stop", default: []].append(inboxWait)
+        hooks["StopFailure", default: []].append(inboxWait)
         hooks["UserPromptSubmit", default: []].append(Self.claudeHookGroup(
             command: "\(hookCLI) hooks claude inbox-drain 2>/dev/null || echo '{}'",
             timeout: 5
