@@ -11,6 +11,8 @@ public enum BrowserStateLoadTransactionResult: Equatable {
 /// Keeps browser state restoration ordered around the asynchronous WebKit load.
 /// Cookies must be present before the request starts, and page storage belongs
 /// to the document that actually committed the requested URL.
+/// lint:allow namespace-type — stateless transaction orchestration; the
+/// closures inject every side effect and preserve the existing call-site API.
 public enum BrowserStateLoadTransaction {
     /// Restores cookies before navigation and page storage after its commit.
     public static func run(
