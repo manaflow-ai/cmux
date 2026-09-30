@@ -38,6 +38,8 @@ final class AppServices {
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
+    /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
+    var inputMonitor: InputInvariantMonitor!
     /// Hook statuses shown in sidebar rows (`set_status`).
     let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
@@ -90,6 +92,7 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
+        startInputVerification()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
     }
 

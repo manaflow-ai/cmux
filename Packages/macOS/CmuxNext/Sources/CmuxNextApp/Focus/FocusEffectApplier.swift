@@ -27,6 +27,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 MainActor.assumeIsolated { self?.controller.focus.send(.appActive(active)) }
             })
         }
+        controller.services.observeFocus(of: controller)
     }
 
     func teardown() {
@@ -112,7 +113,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
-            if !responder(of: window, isInside: page.contentView) { page.setFocused(true) }
+            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
         case .childWindow:
             // Chromium's page is a child window. Its focus is sticky: while
             // this window is key because of a click, the click decides.
@@ -121,7 +122,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
             guard focusedChildWindowPage !== page else { return }
             blurChildWindowPage()
-            page.setFocused(true)
+            setPageFocus(page, true)
             focusedChildWindowPage = page
         }
     }
@@ -129,10 +130,16 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func blurChildWindowPage() {
         guard let page = focusedChildWindowPage as? any BrowserTab else { return }
         focusedChildWindowPage = nil
-        page.setFocused(false)
+        setPageFocus(page, false)
         if let window = controller.window, let key = NSApp.keyWindow, key.parent === window, !(key is NSPanel) {
             window.makeKey()
         }
+    }
+
+    private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
+        page.setFocused(focused)
+        InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
+                                                                      engine: page.presentation == .childWindow ? "chromium" : "webkit"))
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {
@@ -146,6 +153,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard let window = controller.window, child.parent === window, !(child is NSPanel),
               let pane = paneShowingChildWindowPage(at: child.frame) else { return }
         focusedChildWindowPage = pane.page
+        InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
         controller.focus.responderDidChange(.content(pane: pane.key), source: .mouse)
         if window.firstResponder !== window { window.makeFirstResponder(nil) }
     }

@@ -36,6 +36,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
+    /// Set once by `AppServices`: sees every event first (input journal).
+    var inputObserver: ((NSEvent) -> Void)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     @objc(isHandlingSendEvent)
@@ -45,6 +47,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        inputObserver?(event)
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }

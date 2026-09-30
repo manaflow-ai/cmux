@@ -50,7 +50,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             onReattach: { attempt in
                 logger.info("terminal \(surface) fell behind; reattaching for a fresh replay (open \(attempt))")
-            }
+            },
+            observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil
         )
         self.driver = driver
         events = AsyncStream(unfolding: { await driver.nextStep().map(Self.event(for:)) },
