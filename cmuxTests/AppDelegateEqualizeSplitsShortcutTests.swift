@@ -688,10 +688,20 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
+            // A new window takes its right sidebar mode and visibility from
+            // standard defaults, and a visible Dock mode mounts the Dock while
+            // the window is created. Tests that drive the Dock (for example
+            // DockSocketLifecycleTests) save exactly that state, so start this
+            // window with the Dock hidden, as the assertions below require.
             let defaults = UserDefaults.standard
-            let inheritedRightSidebar = "rightSidebar.mode="
-                + "\(defaults.string(forKey: "rightSidebar.mode") ?? "unset"), fileExplorer.isVisible="
-                + "\(defaults.object(forKey: "fileExplorer.isVisible").map { "\($0)" } ?? "unset")"
+            let previousRightSidebarMode = defaults.object(forKey: "rightSidebar.mode")
+            let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+            defaults.set(RightSidebarMode.files.rawValue, forKey: "rightSidebar.mode")
+            defaults.set(false, forKey: "fileExplorer.isVisible")
+            defer {
+                defaults.set(previousRightSidebarMode, forKey: "rightSidebar.mode")
+                defaults.set(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible")
+            }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -710,7 +720,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
             XCTAssertNil(
                 appDelegate.existingWindowDock(forWindowId: windowId),
-                "A new window already has a Dock; persisted right sidebar at window creation: \(inheritedRightSidebar)"
+                "A new window with a hidden right sidebar must not have a Dock yet"
             )
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()

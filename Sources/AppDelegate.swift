@@ -1772,12 +1772,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
-        // key-equivalent routing flaky. Force defaults for deterministic tests. The same
-        // profile carries the last closed window's frame, which sizes the launch window.
+        // key-equivalent routing flaky. Force defaults for deterministic tests. App-host test
+        // processes already start from their own empty domain (TestProcessDefaults).
         if isRunningUnderXCTest {
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
-            Self.forgetPersistedWindowGeometryForTestProcess()
         }
 #endif
 
@@ -3907,23 +3906,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
-    }
-
-    /// Forgets the last closed main window's frame so a test process opens its
-    /// first window at the default size.
-    ///
-    /// Every main-window close writes its frame to the app's standard
-    /// defaults, and the launch window and any window created without a source
-    /// window read it back. App-host test processes on one machine share that
-    /// domain, so without this reset a process inherits whatever window an
-    /// earlier process closed last, often a 320-point fixture. Every later
-    /// `createMainWindow()` copies that launch window, and split admission then
-    /// refuses side-by-side splits (#15392).
-    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
-        defaults: UserDefaults = .standard
-    ) {
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
-        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
