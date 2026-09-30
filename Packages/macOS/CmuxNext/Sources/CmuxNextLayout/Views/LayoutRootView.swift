@@ -175,9 +175,10 @@ public final class LayoutRootView: NSView {
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
-            let structureChanged = previous?.screens.first(where: { $0.id == screen.id }).map { !sameStructure($0.layout, screen.layout) } ?? true
+            let structureChanged = previous?.screens.first(where: { $0.id == screen.id }).map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
             if view.update(layout: screen.layout, animated: animated) { needsFrames = true }
-            view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive)
+            // The focus ring of a split's new pane appears with the pane.
+            view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, animated: animated && !structureChanged)
             if let focused = snapshot.focused, screen.layout.contains(focused),
                structureChanged || previous?.focused != focused
             {

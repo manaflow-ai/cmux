@@ -36,6 +36,18 @@ public nonisolated indirect enum SplitNode: Hashable, Sendable {
         }
     }
 
+    /// Same leaves, splits and axes in the same places; ratios may differ.
+    public func hasSameShape(as other: SplitNode) -> Bool {
+        switch (self, other) {
+        case let (.leaf(x), .leaf(y)):
+            return x == y
+        case let (.split(xID, xAxis, _, xa, xb), .split(yID, yAxis, _, ya, yb)):
+            return xID == yID && xAxis == yAxis && xa.hasSameShape(as: ya) && xb.hasSameShape(as: yb)
+        default:
+            return false
+        }
+    }
+
     public func contains(_ pane: PaneID) -> Bool {
         switch self {
         case let .leaf(leaf): leaf == pane

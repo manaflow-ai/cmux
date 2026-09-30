@@ -11,7 +11,6 @@ final class ScreenContentView: NSView {
     private(set) var layout: ScreenLayout
     private(set) var geometry: ScreenGeometry
     private var paneFrames: [PaneID: AnimatedFrame] = [:]
-    private var removingPanes: [PaneID: AnimatedFrame] = [:]
     private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
 
@@ -57,60 +56,43 @@ final class ScreenContentView: NSView {
     // MARK: Model updates
 
     /// Applies a new layout. Returns true if springs need frames.
+    ///
+    /// A structural change (split, close, move, new column) lands in one
+    /// frame: panes and dividers snap to their targets and a new pane is
+    /// fully opaque at once, so its content can draw in the same frame.
+    /// Ratio and width changes (equalize, width presets, another client's
+    /// divider drag) and column reveal scrolls keep their spring.
     @discardableResult
     func update(layout: ScreenLayout, animated: Bool) -> Bool {
+        let structural = !self.layout.hasSameStructure(as: layout)
         self.layout = layout
-        return reconcile(animated: animated)
+        return reconcile(animated: animated, structural: structural)
     }
 
     @discardableResult
-    private func reconcile(animated: Bool) -> Bool {
-        let previous = geometry
+    private func reconcile(animated: Bool, structural: Bool = false) -> Bool {
         geometry = ScreenGeometry.compute(layout, viewport: bounds.size, style: context.style, scale: scale)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        var needsFrames = false
+        let animateFrames = animate && !structural
 
         // Panes.
         for (pane, target) in geometry.panes {
             if var existing = paneFrames[pane] {
                 existing.setTarget(target, alpha: 1)
-                if !animate { existing.snap() }
+                if !animateFrames { existing.snap() }
                 paneFrames[pane] = existing
             } else {
                 let host = context.host(for: pane)
                 if host.superview !== self {
                     addSubview(host, positioned: .below, relativeTo: firstDividerView)
                 }
-                var frame: AnimatedFrame
-                if let removing = removingPanes.removeValue(forKey: pane) {
-                    frame = removing
-                } else if animate {
-                    frame = AnimatedFrame(insertionStart(for: pane, target: target, previous: previous), alpha: 0)
-                } else {
-                    frame = AnimatedFrame(target)
-                }
-                frame.setTarget(target, alpha: 1)
-                if !animate { frame.snap() }
-                paneFrames[pane] = frame
+                paneFrames[pane] = AnimatedFrame(target)
             }
         }
         for pane in paneFrames.keys where geometry.panes[pane] == nil {
-            guard var frame = paneFrames.removeValue(forKey: pane) else { continue }
-            if context.livePanes.contains(pane) {
-                // Moved to another screen; that screen owns the host now.
-                continue
-            }
-            if animate {
-                let rect = frame.rect
-                frame.setTarget(rect.insetBy(dx: rect.width * 0.04, dy: rect.height * 0.04), alpha: 0)
-                removingPanes[pane] = frame
-            } else {
-                context.release(pane)
-            }
-        }
-        if !animate {
-            for pane in removingPanes.keys { context.release(pane) }
-            removingPanes.removeAll()
+            paneFrames[pane] = nil
+            // A pane that moved to another screen belongs to that screen now.
+            if !context.livePanes.contains(pane) { context.release(pane) }
         }
 
         // Dividers and column edges.
@@ -131,12 +113,10 @@ final class ScreenContentView: NSView {
             view.lineThickness = context.style.dividerThickness
             if var frame = dividerFrames[kind] {
                 frame.setTarget(target.rect, alpha: 1)
-                if !animate { frame.snap() }
+                if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
             } else {
-                var frame = AnimatedFrame(target.rect, alpha: animate ? 0 : 1)
-                frame.setTarget(target.rect, alpha: 1)
-                dividerFrames[kind] = frame
+                dividerFrames[kind] = AnimatedFrame(target.rect)
             }
         }
         for kind in dividerViews.keys where targets[kind] == nil {
@@ -144,38 +124,28 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = nil
         }
 
-        // Scroll.
+        // Scroll. A clamp caused by a structural change (a closed column)
+        // snaps with it; reveal scrolls requested afterwards still spring.
         let clamped = ColumnStripGeometry.clamp(scroll.target, contentWidth: geometry.contentWidth, viewportWidth: bounds.width)
         if clamped != scroll.target && !isUserScrolling {
             scroll.target = clamped
-            if !animate { scroll.snap() }
+            if !animateFrames { scroll.snap() }
         }
         if !geometry.isColumns {
             scroll = SpringValue(0)
         }
 
         applyPresentation()
-        if animate { needsFrames = hasMotion }
-        return needsFrames
+        return animate && hasMotion
     }
 
     private var firstDividerView: NSView? {
         subviews.first { $0 is DividerHandleView }
     }
 
-    /// New panes grow from slightly inside their target; panes of a new
-    /// column slide in from the trailing side, like niri.
-    private func insertionStart(for pane: PaneID, target: CGRect, previous: ScreenGeometry) -> CGRect {
-        if let column = layout.column(containing: pane), previous.columns[column.id] == nil, !previous.columns.isEmpty {
-            return target.offsetBy(dx: min(80, target.width * 0.2), dy: 0)
-        }
-        return target.insetBy(dx: target.width * 0.04, dy: target.height * 0.04)
-    }
-
     // MARK: Animation
 
     private var hasMotion: Bool {
-        if !removingPanes.isEmpty { return true }
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
@@ -189,14 +159,6 @@ final class ScreenContentView: NSView {
         }
         for key in Array(dividerFrames.keys) {
             if dividerFrames[key]!.advance(dt, parameters: .layout) { moving = true }
-        }
-        for key in Array(removingPanes.keys) {
-            if removingPanes[key]!.advance(dt, parameters: .layout) {
-                moving = true
-            } else {
-                removingPanes[key] = nil
-                context.release(key)
-            }
         }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: .scroll, epsilon: 0.25) {
@@ -217,11 +179,6 @@ final class ScreenContentView: NSView {
             host.frame = frame.rect.offsetBy(dx: dx, dy: 0)
             host.alphaValue = frame.alpha.value
         }
-        for (pane, frame) in removingPanes {
-            guard let host = context.hosts[pane], host.superview === self else { continue }
-            host.frame = frame.rect.offsetBy(dx: dx, dy: 0)
-            host.alphaValue = frame.alpha.value
-        }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             view.frame = frame.rect.offsetBy(dx: dx, dy: 0)
@@ -230,9 +187,9 @@ final class ScreenContentView: NSView {
         context.overlayNeedsSync()
     }
 
-    /// Hosts this screen displays now (including panes animating out).
+    /// Hosts this screen displays now.
     var displayedHosts: [PaneHostView] {
-        (Array(paneFrames.keys) + Array(removingPanes.keys)).compactMap { pane in
+        paneFrames.keys.compactMap { pane in
             context.hosts[pane].flatMap { $0.superview === self ? $0 : nil }
         }
     }
@@ -250,7 +207,7 @@ final class ScreenContentView: NSView {
 
     // MARK: Chrome
 
-    func updateChrome(focused: PaneID?, dimsInactive: Bool) {
+    func updateChrome(focused: PaneID?, dimsInactive: Bool, animated: Bool) {
         let multiple = paneFrames.count > 1
         let style = context.style
         for pane in paneFrames.keys {
@@ -259,7 +216,8 @@ final class ScreenContentView: NSView {
             host.setChrome(
                 showsRing: multiple && isFocused,
                 dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
-                ringWidth: style.focusRingWidth
+                ringWidth: style.focusRingWidth,
+                animated: animated
             )
         }
     }
@@ -332,10 +290,9 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
-        for pane in Array(paneFrames.keys) + Array(removingPanes.keys) where !context.livePanes.contains(pane) {
+        for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
         paneFrames.removeAll()
-        removingPanes.removeAll()
     }
 }

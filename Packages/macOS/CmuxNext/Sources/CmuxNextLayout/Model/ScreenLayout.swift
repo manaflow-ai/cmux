@@ -71,6 +71,20 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         }
     }
 
+    /// Same panes, splits and columns in the same places; ratios and widths
+    /// may differ. A change that fails this (split, close, move, new column)
+    /// is structural and applies without animation.
+    public func hasSameStructure(as other: ScreenLayout) -> Bool {
+        switch (self, other) {
+        case let (.splits(x), .splits(y)):
+            return x.hasSameShape(as: y)
+        case let (.columns(x), .columns(y)):
+            return x.count == y.count && zip(x, y).allSatisfy { $0.id == $1.id && $0.root.hasSameShape(as: $1.root) }
+        default:
+            return false
+        }
+    }
+
     public func settingWidth(_ width: Double, for column: ColumnID) -> ScreenLayout {
         guard case let .columns(columns) = self else { return self }
         return .columns(columns.map { $0.id == column ? LayoutColumn(id: $0.id, width: width, root: $0.root) : $0 })

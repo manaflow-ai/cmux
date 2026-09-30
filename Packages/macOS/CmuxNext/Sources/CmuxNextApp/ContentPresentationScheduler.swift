@@ -1,5 +1,13 @@
 import CmuxNextControl
 
+/// A pane whose selected content the scheduler shows.
+@MainActor
+protocol PresentablePane: AnyObject {
+    /// Showing the selection needs no new surface or page.
+    var selectedContentIsAlive: Bool { get }
+    func showSelected()
+}
+
 /// Shows panes' selected content on display frames instead of inside model
 /// updates (architecture.md 5a).
 ///
@@ -13,30 +21,51 @@ import CmuxNextControl
 @MainActor
 final class ContentPresentationScheduler {
     private let frames: any ControlFrameSource
-    private var pending: [ObjectIdentifier: PaneController] = [:]
+    private var pending: [ObjectIdentifier: any PresentablePane] = [:]
     private var order: [ObjectIdentifier] = []
     private var isScheduled = false
+    /// A surface was created since the last frame; the frame's budget is spent.
+    private var createdThisFrame = false
 
     init(frames: any ControlFrameSource = DisplayLinkFrameScheduler()) {
         self.frames = frames
     }
 
     /// Queues `pane` to show its selection on the next frame (coalesced).
-    func setNeedsShowSelected(_ pane: PaneController) {
+    func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
         schedule()
     }
 
+    /// Shows `pane`'s selection now when that fits this frame's budget (its
+    /// content is alive, or no surface was created since the last frame),
+    /// else queues it. Used when a pane comes on screen, so a split's new
+    /// pane draws in the same frame as the layout change instead of one
+    /// blank frame later. Returns true when it was shown now.
+    @discardableResult
+    func showNow(_ pane: any PresentablePane) -> Bool {
+        let alive = pane.selectedContentIsAlive
+        guard alive || !createdThisFrame else {
+            setNeedsShowSelected(pane)
+            return false
+        }
+        cancel(pane)
+        if !alive { createdThisFrame = true }
+        pane.showSelected()
+        schedule()
+        return true
+    }
+
     /// Drops a pane that is going away.
-    func cancel(_ pane: PaneController) {
+    func cancel(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         guard pending.removeValue(forKey: key) != nil else { return }
         order.removeAll { $0 == key }
     }
 
     private func schedule() {
-        guard !isScheduled, !pending.isEmpty else { return }
+        guard !isScheduled, !pending.isEmpty || createdThisFrame else { return }
         isScheduled = true
         frames.scheduleFrame { [weak self] in
             guard let self else { return }
@@ -59,6 +88,7 @@ final class ContentPresentationScheduler {
             }
         }
         order = remaining
+        createdThisFrame = created
         schedule()
     }
 }

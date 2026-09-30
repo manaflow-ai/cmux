@@ -11,7 +11,7 @@ public import AppKit
 public protocol LayoutPaneContentProvider: AnyObject {
     /// Creates the view for a pane the first time it appears.
     func makeContentView(for pane: PaneID) -> NSView
-    /// The pane left the layout and its removal animation finished.
+    /// The pane left the layout. Called in the same update, with no removal animation.
     func releaseContentView(_ view: NSView, for pane: PaneID)
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.

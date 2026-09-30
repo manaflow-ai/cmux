@@ -9,7 +9,7 @@ import Observation
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
 /// other change is a daemon command (PaneController+Intents).
-final class PaneController: SurfacePresenter {
+final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
     let pane: PaneModel
@@ -220,7 +220,13 @@ final class PaneController: SurfacePresenter {
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
-            services.presentation.setNeedsShowSelected(self)
+            // On screen: show now (a split's new pane draws with the layout
+            // change, no blank frame), within the one-surface-per-frame budget.
+            if presence == .visible {
+                services.presentation.showNow(self)
+            } else {
+                services.presentation.setNeedsShowSelected(self)
+            }
         }
         services.surfaceInvariant.noteChange()
     }

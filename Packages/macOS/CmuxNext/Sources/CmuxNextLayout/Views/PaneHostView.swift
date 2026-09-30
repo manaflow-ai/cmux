@@ -30,8 +30,8 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
-    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat) {
-        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth)
+    func setChrome(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, animated: Bool) {
+        chrome.update(showsRing: showsRing, dim: dim, ringWidth: ringWidth, animated: animated)
     }
 }
 
@@ -79,10 +79,14 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    func update(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat) {
+    func update(showsRing: Bool, dim: CGFloat, ringWidth: CGFloat, animated: Bool) {
         applyColors()
         CATransaction.begin()
-        CATransaction.setAnimationDuration(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.16)
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            CATransaction.setAnimationDuration(0.16)
+        } else {
+            CATransaction.setDisableActions(true)
+        }
         ring.borderWidth = ringWidth
         ring.opacity = showsRing ? 1 : 0
         dimLayer.opacity = Float(dim)

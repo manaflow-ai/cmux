@@ -1,19 +1,7 @@
 import AppKit
 
-/// Screen views: structure comparison and the animated screen switch.
+/// Screen views: the animated screen switch.
 extension LayoutRootView {
-    /// Same panes, splits, and columns in the same places; ratios and widths may differ.
-    func sameStructure(_ a: ScreenLayout, _ b: ScreenLayout) -> Bool {
-        switch (a, b) {
-        case let (.splits(x), .splits(y)):
-            return x.panes == y.panes && x.splits == y.splits
-        case let (.columns(x), .columns(y)):
-            return x.map(\.id) == y.map(\.id) && x.map(\.root.panes) == y.map(\.root.panes)
-        default:
-            return false
-        }
-    }
-
     func switchScreens(from old: ScreenID?, to new: ScreenID?, order: [ScreenID], animated: Bool) -> Bool {
         let oldIndex = old.flatMap { order.firstIndex(of: $0) } ?? -1
         let newIndex = new.flatMap { order.firstIndex(of: $0) } ?? 0
