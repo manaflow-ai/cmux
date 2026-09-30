@@ -356,7 +356,9 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversikt",
       "team": "team",
-      "mobileDevices": "Mobile enheter"
+      "mobileDevices": "Mobile enheter",
+      "settings": "innstillinger",
+      "teams": "team"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -381,6 +383,20 @@
         "empty": "Ingen maskiner har brukt coderouter de siste {days} dagene.",
         "unavailable": "Bruk per maskin er midlertidig utilgjengelig.",
         "estimateNote": "API-ekvivalent verdi er et estimat basert på offentlige listepriser, ikke faktisk forbruk."
+      },
+      "metrics": {
+        "title": "Bruk siste 30 dager",
+        "scope": "Samlet for teamet {team}",
+        "period": "Siste {days} dager",
+        "inputTokens": "Input-tokens",
+        "outputTokens": "Output-tokens",
+        "tokens": "Tokens totalt",
+        "apiEquivalent": "API-ekvivalent verdi",
+        "unpriced": "{share} av disse tokenene kom fra modeller uten listepris og er ikke tatt med i den verdien.",
+        "chartLabel": "Daglig tokenbruk i CodeRouter",
+        "privacy": "Ingen prompter, svar, kontonavn eller medlemsidentiteter registreres eller vises.",
+        "estimate": "API-ekvivalent verdi er hva disse tokenene ville ha kostet med offentlige API-listepriser (prisliste {version}). Det er ikke det du har betalt.",
+        "unavailable": "Teamets bruk er midlertidig utilgjengelig."
       }
     },
     "accountMenu": {
@@ -397,8 +413,40 @@
       "plan": {
         "heading": "Ditt personlige abonnement",
         "free": "Gratis",
-        "pro": "Pro",
-        "loading": "Laster…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Dette teamet er ikke tilgjengelig. Du kan ha forlatt det, eller det er slettet.",
+        "unavailable": "Kunne ikke laste inn teamfaktureringen. Prøv igjen om litt.",
+        "welcome": "Team er aktivt. Inviter teamkollegene dine fra teamets medlemsside.",
+        "freeBody": "{team} bruker Gratis-abonnementet. Team gir alle medlemmer skyagenter med én felles faktura.",
+        "upgradeCta": "Oppgrader dette teamet",
+        "askAdmin": "Bare teamadministratorer kan endre faktureringen. Be en administrator i {team} om å oppgradere.",
+        "memberReadOnly": "Bare teamadministratorer kan endre dette abonnementet.",
+        "grantedBody": "cmux-teamet har gitt {team} tilgang til Team. Det finnes ikke noe abonnement å administrere.",
+        "seatsUsed": "{members} av {seats} brukt",
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Det går fortsatt an å bli med; legg til plasser slik at alle dekkes.",
+        "addSeats": "Legg til plasser"
+      },
+      "teamList": {
+        "heading": "Faktureringsomfang",
+        "personal": "Personlig konto",
+        "planBadges": {
+          "free": "Gratis",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Bare teamadministratorer kan administrere faktureringen for dette teamet.",
+        "team_not_found": "Det teamet er ikke tilgjengelig. Du kan ha forlatt det, eller det er slettet.",
+        "authorization_unavailable": "Kunne ikke kontrollere teamtillatelsene. Prøv igjen om litt.",
+        "personal_team_not_upgradable_to_team": "Den personlige kontoen din bruker Pro eller Max. Opprett et team for å kjøpe Team."
+      },
+      "team": {
+        "createCta": "Opprett et team"
       }
     },
     "mobileDevices": {
@@ -409,7 +457,6 @@
       "loading": "Laster inn enheter…",
       "empty": "Ingen enheter er registrert for dette teamet.",
       "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden og prøv igjen.",
-      "retry": "Prøv igjen",
       "mutationError": "Enhetsendringen kunne ikke fullføres.",
       "revoke": "Tilbakekall tilgang",
       "deviceId": "Enhet",
@@ -429,6 +476,513 @@
       "activeDevices": "Aktive enheter",
       "directoryRevision": "Katalogrevisjon",
       "savingRelaySettings": "Lagrer…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Innstillinger",
+        "profile": "Profil",
+        "auth": "E-post og pålogging",
+        "notifications": "Varsler",
+        "sessions": "Økter",
+        "apiKeys": "API-nøkler",
+        "account": "Konto",
+        "billing": "Fakturering",
+        "teamsGroup": "Team",
+        "createTeam": "Opprett team"
+      },
+      "ui": {
+        "save": "Lagre",
+        "saving": "Lagrer…",
+        "cancel": "Avbryt",
+        "editLabel": "Rediger {label}",
+        "required": "Dette feltet er påkrevd.",
+        "saveError": "Kunne ikke lagre. Prøv igjen.",
+        "actionError": "Noe gikk galt. Prøv igjen.",
+        "working": "Jobber…",
+        "typeToConfirm": "Skriv {text} for å bekrefte",
+        "imageSaveError": "Kunne ikke lagre bildet. Prøv igjen.",
+        "invalidImage": "Velg en gyldig bildefil.",
+        "uploadImage": "Last opp bilde",
+        "removeImage": "Fjern bilde",
+        "zoom": "Zoom"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Navnet og avataren din.",
+        "displayNameTitle": "Visningsnavn",
+        "displayNameDescription": "Vises for teamkollegene dine. Det brukes ikke til pålogging.",
+        "displayNameEmpty": "Ikke angitt",
+        "imageTitle": "Profilbilde",
+        "imageDescription": "Last opp et bilde som du vil bruke som avatar.",
+        "imageUpload": "Endre profilbilde"
+      },
+      "auth": {
+        "title": "E-post og pålogging",
+        "description": "E-postadresser, påloggingsmetoder og flerfaktorautentisering.",
+        "emails": {
+          "title": "E-postadresser",
+          "description": "Bekreftede e-postadresser kan være din primære kontaktadresse og kan brukes til pålogging.",
+          "add": "Legg til en e-postadresse",
+          "addSubmit": "Legg til",
+          "adding": "Legger til…",
+          "cancel": "Avbryt",
+          "inputLabel": "Ny e-postadresse",
+          "placeholder": "Skriv inn e-postadresse",
+          "addError": "Kunne ikke legge til e-postadressen. Prøv igjen.",
+          "added": "{email} er lagt til. Sjekk den innboksen for en bekreftelseslenke.",
+          "addedVerificationFailed": "{email} er lagt til, men bekreftelses-e-posten kunne ikke sendes. Bruk Send bekreftelses-e-post for å prøve igjen.",
+          "verificationSent": "Bekreftelses-e-post er sendt til {email}.",
+          "actionError": "Kunne ikke oppdatere e-postadressen. Prøv igjen.",
+          "usedBySomeoneElse": "Denne e-postadressen brukes allerede til pålogging av en annen bruker.",
+          "removeTitle": "Fjern e-postadresse",
+          "removeBody": "Vil du fjerne {email} fra kontoen din? Du kan legge den til igjen senere.",
+          "remove": "Fjern",
+          "actionsLabel": "Handlinger for {email}",
+          "validation": {
+            "required": "E-postadresse er påkrevd.",
+            "invalid": "Skriv inn en gyldig e-postadresse.",
+            "duplicate": "Denne e-postadressen er allerede på kontoen din."
+          },
+          "actions": {
+            "sendVerification": "Send bekreftelses-e-post",
+            "setPrimary": "Angi som primær",
+            "useForSignIn": "Bruk til pålogging",
+            "stopUsingForSignIn": "Slutt å bruke til pålogging",
+            "remove": "Fjern"
+          },
+          "disabled": {
+            "verifyFirst": "Bekreft denne e-postadressen først.",
+            "lastSignInEmail": "Du kan ikke fjerne den siste påloggings-e-postadressen din."
+          },
+          "badges": {
+            "primary": "Primær",
+            "unverified": "Ikke bekreftet",
+            "usedForSignIn": "Brukes til pålogging"
+          }
+        },
+        "password": {
+          "title": "Passord",
+          "updateDescription": "Oppdater passordet ditt.",
+          "setDescription": "Angi et passord for kontoen din.",
+          "update": "Oppdater passord",
+          "set": "Angi passord",
+          "updateSubmit": "Oppdater passord",
+          "setSubmit": "Angi passord",
+          "saving": "Lagrer…",
+          "cancel": "Avbryt",
+          "saved": "Passordet er lagret.",
+          "needsSignInEmail": "Legg først til en påloggings-e-postadresse for å angi et passord.",
+          "saveError": "Kunne ikke lagre passordet. Prøv igjen.",
+          "oldPassword": "Gammelt passord",
+          "newPassword": "Nytt passord",
+          "repeatPassword": "Gjenta nytt passord",
+          "incorrect": "Feil passord.",
+          "requirements": "Passordet oppfyller ikke kravene.",
+          "errors": {
+            "oldPassword": {
+              "required": "Skriv inn det gamle passordet ditt."
+            },
+            "newPassword": {
+              "required": "Skriv inn et nytt passord.",
+              "tooShort": "Bruk minst {min} tegn.",
+              "tooLong": "Bruk maks {max} tegn."
+            },
+            "newPasswordRepeat": {
+              "required": "Gjenta det nye passordet.",
+              "mismatch": "Passordene samsvarer ikke."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Tilgangsnøkkel",
+          "registered": "En tilgangsnøkkel er registrert.",
+          "notRegistered": "Registrer en tilgangsnøkkel for å logge inn uten passord.",
+          "add": "Legg til tilgangsnøkkel",
+          "registering": "Venter på tilgangsnøkkel…",
+          "registerError": "Kunne ikke registrere tilgangsnøkkelen. Forespørselen ble avbrutt eller mislyktes. Prøv igjen.",
+          "delete": "Fjern tilgangsnøkkel",
+          "needsVerifiedEmail": "Legg til en bekreftet påloggings-e-postadresse for å slå på pålogging med tilgangsnøkkel.",
+          "onlyMethod": "Pålogging med tilgangsnøkkel kan ikke slås av fordi det er den eneste påloggingsmetoden din.",
+          "disableTitle": "Slå av pålogging med tilgangsnøkkel",
+          "disableBody": "Du vil ikke lenger kunne logge inn med tilgangsnøkkelen din.",
+          "disable": "Slå av",
+          "disableError": "Kunne ikke slå av pålogging med tilgangsnøkkel. Prøv igjen."
+        },
+        "otp": {
+          "title": "Pålogging med engangskode",
+          "enabledDescription": "Pålogging med magisk lenke eller engangskode er slått på.",
+          "disabledDescription": "Logg inn med en magisk lenke eller engangskode som sendes til påloggings-e-postadressene dine.",
+          "enable": "Slå på",
+          "enableError": "Kunne ikke slå på pålogging med engangskode. Prøv igjen.",
+          "disable": "Slå av",
+          "needsVerifiedEmail": "Legg til en bekreftet påloggings-e-postadresse for å slå på pålogging med engangskode.",
+          "onlyMethod": "Pålogging med engangskode kan ikke slås av fordi det er den eneste påloggingsmetoden din.",
+          "disableTitle": "Slå av pålogging med engangskode",
+          "disableBody": "Du vil ikke lenger kunne logge inn med bare en e-postadresse.",
+          "disableConfirm": "Slå av",
+          "disableError": "Kunne ikke slå av pålogging med engangskode. Prøv igjen."
+        },
+        "mfa": {
+          "title": "Flerfaktorautentisering",
+          "enabledDescription": "Flerfaktorautentisering er slått på.",
+          "disabledDescription": "Flerfaktorautentisering er slått av.",
+          "enable": "Slå på MFA",
+          "disable": "Slå av MFA",
+          "startError": "Kunne ikke starte MFA-oppsettet. Prøv igjen.",
+          "enableError": "Kunne ikke slå på MFA. Prøv igjen.",
+          "scan": "Skann denne QR-koden med autentiseringsappen din.",
+          "qrAlt": "QR-kode for flerfaktorautentisering",
+          "enterCode": "Skriv deretter inn den sekssifrede koden:",
+          "incorrect": "Feil kode. Prøv igjen.",
+          "cancel": "Avbryt",
+          "disableTitle": "Slå av flerfaktorautentisering",
+          "disableBody": "Pålogging vil ikke lenger be om en kode fra autentiseringsappen din.",
+          "disableConfirm": "Slå av MFA",
+          "disableError": "Kunne ikke slå av MFA. Prøv igjen."
+        },
+        "connected": {
+          "title": "Tilkoblede kontoer",
+          "description": "Kontoer fra andre leverandører som er koblet til cmux-kontoen din.",
+          "usedForSignIn": "Brukes til pålogging",
+          "useForSignIn": "Bruk til pålogging",
+          "stopUsingForSignIn": "Slutt å bruke til pålogging",
+          "remove": "Koble fra",
+          "lastMethod": "Dette er den eneste påloggingsmetoden din.",
+          "actionsLabel": "Handlinger for {provider}",
+          "actionError": "Kunne ikke oppdatere den tilkoblede kontoen. Prøv igjen.",
+          "usedBySomeoneElse": "Denne kontoen brukes allerede til pålogging av en annen bruker.",
+          "removeTitle": "Koble fra {provider}",
+          "removeBody": "Du vil ikke lenger kunne logge inn med denne kontoen. Du kan koble den til igjen ved å logge inn med den."
+        }
+      },
+      "notifications": {
+        "title": "Varsler",
+        "description": "E-postvarsler fra cmux.",
+        "heading": "Velg hvilke e-poster du vil motta",
+        "empty": "Det finnes ingen e-postkategorier å konfigurere.",
+        "cannotDisable": "(kan ikke slås av)",
+        "saveError": "Kunne ikke lagre denne innstillingen. Prøv igjen."
+      },
+      "sessions": {
+        "title": "Økter",
+        "description": "Enheter der du er logget inn.",
+        "heading": "Aktive økter",
+        "explanation": "Dette er enhetene der du er logget inn. Tilbakekall en økt for å logge den ut.",
+        "revokeAll": "Tilbakekall alle andre økter",
+        "revokeAllTitle": "Tilbakekall andre økter",
+        "revokeAllBody": "Dette logger ut {count, plural, one {# annen økt} other {# andre økter}}. Denne økten forblir pålogget.",
+        "revokeAllConfirm": "Tilbakekall økter",
+        "revokeAllError": "Kunne ikke tilbakekalle alle økter. Listen viser hva som gjenstår.",
+        "revokeError": "Kunne ikke tilbakekalle økten. Prøv igjen.",
+        "empty": "Fant ingen aktive økter.",
+        "columns": {
+          "session": "Økt",
+          "ip": "IP-adresse",
+          "location": "Plassering",
+          "lastUsed": "Sist brukt"
+        },
+        "current": "Gjeldende økt",
+        "other": "Annen økt",
+        "impersonation": "Etterligning",
+        "signedIn": "Logget inn {date}",
+        "actionsLabel": "Økthandlinger",
+        "revoke": "Tilbakekall",
+        "cannotRevokeCurrent": "Du kan ikke tilbakekalle den gjeldende økten din.",
+        "unknownIp": "-",
+        "unknownLocation": "Ukjent",
+        "never": "Aldri"
+      },
+      "apiKeys": {
+        "title": "API-nøkler",
+        "description": "Nøkler som gir programmer tilgang til kontoen din.",
+        "disabled": "Personlige API-nøkler er ikke slått på for dette prosjektet.",
+        "create": "Opprett API-nøkkel",
+        "createTitle": "Opprett API-nøkkel",
+        "createDescription": "API-nøkler gir programmatisk tilgang til kontoen din.",
+        "descriptionLabel": "Beskrivelse",
+        "descriptionPlaceholder": "For eksempel: Utvikling, Produksjon, CI",
+        "descriptionRequired": "Beskrivelse er påkrevd.",
+        "expiresIn": "Utløper om",
+        "expiry": {
+          "1d": "1 dag",
+          "7d": "7 dager",
+          "30d": "30 dager",
+          "90d": "90 dager",
+          "1y": "1 år",
+          "never": "Aldri"
+        },
+        "cancel": "Avbryt",
+        "createSubmit": "Opprett",
+        "creating": "Oppretter…",
+        "createError": "Kunne ikke opprette API-nøkkelen. Prøv igjen.",
+        "showTitle": "API-nøkkel",
+        "showBody": "Her er API-nøkkelen din.",
+        "showWarning": "Kopier den til et trygt sted. Du vil ikke kunne se den igjen.",
+        "secretLabel": "Hemmelig API-nøkkel",
+        "copy": "Kopier",
+        "copied": "Kopiert",
+        "copyError": "Kunne ikke kopiere. Merk nøkkelen og kopier den manuelt.",
+        "acknowledge": "Jeg forstår at jeg ikke vil kunne se denne nøkkelen igjen.",
+        "close": "Lukk",
+        "search": "Søk i nøkler",
+        "statusFilter": "Filtrer etter status",
+        "status": {
+          "valid": "Gyldig",
+          "expired": "Utløpt",
+          "revoked": "Tilbakekalt"
+        },
+        "empty": "Ingen API-nøkler ennå.",
+        "noMatches": "Ingen API-nøkler samsvarer med disse filtrene.",
+        "columns": {
+          "description": "Beskrivelse",
+          "status": "Status",
+          "key": "Nøkkel",
+          "expiresAt": "Utløper",
+          "createdAt": "Opprettet"
+        },
+        "never": "Aldri",
+        "actionsLabel": "Handlinger for {description}",
+        "revoke": "Tilbakekall",
+        "revokeTitle": "Tilbakekall API-nøkkel",
+        "revokeBody": "Vil du tilbakekalle API-nøkkelen *****{lastFour}? Apper som bruker den, mister tilgangen umiddelbart.",
+        "revokeAcknowledge": "Jeg forstår at dette kobler fra alle appene som bruker denne API-nøkkelen.",
+        "revokeConfirm": "Tilbakekall nøkkel",
+        "revokeError": "Kunne ikke tilbakekalle API-nøkkelen. Prøv igjen."
+      },
+      "account": {
+        "title": "Konto",
+        "description": "Fakturering, utlogging og sletting av konto.",
+        "billingTitle": "Fakturering",
+        "billingDescription": "Abonnementer, fakturaer og betalingsmåter.",
+        "billingLink": "Åpne fakturering",
+        "signOutTitle": "Logg ut",
+        "signOutDescription": "Avslutt den gjeldende økten din.",
+        "signOut": "Logg ut",
+        "signingOut": "Logger ut…",
+        "signOutError": "Kunne ikke logge ut. Prøv igjen.",
+        "deleteTitle": "Slett konto",
+        "deleteDescription": "Fjern kontoen din og alle tilknyttede data permanent.",
+        "delete": "Slett konto",
+        "deleteConfirmTitle": "Vil du slette kontoen din?",
+        "deleteConfirmBody": "Dette kan ikke angres og sletter alle data som er knyttet til kontoen din.",
+        "deleteAcknowledge": "Jeg forstår at kontoen min og dataene i den slettes permanent.",
+        "deleteConfirm": "Slett konto",
+        "deleteError": "Kunne ikke slette kontoen. Prøv igjen."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopier",
+        "copied": "Kopiert",
+        "copyFailed": "Kopiering mislyktes"
+      },
+      "plan": {
+        "free": "Gratis",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Administrator",
+        "member": "Medlem"
+      },
+      "errors": {
+        "generic": "Noe gikk galt. Prøv igjen.",
+        "network_error": "Kunne ikke nå cmux. Sjekk tilkoblingen din og prøv igjen.",
+        "unauthorized": "Økten din er avsluttet. Logg inn igjen.",
+        "forbidden": "Du har ikke tillatelse til å gjøre dette.",
+        "team_not_found": "Dette teamet finnes ikke lenger.",
+        "invalid_request": "Forespørselen var ugyldig. Sjekk feltene og prøv igjen.",
+        "rate_limited": "For mange forespørsler. Vent litt og prøv igjen.",
+        "last_admin": "Et team må ha minst én administrator. Forfrem et annet medlem først.",
+        "member_not_found": "Den personen er ikke lenger medlem.",
+        "invitation_not_found": "Den invitasjonen finnes ikke lenger.",
+        "invitation_invalid": "Denne invitasjonen er ugyldig, utløpt eller allerede brukt.",
+        "email_mismatch": "Denne invitasjonen ble sendt til en annen e-postadresse.",
+        "link_not_found": "Den invitasjonslenken finnes ikke lenger.",
+        "link_invalid": "Denne invitasjonslenken er ugyldig, utløpt, tilbakekalt eller full.",
+        "team_has_active_subscription": "Si opp teamabonnementet før du sletter teamet.",
+        "service_unavailable": "Tjenesten er midlertidig utilgjengelig. Prøv igjen om litt."
+      },
+      "list": {
+        "title": "Team",
+        "description": "Team deler medlemmer, fakturering og coderouter-kontoer. Åpne et team for å administrere det.",
+        "create": "Opprett team",
+        "count": "{count, plural, one {# team} other {# team}}",
+        "selected": "Gjeldende",
+        "emptyTitle": "Ingen team ennå",
+        "emptyBody": "Opprett et team for å invitere personer og dele ett abonnement."
+      },
+      "new": {
+        "title": "Opprett et team",
+        "description": "Gi teamet et navn, velg et abonnement og inviter deretter personer.",
+        "stepsLabel": "Trinn",
+        "steps": {
+          "name": "Navn",
+          "plan": "Abonnement",
+          "invite": "Inviter"
+        },
+        "nameTitle": "Gi teamet ditt et navn",
+        "nameLabel": "Teamnavn",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Skriv inn et teamnavn.",
+          "tooLong": "Bruk maks {max} tegn."
+        },
+        "cancel": "Avbryt",
+        "createAction": "Opprett team",
+        "creating": "Oppretter…",
+        "planTitle": "Velg et abonnement for {team}",
+        "planDescription": "Du kan endre abonnementet senere fra teamets faktureringsside.",
+        "freeName": "Gratis",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} per plass per måned",
+        "featureMembers": "Medlemmer, roller og invitasjoner",
+        "featureProForEveryone": "Alt i Pro for alle medlemmer",
+        "featureCentralBilling": "Samlet fakturering for hele teamet",
+        "featurePrioritySupport": "Prioritert støtte",
+        "chooseFree": "Fortsett med Gratis",
+        "chooseTeam": "Oppgrader til Team (${price}/plass/måned)",
+        "upgradeLater": "Plassene er fleksible: Du kan invitere flere personer enn du betaler for, og legge til plasser senere.",
+        "inviteTitle": "Inviter personer til {team}",
+        "inviteDescription": "Valgfritt. Du kan også invitere personer senere fra teamets Medlemmer-side.",
+        "inviteByEmail": "Inviter via e-post",
+        "inviteByLink": "Invitasjonslenke",
+        "backToPlan": "Tilbake til abonnementer",
+        "finish": "Gå til teamet"
+      },
+      "invite": {
+        "emailsLabel": "E-postadresser",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Ikke en gyldig e-postadresse",
+        "removeEmail": "Fjern {email}",
+        "roleLabel": "Rolle",
+        "roleMember": "Medlem",
+        "roleAdmin": "Administrator",
+        "count": "{count}/{max}",
+        "send": "Send invitasjoner",
+        "sending": "Sender…",
+        "invalidCount": "{count, plural, one {Rett eller fjern # ugyldig adresse før du sender.} other {Rett eller fjern # ugyldige adresser før du sender.}}",
+        "overflow": "{count, plural, one {# adresse ble ikke lagt til: Grensen er {max} per forespørsel.} other {# adresser ble ikke lagt til: Grensen er {max} per forespørsel.}}",
+        "sent": "{count, plural, one {Sendte # invitasjon.} other {Sendte # invitasjoner.}}"
+      },
+      "inviteFailure": {
+        "generic": "kunne ikke inviteres",
+        "already_member": "er allerede medlem",
+        "invite_failed": "invitasjonen kunne ikke sendes"
+      },
+      "links": {
+        "expiryLabel": "Utløper",
+        "expiry": {
+          "1": "Om 1 dag",
+          "7": "Om 7 dager",
+          "30": "Om 30 dager",
+          "never": "Aldri"
+        },
+        "maxUsesLabel": "Maks antall bruk",
+        "maxUsesPlaceholder": "Ubegrenset",
+        "maxUsesInvalid": "Maks antall bruk må være et heltall fra 1 til {max}, eller tomt for ubegrenset.",
+        "create": "Opprett lenke",
+        "creating": "Oppretter…",
+        "memberOnly": "Personer som blir med via lenke, blir medlemmer. Forfrem dem til administrator etterpå ved behov.",
+        "showOnce": "Kopier denne lenken nå. Den vises bare én gang.",
+        "empty": "Ingen aktive invitasjonslenker.",
+        "createdAt": "Opprettet {at}",
+        "expiresAt": "Utløper {at}",
+        "neverExpires": "Utløper aldri",
+        "uses": "{count}/{max} bruk",
+        "usesUnlimited": "{count, plural, one {# bruk} other {# bruk}}",
+        "revoke": "Tilbakekall",
+        "revokeTitle": "Vil du tilbakekalle denne invitasjonslenken?",
+        "revokeBody": "De som har lenken, kan ikke lenger bli med. De som allerede har blitt med, forblir medlemmer.",
+        "actionsFor": "Handlinger for lenken ({created})"
+      },
+      "shell": {
+        "allTeams": "Alle team",
+        "tabsLabel": "Teaminnstillinger",
+        "tabs": {
+          "general": "Generelt",
+          "members": "Medlemmer",
+          "apiKeys": "API-nøkler",
+          "billing": "Fakturering"
+        },
+        "notFoundTitle": "Fant ikke teamet",
+        "notFoundBody": "Dette teamet finnes ikke, eller du er ikke medlem av det.",
+        "backToTeams": "Tilbake til team"
+      },
+      "general": {
+        "imageTitle": "Teambilde",
+        "imageDescription": "Vises ved siden av teamnavnet overalt i cmux.",
+        "imageUpload": "Last opp teambilde",
+        "nameTitle": "Teamnavn",
+        "nameDescription": "Synlig for alle medlemmer.",
+        "nameReadOnly": "Bare administratorer kan gi teamet nytt navn.",
+        "nameError": {
+          "empty": "Skriv inn et teamnavn.",
+          "tooLong": "Bruk maks {max} tegn."
+        },
+        "profileTitle": "Navnet ditt i dette teamet",
+        "profileDescription": "Slik ser andre medlemmer av teamet deg. La feltet stå tomt for å bruke kontonavnet ditt.",
+        "profileLabel": "Visningsnavnet ditt i teamet",
+        "leaveTitle": "Forlat team",
+        "leaveDescription": "Du mister tilgangen til teamets delte kontoer og fakturering.",
+        "leaveAction": "Forlat team",
+        "leaveBlocked": "Du er den eneste administratoren. Forfrem et annet medlem til administrator, eller slett teamet, før du forlater det.",
+        "leaveConfirmTitle": "Vil du forlate {team}?",
+        "leaveConfirmBody": "Du trenger en ny invitasjon for å bli med igjen.",
+        "deleteTitle": "Slett team",
+        "deleteDescription": "Fjerner teamet, medlemmenes tilgang og teamets invitasjonslenker permanent.",
+        "deleteAction": "Slett team",
+        "deleteConfirmTitle": "Vil du slette {team}?",
+        "deleteConfirmBody": "Dette kan ikke angres.",
+        "openBilling": "Åpne teamfakturering"
+      },
+      "members": {
+        "title": "Medlemmer",
+        "count": "{count, plural, one {# medlem} other {# medlemmer}}",
+        "memberColumn": "Medlem",
+        "roleColumn": "Rolle",
+        "actionsColumn": "Handlinger",
+        "you": "Deg",
+        "unnamed": "Medlem uten navn",
+        "remove": "Fjern",
+        "removeTitle": "Vil du fjerne {name}?",
+        "removeBody": "Personen mister tilgangen til dette teamet umiddelbart. Du kan invitere personen igjen senere.",
+        "inviteTitle": "Inviter personer",
+        "inviteDescription": "Send invitasjoner på e-post. Lim inn en liste atskilt med komma, mellomrom eller linjeskift (opptil 20).",
+        "pendingTitle": "Ventende invitasjoner",
+        "pendingDescription": "Invitasjoner som ikke er godtatt ennå.",
+        "pendingEmpty": "Ingen ventende invitasjoner.",
+        "unknownEmail": "Ukjent adresse",
+        "expires": "Utløper {at}",
+        "resend": "Send på nytt",
+        "resent": "Sendt",
+        "revoke": "Tilbakekall",
+        "linksTitle": "Invitasjonslenker",
+        "linksDescription": "En gjenbrukbar lenke som alle kan bruke for å bli med som medlem.",
+        "seatNudge": "{used} personer er medlemmer eller invitert, men abonnementet har {seats} plasser. Invitasjoner fungerer fortsatt; legg til {over, plural, one {# plass} other {# plasser}} slik at alle dekkes.",
+        "seatNudgeAction": "Administrer plasser",
+        "actions": {
+          "makeAdmin": "Gjør til administrator",
+          "makeMember": "Gjør til medlem",
+          "remove": "Fjern fra teamet",
+          "leave": "Forlat teamet"
+        },
+        "actionsFor": "Handlinger for {name}",
+        "lastAdminReason": "Et team må ha minst én administrator. Forfrem noen andre først.",
+        "demoteSelfTitle": "Slutte å være administrator?",
+        "demoteSelfBody": "Du mister administratortilgangen til dette teamet. En annen administrator kan gi den tilbake.",
+        "demoteSelfConfirm": "Gjør meg til medlem"
+      },
+      "apiKeys": {
+        "title": "Teamets API-nøkler",
+        "description": "Nøkler som handler på vegne av dette teamet. Alle med en nøkkel kan bruke teamets tilgang, så oppbevar nøklene trygt.",
+        "create": "Opprett API-nøkkel for teamet",
+        "disabled": "Team-API-nøkler er ikke aktivert for dette prosjektet.",
+        "forbidden": "Du trenger tillatelsen Administrer API-nøkler i dette teamet for å se nøklene."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Overfør",
@@ -455,10 +1009,6 @@
       "apiKeysTitle": "API-nøkler",
       "apiKeysDescription": "Opprett langvarige nøkler for skript og agenter. Hemmeligheten vises én gang.",
       "apiKeysCount": "{count, plural, one {# nøkkel} other {# nøkler}}",
-      "apiKeysLoading": "Laster inn API-nøkler…",
-      "apiKeysLoadError": "API-nøklene kunne ikke lastes inn. Prøv igjen snart.",
-      "apiKeysRetry": "Prøv igjen",
-      "apiKeysEmptyBody": "Ingen API-nøkler ennå. Opprett en for å autentisere en CodeRouter-klient.",
       "apiKeyPrefixColumn": "Nøkkel",
       "apiKeyStatusColumn": "Tilstand",
       "apiKeySecretTitle": "Kopier denne nøkkelen nå",
@@ -478,7 +1028,28 @@
       "revokeApiKeyConfirmTitle": "Tilbakekall denne API-nøkkelen?",
       "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
-      "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
+      "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart.",
+      "apiKeysEmptyTitle": "Ingen API-nøkler ennå",
+      "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient."
+    },
+    "notFound": {
+      "title": "Fant ikke siden",
+      "body": "Denne dashbordsiden finnes ikke eller er flyttet.",
+      "home": "Gå til dashbordet"
+    },
+    "states": {
+      "errorTitle": "Kunne ikke laste inn {section}",
+      "errorTitleGeneric": "Kunne ikke laste inn denne delen",
+      "reason": {
+        "network": "Sjekk tilkoblingen din, og prøv igjen.",
+        "unavailable": "cmux er midlertidig utilgjengelig. Prøv igjen om litt.",
+        "forbidden": "Du har ikke tilgang til dette.",
+        "notFound": "Dette finnes ikke lenger, eller du har ikke tilgang.",
+        "rateLimited": "For mange forespørsler. Vent litt, og prøv igjen.",
+        "generic": "Noe gikk galt. Prøv igjen."
+      },
+      "retry": "Prøv igjen",
+      "retrying": "Prøver igjen …"
     }
   },
   "community": {
@@ -1374,8 +1945,8 @@
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Skalerer hvor langt terminalen flytter seg for hver rullehendelse fra musehjul eller styreflate. Verdier over 1 gjør rullingen raskere, og verdier under 1 gjør den tregere.",
-          "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
+          "showTextBoxOnNewTerminals": "Viser TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
+          "focusTextBoxOnNewTerminals": "Fokuserer TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Spill av varsellyden selv når ruten som varslet allerede har fokus. Av som standard, så en rute med fokus viser bare ringen og blinket.",
@@ -1416,7 +1987,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
+          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
           "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
         },
         "fileEditor": {
@@ -1868,7 +2439,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (beta)",
+      "textBox": "TextBox",
       "ios": "iOS-app",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Oversikt",
@@ -2031,11 +2602,10 @@
       "daemonPath": "Daemon-binæren er lagret på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på den eksterne verten og verifisert mot et SHA-256-manifest innebygd i appen."
     },
     "textBox": {
-      "title": "TextBox (beta)",
-      "metaTitle": "TextBox (beta)",
-      "metaDescription": "Konfigurer cmux sin beta-TextBox-inndata for nye terminalfaner, splitt og arbeidsområder.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Konfigurer cmux sin TextBox-inndata for nye terminalfaner, splitt og arbeidsområder.",
       "intro": "TextBox er cmux sin rike terminalflate for å skrive prompter før de sendes til en terminal.",
-      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes.",
       "defaultsTitle": "Standardverdier",
       "defaultsDesc": "TextBox-innstillingene ligger i Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals åpner nye arbeidsområder, terminalfaner og terminalsplitt med TextBox synlig, mens fokus blir i terminalen.",
@@ -4581,5 +5151,27 @@
     "updateDetail": "Krever cmux {stableVersion} eller nyere, eller NIGHTLY {nightlyVersion} eller nyere. Slå på iOS-sammenkobling i Innstillinger > Mobil på hver Mac.",
     "rollbackTitle": "Må du beholde et eldre Mac-bygg?",
     "rollbackDetail": "Bruk cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere bygg så lenge det er tilgjengelig. Velg akkurat dette bygget, siden senere bygg bruker en nyere tilkoblingstjeneste."
+  },
+  "teamInvite": {
+    "loading": "Laster inn invitasjon…",
+    "title": "Bli med i {team}",
+    "titleUnknown": "Bli med i dette teamet",
+    "body": "Du er invitert til å bli med i dette teamet på cmux.",
+    "join": "Bli med i teamet",
+    "joining": "Blir med…",
+    "signedInAs": "Logget inn som {email}",
+    "alreadyMemberTitle": "Du er allerede medlem av {team}",
+    "alreadyMemberTitleUnknown": "Du er allerede medlem av dette teamet",
+    "alreadyMemberBody": "Åpne teamet for å administrere det.",
+    "openTeam": "Åpne team",
+    "mismatchTitle": "Denne invitasjonen gjelder en annen konto",
+    "mismatchBody": "Du er logget inn som {email}, men invitasjonen ble sendt til en annen adresse. Logg inn med den inviterte adressen, eller legg til og bekreft den på denne kontoen.",
+    "mismatchBodyUnknown": "Invitasjonen ble sendt til en annen adresse. Logg inn med den inviterte adressen, eller legg til og bekreft den på denne kontoen.",
+    "switchAccount": "Logg ut og bytt konto",
+    "switching": "Logger ut…",
+    "switchFailed": "Kunne ikke logge ut. Prøv igjen.",
+    "invalidTitle": "Denne invitasjonen er ikke lenger gyldig",
+    "invalidBody": "Den er utløpt, tilbakekalt eller allerede brukt. Be en teamadministrator om en ny.",
+    "goToTeams": "Gå til teamene dine"
   }
 }

@@ -152,6 +152,8 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",
+        "terminal.textEditingCommandMovesByWord",
+        "terminal.textEditingGesturesInFullScreenApps",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",
@@ -171,7 +173,8 @@ struct SettingsRowAnchorResolutionTests {
     /// (no single cmux.json path): pickers and action buttons. Each must
     /// match the corresponding curated entry id verbatim.
     static let explicitlyAnchoredEntryIDs: Set<String> = [
-        "setting:app:appearance",
+        "setting:themes:appearance",
+        "setting:themes:terminal-theme",
         "setting:app:app-icon",
         "setting:app:file-drops",
         "setting:app:terminal-config",
