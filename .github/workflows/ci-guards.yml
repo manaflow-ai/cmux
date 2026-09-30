@@ -259,12 +259,15 @@ jobs:
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
         env:
-          CMUX_TEST_REGISTRY_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
         run: |
           set -euo pipefail
           args=()
-          if [[ -n "$CMUX_TEST_REGISTRY_BASE_SHA" ]]; then
-            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_SHA"
+          if [[ -n "$CMUX_TEST_REGISTRY_BASE_REF" ]]; then
+            # Keep this fetch shallow. With the current base tip, merge-base may
+            # be unavailable, and the two-tree diff fallback is the right answer.
+            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
+            CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
@@ -607,6 +610,10 @@ jobs:
       - name: Validate checkout failure network diagnostics
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
+
+      - name: Validate production drift issue updates are sticky
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_iroh_drift_issue.py
 
       - name: Validate Swift Testing suite timeout guard
         if: ${{ matrix.group == 'app-host-execution' }}

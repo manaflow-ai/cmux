@@ -3,6 +3,7 @@ import CmuxCloud
 import Foundation
 import CmuxAppKitSupportUI
 import CmuxTerminal
+import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
@@ -3359,6 +3360,7 @@ class GhosttyApp {
             DispatchQueue.main.async {
                 surfaceView.cellSize = cellSize
                 _ = terminalSurface?.fontSizeLineageSnapshot()
+                terminalSurface?.cellSizeDidChange()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView,
@@ -4031,6 +4033,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
+    /// The alternate-screen state read on the last gesture press, reused by its
+    /// auto-repeats so a held chord does not serialize the viewport per repeat.
+    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -6322,6 +6327,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
     }
 
+    /// Whether gestures stay active on the alternate screen, read from the same
+    /// defaults key as `terminal.textEditingGesturesInFullScreenApps`, whose
+    /// default is `false`.
+    private var textEditingGesturesInFullScreenApps: Bool {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingGesturesInFullScreenApps")
+    }
+
+    /// The gesture layout, read from the same defaults key as
+    /// `terminal.textEditingCommandMovesByWord`, whose default is `false`.
+    private var textEditingLayout: TerminalTextEditingLayout {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingCommandMovesByWord")
+            ? .commandMovesByWord
+            : .standard
+    }
+
     /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
     private func textEditingModifiers(
         from flags: NSEvent.ModifierFlags
@@ -6364,14 +6384,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so without this guard reading scrollback with a half-typed command at
         // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
         guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        let modifiers = textEditingModifiers(from: event.modifierFlags)
+        // The defaults reads are the costly half, so they run only after the
+        // pure pre-filter has confirmed this keystroke is gesture-shaped under
+        // some layout. Every other keystroke leaves this path having done no I/O.
+        guard terminalTextEditingIsGestureCandidate(keyCode: event.keyCode, modifiers: modifiers) else {
+            return false
+        }
+        guard textEditingGesturesEnabled else { return false }
         guard let chord = terminalTextEditingResolve(
             keyCode: event.keyCode,
-            modifiers: textEditingModifiers(from: event.modifierFlags)
+            modifiers: modifiers,
+            layout: textEditingLayout
         ) else { return false }
-        // The defaults read is the costly half, so it runs only after the pure
-        // resolver has confirmed this keystroke is gesture-shaped at all. Every
-        // other keystroke leaves this path having done no I/O.
-        guard textEditingGesturesEnabled else { return false }
+        // A full-screen application decides what these chords mean, so it gets
+        // the original keystroke unless the user opted in. The alternate-screen
+        // read serializes the viewport, which is why it waits until a gesture
+        // has resolved with the mode on, and why an auto-repeat reuses the
+        // answer from the press that started it.
+        if !textEditingGesturesInFullScreenApps {
+            let onAlternateScreen: Bool
+            if event.isARepeat,
+               let cached = textEditingGestureAlternateScreenAtPress,
+               cached.keyCode == event.keyCode {
+                onAlternateScreen = cached.onAlternateScreen
+            } else {
+                onAlternateScreen = terminalSurface?.isAlternateScreenActive() == true
+                textEditingGestureAlternateScreenAtPress = (event.keyCode, onAlternateScreen)
+            }
+            guard !onAlternateScreen else { return false }
+        }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
             let scalar = chord.letter.unicodeScalars.first
@@ -6678,6 +6720,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -6790,6 +6833,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             desiredFocus = false
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
@@ -7062,6 +7106,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        // A fresh press invalidates the gesture's alternate-screen answer before
+        // any early return, so a later repeat never reuses one from another key.
+        if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
@@ -9313,6 +9360,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let menu = NSMenu()
+        // First, the way Safari and Terminal.app order a link menu: what the
+        // pointer is on outranks what the pane can do.
+        addLinkContextMenuItems(
+            to: menu,
+            pointerLocation: sendsTerminalPointerEvent ? convert(event.locationInWindow, from: nil) : nil
+        )
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
@@ -10234,6 +10287,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
+    /// Shared-terminal bounds (docs/shared-terminal-sizing.md); supersedes the
+    /// legacy phone border while a snapshot is shown.
+    let terminalSizeBoundsOverlayView = TerminalSizeBoundsOverlayView()
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private var inactiveOverlayColor: NSColor = .clear
     private var inactiveOverlayOpacity: CGFloat = 0
@@ -10244,7 +10300,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+    let cloudTerminalOverlay = CloudTerminalOverlayCoordinator()
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
     var hasVisibilityRevealRefreshScheduled = false
     var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
@@ -10561,6 +10617,7 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
+        addSubview(terminalSizeBoundsOverlayView, positioned: .above, relativeTo: mobileViewportBorderOverlayView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -11042,6 +11099,9 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
+        if setFrameIfNeeded(terminalSizeBoundsOverlayView, to: contentFrame) {
+            terminalSizeBoundsOverlayView.refreshGeometry()
+        }
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -11099,7 +11159,27 @@ final class GhosttySurfaceScrollView: NSView {
         mobileViewportBorderOverlayView.drawsVisibleAreaBorder = isVisible
         mobileViewportBorderOverlayView.drawsVisibleAreaRightBorder = drawRight
         mobileViewportBorderOverlayView.drawsVisibleAreaBottomBorder = drawBottom
-        mobileViewportBorderOverlayView.isHidden = !isVisible
+        mobileViewportBorderOverlayView.isHidden = !isVisible || terminalSizeBoundsOverlayView.isPresentingSharing
+        terminalSizeBoundsOverlayView.refreshGeometry()
+    }
+
+    /// Shows (or clears) a shared terminal's size state over this pane.
+    func setTerminalSharingSnapshot(
+        _ snapshot: TerminalSharingSnapshot?,
+        surface: TerminalSurface?,
+        onShowSizePanel: @escaping () -> Void,
+        onReattach: @escaping (Bool) -> Void
+    ) {
+        let overlay = terminalSizeBoundsOverlayView
+        overlay.terminalSurface = surface
+        overlay.onShowSizePanel = onShowSizePanel
+        overlay.onReattach = onReattach
+        overlay.update(snapshot: snapshot)
+        if overlay.isPresentingSharing {
+            mobileViewportBorderOverlayView.isHidden = true
+        } else if mobileViewportBorderOverlayView.drawsVisibleAreaBorder {
+            mobileViewportBorderOverlayView.isHidden = false
+        }
     }
 
     @discardableResult
