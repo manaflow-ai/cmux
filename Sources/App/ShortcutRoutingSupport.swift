@@ -627,6 +627,11 @@ enum BrowserZoomShortcutAction: Equatable {
     case reset
 }
 
+/// The zoom action for a Command key press, used to route terminal font zoom.
+///
+/// Accepts Command with optional Shift. Keys are matched by character, then by
+/// US key position when the key types no other shortcut character, and by the
+/// keypad zoom keys.
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -668,6 +673,8 @@ func browserZoomShortcutAction(
     return nil
 }
 
+/// The lowercased characters a zoom key press may stand for: the event's
+/// characters and the layout character for its key code.
 func browserZoomShortcutKeyCandidates(
     chars: String,
     literalChars: String?,

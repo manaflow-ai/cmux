@@ -1678,6 +1678,11 @@ struct ShortcutStroke: Equatable, Hashable {
         )
     }
 
+    /// Whether a key press matches this stroke.
+    ///
+    /// Matches by recorded key code, then by character from the event or the
+    /// layout, and finally by the shortcut key's US ANSI position, unless the
+    /// pressed key types a different shortcut character.
     func matches(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
@@ -1938,6 +1943,7 @@ struct ShortcutStroke: Equatable, Hashable {
         ) == shortcutKey
     }
 
+    /// The character when it is a single printable ASCII character, else nil.
     private static func printableASCIICharacter(_ character: String?) -> String? {
         guard let character,
               character.count == 1,
