@@ -3719,36 +3719,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
 
-        isWaitingForStartupSessionPreparation = true
-        let replaySweepTask = Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) {
             SessionScrollbackReplayStore.sweepStaleReplayFiles(
                 olderThan: Date().addingTimeInterval(
                     -SessionScrollbackReplayStore.staleReplayLifetime
                 )
             )
         }
-        let pendingCrashScanTask = shouldAwaitCrashRecoveryProbe()
-            ? pendingCrashScanTaskIfNeeded()
-            : nil
 
-        Task { @MainActor [weak self] in
-            await replaySweepTask.value
-            let pendingCrash = await pendingCrashScanTask?.value
-            guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
-            if pendingCrash != nil {
-                self.previousSessionLaunchWasUnclean = true
-            }
+        if shouldAwaitCrashRecoveryProbe() {
+            isWaitingForStartupSessionPreparation = true
+            let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
+            Task { @MainActor [weak self] in
+                let pendingCrash = await pendingCrashScanTask.value
+                guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
+                if pendingCrash != nil {
+                    self.previousSessionLaunchWasUnclean = true
+                }
 #if DEBUG
-            if pendingCrashScanTask != nil {
                 cmuxDebugLog(
                     "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
                 )
-            }
 #endif
-            self.isWaitingForStartupSessionPreparation = false
-            self.finishPreparingStartupSessionSnapshot()
-            self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
+                self.isWaitingForStartupSessionPreparation = false
+                self.finishPreparingStartupSessionSnapshot()
+                self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
+            }
+            return
         }
+        finishPreparingStartupSessionSnapshot()
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
