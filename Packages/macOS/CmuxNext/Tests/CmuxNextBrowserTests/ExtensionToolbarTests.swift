@@ -190,6 +190,16 @@ import Testing
         #expect(ExtensionsMenu.operations(for: tab.extensionStore.extensions[2], supportsManagement: true) == [.run, .pin, .siteAccess])
     }
 
+    @Test func crashedOrUnpackedExtensionsOfferReload() {
+        let crashed = BrowserExtensionInfo(id: "c", name: "Crashed", isTerminated: true, hasAction: true)
+        let unpacked = BrowserExtensionInfo(id: "u", name: "Dev", location: .unpacked, hasAction: true)
+        let store = BrowserExtensionInfo(id: "s", name: "Store", location: .webstore, hasAction: true)
+        #expect(ExtensionsMenu.operations(for: crashed, supportsManagement: true).contains(.reload))
+        #expect(ExtensionsMenu.operations(for: unpacked, supportsManagement: true).contains(.reload))
+        #expect(!ExtensionsMenu.operations(for: store, supportsManagement: true).contains(.reload))
+        #expect(!ExtensionsMenu.operations(for: crashed, supportsManagement: false).contains(.reload))
+    }
+
     final class RecordingHandler: ExtensionMenuHandling {
         var performed: [(ExtensionMenuOperation, String?)] = []
         func title(for operation: ExtensionMenuOperation) -> String { operation.rawValue }

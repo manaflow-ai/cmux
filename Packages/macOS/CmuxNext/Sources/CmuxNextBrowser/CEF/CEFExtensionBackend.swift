@@ -33,6 +33,12 @@ final class CEFExtensionBackend: BrowserExtensionBackend {
 
     func setEnabled(_ id: String, _ enabled: Bool) -> Bool { call { $0.extSetEnabled($1, id, enabled ? 1 : 0) } }
     func uninstall(_ id: String) -> Bool { call { $0.extUninstall($1, id) } }
+
+    /// Fork API v5 reloads in place; older forks disable and enable again.
+    func reload(_ id: String) -> Bool {
+        if runtime.forkAPIVersion >= 5 { return call { $0.extReload($1, id) } }
+        return setEnabled(id, false) && setEnabled(id, true)
+    }
     func setPinned(_ id: String, _ pinned: Bool) -> Bool { call { $0.extSetPinned($1, id, pinned ? 1 : 0) } }
     func loadUnpacked(at path: String) -> Bool { call { $0.extLoadUnpacked($1, path) } }
 

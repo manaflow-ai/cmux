@@ -23,6 +23,7 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
         case .enable: "browser.extension.enable"
         case .disable: "browser.extension.disable"
         case .remove: "browser.extension.remove"
+        case .reload: "browser.extension.reload"
         case .loadUnpacked: "browser.extensions.loadUnpacked"
         case .webStore: "browser.extensions.webStore"
         case .manage: "browser.extensions.manage"

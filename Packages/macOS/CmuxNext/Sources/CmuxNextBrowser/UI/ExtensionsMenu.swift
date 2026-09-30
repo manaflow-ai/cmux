@@ -2,7 +2,7 @@ public import AppKit
 
 /// What an Extensions menu item does.
 public enum ExtensionMenuOperation: String, CaseIterable, Sendable {
-    case run, pin, unpin, options, enable, disable, remove, siteAccess, loadUnpacked, webStore, manage
+    case run, pin, unpin, options, enable, disable, reload, remove, siteAccess, loadUnpacked, webStore, manage
 }
 
 /// Runs Extensions menu items. The App routes them through its action
@@ -98,6 +98,7 @@ public enum ExtensionsMenu {
         if info.isEnabled && info.hasAction && supportsManagement { operations.append(info.isPinned ? .unpin : .pin) }
         if info.isEnabled && info.optionsURL != nil { operations.append(.options) }
         if supportsManagement && info.canToggle { operations.append(info.isEnabled ? .disable : .enable) }
+        if supportsManagement && (info.isTerminated || info.location == .unpacked) { operations.append(.reload) }
         if info.isEnabled && info.hasAction { operations.append(.siteAccess) }
         if supportsManagement && info.canRemove { operations.append(.remove) }
         return operations
@@ -174,6 +175,7 @@ public enum ExtensionsMenu {
             case .enable: _ = store.setEnabled(id, true)
             case .disable: _ = store.setEnabled(id, false)
             case .remove: _ = store.uninstall(id)
+            case .reload: _ = store.reload(id)
             case .siteAccess: host.showExtensionActionMenu(id, atScreenPoint: NSEvent.mouseLocation)
             case .loadUnpacked: break
             case .webStore: open(BrowserExtensionLinks.webStore)

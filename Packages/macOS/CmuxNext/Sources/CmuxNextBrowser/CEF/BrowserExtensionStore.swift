@@ -12,6 +12,8 @@ public protocol BrowserExtensionBackend: AnyObject {
     func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])?
     func setEnabled(_ id: String, _ enabled: Bool) -> Bool
     func uninstall(_ id: String) -> Bool
+    /// Reloads an extension, also a terminated (crashed) one.
+    func reload(_ id: String) -> Bool
     func setPinned(_ id: String, _ pinned: Bool) -> Bool
     func openOptions(_ id: String, from tab: (any BrowserTab)?) -> Bool
     func loadUnpacked(at path: String) -> Bool
@@ -57,6 +59,7 @@ public final class BrowserExtensionStore {
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { perform { $0.setEnabled(id, enabled) } }
     public func uninstall(_ id: String) -> Bool { perform { $0.uninstall(id) } }
     public func setPinned(_ id: String, _ pinned: Bool) -> Bool { perform { $0.setPinned(id, pinned) } }
+    public func reload(_ id: String) -> Bool { perform { $0.reload(id) } }
 
     /// Opens the options page as a tab of `tab`'s pane (Chromium adds the tab
     /// to that tab's window; the host adopts it).

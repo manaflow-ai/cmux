@@ -20,6 +20,7 @@ nonisolated enum Strings {
         case .options: String(localized: "browser.extensions.options", defaultValue: "Options", bundle: .module)
         case .enable: String(localized: "browser.extensions.enable", defaultValue: "Enable", bundle: .module)
         case .disable: String(localized: "browser.extensions.disable", defaultValue: "Disable", bundle: .module)
+        case .reload: String(localized: "browser.extensions.reload", defaultValue: "Reload", bundle: .module)
         case .remove: String(localized: "browser.extensions.remove", defaultValue: "Remove…", bundle: .module)
         case .siteAccess: String(localized: "browser.extensions.siteAccess", defaultValue: "Site Access and More…", bundle: .module)
         case .loadUnpacked: String(localized: "browser.extensions.loadUnpacked", defaultValue: "Load Unpacked…", bundle: .module)

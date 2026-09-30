@@ -51,6 +51,7 @@ public final class MockExtensionBackend: BrowserExtensionBackend {
 
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { change(id) { $0.isEnabled = enabled } }
     public func setPinned(_ id: String, _ pinned: Bool) -> Bool { change(id) { $0.isPinned = pinned } }
+    public func reload(_ id: String) -> Bool { change(id) { $0.isTerminated = false } }
 
     public func uninstall(_ id: String) -> Bool {
         guard !refuses, extensions.contains(where: { $0.id == id }) else { return false }

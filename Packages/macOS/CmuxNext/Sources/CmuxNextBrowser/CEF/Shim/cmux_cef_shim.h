@@ -194,6 +194,8 @@ CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
 CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int browser_id, const char* extension_id, int enabled);
 CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int browser_id, const char* extension_id);
+// Fork API v5: reloads an extension (also a terminated one); 0 on older forks.
+CMUX_SHIM_EXPORT int cmux_shim_ext_reload(int browser_id, const char* extension_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int browser_id, const char* extension_id, int pinned);
 CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int browser_id, const char* extension_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int browser_id, const char* path);

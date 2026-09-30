@@ -150,6 +150,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(ext_list, "cmux_ext_list");
   CMUX_BIND(ext_set_enabled, "cmux_ext_set_enabled");
   CMUX_BIND(ext_uninstall, "cmux_ext_uninstall");
+  CMUX_BIND(ext_reload, "cmux_ext_reload");
   CMUX_BIND(ext_set_pinned, "cmux_ext_set_pinned");
   CMUX_BIND(ext_open_options, "cmux_ext_open_options");
   CMUX_BIND(ext_load_unpacked, "cmux_ext_load_unpacked");

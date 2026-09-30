@@ -41,6 +41,8 @@ extension ActionCatalog {
                        "extension enable", extra: ["turn on"], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.disable", String(localized: "action.extension.disable", defaultValue: "Disable Extension", table: "Extensions", bundle: .module), "slash.circle",
                        "extension disable", extra: ["turn off"], surfaces: [.palette, .keyboard, .contextMenu]),
+            descriptor("browser.extension.reload", String(localized: "action.extension.reload", defaultValue: "Reload Extension", table: "Extensions", bundle: .module), "arrow.clockwise",
+                       "extension reload", extra: ["restart", "crashed", "refresh"], surfaces: [.palette, .keyboard, .contextMenu]),
             descriptor("browser.extension.remove", String(localized: "action.extension.remove", defaultValue: "Remove Extension", table: "Extensions", bundle: .module), "trash",
                        "extension remove", extra: ["uninstall", "delete"], surfaces: [.palette, .keyboard, .contextMenu], destructive: true),
             descriptor("browser.extension.command", String(localized: "action.extension.command", defaultValue: "Run Extension Shortcut", table: "Extensions", bundle: .module),

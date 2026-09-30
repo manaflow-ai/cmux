@@ -47,6 +47,7 @@ enum ExtensionHandlers {
         bindToggle(registry, context, "browser.extension.enable") { $0.setEnabled($1, true) }
         bindToggle(registry, context, "browser.extension.disable") { $0.setEnabled($1, false) }
         bindToggle(registry, context, "browser.extension.remove") { $0.uninstall($1) }
+        bindToggle(registry, context, "browser.extension.reload") { $0.reload($1) }
         registry.bind("browser.extension.command", run: { invocation in
             let (tab, store) = try managedStore(context, invocation)
             let id = try known(invocation, store)
