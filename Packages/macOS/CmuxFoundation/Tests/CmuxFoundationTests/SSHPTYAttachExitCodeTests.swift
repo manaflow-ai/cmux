@@ -18,6 +18,13 @@ struct SSHPTYAttachExitCodeTests {
         #expect(SSHPTYAttachExitCode.authenticationRequired.requiresForegroundAuthentication)
     }
 
+    @Test("launch acknowledgement timeouts are wrapper retry statuses")
+    func launchAcknowledgementTimeoutIsRetryable() {
+        #expect(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue == 246)
+        #expect(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.isWrapperRetryable)
+        #expect(!SSHPTYAttachExitCode.launchAcknowledgementTimedOut.requiresForegroundAuthentication)
+    }
+
     @Test("capacity retries keep authentication ownership idle")
     func capacityRetryDoesNotReauthenticate() throws {
         let fileManager = FileManager.default

@@ -57,23 +57,36 @@ public actor CloudMachineLinkManager {
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
-    private let hub: CloudWireGuardHub?
+    let hub: CloudWireGuardHub?
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// The team that owns each machine, captured when its provider was
+    /// registered. Control-plane calls a link makes name this team, so a link
+    /// to another team's machine keeps working after the selected team changes.
+    private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
-    /// a machine whose route is broken.
+    /// a machine whose route is broken. Only background upkeep waits it out
+    /// (``backoffRejects(failedAt:now:backoff:)``).
     private let retryBackoff: TimeInterval = 15
+    /// Marks background upkeep, such as the Cloud sidebar's periodic refresh.
+    /// Only connects made under it wait out ``retryBackoff``; anything a
+    /// person or an agent asked for dials. Work started by upkeep inherits
+    /// the mark through task-local propagation.
+    @TaskLocal public static var isBackgroundUpkeep = false
     /// How long a link may take to report its socket: the daemon accepts a
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
+    /// Races the private addresses of a dual-stack machine through the hub.
+    /// Tests that expect every address to fail pass a short deadline.
+    let privateRouteConnector: CloudHubConnector
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -95,8 +108,10 @@ public actor CloudMachineLinkManager {
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
-        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
+        breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
+        privateRouteConnector: CloudHubConnector = CloudHubConnector()
     ) {
+        self.privateRouteConnector = privateRouteConnector
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
         self.operations = operations
@@ -144,6 +159,16 @@ public actor CloudMachineLinkManager {
         privateRoutes[machineID] = "ws://\(host):1337/v1/link"
     }
 
+    /// Records the team that owns `machineID`; nil clears it (selected team).
+    public func setOwnerTeam(_ teamID: String?, for machineID: String) {
+        ownerTeams[machineID] = teamID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The owning team recorded for `machineID`, if any.
+    public func ownerTeam(for machineID: String) -> String? {
+        ownerTeams[machineID]
+    }
+
     public func privateAddresses(for machineID: String) -> [String] {
         privateAddressCandidates[machineID] ?? []
     }
@@ -186,7 +211,7 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID], Self.backoffRejects(failedAt: failure.at, now: Date(), backoff: retryBackoff) {
             recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
@@ -225,7 +250,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: capabilities
+                    clientCapabilities: capabilities,
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 session = endpoint.session
                 guard endpoint.trustedCarrier else {
@@ -362,7 +388,8 @@ public actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
+                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL),
+                    teamID: self.ownerTeam(for: machineID)
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
@@ -445,6 +472,14 @@ public actor CloudMachineLinkManager {
         }
     }
 
+    /// Whether an earlier failure refuses this connect without dialing. The
+    /// backoff keeps background upkeep from hammering a broken route. A
+    /// person's open always dials, or a machine that just woke would answer
+    /// their click with the stale error from a poll a few seconds earlier.
+    public static func backoffRejects(failedAt: Date, now: Date, backoff: TimeInterval) -> Bool {
+        isBackgroundUpkeep && now.timeIntervalSince(failedAt) < backoff
+    }
+
     public func status(machineID: String) async -> LinkStatus? {
         if let link = links[machineID] {
             return LinkStatus(state: await link.state, error: await link.lastError)
@@ -490,6 +525,7 @@ public actor CloudMachineLinkManager {
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
+        ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

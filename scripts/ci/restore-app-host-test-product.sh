@@ -18,6 +18,8 @@ elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_N
 producer_hit = os.environ.get("CMUX_PRODUCT_FROM_PRODUCER") == "true"
 local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
 peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
+# "lan": another PR mini through glaeda's LAN helper; "peer": a trusted HTTPS peer.
+peer_source = os.environ.get("CMUX_PEER_PRODUCT_SOURCE") or ("peer" if peer_hit else "")
 r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
 parallel_hit = os.environ.get("CMUX_PARALLEL_PRODUCT_HIT") == "true"
 record = {
@@ -40,7 +42,7 @@ record = {
     "lookup_source": (
         "producer" if producer_hit else
         "local" if local_hit else
-        "peer" if peer_hit else
+        ("lan" if peer_source == "lan" else "peer") if peer_hit else
         "layers-github" if layer_hit else
         "r2" if r2_hit else
         "github-parallel" if parallel_hit else
@@ -49,6 +51,7 @@ record = {
     "local_hit": local_hit,
     "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
     "peer_hit": peer_hit,
+    "peer_source": peer_source,
     "peer_lookup_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_LOOKUP_SECONDS") or 0),
     "peer_transfer_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_TRANSFER_SECONDS") or 0),
     "peer_bytes_transferred": int(os.environ.get("CMUX_PEER_PRODUCT_BYTES") or 0),
@@ -58,6 +61,7 @@ record = {
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
     "runner_name": os.environ.get("RUNNER_NAME"),
+    "canonical_root_lock_skipped": os.environ.get("CMUX_CI_ROOT_LOCK_SKIPPED") == "true",
 }
 record["route"] = record["lookup_source"]
 print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
@@ -77,6 +81,11 @@ if [ "${CMUX_LAYER_RESTORED:-}" != "true" ]; then
   tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
 fi
 products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+# The product's Mach-O files look for package frameworks first at the
+# DerivedData they were compiled in. On an owned Mac that path can hold the
+# canonical root's kept build of another commit, so point them at this
+# product's own frameworks before anything below copies them.
+python3 scripts/ci/relocate_package_framework_rpaths.py "$products"
 stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
 stable_system="/private/tmp/cmux-app-host-package-frameworks"
 mkdir -p "$stable"
@@ -117,7 +126,24 @@ esac
 # this job (released when it ends), so a consumer never swaps the tree of a
 # compile running there. Ephemeral runners have no helper and no neighbours.
 root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+canonical_root_ready=true
 if [ -x "$root_lock" ]; then
-  "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 1800 >/dev/null
+  if "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 0 >/dev/null; then
+    :
+  else
+    status=$?
+    if [ "$status" -ne 1 ]; then
+      echo "restore-app-host-test-product: canonical root helper failed (exit $status)" >&2
+      exit "$status"
+    fi
+    canonical_root_ready=false
+    export CMUX_CI_ROOT_LOCK_SKIPPED=true
+    unset CMUX_CI_CANONICAL_ROOT
+    echo "restore-app-host-test-product: canonical root is busy; running tests from this job's DerivedData" >&2
+  fi
 fi
-scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
+if [ "$canonical_root_ready" = true ]; then
+  scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
+else
+  echo "restore-app-host-test-product: skipped canonical source alias until root-independent file paths land" >&2
+fi

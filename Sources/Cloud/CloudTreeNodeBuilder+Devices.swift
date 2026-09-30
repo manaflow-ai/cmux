@@ -41,13 +41,11 @@ extension CloudTreeNodeBuilder {
         guard grouped else { return rows }
         var header = section
         header.count = rows.count
+        let controls = [CloudTreeNode(id: "devices-section/empty", kind: .devicesEmpty(header))]
         return [CloudTreeNode(
             id: devicesSectionNodeID,
             kind: .devicesSection(header),
-            children: rows + [CloudTreeNode(
-                id: "devices-section/empty",
-                kind: .devicesEmpty(header)
-            )]
+            children: rows + controls
         )]
     }
 

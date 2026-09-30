@@ -409,10 +409,15 @@ struct AppDelegateDisplayConfigRestoreTests {
         let appDelegate = testAppDelegate()
         try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
+        // Restore drops phantom (0-workspace, no Dock) windows (#6646), so the
+        // restored window carries one workspace.
+        var restoredWindow = emptyWindowSnapshot(windowId: restoredWindowId)
+        restoredWindow.tabManager = TabManager(autoWelcomeIfNeeded: false)
+            .sessionSnapshot(includeScrollback: false)
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 1_000,
-            windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
+            windows: [restoredWindow]
         )
         appDelegate.isScreenChangeCaptureSuppressed = true
         defer {

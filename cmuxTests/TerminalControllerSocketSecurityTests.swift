@@ -895,7 +895,7 @@ final class TerminalControllerSocketSecurityTests {
         // loud "has no worker handler" backstop, and a coordinator re-lift
         // would answer method_not_found; both are caught here.
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -932,7 +932,7 @@ final class TerminalControllerSocketSecurityTests {
         // and the not-mainThreadCallable policy.
         let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
         XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
         XCTAssertEqual(v1Replies.count, 1)
         XCTAssertFalse(v1Replies.first?.hasPrefix("ERROR") ?? true, "\(v1Replies)")
@@ -948,7 +948,7 @@ final class TerminalControllerSocketSecurityTests {
             }
         }
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
 
         TerminalController.shared.start(
             tabManager: manager,

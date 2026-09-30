@@ -92,7 +92,7 @@ class Pure(unittest.TestCase):
 
     def test_the_runner_comes_from_the_jobs_api(self):
         self.assertEqual(state.record({"runner": "cmux7-glaeda", "keys": [A]}, admission("cmux7-glaeda")),
-                         ("cmux7-glaeda", [A]))
+                         ("cmux7-glaeda", [A], []))
         lie = state.record({"runner": "cmux9-glaeda", "keys": [A]}, admission("cmux7-glaeda"))
         self.assertIsInstance(lie, str)
         self.assertIn("cmux9-glaeda", lie)
@@ -193,6 +193,80 @@ class Sweep(unittest.TestCase):
         self.assertEqual(state.previous_warm(FakeClient(snapshots=[fork])), {})
         item, _ = snapshot_artifact({})
         self.assertEqual(state.previous_warm(FakeClient(snapshots=[item], blobs={500: b"junk"})), {})
+
+
+SHA_A, SHA_B = "a" * 40, "b" * 40
+
+
+class Roots(unittest.TestCase):
+    def test_roots_keep_only_the_fields_the_hook_reads_checked(self):
+        document = {"roots": [
+            {"root": 2, "merged_onto": SHA_B.upper(), "pr": 9, "pr_app_swift_files": ["Sources/A.swift", 3, "x" * 600],
+             "pr_app_swift_total": 2, "pr_package_interface": None, "fingerprint": "secret-ish"},
+            {"root": 1, "merged_onto": "short", "pr": -1, "pr_package_interface": "maybe"},
+            {"root": 2}, {"root": True}, {"root": 100}, "junk"]}
+        self.assertEqual(state.roots(document), [
+            {"root": 1},
+            {"root": 2, "merged_onto": SHA_B, "pr": 9, "pr_app_swift_files": ["Sources/A.swift"],
+             "pr_app_swift_total": 2, "pr_package_interface": None}])
+        self.assertEqual(state.roots({"roots": [{"root": k} for k in range(1, 9)]}),
+                         [{"root": k} for k in range(1, state.MAX_ROOTS + 1)])
+        self.assertEqual(state.roots({}), [])
+
+    def test_roots_keep_parked_builds_with_a_pull_request(self):
+        document = {"roots": [{"root": 1, "pr": 9, "parked": [
+            {"pr": 7, "merged_onto": SHA_A, "pr_package_interface": True, "fingerprint": "x"},
+            {"merged_onto": SHA_B}, "junk", {"pr": 8}, {"pr": 6}]}, {"root": 2, "parked": "junk"}]}
+        self.assertEqual(state.roots(document), [
+            {"root": 1, "pr": 9, "parked": [{"merged_onto": SHA_A, "pr": 7, "pr_package_interface": True}]},
+            {"root": 2}])
+
+    def test_fold_carries_the_roots_of_each_runners_newest_admission(self):
+        mini = [{"root": 1, "merged_onto": SHA_A}]
+        previous = {"through": 5, "runners": {"r1": {"keys": [A], "at": "2026-09-25T10:00:00Z", "roots": mini}}}
+        folded = [(artifact(6, 1, created="2026-09-25T19:00:00Z"), ("r2", [B], [{"root": 1, "merged_onto": SHA_B}]))]
+        result = state.fold(previous, folded, NOW)
+        self.assertEqual(result["runners"]["r1"]["roots"], mini)
+        self.assertEqual(result["runners"]["r2"]["roots"], [{"root": 1, "merged_onto": SHA_B}])
+
+
+class LiveWarm(unittest.TestCase):
+    def client(self, count=6):
+        items = [artifact(20 + index, 300 + index, created=f"2026-09-25T19:{10 + index}:00Z") for index in range(count)]
+        return FakeClient(
+            artifacts=items, jobs={300 + index: admission(f"cmux{index}-glaeda") for index in range(count)},
+            blobs={20 + index: zipped("warm-keys.json", {"runner": f"cmux{index}-glaeda", "keys": [C],
+                                                          "roots": [{"root": 1, "merged_onto": SHA_A}]})
+                   for index in range(count)})
+
+    def test_folds_the_newest_artifacts_past_the_snapshot_within_the_request_budget(self):
+        warm = {"through": 20, "runners": {"cmux0-glaeda": {"keys": [A], "at": "2026-09-25T19:10:00Z"}}}
+        client = self.client()
+        result = state.live_warm(client, warm, NOW, generated_at=NOW - dt.timedelta(minutes=30), log=lambda _: None)
+        # Artifacts 21..25 are new; the newest LIVE_MAX_NEW (22..25) are folded, 21 waits for the janitor.
+        self.assertEqual(sorted(result["runners"]), ["cmux0-glaeda", "cmux2-glaeda", "cmux3-glaeda", "cmux4-glaeda",
+                                                     "cmux5-glaeda"])
+        self.assertEqual(result["runners"]["cmux5-glaeda"]["roots"], [{"root": 1, "merged_onto": SHA_A}])
+        self.assertEqual(result["through"], 20)
+        self.assertEqual(result["live"], {"folded": state.LIVE_MAX_NEW, "pending": 1})
+        self.assertEqual(len(client.calls), 1 + 2 * state.LIVE_MAX_NEW)
+
+    def test_a_fresh_snapshot_or_a_failed_listing_keeps_the_snapshot(self):
+        warm = {"through": 20, "runners": {}}
+        client = self.client()
+        self.assertEqual(state.live_warm(client, warm, NOW, generated_at=NOW - dt.timedelta(seconds=30)), warm)
+        self.assertEqual(client.calls, [])
+
+        class Failing(FakeClient):
+            def get(self, path):
+                raise OSError("503")
+        self.assertEqual(state.live_warm(Failing(), warm, NOW, generated_at=None, log=lambda _: None), warm)
+
+    def test_a_lying_artifact_proves_nothing_live_either(self):
+        client = FakeClient(artifacts=[artifact(30, 400)], jobs={400: admission("cmux1-glaeda")},
+                            blobs={30: zipped("warm-keys.json", {"runner": "cmux9-glaeda", "keys": [C]})})
+        result = state.live_warm(client, {"through": 0, "runners": {}}, NOW, generated_at=None, log=lambda _: None)
+        self.assertEqual(result["runners"], {})
 
 
 class Janitor(unittest.TestCase):

@@ -9,6 +9,9 @@ extension Workspace {
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
         terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel else { return }
+            terminalPanel.recordExplicitInput()
+            // Explicit input is shared-sizing activity for this Mac pane.
+            TerminalController.shared.noteLocalTerminalSizingActivity(surfaceID: terminalPanel.id)
             // The user (or a socket client) took over the pane: never replay a
             // lost restore selector into a line they are typing.
             self.restoredAgentLifecycle.clearStartupInput(panelId: terminalPanel.id)

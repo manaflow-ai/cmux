@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
@@ -61,6 +62,16 @@ extension BrowserPanel {
         return cloudResourceForDuplication
     }
 
+    /// The owning team persisted with ``cloudResourceForSession``: the
+    /// machine's provider team, else the restored team, else the selected team.
+    var cloudTeamIDForSession: String? {
+        guard let machineID = cloudResourceForSession?.machine.cloudMachineID else { return nil }
+        if let owner = CmuxTuiSurfaceProviderRegistry.shared.ownerTeamID(forMachineID: machineID) {
+            return owner
+        }
+        return restoredCloudTeamID ?? WorkspaceCloudVMBinding.owningTeamID(forVMID: machineID, previous: nil)
+    }
+
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
@@ -118,12 +129,34 @@ extension BrowserPanel {
         )
     }
 
+    /// The provider whose machine serves `url` at its private address.
+    ///
+    /// SSH machines all use this Mac's loopback as their private address, so
+    /// a loopback URL routes only to the machine that owns this browser.
+    func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
+        let catalog = SurfaceCatalog.shared
+        let addresses = catalog.machines.compactMapValues(\.privateAddress)
+        let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
+            forHost: url.host,
+            owner: privateAddressRouteOwner,
+            addresses: addresses
+        )
+        return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// The machine this browser belongs to: its current cloud route, or the
+    /// machine that owns its workspace.
+    private var privateAddressRouteOwner: SurfaceMachineID? {
+        if let machine = cloudResourceForDuplication?.machine { return machine }
+        if let machineID = cloudBrowserMachineID { return SurfaceMachineID(rawValue: machineID) }
+        return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .surfaceOwnershipPolicy.cloudMachine
+    }
+
     @discardableResult
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
-        guard let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }) else {
+        guard let provider = privateAddressRouteProvider(for: url) else {
             return false
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)

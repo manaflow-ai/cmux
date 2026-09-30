@@ -14,17 +14,13 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+LANE = ROOT / "scripts/ci/package-test-lane.sh"
+# The workflow step names, and the lane script phase each one's code lives in.
+PHASES = {"Run Swift package unit tests": "packages", "Run Bonsplit package tests": "bonsplit"}
+
+
 def package_step(name: str) -> str:
-    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
-    job = workflow.split("\n  swift-package-tests:\n", 1)[1].split("\n  tests-build-and-lag:\n", 1)[0]
-    step = job.split(f"      - name: {name}\n", 1)[1]
-    body = step.split("        run: |\n", 1)[1]
-    lines = []
-    for line in body.splitlines():
-        if line.strip() and not line.startswith("          "):
-            break
-        lines.append(line[10:] if line else "")
-    return "\n".join(lines) + "\n"
+    return f"bash '{LANE}' {PHASES[name]}\n"
 
 
 class SwiftPackageExecutionTests(unittest.TestCase):
@@ -101,6 +97,24 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             status=1, package="CmuxTerminal",
         )
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_cosmetic_binary_diagnostic_ignores_swiftpm_warning_error_text(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "warning: 'swift-crypto': skipping cache due to an error: The file “maintenance.lock” doesn’t exist.\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="CmuxCloud",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_cosmetic_binary_diagnostic_still_rejects_source_error(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "Foo.swift:1:2: error: x\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="CmuxCloud",
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_assertion_failure_exit_stays_red(self) -> None:
         result = self.run_step(

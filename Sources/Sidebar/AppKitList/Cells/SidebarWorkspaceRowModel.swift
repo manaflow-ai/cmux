@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CoreGraphics
@@ -42,6 +43,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     let shortcutHintText: String?
     let showsShortcutHints: Bool
     let colorSchemeIsDark: Bool
+    /// Hex of the opaque terminal-matched backdrop (secondary text holds a
+    /// contrast floor over it), or `nil` over the sidebar material.
+    var readabilityBackdropHex: String? = nil
     let globalFontMagnificationPercent: Int
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
@@ -65,6 +69,10 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// apply pass.
     let isMetadataExpanded: Bool
     let isMarkdownExpanded: Bool
+    /// macOS Display accessibility settings (Differentiate Without Color,
+    /// Increase Contrast) the row paints with. Part of equality so a
+    /// System Settings change repaints visible rows.
+    var displayAccessibility: DisplayAccessibilityOptions = .standard
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 

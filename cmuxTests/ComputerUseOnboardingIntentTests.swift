@@ -140,7 +140,7 @@ struct ComputerUseOnboardingIntentTests {
         var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
         let coordinator = ComputerUseOnboardingCoordinator(
             runtimeService: fixture.runtime,
-            presenter: { presentations.append($0) }
+            presenter: { point, _ in presentations.append(point) }
         )
 
         #expect(coordinator.requestFromToolInvocation())
@@ -160,6 +160,29 @@ struct ComputerUseOnboardingIntentTests {
 
         fixture.runtime.stopForTermination()
         #expect(!coordinator.requestFromToolInvocation())
+    }
+
+    /// An agent's tool call must not pull cmux over the app the user is typing
+    /// in; only a Settings action may activate cmux and take key focus.
+    @Test func toolInvocationPresentsWithoutTakingFocus() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture()
+        defer { fixture.remove() }
+        try await fixture.enable()
+        var origins: [ComputerUseOnboardingWindowController.PresentationOrigin] = []
+        let coordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: fixture.runtime,
+            presenter: { _, origin in origins.append(origin) }
+        )
+
+        #expect(coordinator.requestFromToolInvocation())
+        #expect(coordinator.requestFromSettings(startingAt: .overview))
+        #expect(origins == [.toolInvocation, .userAction])
+
+        typealias Controller = ComputerUseOnboardingWindowController
+        #expect(Controller.activationPlan(origin: .toolInvocation, isAppActive: false) == .waitForAppActivation)
+        #expect(Controller.activationPlan(origin: .toolInvocation, isAppActive: true) == .orderFrontWithoutFocus)
+        #expect(Controller.activationPlan(origin: .userAction, isAppActive: false) == .activateAndFocus)
+        #expect(Controller.activationPlan(origin: .userAction, isAppActive: true) == .activateAndFocus)
     }
 
     private func settingsActions(_ fixture: ComputerUseToolOnboardingFixture) -> HostSettingsActions {

@@ -19,7 +19,7 @@ def extension_source():
     return '\n'.join(
         (ROOT / f'CLI/CMUXCLI+PiExtensionSource{part}.swift')
         .read_text().split('#"""\n', 1)[1].rsplit('"""#', 1)[0]
-        for part in ['Part1', 'Diagnostics', 'Dispatch', 'Part2'])
+        for part in ['Part1', 'Diagnostics', 'Dispatch', 'Metadata', 'Part2'])
 
 
 class WakeupTests(unittest.TestCase):

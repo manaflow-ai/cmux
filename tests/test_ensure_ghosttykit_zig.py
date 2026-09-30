@@ -9,6 +9,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -233,7 +233,7 @@ cmux vm open <id>:port/3000            # the app they should look at
 cmux vm handoff <id>                   # attach block another human/agent can follow
 ```
 
-Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--detach`/`--no-open` until the moment you intend the user to look; `vm open` never steals focus unless `--focus true`.
+Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--detach`/`--no-open` until the moment you intend the user to look; open commands run from an agent never steal focus unless you pass `--focus`; the pane appears in the background marked unread.
 
 ## 8. Cleanup etiquette
 

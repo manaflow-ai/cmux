@@ -13,6 +13,10 @@ import SwiftUI
 @MainActor
 struct SettingsSectionSlot<Content: View>: View {
     let section: SettingsSectionID
+    /// Only the selected pane is part of the hierarchy. Keeping inactive
+    /// sections out avoids constructing all settings controls at window open
+    /// and gives the window true one-pane-at-a-time behavior.
+    let isActive: Bool
     let isMounted: Bool
     /// `false` renders nothing while unmounted, for sections that hide
     /// themselves entirely (Cloud before it is available).
@@ -23,12 +27,18 @@ struct SettingsSectionSlot<Content: View>: View {
     var body: some View {
         // The same spacing as the enclosing detail stack, so a section's
         // header and cards sit exactly where the flat stack put them.
-        VStack(alignment: .leading, spacing: 14) {
-            if isMounted {
-                content()
-                    .onAppear { onMountedAppear() }
-            } else if showsPlaceholder {
-                SettingsSectionPlaceholder(section: section)
+        Group {
+            if isActive {
+                VStack(alignment: .leading, spacing: 14) {
+                    if isMounted {
+                        content()
+                            .onAppear { onMountedAppear() }
+                    } else if showsPlaceholder {
+                        SettingsSectionPlaceholder(section: section)
+                    }
+                }
+            } else {
+                EmptyView()
             }
         }
         .id("section:\(section.rawValue)")

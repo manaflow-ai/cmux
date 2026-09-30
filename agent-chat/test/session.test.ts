@@ -33,6 +33,12 @@ if (consumeOptimisticUserEcho(optimistic, "same")) {
   throw new Error("non-optimistic repeated user message should not be suppressed");
 }
 
+// An echo that never lands (a failed send) or lands rewritten must not block later ones.
+const stuck: string[] = ["!ls", "next"];
+if (!consumeOptimisticUserEcho(stuck, "next") || stuck.length !== 1 || stuck[0] !== "!ls") {
+  throw new Error("a later echo should match past an entry whose echo never landed");
+}
+
 if (!shouldAcceptHandoffResponse("session-1", "session-1", "session-1")) {
   throw new Error("current pending handoff response should be accepted");
 }

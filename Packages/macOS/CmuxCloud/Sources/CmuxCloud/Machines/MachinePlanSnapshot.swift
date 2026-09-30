@@ -1,6 +1,6 @@
 import Foundation
 
-/// Plan meter shown in the panel header: "2 of 3 machines" / "1 of 1 machine".
+/// The active plan: its machine ceiling, tier and free-access window.
 public struct MachinePlanSnapshot: Equatable, Sendable {
     public init(
         activeCount: Int,
@@ -28,11 +28,12 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     public var freeAccessExpiresAt: Date? = nil
     public var freeAccessBanner: FreeAccessBanner = .none
 
-    /// An uncapped plan is never at the limit.
-    public var isAtLimit: Bool {
-        guard let maxActiveVms else { return false }
-        return activeCount >= maxActiveVms
+    /// The count the Cloud Machines header shows, and whether it is at the ceiling.
+    public var usage: CloudMachinesUsage {
+        CloudMachinesUsage(activeCount: activeCount, maxActiveVms: maxActiveVms, isPaidPlan: isPaidPlan)
     }
+    /// An uncapped plan is never at the limit.
+    public var isAtLimit: Bool { usage.isAtLimit }
     /// Only plans the backend accepts for provisioning are paid. Unknown plan
     /// ids fail closed here too, so a stale metadata value cannot hide the
     /// upgrade affordance after the server returns `vm_requires_pro`.
@@ -48,25 +49,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     }
 
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".
-    public var isSingleMachinePlan: Bool { maxActiveVms == 1 }
-
-    /// The header meter text, singular/plural chosen by the plan's ceiling.
-    /// Uncapped plans read "3 machines": there is no "of N" to show.
-    public var countLabel: String {
-        guard let maxActiveVms else {
-            if activeCount == 1 {
-                return String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine")
-            }
-            let format = String(localized: "machines.meter.count.unlimited", defaultValue: "%1$d machines")
-            return String(format: format, activeCount)
-        }
-        if isSingleMachinePlan {
-            let format = String(localized: "machines.meter.count.single", defaultValue: "%1$d of 1 machine")
-            return String(format: format, activeCount)
-        }
-        let format = String(localized: "machines.meter.count", defaultValue: "%1$d of %2$d machines")
-        return String(format: format, activeCount, maxActiveVms)
-    }
+    public var isSingleMachinePlan: Bool { usage.isSingleMachinePlan }
 
     /// The banner line under the header; nil when there is nothing to say.
     public var freeAccessBannerText: String? {

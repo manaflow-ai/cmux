@@ -2088,18 +2088,23 @@ mod unix {
         // canonical identity and owner capability.
         let uid = fs::metadata(root)?.uid();
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-        prepare_private_dir(&endpoint_root)?;
+        prepare_endpoint_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
         let record_path =
             crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
-        let command = options
-            .command
-            .clone()
-            .filter(|command| !command.is_empty())
-            .unwrap_or_else(|| vec![crate::platform::default_shell()]);
+        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
+            Some(command) => {
+                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![crate::platform::default_shell()],
+                options.extra_env.clone(),
+            ),
+        };
+        let command = shell_launch.command;
         let launch = HostLaunch {
             endpoint: endpoint.to_string_lossy().into_owned(),
             record_path: record_path.to_string_lossy().into_owned(),
@@ -2110,7 +2115,7 @@ mod unix {
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
-            extra_env: options.extra_env.clone(),
+            extra_env: shell_launch.env,
             default_colors,
             kitty_graphics_limits,
         };
@@ -2878,11 +2883,19 @@ mod unix {
         Ok(attachment)
     }
 
+    /// Connect to a host endpoint. Hosts run as this user, so a listener
+    /// owned by anyone else never receives the owner capability.
     fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
         let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
         loop {
             match UnixStream::connect(path) {
-                Ok(stream) => return Ok(stream),
+                Ok(stream) => {
+                    crate::platform::require_unix_peer_uid(
+                        &stream,
+                        crate::platform::effective_uid(),
+                    )?;
+                    return Ok(stream);
+                }
                 Err(error) => {
                     let now = Instant::now();
                     if now >= deadline {
@@ -3063,6 +3076,42 @@ mod unix {
     fn prepare_private_dir(path: &Path) -> anyhow::Result<()> {
         fs::create_dir_all(path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        Ok(())
+    }
+
+    /// The shared `/tmp` directory that holds host sockets. Every user can
+    /// create names there, so the directory must be a real one this user owns.
+    fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not a directory: {}",
+                    path.display()
+                );
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std_io::ErrorKind::NotFound => fs::create_dir_all(path)?,
+            Err(error) => return Err(error.into()),
+        }
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || metadata.uid() != crate::platform::effective_uid()
+        {
+            anyhow::bail!(
+                "terminal host endpoint directory is not this user's: {}",
+                path.display()
+            );
+        }
+        if metadata.mode() & 0o077 != 0 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+            if fs::symlink_metadata(path)?.mode() & 0o077 != 0 {
+                anyhow::bail!(
+                    "terminal host endpoint directory is not private: {}",
+                    path.display()
+                );
+            }
+        }
         Ok(())
     }
 
@@ -4139,7 +4188,7 @@ mod unix {
                     encode_resize(
                         size.0,
                         size.1,
-                        &replay.bytes,
+                        &replay.self_contained_bytes(),
                         &replay.kitty_image_aliases,
                         next,
                         replay.kitty_state,
@@ -4230,7 +4279,7 @@ mod unix {
             let resize_payload = match encode_resize(
                 size.0,
                 size.1,
-                &replay.bytes,
+                &replay.self_contained_bytes(),
                 &replay.kitty_image_aliases,
                 cell_pixels,
                 replay.kitty_state,
@@ -4442,7 +4491,7 @@ mod unix {
                             encode_resize(
                                 cols,
                                 rows,
-                                &replay.bytes,
+                                &replay.self_contained_bytes(),
                                 &replay.kitty_image_aliases,
                                 cell_pixels,
                                 replay.kitty_state,
@@ -5763,7 +5812,7 @@ mod unix {
                     cols,
                     rows,
                     cell_pixels,
-                    replay: replay.bytes,
+                    replay: replay.self_contained_bytes().into_owned(),
                     kitty_image_aliases: replay.kitty_image_aliases,
                     kitty_state: replay.kitty_state,
                     sequence_boundary: 0,
@@ -8592,6 +8641,7 @@ mod unix {
                     bytes: decoded.replay,
                     kitty_image_aliases: decoded.kitty_image_aliases,
                     kitty_state: decoded.kitty_state,
+                    pending_sequence: Vec::new(),
                 })
                 .unwrap();
             assert!(mirror.kitty_graphics_snapshot().unwrap().images.is_empty());
@@ -9855,6 +9905,32 @@ mod unix {
                 .unwrap()
                 .is_none()
             );
+        }
+
+        #[test]
+        fn private_socket_terminal_host_endpoint_dir_refuses_a_symlink() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-endpoint-dir-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let target = root.join("target");
+            fs::create_dir_all(&target).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+            let alias = root.join("alias");
+            std::os::unix::fs::symlink(&target, &alias).unwrap();
+
+            let refused = prepare_endpoint_dir(&alias);
+            let target_mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            let owned = root.join("owned");
+            let created = prepare_endpoint_dir(&owned);
+            let owned_mode = fs::metadata(&owned).map(|metadata| metadata.mode() & 0o777);
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(refused.is_err(), "a symlinked endpoint directory must be refused");
+            assert_eq!(target_mode, 0o755, "the symlink target must stay untouched");
+            created.unwrap();
+            assert_eq!(owned_mode.unwrap(), 0o700);
         }
 
         #[test]
