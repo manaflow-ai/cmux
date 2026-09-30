@@ -121,12 +121,28 @@ Recommended Swift launch path:
   | `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` | `ghostty`, libghostty's `ghostty_info` version | Feature detection (neovim and others) as in Ghostty and the old cmux. |
   | `GHOSTTY_RESOURCES_DIR` | the resolved Ghostty resources directory | Theme and shell-integration lookups. |
 
-  Not exported yet: `GHOSTTY_SHELL_FEATURES` and Ghostty's zsh/bash shell
-  integration injection, `GHOSTTY_BIN_DIR`, and the `XDG_DATA_DIRS`/`MANPATH`
-  additions. Cloud terminals get none of these (no Mac environment). A daemon
-  started by an older app keeps its env; new terminals still get the identity
-  through their per-terminal `env`, but terminals created before the update keep
-  their old env until they are reopened.
+  Shell integration (`GhosttyShellIntegration`, applied last by
+  `AppEnvironment.terminalEnvironmentProvider` over the login `PATH`, `SHELL`
+  and data dirs, with the config read at spawn time so `reload-config` applies
+  to the next terminal) follows `Exec.zig` and `shell_integration.zig`:
+
+  | Variable | Value | Why |
+  | --- | --- | --- |
+  | `GHOSTTY_SHELL_FEATURES` | from `shell-integration-features` and `cursor-style-blink`, e.g. `cursor:blink,path,title` | The scripts gate cursor shape, title, `sudo`, `ssh-env`, `ssh-terminfo` and `path` on it. Set even with `shell-integration = none`, as in Ghostty. |
+  | `ZDOTDIR`, `GHOSTTY_ZSH_ZDOTDIR` | `<resources>/shell-integration/zsh`; a user `ZDOTDIR` moves to `GHOSTTY_ZSH_ZDOTDIR` | zsh injection. Ghostty's `.zshenv` restores `ZDOTDIR`, sources the user's files, and loads the integration (OSC 133 prompt marks, OSC 7 cwd, title, cursor). |
+  | `GHOSTTY_SHELL_INTEGRATION_XDG_DIR`, `XDG_DATA_DIRS` | `<resources>/shell-integration` prepended | fish and elvish autoload, and nushell's `ghostty` module. |
+  | `XDG_DATA_DIRS`, `MANPATH` | `<resources>/..` and `:<resources>/../man` appended | Ghostty's macOS data and man pages, same strings as Ghostty. |
+  | `GHOSTTY_BIN`, `GHOSTTY_BIN_DIR`, `PATH` | `<app>/Contents/Resources/bin/ghostty`, its directory appended to `PATH` | The `ssh-env`/`ssh-terminfo` wrapper runs `$GHOSTTY_BIN +ssh`, which installs the `xterm-ghostty` terminfo on the remote host or falls back to `xterm-256color`. Only set when the build ships the helper (`scripts/reload.sh` and the release workflows install it). |
+
+  The daemon picks the shell argv (`$SHELL`, no arguments), so the injection is
+  environment only. Bash needs Ghostty's argv rewrite (`--posix` with `ENV`)
+  and nushell its `--execute 'use ghostty *'`; both need a daemon change to
+  `new-tab`/`split`/`create-terminal` argv handling and are not done. Apple's
+  `/bin/bash` is never integrated, as in Ghostty. Cloud terminals get none of
+  this (no Mac environment). A daemon started by an older app keeps its env;
+  new terminals still get the identity through their per-terminal `env`, but
+  terminals created before the update keep their old env until they are
+  reopened.
 - Upgrade: when the bundled binary's `identify.version` or `build_commit`
   differs from the running daemon, call `shutdown-daemon {pid, generation}`
   (`commands.md:257-287`), wait for `daemon-shutdown` (`events.md:805-829`),
