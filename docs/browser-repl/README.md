@@ -180,6 +180,14 @@ Rules, and how they improve on the references:
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance.
 - `tabs.open()` never steals focus. `page.bringToFront()` shows a tab.
+- A driven tab keeps rendering like a foreground page. Shown in a pane of the
+  key window, it stays live in the pane. Hidden, or shown in a window that is
+  not key, it renders in a window outside every screen that reports itself as
+  key (WebKit treats only a page in a key window as focused, for focus, blur,
+  typing and hover); a shown tab's pane then holds a mirror of the page,
+  refreshed after every driver call. The live view returns to the pane as
+  soon as the pane is shown, its window becomes key, or the session ends,
+  resets or expires.
 
 ## Excluded from the references
 
