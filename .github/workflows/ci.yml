@@ -160,6 +160,12 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Reject superseded manual dispatch before routing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/manual_dispatch_guard.py --check-only
+
       - name: Record GitHub-selected source identity
         id: source-identity
         run: |

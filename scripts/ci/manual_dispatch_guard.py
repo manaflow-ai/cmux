@@ -89,7 +89,7 @@ class GitHub:
         self._request(f"/repos/{self.repository}/actions/runs/{run_id}/cancel", "POST")
 
 
-def main(env: Mapping[str, str] | None = None) -> int:
+def main(env: Mapping[str, str] | None = None, *, check_only: bool = False) -> int:
     env = os.environ if env is None else env
     expected_path = env.get("SOURCE_WORKFLOW_PATHS", ".github/workflows/ci.yml")
     if env.get("SOURCE_WORKFLOW_PATH", expected_path) != expected_path:
@@ -124,6 +124,10 @@ def main(env: Mapping[str, str] | None = None) -> int:
         )
         print(f"manual dispatch: {decision.reason}", file=sys.stderr)
         if decision.cancel:
+            if check_only:
+                # Fail changes before any consumer can start expensive work.
+                # The default-branch watcher cancels the run with its own token.
+                return 1
             api.cancel(env.get("GITHUB_RUN_ID", ""))
     except Exception as error:  # noqa: BLE001 - fail open keeps CI available
         print(f"::warning title=manual dispatch guard::{error}", file=sys.stderr)
@@ -131,4 +135,4 @@ def main(env: Mapping[str, str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(check_only="--check-only" in sys.argv[1:]))

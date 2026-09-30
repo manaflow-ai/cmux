@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 import sys
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("manual_dispatch_guard", ROOT / "scripts/ci/manual_dispatch_guard.py")
@@ -15,6 +16,27 @@ def pr(ref="feat/custom-sidebar-templates", sha="6611c69", state="open"):
 
 
 class ManualDispatchGuard(unittest.TestCase):
+    def test_changes_check_blocks_stale_run_without_cancelling(self):
+        env = {"GITHUB_EVENT_NAME": "workflow_dispatch", "GH_TOKEN": "test",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_REF_NAME": "topic",
+               "GITHUB_SHA": "old", "GITHUB_RUN_ID": "42"}
+        with patch.object(module, "GitHub") as constructor:
+            api = constructor.return_value
+            api.open_pull_requests.return_value = [pr("topic", "new")]
+            self.assertEqual(module.main(env, check_only=True), 1)
+            api.cancel.assert_not_called()
+            api.normal_ci_runs.assert_not_called()
+            self.assertEqual(module.main(env), 0)
+            api.cancel.assert_called_once_with("42")
+
+    def test_changes_check_fails_open_on_api_error(self):
+        env = {"GITHUB_EVENT_NAME": "workflow_dispatch", "GH_TOKEN": "test",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        with patch.object(module, "GitHub") as constructor:
+            constructor.return_value.open_pull_requests.side_effect = OSError("offline")
+            self.assertEqual(module.main(env, check_only=True), 0)
+            constructor.return_value.cancel.assert_not_called()
+
     def test_duplicate_dispatch_is_cancelled(self):
         result = module.decide(event="workflow_dispatch", repository="manaflow-ai/cmux",
                                ref_name="feat/custom-sidebar-templates", sha="6611c69",

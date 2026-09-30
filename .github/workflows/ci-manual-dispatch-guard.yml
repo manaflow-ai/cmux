@@ -2,7 +2,7 @@ name: CI manual dispatch guard
 
 # A requested workflow_run starts from the default branch, so this watcher
 # keeps its cancellation token and code outside the workflow_dispatch branch.
-# It runs before the requested CI run reaches expensive jobs.
+# CI's read-only changes guard blocks fanout while this watcher cancels the run.
 on:
   workflow_run:
     workflows: [CI]
