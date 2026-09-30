@@ -58,8 +58,8 @@ struct CoderouterAddAccountSheet: View {
                     Text(String(localized: "coderouter.sidebar.provider.bedrock", defaultValue: "Amazon Bedrock")).tag(Kind.bedrock)
                 }
                 Section(String(localized: "coderouter.sidebar.add.localSection", defaultValue: "Local account upload")) {
-                    Text(String(localized: "coderouter.sidebar.provider.claude", defaultValue: "Claude login")).tag(Kind.localClaude)
-                    Text(String(localized: "coderouter.sidebar.provider.codex", defaultValue: "Codex login")).tag(Kind.localCodex)
+                    Text(String(localized: "coderouter.sidebar.provider.claude", defaultValue: "Claude")).tag(Kind.localClaude)
+                    Text(String(localized: "coderouter.sidebar.provider.codex", defaultValue: "Codex")).tag(Kind.localCodex)
                     Text(String(localized: "coderouter.sidebar.provider.anthropicKey", defaultValue: "Anthropic API key")).tag(Kind.localAnthropicKey)
                     Text(String(localized: "coderouter.sidebar.provider.openAIKey", defaultValue: "OpenAI API key")).tag(Kind.localOpenAIKey)
                 }
@@ -123,7 +123,7 @@ struct CoderouterAddAccountSheet: View {
                 .foregroundStyle(.secondary)
         case .anthropicAPIKey:
             SecureField(
-                String(localized: "coderouter.sidebar.add.apiKey", defaultValue: "Anthropic API key"),
+                String(localized: "coderouter.sidebar.provider.anthropicKey", defaultValue: "Anthropic API key"),
                 text: $secret
             )
         case .bedrock:
@@ -153,7 +153,7 @@ struct CoderouterAddAccountSheet: View {
                 .foregroundStyle(.secondary)
         case .nativeOpenAIKey, .nativeOpenRouterKey:
             SecureField(
-                String(localized: "coderouter.sidebar.add.apiKey", defaultValue: "API key"),
+                String(localized: "coderouter.sidebar.add.nativeApiKey", defaultValue: "API key"),
                 text: $secret
             )
             Text(String(localized: "coderouter.sidebar.add.nativeKeyHint", defaultValue: "This key is stored in the team's CodeRouter account pool."))

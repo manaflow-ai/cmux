@@ -138,7 +138,7 @@ struct CoderouterAccountsPanel: View {
     }
 
     static func countLabel(_ count: Int) -> String {
-        String(format: String(localized: "coderouter.sidebar.accountCount", defaultValue: "%d"), count)
+        String(format: String(localized: "coderouter.sidebar.accountCount", defaultValue: "%d accounts"), count)
     }
 
     static func periodLabel(_ days: Int) -> String {

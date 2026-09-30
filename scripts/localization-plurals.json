@@ -715,5 +715,23 @@
     "arguments": [
       1
     ]
+  },
+  "coderouter.sidebar.accountCount": {
+    "source": "%d accounts",
+    "arguments": [
+      1
+    ]
+  },
+  "coderouter.sidebar.sessions": {
+    "source": "%d sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "coderouter.sidebar.usage.period": {
+    "source": "Last %d days",
+    "arguments": [
+      1
+    ]
   }
 }
