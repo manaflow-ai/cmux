@@ -51,7 +51,7 @@ TUNNEL_FEATURE_KEYS = (NETWORK_EXTENSION_KEY, SYSTEM_EXTENSION_INSTALL_KEY, APP_
 
 # macOS rejects these hardened-runtime relaxations on an app bundle that
 # contains a packet-tunnel system extension. Keep allow-jit, which is accepted
-# by macOS and is still needed by the terminal runtime.
+# by macOS and supports the app's in-process JavaScriptCore consumers.
 SYSTEM_EXTENSION_INCOMPATIBLE_RUNTIME_KEYS = (
     "com.apple.security.cs.allow-unsigned-executable-memory",
     "com.apple.security.cs.disable-library-validation",

@@ -332,4 +332,6 @@ if [[ -d "$COMPUTER_USE_HELPER" ]] \
   exit 1
 fi
 
+python3 "$SCRIPT_DIR/verify-hardened-runtime-entitlements.py" "$APP_PATH"
+
 echo "==> signing OK: $APP_PATH"
