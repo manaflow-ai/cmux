@@ -200,17 +200,18 @@ extension TerminalController {
               let owned = resolved.workspace.terminalInputTarget(forPanelID: surfaceID) else {
             return nil
         }
-        if let target = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID),
-           target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
+        let target = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID)
+        if let target, target.surface.liveSurfaceForGhosttyAccess(reason: "mobile.replay.canonical") != nil {
             return (resolved.workspace, surfaceID, target, true)
         }
-        if resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.contains(surfaceID) {
-            guard !Task.isCancelled else { return nil }
-            resolved.workspace.startupRestorePanelIdsAwaitingFirstVisit.remove(surfaceID)
-            owned.panel.surface.admitStartupRestoreRuntime()
+        resolved.workspace.admitStartupRestoreAwaitingFirstVisit(panelId: surfaceID)
+        // A bound target skips the resume while a replacement surface is
+        // mid-swap; a never-started panel has no target yet.
+        if let target {
+            target.resumeAgentHibernationForRemoteAttach()
+        } else {
+            owned.panel.resumeAgentHibernationForRemoteAttach()
         }
-        guard !Task.isCancelled else { return nil }
-        owned.panel.resumeAgentHibernationForRemoteAttach()
         var runtimeReady = await owned.panel.surface.waitForRuntimeSurfaceReady()
         guard !Task.isCancelled else { return nil }
         guard let canonical = resolved.workspace.controlSocketTerminalInputTarget(for: surfaceID) else {

@@ -15506,12 +15506,12 @@ class TerminalController {
         }
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
-        guard !Task.isCancelled else {
-            return .err(code: "not_found", message: String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found"), data: nil)
-        }
-        guard resolved.runtimeReady else {
+        // A runtime still starting answers with its current state and streams
+        // the rest; one that cannot start fails instead of showing an empty pane.
+        let unavailableReason = terminalTarget.surface.runtimeUnavailableReason
+        if !resolved.runtimeReady, unavailableReason == .hibernated || unavailableReason == .closing {
             return Self.readTextTerminalNotRunningResult(workspaceID: resolved.workspace.id,
-                surfaceID: surfaceId, reason: terminalTarget.surface.runtimeUnavailableReason)
+                surfaceID: surfaceId, reason: unavailableReason)
         }
         guard !Task.isCancelled,
               let current = resolved.workspace.controlSocketTerminalTarget(for: surfaceId),
@@ -16432,12 +16432,14 @@ class TerminalController {
             surfaceId = nil
         }
 
-        // Remote reads and input demand a headless runtime even when the
-        // source pane has never been shown. Replay awaits the queued start.
+        // A mobile read or drive starts a never-shown terminal headlessly at
+        // restore-paced priority; replay promotes it to input demand and waits.
+        // Resolve the panel first: restored, never-foregrounded terminals are
+        // absent from the socket-target registry until their runtime starts.
         if requireTerminal,
            let surfaceId,
            let owned = workspace.terminalInputTarget(forPanelID: surfaceId) {
-            owned.panel.surface.requestInputDemandSurfaceStartIfNeeded()
+            owned.panel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 
         return (tabManager, workspace, surfaceId)

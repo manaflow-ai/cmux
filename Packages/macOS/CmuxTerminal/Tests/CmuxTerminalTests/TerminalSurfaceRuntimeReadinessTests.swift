@@ -24,6 +24,22 @@ struct TerminalSurfaceRuntimeReadinessTests {
         #expect(surface.runtimeReadinessWaiters.isEmpty)
     }
 
+    @Test("Agent hibernation settles a readiness waiter without spending the caller budget")
+    func hibernationSettlesWaiterImmediately() async {
+        let clock = ManualReadinessBudgetClock()
+        let surface = makeHeldSurface(clock: clock)
+        var budgetStarts = clock.startedSleeps.makeAsyncIterator()
+
+        let wait = Task { await surface.waitForRuntimeSurfaceReady() }
+        _ = await budgetStarts.next()
+        #expect(surface.runtimeReadinessWaiters.count == 1)
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "readiness-test"))
+
+        #expect(await wait.value == false)
+        #expect(surface.runtimeReadinessWaiters.isEmpty)
+    }
+
     @Test("The caller budget bounds a wait the lifecycle never answers")
     func budgetBoundsAnUnansweredWait() async {
         let clock = ManualReadinessBudgetClock()

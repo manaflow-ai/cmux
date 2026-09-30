@@ -435,16 +435,6 @@ extension Workspace {
         }
     }
 
-    /// Starts the restored terminals held for this workspace's first visit.
-    func admitStartupRestoresAwaitingFirstVisit() {
-        guard !startupRestorePanelIdsAwaitingFirstVisit.isEmpty else { return }
-        let panelIds = startupRestorePanelIdsAwaitingFirstVisit
-        startupRestorePanelIdsAwaitingFirstVisit.removeAll()
-        for panelId in panelIds {
-            terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
-        }
-    }
-
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult

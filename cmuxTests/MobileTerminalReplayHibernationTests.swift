@@ -82,6 +82,8 @@ struct MobileTerminalReplayHibernationTests {
                 eagerLoadTerminal: false,
                 initialTerminalStartsOnFirstVisit: true
             ))
+            let selectedBeforeReplay = manager.selectedTabId
+            #expect(selectedBeforeReplay != heldWorkspace.id)
             let panel = try #require(heldWorkspace.focusedTerminalPanel)
             #expect(heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.contains(panel.id))
             #expect(panel.surface.isAwaitingStartupRestoreAdmission)
@@ -110,7 +112,8 @@ struct MobileTerminalReplayHibernationTests {
             )
             #expect(frame.plainRows().joined(separator: "\n").contains(marker))
             #expect(heldWorkspace.startupRestorePanelIdsAwaitingFirstVisit.isEmpty)
-            #expect(workspace.id != heldWorkspace.id)
+            #expect(manager.selectedTabId == selectedBeforeReplay, "Remote attach must not reveal the held workspace")
+            #expect(panel.surface.uiWindow == nil, "Remote attach must not reveal the source terminal")
         }
     }
 

@@ -3,6 +3,20 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    /// Starts the restored terminals held for this workspace's first visit.
+    func admitStartupRestoresAwaitingFirstVisit() {
+        for panelId in startupRestorePanelIdsAwaitingFirstVisit {
+            admitStartupRestoreAwaitingFirstVisit(panelId: panelId)
+        }
+    }
+
+    /// Starts one restored terminal held for this workspace's first visit,
+    /// such as a terminal a remote viewer attaches to before anyone opens it here.
+    func admitStartupRestoreAwaitingFirstVisit(panelId: UUID) {
+        guard startupRestorePanelIdsAwaitingFirstVisit.remove(panelId) != nil else { return }
+        terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
+    }
+
     func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {
