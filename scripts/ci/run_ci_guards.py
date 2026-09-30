@@ -197,6 +197,9 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                 "matrix.group": group or "",
                 "github.sha": head_sha,
                 "github.event.pull_request.base.sha": base_sha,
+                # Outside Actions there is no PR base branch name. Fetch the
+                # explicit local comparison revision instead.
+                "github.event.pull_request.base.ref": base_sha,
                 "github.event.merge_group.base_sha": base_sha,
             }
             steps: list[Step] = []
