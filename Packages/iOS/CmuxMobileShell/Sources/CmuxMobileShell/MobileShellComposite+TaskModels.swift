@@ -151,7 +151,7 @@ extension MobileShellComposite {
         // executor; this main-actor method only owns connection validation.
         for attempt in 0..<2 {
             do {
-                let result = try await Self.fetchTaskModelList(
+                let result = try await fetchTaskModelList(
                     client: context.client,
                     provider: provider
                 )
@@ -197,7 +197,7 @@ extension MobileShellComposite {
     /// Performs the network request and parses the host response away from
     /// the main actor. The caller revalidates the connection before applying
     /// this immutable result to the observable shell state.
-    private nonisolated static func fetchTaskModelList(
+    private nonisolated func fetchTaskModelList(
         client: MobileCoreRPCClient,
         provider: MobileTaskAgentProvider
     ) async throws -> MobileTaskModelListResult {
@@ -216,7 +216,7 @@ extension MobileShellComposite {
     }
 
     /// Decodes one host catalog without touching actor-isolated state.
-    private nonisolated static func parseTaskModelList(
+    private nonisolated func parseTaskModelList(
         _ response: Data
     ) throws -> MobileTaskModelListResult {
         guard let object = try JSONSerialization.jsonObject(with: response)
@@ -625,7 +625,7 @@ extension MobileShellComposite {
     }
 
     /// Fetches and decodes the backend fallback on the concurrent executor.
-    private nonisolated static func fetchTaskModelCatalog(
+    private nonisolated func fetchTaskModelCatalog(
         client: MobileTaskModelCatalogClient,
         provider: MobileTaskAgentProvider
     ) async -> MobileTaskModelListResult? {
@@ -659,7 +659,7 @@ extension MobileShellComposite {
                 group.addTask { .backend(await prefetchedCatalog.result(for: provider)) }
             } else {
                 group.addTask {
-                    .backend(await Self.fetchTaskModelCatalog(
+                    .backend(await self.fetchTaskModelCatalog(
                         client: catalogClient,
                         provider: provider
                     ))
