@@ -343,7 +343,7 @@ extension GhosttyNSView {
         _ view: GhosttyFlashOverlayView,
         style: AgentKeyHintRestSpanStyle
     ) {
-        let tint = NSColor.linkColor.withAlphaComponent(style == .dotted ? 0.42 : 0.28)
+        let tint = NSColor.linkColor.withAlphaComponent(style == .dotted ? 0.22 : 0.42)
         guard style == .dotted else {
             view.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
             view.layer?.backgroundColor = tint.cgColor
