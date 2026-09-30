@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import CMUXAgentLaunch
@@ -170,6 +171,30 @@ struct AgentInboxProjectionTests {
 func agentInboxReplyFieldOwnsArrowNavigation() {
     #expect(!AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: true))
     #expect(AgentInboxInteractionPolicy.shouldMoveSelection(isReplyFieldFocused: false))
+}
+
+@Test("reply focus notifications target the inbox hosting window")
+@MainActor
+func agentInboxReplyFieldFocusUsesHostingWindow() {
+    let hostingWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: true
+    )
+    let unrelatedKeyWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: true
+    )
+
+    #expect(
+        AgentInboxReplyFieldFocusPolicy.notificationWindow(
+            hostingWindow: hostingWindow,
+            keyWindow: unrelatedKeyWindow
+        ) === hostingWindow
+    )
 }
 
 @Test("stale inbox loads cannot update a dismissed or newer presentation")
