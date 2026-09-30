@@ -54,3 +54,20 @@ extension WorkspaceDetailView {
             || closeWorkspace != nil
     }
 }
+
+extension WorkspaceDetailView {
+    /// The title menu's Connected Devices… item for the shown terminal, or
+    /// `nil` when its Mac has not published a size state (no shared sizing).
+    var connectedDevicesMenuItem: MobileTerminalConnectedDevicesMenuItem? {
+        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
+        return MobileTerminalConnectedDevicesMenuItem(
+            presentation: store.terminalSizingPresentation(for: terminalID)
+        )
+    }
+
+    /// Opens the shown terminal's size sheet: the one action behind the size
+    /// chip and the title menu's Connected Devices… item.
+    func presentTerminalSizeSheet() {
+        isTerminalSizeSheetPresented = true
+    }
+}

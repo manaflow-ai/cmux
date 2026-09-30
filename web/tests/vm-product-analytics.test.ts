@@ -169,6 +169,11 @@ describe("repository analytics sink", () => {
   function fakeRepository(): { repo: VmRepositoryShape; written: VmUsageEventInput[] } {
     const written: VmUsageEventInput[] = [];
     const repo = {
+      markProviderObservedStatus: (input: Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0]) =>
+        Effect.sync(() => {
+          if (input.usageEvent) written.push(input.usageEvent);
+          return true;
+        }),
       recordUsageEvent: (input: VmUsageEventInput) => Effect.sync(() => {
         written.push(input);
       }),
@@ -201,6 +206,24 @@ describe("repository analytics sink", () => {
     });
     await Effect.runPromise(decorated.recordUsageEvent(ledgerRow()));
     expect(written).toHaveLength(1);
+  });
+
+  test("an atomic observed-status ledger write reaches the capture after commit", async () => {
+    const { repo, written } = fakeRepository();
+    const captured: VmUsageEventInput[] = [];
+    const decorated = withVmProductAnalytics(repo, (input) => captured.push(input));
+    const usageEvent = ledgerRow({ eventType: "vm.destroyed" });
+
+    const updated = await Effect.runPromise(decorated.markProviderObservedStatus({
+      id: "11111111-1111-4111-8111-111111111111",
+      providerVmId: "provider-vm-1",
+      status: "destroyed",
+      usageEvent,
+    }));
+
+    expect(updated).toBe(true);
+    expect(written).toEqual([usageEvent]);
+    expect(captured).toEqual([usageEvent]);
   });
 
   test("a failed ledger write does not create a product event", async () => {

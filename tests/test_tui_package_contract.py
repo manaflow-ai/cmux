@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -31,6 +32,15 @@ RELAY_TARGETS = {
 }
 
 RELAY_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux-relay/bin/cmux-relay.js"
+NPM_BUILDER = ROOT / "cmux-tui/dist/scripts/package_npm.py"
+SSH_MANIFEST = "bin/cmux-tui-ssh/manifest.json"
+BUILD_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+SSH_ARTIFACTS = {
+    "cmux-tui-aarch64-unknown-linux-musl": "cmux-tui-linux-arm64",
+    "cmux-tui-x86_64-unknown-linux-musl": "cmux-tui-linux-x64",
+    "cmux-tui-aarch64-apple-darwin": "cmux-tui-darwin-arm64",
+    "cmux-tui-x86_64-apple-darwin": "cmux-tui-darwin-x64",
+}
 
 
 def host_npm_target() -> str:
@@ -148,6 +158,22 @@ process.exit(0);
     path.chmod(0o755)
 
 
+def write_ssh_manifests(root: Path) -> None:
+    """Pin every platform's packaged cmux-tui in every platform package."""
+
+    manifest = {
+        "commit": BUILD_COMMIT,
+        "binaries": {
+            artifact: hashlib.sha256((root / package / "bin/cmux-tui").read_bytes()).hexdigest()
+            for artifact, package in SSH_ARTIFACTS.items()
+        },
+    }
+    for name in NPM_TARGETS:
+        path = root / name / SSH_MANIFEST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest) + "\n")
+
+
 def make_npm_packages(root: Path) -> None:
     root.mkdir()
     for name, (os_name, cpu) in NPM_TARGETS.items():
@@ -160,13 +186,14 @@ def make_npm_packages(root: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
+                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook", SSH_MANIFEST],
                 }
             )
             + "\n"
         )
-        write_executable(package / "bin/cmux-tui")
+        write_executable(package / "bin/cmux-tui", f"cmux-tui 1.2.3 {name}")
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
+    write_ssh_manifests(root)
 
     for name, (os_name, cpu) in RELAY_TARGETS.items():
         package = root / name
@@ -347,6 +374,70 @@ def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
     assert "mismatch" in result.stderr
 
 
+def test_npm_contract_rejects_ssh_digest_that_differs_from_the_packaged_binary(
+    tmp_path: Path,
+) -> None:
+    packages = tmp_path / "npm-packages"
+    make_npm_packages(packages)
+    write_executable(packages / "cmux-tui-linux-arm64/bin/cmux-tui", "rebuilt after pinning")
+
+    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
+
+    assert result.returncode != 0
+    assert "cmux-tui-aarch64-unknown-linux-musl" in result.stderr, result.stderr
+
+
+def test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap(tmp_path: Path) -> None:
+    binaries = tmp_path / "binaries"
+    for target in (
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+    ):
+        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
+        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
+    packages = tmp_path / "npm-packages"
+    built = subprocess.run(
+        [
+            sys.executable,
+            str(NPM_BUILDER),
+            "--binaries-dir",
+            str(binaries),
+            "--version",
+            VERSION,
+            "--build-commit",
+            BUILD_COMMIT,
+            "--out",
+            str(packages),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+
+    manifest = json.loads((packages / "cmux-tui-darwin-arm64" / SSH_MANIFEST).read_text())
+    assert manifest == {
+        "commit": BUILD_COMMIT,
+        "binaries": {
+            f"cmux-tui-{target}": hashlib.sha256(
+                (binaries / f"cmux-tui-{target}").read_bytes()
+            ).hexdigest()
+            for target in (
+                "aarch64-unknown-linux-musl",
+                "x86_64-unknown-linux-musl",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+            )
+        },
+    }
+    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
+    assert result.returncode == 0, result.stderr
+
+
 def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> None:
     """The npm shim must die by the same signal as the native relay."""
 
@@ -450,6 +541,8 @@ def main() -> None:
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
+        test_npm_contract_rejects_ssh_digest_that_differs_from_the_packaged_binary,
+        test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap,
         test_relay_launcher_preserves_native_signal_exit_status,
         test_pypi_contract_requires_all_six_wheels_and_metadata,
         test_pypi_contract_rejects_non_executable_hook,

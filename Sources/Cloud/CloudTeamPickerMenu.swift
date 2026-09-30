@@ -15,6 +15,17 @@ enum CloudTeamPickerMenu {
     static let loadingTeamsIdentifier = "CloudTeamPickerLoadingTeams"
     static let pendingTeamIdentifier = "CloudTeamPickerPendingTeam"
     static let createTeamIdentifier = "CloudTeamPickerCreateTeamButton"
+    static let invitedHeaderIdentifier = "CloudTeamPickerInvitedHeader"
+
+    static func invitationIdentifier(_ invitationID: String) -> String {
+        "CloudTeamPickerInvitation_\(invitationID)"
+    }
+
+    /// One invitation the signed-in user received, as the menu shows it.
+    struct Invitation: Equatable, Sendable {
+        let id: String
+        let teamName: String
+    }
 
     static func teamIdentifier(_ teamID: String) -> String {
         "CloudTeamPickerTeam_\(teamID)"
@@ -26,7 +37,11 @@ enum CloudTeamPickerMenu {
         isSwitching: Bool,
         pendingCreate: PendingTeamCreate?,
         onSelect: @escaping (AccountTeamSummary) -> Void,
-        onCreate: @escaping () -> Void
+        onCreate: @escaping () -> Void,
+        onInvite: (() -> Void)? = nil,
+        onMembers: (() -> Void)? = nil,
+        invitations: [Invitation] = [],
+        onJoin: ((Invitation) -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -68,6 +83,41 @@ enum CloudTeamPickerMenu {
             let item = statusItem(pendingCreate.displayName, identifier: pendingTeamIdentifier)
             item.state = .on
             menu.addItem(item)
+        }
+        if selectedTeamID != nil, let onInvite, let onMembers {
+            menu.addItem(.separator())
+            let invite = SidebarRowClosureMenuItem(
+                title: String(localized: "sidebar.account.invitePeople", defaultValue: "Invite people…"),
+                handler: onInvite
+            )
+            invite.identifier = NSUserInterfaceItemIdentifier("CloudTeamPickerInviteButton")
+            invite.isEnabled = !isBusy
+            menu.addItem(invite)
+            let members = SidebarRowClosureMenuItem(
+                title: String(localized: "sidebar.account.members", defaultValue: "Members…"),
+                handler: onMembers
+            )
+            members.identifier = NSUserInterfaceItemIdentifier("CloudTeamPickerMembersButton")
+            members.isEnabled = !isBusy
+            menu.addItem(members)
+        }
+        if !invitations.isEmpty, let onJoin {
+            menu.addItem(.separator())
+            menu.addItem(statusItem(
+                String(localized: "cloud.teamPicker.invitedTo", defaultValue: "Invited to"),
+                identifier: invitedHeaderIdentifier
+            ))
+            for invitation in invitations {
+                let item = SidebarRowClosureMenuItem(
+                    title: String(
+                        format: String(localized: "cloud.teamPicker.join", defaultValue: "Join %@"),
+                        invitation.teamName
+                    )
+                ) { onJoin(invitation) }
+                item.identifier = NSUserInterfaceItemIdentifier(invitationIdentifier(invitation.id))
+                item.isEnabled = !isBusy
+                menu.addItem(item)
+            }
         }
         menu.addItem(.separator())
         let create = SidebarRowClosureMenuItem(

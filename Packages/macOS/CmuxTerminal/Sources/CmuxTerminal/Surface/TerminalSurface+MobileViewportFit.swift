@@ -251,12 +251,13 @@ extension TerminalSurface {
         return (appliedColumns, appliedRows)
     }
 
-    /// The grid the pane would show without a shared-sizing cap.
+    /// The grid the pane would show without a shared-sizing cap or an
+    /// assigned-grid pin.
     ///
-    /// Uncapped, this is Ghostty's live grid. Capped, the live cell metrics are
-    /// scaled back from the fitted font to the base font and divided into the
-    /// pane's own pixel size, so the Mac pane can keep reporting its real
-    /// viewport while another participant owns the grid.
+    /// Otherwise this is Ghostty's live grid. Capped or pinned, the live cell
+    /// metrics (scaled back from the fitted font to the base font when capped)
+    /// are divided into the pane's own pixel size, so the Mac pane can keep
+    /// reporting its real viewport while another participant owns the grid.
     ///
     /// - Returns: The natural grid, or `nil` without a live runtime surface.
     @MainActor
@@ -265,7 +266,7 @@ extension TerminalSurface {
         let size = ghostty_surface_size(surface)
         let liveColumns = max(Int(size.columns), 1)
         let liveRows = max(Int(size.rows), 1)
-        guard mobileViewportCellLimit != nil,
+        guard mobileViewportCellLimit != nil || assignedGrid != nil,
               lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
               size.cell_width_px > 0, size.cell_height_px > 0 else {
             return (liveColumns, liveRows)
@@ -281,6 +282,29 @@ extension TerminalSurface {
         let columns = Int((Double(Int(lastUncappedPixelWidth) - padWidth) / cellWidth).rounded(.down))
         let rows = Int((Double(Int(lastUncappedPixelHeight) - padHeight) / cellHeight).rounded(.down))
         return (max(columns, 1), max(rows, 1))
+    }
+
+    /// A sizing sample for the pane's own grid (``naturalGridSize()``) rather
+    /// than the capped or pinned grid Ghostty holds. A mirror reports this as
+    /// its viewport, so it can still grow a shared grid it does not own.
+    ///
+    /// - Returns: The sample, or `nil` without a live runtime surface.
+    @MainActor
+    public func viewSizingSample() -> TerminalSurfaceRawSizingSample? {
+        guard let sample = rawSizingSample() else { return nil }
+        guard mobileViewportCellLimit != nil || assignedGrid != nil,
+              lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              let natural = naturalGridSize() else { return sample }
+        return TerminalSurfaceRawSizingSample(
+            columns: natural.columns,
+            rows: natural.rows,
+            cellWidthPx: sample.cellWidthPx,
+            cellHeightPx: sample.cellHeightPx,
+            surfaceWidthPx: Int(lastUncappedPixelWidth),
+            surfaceHeightPx: Int(lastUncappedPixelHeight),
+            viewBoundsPt: sample.viewBoundsPt,
+            backingScale: sample.backingScale
+        )
     }
 
     /// Removes the mobile viewport cap and restores the uncapped size.
