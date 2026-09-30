@@ -44,7 +44,7 @@ extension BrowserProfileService {
     }
 
     /// Whether a tab may be created in `id`: a record exists here.
-    func isKnown(_ id: String) -> Bool { book.contains(id) }
+    func isKnown(_ id: String) -> Bool { record(id) != nil }
 
     /// The profile a new tab of `workspaceID` gets without an explicit choice.
     func effectiveProfile(forWorkspace workspaceID: String?) -> String {

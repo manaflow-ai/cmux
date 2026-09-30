@@ -22,6 +22,8 @@ public final class PersonalStore {
     public internal(set) var workspaces: [PersonalWorkspace] = []
     /// Per-terminal themes, keyed `session_id` then terminal key.
     public internal(set) var terminalThemes: [String: [String: String]] = [:]
+    /// Browser profile records (`browser-profiles-v1`), in order.
+    public internal(set) var browserProfiles: [BrowserProfileSnapshot] = []
 
     public init() {}
 
@@ -66,5 +68,6 @@ extension DaemonStore {
             Dictionary($0.map { ($0.terminalKey, $0.theme) }, uniquingKeysWith: { first, _ in first })
         }
         if store.terminalThemes != terminals { store.terminalThemes = terminals }
+        if store.browserProfiles != state.browserProfiles { store.browserProfiles = state.browserProfiles }
     }
 }

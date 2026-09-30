@@ -13,11 +13,14 @@ extension BrowserProfileService {
     /// no engine opened it in this process, else at the next launch.
     func delete(_ id: String) throws {
         guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
-        guard book.contains(id) else { throw BrowserProfileBookError.unknownProfile }
+        guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
         for (tab, pane) in browserTabs(in: id) {
             reopen(tab, in: pane, profile: BrowserProfileRecord.defaultID, closingOriginal: true, notice: nil)
         }
-        if usesPersonalState {
+        if usesDaemonRecords {
+            // The daemon clears the workspace and room defaults naming it.
+            services.machines.local.send("delete-browser-profile") { try await $0.deleteBrowserProfile(id) }
+        } else if usesPersonalState {
             for workspace in workspacesUsing(id) {
                 let request = SetPersonalWorkspaceRequest(sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key),
                                                           browserProfileID: .clear)
@@ -28,7 +31,7 @@ extension BrowserProfileService {
                 services.machines.local.send("update-profile") { try await $0.updateProfile(roomID, browserProfileID: .clear) }
             }
         }
-        try edit { try $0.delete(id) }
+        try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
         cleanUpDeletedProfiles()
     }
@@ -85,8 +88,8 @@ extension BrowserProfileService {
             for record in pending where BrowserProfileRecord.isValidID(record.proposedProfileID) {
                 guard let self else { return }
                 do {
-                    try edit { try $0.create(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
-                                             source: record.sourceFields) }
+                    _ = try await createProfile(id: record.proposedProfileID, name: record.displayName, color: nil, icon: nil,
+                                                source: record.sourceFields)
                     try await store.retarget(record.sourceKey, to: record.proposedProfileID)
                 } catch {
                     logger.error("migrate import \(record.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
@@ -100,6 +103,6 @@ extension BrowserProfileService {
     /// Each profile's imported history and bookmarks go into its omnibar.
     private func seedImportedHistory() {
         guard let store = importStore else { return }
-        OnboardingService.seedHistory(profiles: book.ordered.map(\.id), store: store, cache: services.cache)
+        OnboardingService.seedHistory(profiles: ordered.map(\.id), store: store, cache: services.cache)
     }
 }

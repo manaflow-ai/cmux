@@ -8,8 +8,6 @@ struct AppBrowserProfileProvisioning: BrowserProfileProvisioning {
     let profiles: BrowserProfileService
 
     func createProfile(id: String, name: String, color: String?, source: [String: String]) async throws -> String {
-        try await MainActor.run {
-            try profiles.edit { try $0.create(id: id, name: name, color: color, icon: nil, source: source) }.id
-        }
+        try await profiles.createProfile(id: id, name: name, color: color, icon: nil, source: source)
     }
 }

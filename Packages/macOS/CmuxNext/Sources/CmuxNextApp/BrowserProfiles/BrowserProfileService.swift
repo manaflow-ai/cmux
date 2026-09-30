@@ -25,6 +25,8 @@ final class BrowserProfileService {
     @ObservationIgnored private(set) var importStore: ImportedDataStore?
     @ObservationIgnored private var saving: Task<Void, Never>?
     @ObservationIgnored private var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
+    @ObservationIgnored var migratingRecords = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
     init(services: AppServices) {
@@ -55,6 +57,7 @@ final class BrowserProfileService {
             loadWaiters.forEach { $0.resume() }
             loadWaiters.removeAll()
             cleanUpDeletedProfiles()
+            observeHomeRecords()
             migrateImports()
         }
     }
@@ -67,9 +70,14 @@ final class BrowserProfileService {
 
     // MARK: Records
 
-    var ordered: [BrowserProfileRecord] { book.ordered }
+    /// Profiles in order: the home daemon's once they moved there
+    /// (`browser-profiles-v1`), else this Mac's file.
+    var ordered: [BrowserProfileRecord] {
+        guard usesDaemonRecords else { return book.ordered }
+        return services.machines.local.store.personal.browserProfiles.map(Self.record(from:))
+    }
 
-    func record(_ id: String?) -> BrowserProfileRecord? { id.flatMap(book.record) }
+    func record(_ id: String?) -> BrowserProfileRecord? { id.flatMap { id in ordered.first { $0.id == id } } }
 
     /// A tab record's profile id as the name users see.
     func displayName(_ id: String?) -> String {

@@ -15,6 +15,9 @@ public struct PersonalState: Sendable, Hashable, Decodable {
     public var workspaces: [PersonalWorkspace]
     /// Per-terminal themes (`personal-terminals-v1`; empty on older daemons).
     public var terminals: [PersonalTerminal]
+    /// Browser profile records (`browser-profiles-v1`), in order; empty on
+    /// an older daemon.
+    public var browserProfiles: [BrowserProfileSnapshot] = []
 
     public init(revision: UInt64 = 0, sessions: [SessionRecord] = [], profiles: [ProfileSnapshot] = [], pins: [WorkspacePin] = [],
                 groups: [WorkspaceGroupSnapshot] = [], workspaces: [PersonalWorkspace] = [], terminals: [PersonalTerminal] = []) {
@@ -30,6 +33,7 @@ public struct PersonalState: Sendable, Hashable, Decodable {
     enum CodingKeys: String, CodingKey {
         case sessions, profiles, pins, groups, workspaces, terminals
         case revision = "personal_revision"
+        case browserProfiles = "browser_profiles"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,6 +45,7 @@ public struct PersonalState: Sendable, Hashable, Decodable {
         groups = try c.decodeIfPresent([WorkspaceGroupSnapshot].self, forKey: .groups) ?? []
         workspaces = try c.decodeIfPresent([PersonalWorkspace].self, forKey: .workspaces) ?? []
         terminals = try c.decodeIfPresent([PersonalTerminal].self, forKey: .terminals) ?? []
+        browserProfiles = try c.decodeIfPresent([BrowserProfileSnapshot].self, forKey: .browserProfiles) ?? []
     }
 }
 
