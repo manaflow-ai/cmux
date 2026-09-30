@@ -135,7 +135,10 @@ final class BrowserReplTabAttachment {
         guard isAttached, let panel else { return }
         _ = panel.restoreDiscardedWebViewIfNeeded(reason: "browser.repl", allowBlankShellHeal: false)
         let webView = panel.webView
-        if renderHost != nil, renderHostWebView === webView { return }
+        if let renderHost, renderHostWebView === webView {
+            renderHost.reassertAutomationFocus()
+            return
+        }
         renderHost?.abandon()
         renderHost = nil
         renderHostWebView = nil
@@ -149,13 +152,30 @@ final class BrowserReplTabAttachment {
         }
         renderHost = BrowserOffscreenRenderHost(
             webView: webView,
-            viewportSize: panel.visualAutomationViewportSize(),
+            viewportSize: Self.renderViewportSize(panel: panel, webView: webView),
             reportsKeyWindow: true
         )
         renderHostWebView = webView
         // The render window is nearly transparent; WebKit must not treat
         // window occlusion as hidden.
         Self.setOcclusionDetection(false, on: webView)
+    }
+
+    /// Viewport of a hidden driven tab: Playwright's default page size, so
+    /// results do not depend on whatever window last hosted the tab.
+    static let hiddenTabViewportSize = NSSize(width: 1280, height: 800)
+
+    /// The viewport a driven tab renders at: an explicit `setViewportSize`,
+    /// else the size of the pane showing it, else ``hiddenTabViewportSize``.
+    private static func renderViewportSize(panel: BrowserPanel, webView: WKWebView) -> NSSize {
+        if let viewport = panel.viewportModel.viewport { return viewport.size }
+        if isVisiblyRendering(webView), let window = webView.window,
+           !(window is BrowserOffscreenRenderPanel),
+           window.identifier?.rawValue != BrowserPanel.backgroundPreloadWindowIdentifier {
+            let size = webView.bounds.size
+            if size.width > 1, size.height > 1 { return size }
+        }
+        return hiddenTabViewportSize
     }
 
     /// Whether WebKit considers the page visible (its `isViewVisible` rules).
@@ -367,7 +387,7 @@ final class BrowserReplTabAttachment {
         fileChoosers[id] = respond
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
         Task { @MainActor [weak self] in
-            let element = await self?.activeElementHandle(in: frame)
+            let element = await self?.chooserElementHandle(in: frame)
             self?.emit("filechooser.opened", [
                 "chooserId": id,
                 "frameId": frameID ?? NSNull(),
@@ -384,9 +404,10 @@ final class BrowserReplTabAttachment {
         return true
     }
 
-    private func activeElementHandle(in frame: WKFrameInfo) async -> String? {
+    /// The agent handle of the file input that opened the chooser.
+    private func chooserElementHandle(in frame: WKFrameInfo) async -> String? {
         guard let webView = panel?.webView else { return nil }
-        let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.activeHandle() : null;"
+        let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.chooserHandle() : null;"
         let value = try? await webView.callAsyncJavaScript(
             source,
             arguments: [:],

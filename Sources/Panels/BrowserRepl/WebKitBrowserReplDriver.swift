@@ -30,8 +30,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Tabs this session opened (`tabs.open` and page popups). They close
     /// when the session ends unless `tab.keep` released them.
     private var openedTargetIDs: [UUID] = []
-    /// `session.name` label, shown as the title of tabs this session opened.
+    /// `session.name` label, shown before the title of tabs this session opened.
     private var sessionLabel: String?
+    /// Tabs that carry the label, including kept ones; cleared at session end.
+    private var labeledTargetIDs: Set<UUID> = []
     private var fileChooserDirectories: [URL] = []
 
     init(
@@ -63,6 +65,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let sessionID = self.sessionID
         Task { @MainActor in
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
+            self.clearSessionLabels()
             self.closeOpenedTabs()
             self.releaseDownloadWaiters()
             for directory in self.fileChooserDirectories {
@@ -273,7 +276,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// `session.name`: labels the tabs this session opened, now and later,
-    /// with an automatic tab title. A title the user set is never replaced.
+    /// as `<name> · <page title>`. A title the user set still wins, and the
+    /// plain title returns when the session ends.
     @MainActor
     private func nameSession(_ params: [String: Any]) throws -> Any? {
         let name = (params["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -284,14 +288,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func applySessionLabel(to panelID: UUID) {
-        guard let sessionLabel, let workspace = try? workspace() else { return }
-        _ = workspace.setPanelCustomTitle(
-            panelId: panelID,
-            title: sessionLabel,
-            source: .auto,
-            propagateToRemoteTmux: false,
-            propagateToCloud: false
-        )
+        guard let workspace = try? workspace() else { return }
+        workspace.setPanelAutomationLabel(panelId: panelID, label: sessionLabel)
+        if sessionLabel == nil { labeledTargetIDs.remove(panelID) } else { labeledTargetIDs.insert(panelID) }
+    }
+
+    @MainActor
+    private func clearSessionLabels() {
+        let labeled = labeledTargetIDs
+        labeledTargetIDs.removeAll()
+        guard let workspace = try? workspace() else { return }
+        for id in labeled { workspace.setPanelAutomationLabel(panelId: id, label: nil) }
     }
 
     @MainActor

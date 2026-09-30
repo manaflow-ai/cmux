@@ -38,9 +38,16 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `session.name` | `{ name }` | |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
-`tab.keep` releases one so it stays open. `session.name` labels the tabs the
-session opened, now and later, with an automatic tab title; a title the user
-set is kept. An empty name stops labeling new tabs.
+`tab.keep` releases one so it stays open. `session.name` shows the tabs the
+session opened, now and later, as `<name> · <page title>`, following title
+changes; a title the user set wins, and the plain title returns when the
+session ends. An empty name removes the label.
+
+Hidden tabs a session drives render at 1280x800 (Playwright's default); a tab
+shown in a visible pane keeps its pane size; `tab.setViewport` overrides both.
+While driven, a hidden tab's window reports key and its web view is first
+responder there, so the page is focused (`document.hasFocus()`, focus and blur
+events) without changing the user's key window or first responder.
 
 `tab.info.url` is the live document URL, including `history.pushState` changes.
 

@@ -354,8 +354,10 @@ public final class CmuxWebView: CmuxUndoableWebView {
     private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
     private lazy var diffViewerNavigationKeyRouter: (any CmuxWebViewNavigationKeyRouting)? =
         host?.makeDiffViewerNavigationKeyRouter()
+    private var automationRenderFocusDepth = 0
+
     public var allowsFirstResponderAcquisitionEffective: Bool {
-        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 || automationRenderFocusDepth > 0
     }
     public var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
@@ -567,7 +569,22 @@ public final class CmuxWebView: CmuxUndoableWebView {
         host?.paneFirstClickFocusEnabled() ?? false
     }
 
+    /// Makes this web view the first responder of an offscreen automation
+    /// render window, so WebKit treats the driven page as focused. The focus
+    /// policy guards the user's windows and is bypassed only here; no
+    /// first-responder notification is posted, because the user's focus does
+    /// not move.
+    @discardableResult
+    public func acquireAutomationRenderFocus(in window: NSWindow) -> Bool {
+        automationRenderFocusDepth += 1
+        defer { automationRenderFocusDepth -= 1 }
+        return window.makeFirstResponder(self)
+    }
+
     public override func becomeFirstResponder() -> Bool {
+        if automationRenderFocusDepth > 0 {
+            return super.becomeFirstResponder()
+        }
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"

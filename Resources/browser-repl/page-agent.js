@@ -624,6 +624,26 @@
     return doc.activeElement === target;
   }
 
+  // The file input whose click (user, driver or page script `input.click()`)
+  // most recently happened; WebKit does not say which input opened a chooser,
+  // and `document.activeElement` is the button when a page opens a hidden input.
+  let lastFileInput = null;
+  document.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.type === "file") lastFileInput = target;
+    },
+    true,
+  );
+
+  // The element that opened the current file chooser: the last clicked file
+  // input while it is connected, else the focused element.
+  function chooserHandle() {
+    if (lastFileInput && lastFileInput.isConnected) return handleFor(lastFileInput);
+    return activeHandle();
+  }
+
   function activeHandle() {
     const active = document.activeElement;
     return active && active !== document.body ? handleFor(active) : null;
@@ -770,6 +790,7 @@
     hitTarget,
     emulateClickFocus,
     activeHandle,
+    chooserHandle,
     fill,
     selectText,
     focus,

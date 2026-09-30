@@ -93,7 +93,31 @@ public final class BrowserOffscreenRenderHost {
         webView.cmuxApplyBrowserViewportLayout(in: renderContentView.bounds)
         renderWindow.contentView = renderContentView
         renderWindow.orderFrontRegardless()
+        if reportsKeyWindow {
+            // WebKit treats a page as focused (`document.hasFocus()`, focus and
+            // blur events) only while its window is key and the web view is
+            // first responder of that window.
+            Self.acquireFocus(webView, in: renderWindow)
+        }
         forceLayout()
+    }
+
+    /// Makes the web view first responder of the render window again when
+    /// something moved it, so a key-reporting render window keeps the page
+    /// focused. Does nothing for a render window that does not report key.
+    public func reassertAutomationFocus() {
+        guard !isFinished, window.reportsKeyWindowForAutomation,
+              presentationView.superview === contentView,
+              window.firstResponder !== webView else { return }
+        Self.acquireFocus(webView, in: window)
+    }
+
+    private static func acquireFocus(_ webView: WKWebView, in window: NSWindow) {
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.acquireAutomationRenderFocus(in: window)
+        } else {
+            window.makeFirstResponder(webView)
+        }
     }
 
     /// Resizes the persistent render window and reapplies the active viewport layout.
