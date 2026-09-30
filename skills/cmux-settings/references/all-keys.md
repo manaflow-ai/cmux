@@ -4,6 +4,20 @@ Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema
 authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
 rendered docs, see `https://cmux.com/docs/configuration`.
 
+## root
+
+Top-level pane chrome settings.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `paneBorderColor` | colorHexOrNull | `null` | Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits. |
+| `activePaneBorderColor` | colorHexOrNull | `null` | Optional border color drawn around the focused cmux pane in split workspaces. |
+| `focusMarkerStyle` | `"edge"` or `"dim-others"` or `"glow"` or `"none"` | `"edge"` | Focused-pane marker style. The marker uses a theme-derived foreground color unless focusMarkerColor is set. |
+| `focusMarkerColor` | colorHexOrNull | `null` | Focused-pane marker color. Null follows the terminal theme foreground. |
+| `focusMarkerThickness` | number | `2` | Focused-pane edge or glow thickness in points. |
+| `focusMarkerIntensity` | number | `0.24` | Focused-pane marker intensity. |
+| `focusMarkerVisibility` | `"persistent"` or `"on-change"` | `"persistent"` | Keep the focused-pane marker visible, or show it only briefly when focus changes. |
+
 ## app
 
 General app preferences from Settings > App.

@@ -59,6 +59,13 @@ extension CmuxSettingsFileStore {
 
         return [
             [
+                "focusMarkerStyle": PaneChromeSettings.defaultFocusMarkerStyle,
+                "focusMarkerColor": NSNull(),
+                "focusMarkerThickness": PaneChromeSettings.defaultFocusMarkerThickness,
+                "focusMarkerIntensity": PaneChromeSettings.defaultFocusMarkerIntensity,
+                "focusMarkerVisibility": PaneChromeSettings.defaultFocusMarkerVisibility,
+            ],
+            [
                 "app": [
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,

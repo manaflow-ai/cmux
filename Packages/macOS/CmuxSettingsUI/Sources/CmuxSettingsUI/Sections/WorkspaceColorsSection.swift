@@ -19,6 +19,11 @@ public struct WorkspaceColorsSection: View {
     @State private var subtleSelection: DefaultsValueModel<Bool>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paneFlashHex: DefaultsValueModel<String>
+    @State private var focusMarkerStyle: DefaultsValueModel<String>
+    @State private var focusMarkerColor: DefaultsValueModel<String>
+    @State private var focusMarkerThickness: DefaultsValueModel<Double>
+    @State private var focusMarkerIntensity: DefaultsValueModel<Double>
+    @State private var focusMarkerVisibility: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -60,6 +65,11 @@ public struct WorkspaceColorsSection: View {
         _subtleSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.subtleSelection))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
+        _focusMarkerStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.focusMarkerStyle))
+        _focusMarkerColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.focusMarkerColorHex))
+        _focusMarkerThickness = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.focusMarkerThickness))
+        _focusMarkerIntensity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.focusMarkerIntensity))
+        _focusMarkerVisibility = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.focusMarkerVisibility))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -84,6 +94,11 @@ public struct WorkspaceColorsSection: View {
             subtleSelection,
             badgeHex,
             paneFlashHex,
+            focusMarkerStyle,
+            focusMarkerColor,
+            focusMarkerThickness,
+            focusMarkerIntensity,
+            focusMarkerVisibility,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -146,6 +161,67 @@ public struct WorkspaceColorsSection: View {
                 // Matches the runtime's cmux accent fallback.
                 fallback: cmuxAccent.color
             )
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("focusMarkerStyle"),
+                String(localized: "settings.workspaceColors.focusMarkerStyle", defaultValue: "Focused Pane Marker"),
+                subtitle: String(localized: "settings.workspaceColors.focusMarkerStyle.subtitle", defaultValue: "Use a theme-aware edge, glow, or dimming so the pane you type into is clear among blue rings.")
+            ) {
+                Picker("", selection: Binding(get: { focusMarkerStyle.current }, set: { focusMarkerStyle.set($0) })) {
+                    Text(String(localized: "settings.workspaceColors.focusMarkerStyle.edge", defaultValue: "Edge")).tag("edge")
+                    Text(String(localized: "settings.workspaceColors.focusMarkerStyle.dimOthers", defaultValue: "Dim Others")).tag("dim-others")
+                    Text(String(localized: "settings.workspaceColors.focusMarkerStyle.glow", defaultValue: "Glow")).tag("glow")
+                    Text(String(localized: "settings.workspaceColors.focusMarkerStyle.none", defaultValue: "None")).tag("none")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.workspaceColors.focusMarkerColor", defaultValue: "Focused Pane Marker Color"),
+                subtitle: String(localized: "settings.workspaceColors.focusMarkerColor.subtitle", defaultValue: "Leave unset to follow the terminal theme foreground."),
+                json: "focusMarkerColor",
+                resetLabel: String(localized: "settings.workspaceColors.focusMarkerColor.reset", defaultValue: "Reset"),
+                model: focusMarkerColor
+            )
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("focusMarkerThickness"),
+                String(localized: "settings.workspaceColors.focusMarkerThickness", defaultValue: "Marker Thickness"),
+                subtitle: String(localized: "settings.workspaceColors.focusMarkerThickness.subtitle", defaultValue: "Edge or glow thickness in points.")
+            ) {
+                Slider(value: Binding(get: { focusMarkerThickness.current }, set: { focusMarkerThickness.set($0) }), in: 1...6, step: 0.5)
+                    .frame(width: 150)
+                Text(String(format: "%.1f", focusMarkerThickness.current))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .frame(width: 38, alignment: .trailing)
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("focusMarkerIntensity"),
+                String(localized: "settings.workspaceColors.focusMarkerIntensity", defaultValue: "Marker Intensity"),
+                subtitle: String(localized: "settings.workspaceColors.focusMarkerIntensity.subtitle", defaultValue: "Strength of the marker or dimming.")
+            ) {
+                Slider(value: Binding(get: { focusMarkerIntensity.current }, set: { focusMarkerIntensity.set($0) }), in: 0.05...0.8, step: 0.01)
+                    .frame(width: 150)
+                Text(String(format: "%.2f", focusMarkerIntensity.current))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .frame(width: 38, alignment: .trailing)
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("focusMarkerVisibility"),
+                String(localized: "settings.workspaceColors.focusMarkerVisibility", defaultValue: "Marker Visibility"),
+                subtitle: String(localized: "settings.workspaceColors.focusMarkerVisibility.subtitle", defaultValue: "Keep the marker visible or show it briefly when focus changes.")
+            ) {
+                Picker("", selection: Binding(get: { focusMarkerVisibility.current }, set: { focusMarkerVisibility.set($0) })) {
+                    Text(String(localized: "settings.workspaceColors.focusMarkerVisibility.persistent", defaultValue: "Persistent")).tag("persistent")
+                    Text(String(localized: "settings.workspaceColors.focusMarkerVisibility.onChange", defaultValue: "On Change")).tag("on-change")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
             SettingsCardDivider()
 
             SettingsCardNote(

@@ -897,6 +897,11 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
+    @AppStorage(PaneChromeSettings.focusMarkerStyleKey) private var focusMarkerStyleRawValue = PaneChromeSettings.defaultFocusMarkerStyle
+    @AppStorage(PaneChromeSettings.focusMarkerColorKey) private var focusMarkerColorHex = PaneChromeSettings.defaultColorHex
+    @AppStorage(PaneChromeSettings.focusMarkerThicknessKey) private var focusMarkerThickness = PaneChromeSettings.defaultFocusMarkerThickness
+    @AppStorage(PaneChromeSettings.focusMarkerIntensityKey) private var focusMarkerIntensity = PaneChromeSettings.defaultFocusMarkerIntensity
+    @AppStorage(PaneChromeSettings.focusMarkerVisibilityKey) private var focusMarkerVisibilityRawValue = PaneChromeSettings.defaultFocusMarkerVisibility
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedLeftSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var leftSidebarExtensionsExperimentalEnabled
@@ -1067,8 +1072,17 @@ struct ContentView: View {
         let unreadSnapshot = explicitUnreadSnapshot ?? sidebarUnread.snapshot
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
-        let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
-        guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
+        let resolvedFocusMarkerStyle = PaneChromeSettings.Style(rawValue: focusMarkerStyleRawValue) ?? .edge
+        let resolvedFocusMarkerVisibility = PaneChromeSettings.Visibility(rawValue: focusMarkerVisibilityRawValue) ?? .persistent
+        let resolvedFocusMarkerColorHex = WorkspaceTabColorSettings.normalizedHex(focusMarkerColorHex)
+            ?? (resolvedFocusMarkerStyle == .dimOthers
+                ? GhosttyApp.shared.defaultBackgroundColor.hexString()
+                : GhosttyApp.shared.defaultForegroundColor.hexString())
+        let shouldShowFocusMarker = shouldShowFocusMarker(for: workspace, style: resolvedFocusMarkerStyle)
+        let shouldShowLegacyBorder = resolvedActivePaneBorderColorHex != nil &&
+            resolvedFocusMarkerStyle == .none &&
+            shouldShowFocusMarker(for: workspace, style: .edge)
+        guard usesWorkspacePaneOverlay || shouldShowFocusMarker || shouldShowLegacyBorder else { return nil }
 
         let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
@@ -1149,8 +1163,8 @@ struct ContentView: View {
             flashRect = nil
         }
 
-        let activePaneBorderRect: CGRect?
-        if shouldShowActivePaneBorder,
+        let focusedPaneRect: CGRect?
+        if shouldShowFocusMarker || shouldShowLegacyBorder,
            let panelId = workspace.focusedPanelId,
            let panel = workspace.panels[panelId] {
             let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
@@ -1161,7 +1175,7 @@ struct ContentView: View {
             let isSplitZoomed = workspace.bonsplitController.isSplitZoomed
             // Bonsplit's zoomed container covers the visible pane; hosted terminal
             // views can include a tab-chrome offset during the zoom transition.
-            activePaneBorderRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
+            focusedPaneRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                 exactRect: exactRect,
                 paneRect: paneRect,
                 isSplitZoomed: isSplitZoomed,
@@ -1170,10 +1184,30 @@ struct ContentView: View {
                     : nil
             )
         } else {
-            activePaneBorderRect = nil
+            focusedPaneRect = nil
         }
 
-        if unreadRects.isEmpty, flashRect == nil, activePaneBorderRect == nil {
+        let paneRects: [(panelId: UUID, rect: CGRect)] = layoutSnapshot?.panes.compactMap { pane in
+            guard let selectedTabId = pane.selectedTabId,
+                  let tabUUID = UUID(uuidString: selectedTabId),
+                  let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)) else { return nil }
+            let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: workspace.paneId(forPanelId: panelId)
+            )
+            let exactRect = workspace.panels[panelId].flatMap { panel in
+                contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
+            }
+            guard let rect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
+                exactRect: exactRect,
+                paneRect: paneRect
+            ) else { return nil }
+            return (panelId, rect)
+        } ?? []
+        let dimRects = paneRects.filter { $0.panelId != workspace.focusedPanelId }.map(\.rect)
+        let markerRect = shouldShowFocusMarker ? focusedPaneRect : nil
+
+        if unreadRects.isEmpty, flashRect == nil, focusedPaneRect == nil {
             guard usesWorkspacePaneOverlay else { return nil }
             return TmuxWorkspacePaneOverlayRenderState(
                 workspaceId: workspace.id,
@@ -1181,6 +1215,9 @@ struct ContentView: View {
                 flashRect: nil,
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
+                focusMarkerDimRects: [],
+                focusMarkerStyle: "none",
+                focusMarkerColorHex: nil,
                 flashToken: workspace.tmuxWorkspaceFlashToken,
                 flashReason: workspace.tmuxWorkspaceFlashReason,
                 workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
@@ -1191,8 +1228,16 @@ struct ContentView: View {
             workspaceId: workspace.id,
             unreadRects: unreadRects,
             flashRect: flashRect,
-            activePaneBorderRect: activePaneBorderRect,
-            activePaneBorderColorHex: activePaneBorderRect == nil ? nil : resolvedActivePaneBorderColorHex,
+            activePaneBorderRect: shouldShowLegacyBorder ? focusedPaneRect : nil,
+            activePaneBorderColorHex: resolvedActivePaneBorderColorHex,
+            focusMarkerRect: markerRect,
+            focusMarkerPaneID: workspace.bonsplitController.focusedPaneId?.id,
+            focusMarkerVisibility: resolvedFocusMarkerVisibility.rawValue,
+            focusMarkerDimRects: resolvedFocusMarkerStyle == .dimOthers && markerRect != nil ? dimRects : [],
+            focusMarkerStyle: markerRect == nil ? "none" : resolvedFocusMarkerStyle.rawValue,
+            focusMarkerColorHex: markerRect == nil ? nil : resolvedFocusMarkerColorHex,
+            focusMarkerThickness: min(max(focusMarkerThickness, 1), 6),
+            focusMarkerIntensity: min(max(focusMarkerIntensity, 0.05), 0.8),
             flashToken: workspace.tmuxWorkspaceFlashToken,
             flashReason: workspace.tmuxWorkspaceFlashReason,
             workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
@@ -1214,8 +1259,8 @@ struct ContentView: View {
         )?.update(state: tmuxOverlayState)
     }
 
-    private func shouldShowActivePaneBorder(for workspace: Workspace, colorHex: String?) -> Bool {
-        colorHex != nil && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
+    private func shouldShowFocusMarker(for workspace: Workspace, style: PaneChromeSettings.Style) -> Bool {
+        style != .none && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
     }
 
     private func shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow) -> Bool {
@@ -1225,7 +1270,8 @@ struct ContentView: View {
             createIfNeeded: false
         )?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        let style = PaneChromeSettings.Style(rawValue: focusMarkerStyleRawValue) ?? .edge
+        return shouldShowFocusMarker(for: workspace, style: style)
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
@@ -2895,6 +2941,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString()
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String
@@ -2968,6 +3015,22 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: activePaneBorderColorHex) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+
+        view = AnyView(view.onChange(of: focusMarkerStyleRawValue) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+        view = AnyView(view.onChange(of: focusMarkerColorHex) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+        view = AnyView(view.onChange(of: focusMarkerThickness) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+        view = AnyView(view.onChange(of: focusMarkerIntensity) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+        view = AnyView(view.onChange(of: focusMarkerVisibilityRawValue) { _, _ in
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
         })
 

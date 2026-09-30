@@ -438,6 +438,28 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
+        if let style = jsonString(root[PaneChromeSettings.focusMarkerStyleKey]),
+           PaneChromeSettings.Style(rawValue: style) != nil {
+            snapshot.managedUserDefaults[PaneChromeSettings.focusMarkerStyleKey] = .string(style)
+        }
+        if root.keys.contains(PaneChromeSettings.focusMarkerColorKey),
+           let value = parseNullableHex(
+                root[PaneChromeSettings.focusMarkerColorKey],
+                path: PaneChromeSettings.focusMarkerColorKey,
+                sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[PaneChromeSettings.focusMarkerColorKey] = .nullableString(value)
+        }
+        if let thickness = jsonDouble(root[PaneChromeSettings.focusMarkerThicknessKey]), thickness.isFinite {
+            snapshot.managedUserDefaults[PaneChromeSettings.focusMarkerThicknessKey] = .double(min(max(thickness, 1), 6))
+        }
+        if let intensity = jsonDouble(root[PaneChromeSettings.focusMarkerIntensityKey]), intensity.isFinite {
+            snapshot.managedUserDefaults[PaneChromeSettings.focusMarkerIntensityKey] = .double(min(max(intensity, 0.05), 0.8))
+        }
+        if let visibility = jsonString(root[PaneChromeSettings.focusMarkerVisibilityKey]),
+           PaneChromeSettings.Visibility(rawValue: visibility) != nil {
+            snapshot.managedUserDefaults[PaneChromeSettings.focusMarkerVisibilityKey] = .string(visibility)
+        }
     }
 
     private func parseNotificationsSection(
@@ -1586,7 +1608,12 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.focusMarkerStyleKey ||
+                    change.defaultsKey == PaneChromeSettings.focusMarkerColorKey ||
+                    change.defaultsKey == PaneChromeSettings.focusMarkerThicknessKey ||
+                    change.defaultsKey == PaneChromeSettings.focusMarkerIntensityKey ||
+                    change.defaultsKey == PaneChromeSettings.focusMarkerVisibilityKey {
                     paneChromeDidChange = true
                 }
 
