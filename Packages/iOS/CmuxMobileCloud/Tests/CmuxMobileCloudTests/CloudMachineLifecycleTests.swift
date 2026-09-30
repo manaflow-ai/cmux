@@ -42,6 +42,7 @@ import Testing
         #expect(!CloudMachineLifecycle.provisioning.canPause && !CloudMachineLifecycle.provisioning.canResume)
         #expect(CloudMachineLifecycle.failed.canDelete)
         #expect(!CloudMachineLifecycle.destroyed.canDelete)
+        #expect(!CloudMachineLifecycle.unknown.canDelete)
     }
 
     @Test func requestsReachTheServersLifecycleRoutes() throws {
