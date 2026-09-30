@@ -5575,6 +5575,8 @@ struct CMUXCLI {
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
+        case "resources":
+            try runResourcesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
@@ -18081,6 +18083,15 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "resources":
+            return """
+            Usage: cmux resources [--workspace <id>] [--tab <id>] [--interval-ms <ms>] [--json]
+
+            Print CPU and memory per tab and for the workspace (cmux-next), as
+            the tab and workspace hover cards show them. Defaults to the
+            workspace the active window shows. CPU is measured over
+            --interval-ms (default 1000).
             """
         case "events":
             let timeoutDescription = String(
@@ -41176,6 +41187,45 @@ struct CMUXTermMain {
             }
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
+        }
+    }
+}
+
+extension CMUXCLI {
+    /// `cmux resources`: the app's `resources` control method (cmux-next).
+    /// Plain output is the app's localized summary lines; `--json` prints
+    /// the full result (per-tab and per-process CPU and memory, the shared
+    /// processes, the deduplicated total).
+    func runResourcesCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let (workspace, afterWorkspace) = parseOption(commandArgs, name: "--workspace")
+        let (tab, afterTab) = parseOption(afterWorkspace, name: "--tab")
+        let (interval, rest) = parseOption(afterTab, name: "--interval-ms")
+        guard rest.isEmpty else {
+            throw CLIError(message: "Usage: cmux resources [--workspace <id>] [--tab <id>] [--interval-ms <ms>] [--json]")
+        }
+        var params: [String: Any] = [:]
+        if let workspace { params["workspace"] = workspace }
+        if let tab { params["tab"] = tab }
+        if let interval {
+            guard let milliseconds = Int(interval) else {
+                throw CLIError(message: "Usage: cmux resources [--workspace <id>] [--tab <id>] [--interval-ms <ms>] [--json]")
+            }
+            params["interval_ms"] = milliseconds
+        }
+        let response = try client.sendV2(method: "resources", params: params)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        if let text = response["text"] as? String { print(text) }
+        for case let tab as [String: Any] in response["tabs"] as? [Any] ?? [] {
+            let title = tab["title"] as? String ?? ""
+            let text = tab["text"] as? String ?? ""
+            print("  \(title)\t\(text)")
+        }
+        if let shared = response["shared"] as? [String: Any], let roles = shared["roles"] as? [String], !roles.isEmpty,
+           let text = shared["text"] as? String {
+            print(text)
         }
     }
 }

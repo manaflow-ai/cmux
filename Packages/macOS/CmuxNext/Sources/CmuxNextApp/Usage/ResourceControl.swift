@@ -25,11 +25,13 @@ enum ResourceControl {
 
     @MainActor
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
-        if let tab = params["tab"]?.stringValue {
+        if let raw = params["tab"]?.stringValue {
+            let tab = normalizedTabID(raw)
             guard services.locateTab(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }
-        if let workspace = params["workspace"]?.stringValue {
+        if let raw = params["workspace"]?.stringValue {
+            let workspace = services.machines.workspace(id: raw) != nil ? raw : raw.lowercased()
             guard services.machines.workspace(id: workspace) != nil else {
                 throw ControlError(code: "not_found", message: RefusalStrings.noWorkspace(workspace))
             }
@@ -39,6 +41,14 @@ enum ResourceControl {
             throw ControlError(code: "not_found", message: RefusalStrings.noWindowShowsWorkspace)
         }
         return .workspace(id)
+    }
+
+    /// A tab id (`tab_…`), or the surface UUID the cmux CLI prints (the
+    /// same 32 hex digits, with dashes).
+    static func normalizedTabID(_ raw: String) -> String {
+        let hex = raw.replacingOccurrences(of: "-", with: "").lowercased()
+        guard !raw.hasPrefix("tab_"), hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
+        return "tab_" + hex
     }
 
     /// One wait for the second sample: a one-shot deadline, not a sleep.
@@ -82,6 +92,7 @@ enum ResourceControl {
         var shared = usage(report.shared)
         shared["roles"] = .array(report.sharedRoles.map { .string($0.rawValue) })
         shared["processes"] = .array(current.shared.compactMap { process($0.key, role: $0.role.rawValue) })
+        shared["text"] = .string(report.sharedRoles.isEmpty ? "" : ResourceFormat.shared(report.shared, roles: report.sharedRoles))
         let targetJSON: JSONValue = switch target {
         case .tab(let id): ["kind": "tab", "id": .string(id)]
         case .workspace(let id): ["kind": "workspace", "id": .string(id)]

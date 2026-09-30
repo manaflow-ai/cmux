@@ -115,6 +115,7 @@ extension CMUXCLI {
         "browser-reload",
         "browser-status",
         "capabilities",
+        "resources",
         "capture-pane",
         "claude-hook",
         "claude-teams",
