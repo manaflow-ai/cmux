@@ -61,6 +61,7 @@ record = {
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
     "runner_name": os.environ.get("RUNNER_NAME"),
+    "canonical_root_lock_skipped": os.environ.get("CMUX_CI_ROOT_LOCK_SKIPPED") == "true",
 }
 record["route"] = record["lookup_source"]
 print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
