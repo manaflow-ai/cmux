@@ -215,6 +215,16 @@ private final class RelayTestClient: @unchecked Sendable {
         }
     }
 
+    /// Complete newline-terminated lines received so far.
+    func receivedLines() -> [String] {
+        lock.lock()
+        let snapshot = received
+        lock.unlock()
+        guard let lastNewline = snapshot.lastIndex(of: 0x0A) else { return [] }
+        return snapshot[..<lastNewline].split(separator: 0x0A, omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self) }
+    }
+
     func cancel() { connection.cancel() }
 }
 
@@ -552,6 +562,42 @@ struct RemoteCLIRelayServerTests {
         )
         #expect(relayMACHex == expectedRelayMAC.map { String(format: "%02x", $0) }.joined())
         #expect(relayMACHex != clientMAC.map { String(format: "%02x", $0) }.joined())
+    }
+
+    @Test("the macOS CLI's shared handshake authenticates to the relay and sends its command")
+    func sharedClientHandshakeAuthenticatesToRelay() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let handshake = RemoteRelayClientHandshake(relayID: "relay-1", relayToken: token)
+        var consumedLines = 0
+        try handshake.perform(
+            readLine: {
+                let index = consumedLines
+                guard client.wait({ _, _ in client.receivedLines().count > index }) else {
+                    throw POSIXError(.ETIMEDOUT)
+                }
+                consumedLines += 1
+                return client.receivedLines()[index]
+            },
+            writeLine: { client.send($0) }
+        )
+
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+        #expect(client.wait { data, closed in
+            String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
+        })
     }
 
     @Test("an older client without a nonce still authenticates")
