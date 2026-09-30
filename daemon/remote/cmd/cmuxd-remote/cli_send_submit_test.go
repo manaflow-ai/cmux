@@ -99,7 +99,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 	longText := strings.Repeat("long message ", 1024)
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, nil)
 	output := captureStdout(t, func() {
@@ -111,7 +111,16 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 		t.Fatalf("output = %q, want submitted", output)
 	}
 	methods := mock.methods()
-	if len(methods) < 5 || methods[0] != "surface.input_state" || methods[1] != "surface.read_text" || methods[2] != "terminal.paste" || methods[3] != "surface.input_state" || methods[4] != "surface.send_key" {
+	pasteIndex, keyIndex := -1, -1
+	for i, method := range methods {
+		if method == "terminal.paste" {
+			pasteIndex = i
+		}
+		if method == "surface.send_key" && keyIndex < 0 {
+			keyIndex = i
+		}
+	}
+	if pasteIndex < 0 || keyIndex <= pasteIndex {
 		t.Fatalf("method sequence = %v", methods)
 	}
 	paste := mock.request("terminal.paste")
@@ -126,7 +135,7 @@ func TestSendSubmitUsesSeparatePasteAndSubmitKey(t *testing.T) {
 func TestSendSubmitBusyCodexQueuesWithTab(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "lifecycle": "running", "agent_kind": "codex"},
-		{"agent": true, "state": "empty", "lifecycle": "running", "agent_kind": "codex"},
+		{"agent": true, "state": "draft", "lifecycle": "running", "agent_kind": "codex"},
 		{"agent": true, "state": "queued", "queued": true, "lifecycle": "running", "agent_kind": "codex"},
 	}, nil)
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
@@ -160,7 +169,7 @@ func TestSendSubmitRefusesDraftAndDialog(t *testing.T) {
 func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
 		{"agent": true, "state": "draft", "blocks_typing": true, "agent_kind": "claude"},
@@ -169,8 +178,8 @@ func TestSendSubmitRetriesAndFailsWhenComposerNeverSubmits(t *testing.T) {
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
 		t.Fatal("expected bounded retry failure")
 	}
-	if len(mock.methods()) != 10 { // preflight + paste + refresh + 3*(key,state)
-		t.Fatalf("method sequence = %v", mock.methods())
+	if len(mock.keys) != 3 {
+		t.Fatalf("submit keys = %v", mock.keys)
 	}
 }
 
@@ -184,20 +193,24 @@ func TestSendSubmitShellUsesReturnWithoutComposerCheck(t *testing.T) {
 	if params(mock.request("surface.send_key"))["key"] != "return" {
 		t.Fatalf("submit key params = %v", params(mock.request("surface.send_key")))
 	}
+	reads := 0
 	for _, method := range mock.methods() {
 		if method == "surface.read_text" {
-			t.Fatal("shell submit unexpectedly probed composer screen")
+			reads++
 		}
+	}
+	if reads != 1 {
+		t.Fatalf("shell composer reads = %d, want only preflight", reads)
 	}
 }
 
 func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
-	}, []string{"❯ /goal\n/goal resume\n"})
+	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯ /goal resume\n", "❯\n"})
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
 		t.Fatalf("send --submit: exit %d", code)
 	}
@@ -219,7 +232,7 @@ func TestSendSubmitSlashPopupSendsExtraSubmit(t *testing.T) {
 func TestSendSubmitForceBypassesDraftGuard(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "draft", "blocks_typing": true},
-		{"agent": true, "state": "empty"},
+		{"agent": true, "state": "draft"},
 		{"agent": true, "state": "empty"},
 	}, nil)
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "--force", "hello"}); code != 0 {
@@ -245,7 +258,7 @@ func TestSendSubmitFlagsMayFollowTargetOptions(t *testing.T) {
 func TestSendSubmitMultilineClaudeUsesCtrlEnter(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
 	}, nil)
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "line one\nline two"}); code != 0 {
@@ -259,7 +272,7 @@ func TestSendSubmitMultilineClaudeUsesCtrlEnter(t *testing.T) {
 func TestSendSubmitStopsOnNewDialog(t *testing.T) {
 	mock, socket := startSendSubmitMock(t, []map[string]any{
 		{"agent": true, "state": "empty", "agent_kind": "claude"},
-		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
 		{"agent": true, "state": "dialog", "blocks_typing": true, "agent_kind": "claude"},
 	}, nil)
 	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code == 0 {
@@ -332,5 +345,50 @@ func TestSendSubmitScreenClassifier(t *testing.T) {
 func TestSendSubmitBusyFlagChoosesTab(t *testing.T) {
 	if !sendStateLooksLikeBusyCodex(map[string]any{"agent": true, "agent_kind": "codex", "busy": true}, "") {
 		t.Fatal("busy:true Codex ignored")
+	}
+}
+
+func TestSendSubmitSlashClearDoesNotSendExtraKey(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+		{"agent": true, "state": "draft", "agent_kind": "claude"},
+		{"agent": true, "state": "empty", "agent_kind": "claude"},
+	}, []string{"❯\n", "❯ /goal\n/goal resume\n", "❯\n"})
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "/goal resume"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if len(mock.keys) != 1 {
+		t.Fatalf("extra key after clear: %v", mock.keys)
+	}
+}
+
+func TestSendSubmitRetryRefreshesBusyCodex(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": true, "state": "empty", "agent_kind": "codex"},
+		{"agent": true, "state": "draft", "agent_kind": "codex"},
+		{"agent": true, "state": "draft", "agent_kind": "codex", "busy": true},
+		{"agent": true, "state": "queued", "agent_kind": "codex", "queued": true},
+	}, nil)
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if len(mock.keys) != 2 || mock.keys[0] != "return" || mock.keys[1] != "tab" {
+		t.Fatalf("keys = %v", mock.keys)
+	}
+}
+
+func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, []map[string]any{
+		{"agent": false, "state": "unknown"},
+		{"agent": false, "state": "unknown"},
+		{"agent": false, "state": "unknown"},
+	}, []string{"OpenAI Codex\nWorking (esc to interrupt)\n›\n", "OpenAI Codex\nWorking (esc to interrupt)\n› hello\n", "OpenAI Codex\nQueued messages: 1\n›\n"})
+	output := captureStdout(t, func() {
+		if code := runCLI([]string{"--socket", socket, "send", "--submit", "hello"}); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	})
+	if output != "queued\n" || len(mock.keys) != 1 || mock.keys[0] != "tab" {
+		t.Fatalf("output=%q keys=%v", output, mock.keys)
 	}
 }
