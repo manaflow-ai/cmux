@@ -2168,6 +2168,10 @@ function sendWsErrorDetails(
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
+export function handleMessageForTest(ws: Bun.ServerWebSocket<WsData>, msg: any) {
+  handleMessage(ws, msg);
+}
+
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
     case "start": {
