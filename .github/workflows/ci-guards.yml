@@ -808,6 +808,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/iroh-cached-launch.test.mjs
 
+      - name: Validate iOS simulator build-only architecture and isolation
+        if: ${{ matrix.group == 'release-ios' }}
+        run: node --test ios/tests/simulator-build-only.test.mjs
+
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
