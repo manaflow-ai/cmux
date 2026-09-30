@@ -54,6 +54,9 @@ final class NoActivateKeyboardGuard {
     /// didBecomeActive) step aside again without counting.
     private var inGivenBackActivation = false
 
+    /// Not implemented yet (red).
+    func start() {}
+
     /// Another app became frontmost: that is where the keyboard goes back.
     func otherAppActivated(_ pid: pid_t) { previousApp = pid }
 

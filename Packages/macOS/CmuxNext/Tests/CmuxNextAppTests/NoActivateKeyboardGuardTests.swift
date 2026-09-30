@@ -106,3 +106,16 @@ extension NoActivateKeyboardGuardTests {
         #expect(guardian.giveBackCount == 2)
     }
 }
+
+extension NoActivateKeyboardGuardTests {
+    /// macOS can activate the app before the guard observes anything; the
+    /// guard checks once when it starts.
+    @Test func anActivationBeforeTheGuardStartedIsGivenBackAtStart() {
+        let host = FakeHost()
+        host.isAppActive = true
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: 501)
+        guardian.start()
+        #expect(host.givenBackTo == [501])
+        #expect(guardian.giveBackCount == 1)
+    }
+}
