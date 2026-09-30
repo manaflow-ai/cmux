@@ -61,7 +61,7 @@ struct SidebarFontSizeConfigTests {
         let loaded = GhosttyConfig.load(
             preferredColorScheme: .dark,
             useCache: false,
-            loadFromDisk: { _ in
+            loadFromDisk: { _, _ in
                 var config = GhosttyConfig()
                 config.parse("sidebar-font-size = 15")
                 return config

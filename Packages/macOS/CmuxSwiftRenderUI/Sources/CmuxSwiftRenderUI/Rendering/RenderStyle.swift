@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Resolves a style token to a SwiftUI `Color`.
@@ -51,22 +52,22 @@ func dslColor(_ token: String?) -> Color? {
     return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
 }
 
-/// Resolves a font token (or explicit size) to a SwiftUI `Font`.
-func dslFont(named token: String?, size: Double?) -> Font? {
-    if let size { return .system(size: size) }
+/// Resolves a font token (or explicit size) to a magnification-aware font spec.
+func dslFontSpec(named token: String?, size: Double?, weight: Font.Weight? = nil, design: Font.Design = .default) -> DSLFontSpec? {
+    if let size { return DSLFontSpec(baseSize: CGFloat(size), weight: weight, design: design) }
     guard let token else { return nil }
     switch token.lowercased() {
-    case "largetitle": return .largeTitle
-    case "title": return .title
-    case "title2": return .title2
-    case "title3": return .title3
-    case "headline": return .headline
-    case "subheadline": return .subheadline
-    case "body": return .body
-    case "callout": return .callout
-    case "footnote": return .footnote
-    case "caption": return .caption
-    case "caption2": return .caption2
+    case "largetitle": return DSLFontSpec(baseSize: 26, weight: weight, design: design)
+    case "title": return DSLFontSpec(baseSize: 22, weight: weight, design: design)
+    case "title2": return DSLFontSpec(baseSize: 17, weight: weight, design: design)
+    case "title3": return DSLFontSpec(baseSize: 15, weight: weight, design: design)
+    case "headline": return DSLFontSpec(baseSize: 13, weight: weight ?? .semibold, design: design)
+    case "subheadline": return DSLFontSpec(baseSize: 11, weight: weight, design: design)
+    case "body": return DSLFontSpec(baseSize: 13, weight: weight, design: design)
+    case "callout": return DSLFontSpec(baseSize: 12, weight: weight, design: design)
+    case "footnote": return DSLFontSpec(baseSize: 10, weight: weight, design: design)
+    case "caption": return DSLFontSpec(baseSize: 10, weight: weight, design: design)
+    case "caption2": return DSLFontSpec(baseSize: 9, weight: weight, design: design)
     default: return nil
     }
 }
@@ -101,6 +102,21 @@ func dslVAlignment(_ token: String?) -> VerticalAlignment {
     switch token?.lowercased() {
     case "top": return .top
     case "bottom": return .bottom
+    default: return .center
+    }
+}
+
+/// Resolves a full 2D alignment token for ZStack (default `.center`).
+func dslAlignment(_ token: String?) -> Alignment {
+    switch token?.lowercased() {
+    case "leading": return .leading
+    case "trailing": return .trailing
+    case "top": return .top
+    case "bottom": return .bottom
+    case "topleading": return .topLeading
+    case "toptrailing": return .topTrailing
+    case "bottomleading": return .bottomLeading
+    case "bottomtrailing": return .bottomTrailing
     default: return .center
     }
 }
@@ -141,6 +157,24 @@ func dslTruncationMode(_ token: String?) -> Text.TruncationMode {
     case "head": return .head
     case "middle": return .middle
     default: return .tail
+    }
+}
+
+/// Resolves a `.fixedSize` prop: `true` or `"both"` fixes both axes,
+/// `"horizontal"` or `"vertical"` one; anything else leaves sizing alone.
+func dslFixedSizeAxes(_ value: ScenePropValue?) -> (horizontal: Bool, vertical: Bool)? {
+    switch value {
+    case .bool(true):
+        return (true, true)
+    case let .string(token):
+        switch token.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+        case "horizontal": return (true, false)
+        case "vertical": return (false, true)
+        case "both": return (true, true)
+        default: return nil
+        }
+    default:
+        return nil
     }
 }
 

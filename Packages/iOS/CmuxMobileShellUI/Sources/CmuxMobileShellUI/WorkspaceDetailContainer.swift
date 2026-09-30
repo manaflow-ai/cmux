@@ -13,60 +13,89 @@ struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
+    let canCreateWorkspace: Bool
+    let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let customizeWorkspace: WorkspaceCustomizationAction?
+    let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    let signOut: (@MainActor @Sendable () -> Void)?
+    var toggleSidebar: (() -> Void)? = nil
+    var showsSidebarToggle = false
+    @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
-            return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
+            if let liveWorkspace = store.workspaces.first(where: { $0.id == workspaceID }) {
+                return liveWorkspace
+            }
+            if routeWorkspaceSnapshot?.id == workspaceID {
+                return routeWorkspaceSnapshot
+            }
+            return nil
         }
         return store.selectedWorkspace
     }
 
-    /// Close-workspace closure for the detail top-bar menu. Present only when the
-    /// connected Mac advertises `workspace.close.v1`, matching the workspace
-    /// list's gating so the menu item stays hidden on older Macs. Built as an
-    /// explicit closure literal (the compiler fails to type-check a
-    /// method-reference ternary inside the large `WorkspaceDetailView` init).
-    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions else { return nil }
-        let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
-    }
-
-    private func closeTerminalClosure(workspace: MobileWorkspacePreview) -> ((MobileTerminalPreview.ID) -> Void)? {
+    private func closeTerminalClosure(
+        workspace: MobileWorkspacePreview
+    ) -> ((MobileTerminalPreview.ID) -> Void)? {
         guard store.supportsTerminalCloseActions else { return nil }
         let store = store
-        return { id in Task { await store.closeTerminal(id: id, in: workspace.id) } }
+        return { terminalID in
+            Task { await store.closeTerminal(id: terminalID, in: workspace.id) }
+        }
     }
 
     var body: some View {
-        if let workspace {
-            WorkspaceDetailView(
-                host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
-                workspace: workspace,
-                store: store,
-                createWorkspace: createWorkspace,
-                createTerminal: { store.createTerminal(in: workspace.id) },
-                closeWorkspace: closeWorkspaceClosure,
-                closeTerminal: closeTerminalClosure(workspace: workspace),
-                reportTerminalViewport: store.reportTerminalViewport,
-                sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
-            )
-            .onAppear {
-                if store.selectedWorkspaceID != workspace.id {
-                    store.selectedWorkspaceID = workspace.id
+        Group {
+            if let workspace {
+                WorkspaceDetailView(
+                    connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
+                    workspace: workspace,
+                    store: store,
+                    createWorkspace: createWorkspace,
+                    canCreateWorkspace: canCreateWorkspace,
+                    createTerminal: { store.createTerminal(in: workspace.id) },
+                    renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+                    customizeWorkspace: workspace.actionCapabilities.supportsWorkspaceActions
+                        && workspace.actionCapabilities.supportsWorkspaceMetadata
+                        ? customizeWorkspace : nil,
+                    setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
+                    closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
+                    closeTerminal: closeTerminalClosure(workspace: workspace),
+                    reportTerminalViewport: store.reportTerminalViewport,
+                    sendTerminalInput: store.sendTerminalRawInput,
+                    safeAreaContext: safeAreaContext,
+                    backButtonConfiguration: backButtonConfiguration,
+                    signOut: signOut,
+                    toggleSidebar: toggleSidebar,
+                    showsSidebarToggle: showsSidebarToggle
+                )
+                .onAppear {
+                    rememberRouteWorkspace(workspace)
+                    if store.selectedWorkspaceID != workspace.id {
+                        store.selectedWorkspaceID = workspace.id
+                    }
                 }
+                .onChange(of: workspace) { _, workspace in
+                    rememberRouteWorkspace(workspace)
+                }
+                .task(id: workspace.id) {
+                    await store.openWorkspace(workspace.id)
+                }
+            } else {
+                ContentUnavailableView(
+                    L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"),
+                    systemImage: "rectangle.stack"
+                )
             }
-            .task(id: workspace.id) {
-                await store.openWorkspace(workspace.id)
-            }
-        } else {
-            ContentUnavailableView(
-                L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"),
-                systemImage: "rectangle.stack"
-            )
         }
+    }
+
+    private func rememberRouteWorkspace(_ workspace: MobileWorkspacePreview) {
+        guard workspaceID == workspace.id else { return }
+        routeWorkspaceSnapshot = workspace
     }
 }

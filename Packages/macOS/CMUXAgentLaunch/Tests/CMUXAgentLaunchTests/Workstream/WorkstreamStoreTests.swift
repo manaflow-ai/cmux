@@ -120,6 +120,122 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("PostToolUse preserves failure status from the wire event")
+    func postToolUsePreservesFailureStatus() throws {
+        let data = try #require(
+            """
+            {
+              "session_id": "pi-session",
+              "hook_event_name": "PostToolUse",
+              "_source": "pi",
+              "tool_name": "bash",
+              "tool_input": {"kind": "object", "key_count": 2},
+              "is_error": true
+            }
+            """.data(using: .utf8)
+        )
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let encoded = try JSONEncoder().encode(event)
+        let encodedObject = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(encodedObject["is_error"] as? Bool == true)
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(event)
+
+        let item = try #require(store.items.first)
+        if case .toolResult(let toolName, _, let isError) = item.payload {
+            #expect(toolName == "bash")
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUse to decode as toolResult telemetry")
+        }
+    }
+
+    @Test("Codex CLI lifecycle feed events stay telemetry")
+    func codexLifecycleFeedEventsStayTelemetry() {
+        let store = WorkstreamStore(
+            ringCapacity: 10,
+            titleProvider: { event in
+                switch event.hookEventName {
+                case .preCompact, .postCompact:
+                    return "Compaction"
+                case .subagentStart, .subagentStop:
+                    return "Subagent"
+                default:
+                    return nil
+                }
+            }
+        )
+        let events: [WorkstreamEvent.HookEventName] = [
+            .postToolUse,
+            .postToolUseFailure,
+            .preCompact,
+            .postCompact,
+            .subagentStart,
+            .subagentStop,
+        ]
+
+        for event in events {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-session",
+                hookEventName: event,
+                source: "codex"
+            ))
+        }
+
+        #expect(store.items.count == events.count)
+        #expect(store.pending.isEmpty)
+        #expect(store.items.allSatisfy { $0.status == .telemetry })
+        if case .toolResult(_, _, let isError) = store.items[1].payload {
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUseFailure to decode as an error tool result")
+        }
+        #expect(store.items.map(\.title).contains("Compaction"))
+        #expect(store.items.map(\.title).contains("Subagent"))
+        #expect(!store.items.map(\.title).contains("PreCompact"))
+        #expect(!store.items.map(\.title).contains("PostCompact"))
+        #expect(!store.items.map(\.title).contains("SubagentStart"))
+        #expect(!store.items.contains { $0.kind == .sessionStart })
+        #expect(!store.items.contains { $0.kind == .stop })
+        if let compactionStartItem = store.items.first(where: {
+            $0.title == "Compaction" && $0.kind == .toolUse
+        }) {
+            if case .toolUse(let toolName, _) = compactionStartItem.payload {
+                #expect(toolName == "Compaction")
+            } else {
+                Issue.record("expected PreCompact to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected PreCompact item")
+        }
+        if let subagentStartItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolUse
+        }) {
+            #expect(subagentStartItem.kind == .toolUse)
+            if case .toolUse(let toolName, _) = subagentStartItem.payload {
+                #expect(toolName == "Subagent")
+            } else {
+                Issue.record("expected SubagentStart to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStart item")
+        }
+        if let subagentStopItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolResult
+        }) {
+            #expect(subagentStopItem.kind == .toolResult)
+            if case .toolResult(let toolName, _, _) = subagentStopItem.payload {
+                #expect(toolName == "Subagent")
+            } else {
+                Issue.record("expected SubagentStop to decode as toolResult telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStop item")
+        }
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)
@@ -209,6 +325,83 @@ struct WorkstreamStoreTests {
         #expect(item.context?.planSummary == "Show the new feed UI.")
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
+    }
+
+    @Test("Legacy workstream ids normalize before context is carried forward")
+    func legacyWorkstreamIDMigrationPreservesContext() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-identity-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let legacyID = "claude-session-with-hyphens"
+        let canonicalID = "cmux-feed-v1:canonical-session"
+        try await persistence.append(WorkstreamItem(
+            workstreamId: legacyID,
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "continue the migration")
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, _ in
+                rawValue == legacyID ? canonicalID : rawValue
+            }
+        )
+        await store.start()
+        #expect(store.items.first?.workstreamId == canonicalID)
+
+        store.ingest(.permission(
+            legacyID,
+            requestId: "permission-1"
+        ))
+        #expect(store.items.last?.context?.lastUserMessage == "continue the migration")
+
+        let unknownSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-unknown-source-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: unknownSourceURL) }
+        let persistedUnknown = WorkstreamItem(
+            workstreamId: "grok-session",
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "raw producer")
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var persistedObject = try #require(
+            try JSONSerialization.jsonObject(
+                with: encoder.encode(persistedUnknown)
+            ) as? [String: Any]
+        )
+        persistedObject["sourceID"] = "grok"
+        let persistedData = try JSONSerialization.data(withJSONObject: persistedObject)
+        try persistedData.write(to: unknownSourceURL)
+
+        let unknownSourceStore = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: unknownSourceURL),
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        await unknownSourceStore.start()
+        #expect(unknownSourceStore.items.first?.workstreamId == "canonical-grok")
+        #expect(unknownSourceStore.items.first?.sourceID == "grok")
+
+        let unknownSourceEventStore = WorkstreamStore(
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        unknownSourceEventStore.ingest(WorkstreamEvent(
+            sessionId: "grok-session",
+            hookEventName: .userPromptSubmit,
+            source: "grok",
+            toolInputJSON: #"{"prompt":"raw source"}"#
+        ))
+        #expect(unknownSourceEventStore.items.first?.workstreamId == "canonical-grok")
     }
 }
 

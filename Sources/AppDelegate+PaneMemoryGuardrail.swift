@@ -1,12 +1,67 @@
 import Foundation
 
 extension AppDelegate {
+    /// Starts the per-pane runaway-memory guardrail and the central
+    /// memory-pressure monitor. The pane guardrail keeps its existing
+    /// process-tree accounting timer; global pressure is handled through
+    /// responder registration. Aggregate pressure is intentionally isolated to
+    /// its idle-agent-hibernation responder. Resource diagnostics never enter
+    /// the user notification pipeline.
+    func startPaneMemoryGuardrailIfNeeded() {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        guardrail.start()
+        startMemoryPressureMonitorIfNeeded()
+    }
+
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
         paneMemoryGuardrailTabManagers().flatMap { manager in
             manager.tabs.flatMap { workspace in
                 paneMemoryGuardrailDescriptors(in: workspace)
             }
         }
+    }
+
+    func startMemoryPressureMonitorIfNeeded() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor.registry.register(
+            RendererRealizationMemoryPressureResponder(
+                controller: RendererRealizationController.shared
+            )
+        )
+        monitor.registry.register(
+            BrowserHiddenWebViewMemoryPressureResponder { [weak self] in
+                self?.paneMemoryGuardrailTabManagers() ?? []
+            }
+        )
+        monitor.registry.register(
+            AggregateMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isAggregatePressureActive: { [weak monitor] in
+                    guard let aggregate = monitor?.aggregateMemoryPressure else { return false }
+                    return aggregate.isActionable && aggregate.severity >= .warning
+                }
+            )
+        )
+        monitor.registry.register(
+            AgentHibernationMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isPressureCritical: { [weak monitor] in
+                    monitor?.currentSeverity == .critical
+                }
+            )
+        )
+        if let notificationStore {
+            monitor.registry.register(
+                NotificationCacheMemoryPressureResponder(store: notificationStore)
+            )
+        }
+        monitor.onAggregatePressureCleared = {
+            AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
+        }
+        monitor.start()
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {
@@ -47,11 +102,5 @@ extension AppDelegate {
                 foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
             )
         }
-    }
-
-    @discardableResult
-    func closePaneForMemoryGuardrail(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let manager = tabManagerFor(tabId: workspaceId) ?? tabManager else { return false }
-        return manager.closeSurface(tabId: workspaceId, surfaceId: panelId)
     }
 }

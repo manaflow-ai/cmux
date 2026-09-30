@@ -15,7 +15,7 @@ extension RemoteSessionCoordinator {
     public func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: any RemoteTransferCancelling,
-        completion: @escaping @Sendable (Result<[String], Error>) -> Void
+        completion: @escaping @Sendable (Result<[String], any Error>) -> Void
     ) {
         queue.async { [weak self] in
             guard let self else {
@@ -71,7 +71,13 @@ extension RemoteSessionCoordinator {
 
                 let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
                 uploadedRemotePaths.append(remotePath)
-                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+                // SCP's stream is a batch protocol; a remote PTY would corrupt
+                // its framing even when an interactive workspace requested one.
+                var scpArgs: [String] = [
+                    "-q",
+                    "-o", "ControlMaster=no",
+                    "-o", "RequestTTY=no",
+                ]
                 if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
                     scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
                 }
@@ -85,7 +91,7 @@ extension RemoteSessionCoordinator {
                 for option in scpSSHOptions {
                     scpArgs += ["-o", option]
                 }
-                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+                scpArgs += ["--", normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
 
                 let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
                 guard scpResult.status == 0 else {
@@ -115,7 +121,7 @@ extension RemoteSessionCoordinator {
         let cleanupScript = "rm -f -- " + remotePaths.map(\.shellSingleQuoted).joined(separator: " ")
         let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
         _ = try? sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
+            arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, cleanupCommand],
             timeout: 8
         )
     }

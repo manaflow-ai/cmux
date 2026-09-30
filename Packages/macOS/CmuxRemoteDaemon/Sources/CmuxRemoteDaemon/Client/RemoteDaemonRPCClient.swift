@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 public import CmuxCore
 
 /// Synchronous JSON-RPC client for a cmuxd-remote daemon over one of three
@@ -14,8 +14,9 @@ public import CmuxCore
 ///
 /// Isolation design (two serial queues + blocking semaphores, deliberately
 /// not an actor):
-/// - **Who mutates:** all transport state (`process`, pipes/handles,
-///   websocket task/session/delegate, `isClosed`, `shouldReportTermination`,
+/// - **Who mutates:** all transport state (`process`, pipes/handles, the
+///   socket-forward directory, websocket task/session/delegate, `isClosed`,
+///   `shouldReportTermination`,
 ///   `stdoutBuffer`, `stderrBuffer`, and both subscription maps) is confined
 ///   to `stateQueue`; readability/termination/receive callbacks hop onto it
 ///   with `stateQueue.async`, and synchronous paths enter with
@@ -40,7 +41,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let maxStdoutBufferBytes = 256 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
+    static let socketForwardConnectTimeout: TimeInterval = 5.0
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
+    static let ptyAttachCancellationWriteTimeout: TimeInterval = 1.0
     /// Wire capability required for push-based proxy streaming
     /// (`proxy.stream.push`; value is test-pinned, do not change).
     public static let requiredProxyStreamCapability = RemoteDaemonCapability.proxyStreamPush.rawValue
@@ -59,6 +62,31 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    /// Wire capability required to cancel timed-out PTY attach requests
+    /// (`pty.attach.cancel`; value is test-pinned, do not change).
+    public static let requiredPTYAttachCancelCapability = RemoteDaemonCapability.ptyAttachCancel.rawValue
+    /// Optional wire capability for sequenced, acked PTY input
+    /// (`pty.input.seq_ack`; value is test-pinned, do not change).
+    public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
+    /// Wire-pinned rpc error code the daemon returns for a sequenced
+    /// `pty.write` whose seq is not exactly last+1.
+    public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
+    /// Package-owned NSError metadata key for the daemon's structured RPC error code.
+    static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
+    static let maxCloudCLIRequestsInFlight = 4
+
+    /// Returns the daemon's structured RPC error code preserved on `error`.
+    ///
+    /// RPC callers should classify this stable code before consulting the
+    /// localized description, whose text remains a compatibility surface but
+    /// is not a reliable error taxonomy.
+    public static func rpcErrorCode(from error: any Error) -> String? {
+        guard let rawCode = (error as NSError).userInfo[rpcErrorCodeUserInfoKey] as? String else {
+            return nil
+        }
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return code.isEmpty ? nil : code
+    }
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via
@@ -78,9 +106,21 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
+    let cliRequestHandler: (@Sendable (Data) throws -> Data)?
+    let keepaliveInterval: TimeInterval
+    let keepaliveTimeout: TimeInterval
+    /// Test seam: replaces the `/usr/bin/ssh` executable of the stdio and
+    /// baked-VM socket-forward transports. Kept off the public initializer so
+    /// the package API carries no test-injection surface; transport tests set
+    /// it via `@testable import` before calling ``start()``. Production always
+    /// launches `/usr/bin/ssh`.
+    var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
+    let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
+    let ptyAttachCancellationTimerQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.pty-attach-cancel-timeout.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
+    let cliRequestQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.cli.\(UUID().uuidString)", qos: .utility, attributes: .concurrent)
     let pendingCalls = RemoteDaemonPendingCallRegistry()
 
     var process: Process?
@@ -90,12 +130,17 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stdinHandle: FileHandle?
     var stdoutHandle: FileHandle?
     var stderrHandle: FileHandle?
+    var forwardSocketDirectory: RemoteDaemonForwardSocketDirectory?
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
-    var webSocketKeepaliveTimer: DispatchSourceTimer?
+    var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
+    var transportKeepaliveTimer: (any DispatchSourceTimer)?
+    var transportKeepaliveTimeoutWorkItem: DispatchWorkItem?
+    var transportKeepaliveInFlight = false
+    var lastInboundFrameAt: DispatchTime = .now()
     var isClosed = true
     var shouldReportTermination = true
 
@@ -103,6 +148,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stderrBuffer = ""
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
+    var cliRequestsInFlight = 0
+    var advertisedCapabilities: Set<String> = []
+    var advertisedVersion: String?
 
     /// Creates a client for one daemon transport.
     ///
@@ -119,11 +167,17 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         strings: RemoteDaemonStrings,
+        cliRequestHandler: (@Sendable (Data) throws -> Data)? = nil,
+        keepaliveInterval: TimeInterval = 5.0,
+        keepaliveTimeout: TimeInterval = 10.0,
         onUnexpectedTermination: @escaping (String) -> Void
     ) {
         self.configuration = configuration
         self.remotePath = remotePath
         self.strings = strings
+        self.cliRequestHandler = cliRequestHandler
+        self.keepaliveInterval = keepaliveInterval
+        self.keepaliveTimeout = keepaliveTimeout
         self.onUnexpectedTermination = onUnexpectedTermination
     }
 
@@ -133,7 +187,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     public func start() throws {
         pendingCalls.reset()
 
-        if configuration.transport == .websocket {
+        if configuration.daemonWebSocketEndpoint != nil {
             try startViaWebSocket()
         } else if Self.usesSocketForwardTransport(configuration: configuration) {
             try startViaBakedVMSocketForward()
@@ -146,6 +200,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         do {
             let hello = try call(method: "hello", params: [:], timeout: 8.0)
             let capabilities = (hello["capabilities"] as? [String]) ?? []
+            stateQueue.sync {
+                advertisedCapabilities = Set(capabilities)
+                advertisedVersion = hello["version"] as? String
+            }
             let missingCapabilities = Self.missingRequiredCapabilities(
                 Self.requiredCapabilities(for: configuration),
                 in: capabilities
@@ -154,6 +212,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: strings.missingRequiredCapabilitiesMessage(missingCapabilities),
                 ])
+            }
+            if configuration.transport != .websocket {
+                startTransportKeepalive()
             }
         } catch {
             stop(suppressTerminationCallback: true)
@@ -172,6 +233,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             capabilities.append(requiredPTYSessionTokenCapability)
             capabilities.append(requiredPTYWriteNotificationCapability)
             capabilities.append(requiredPTYResizeNotificationCapability)
+            capabilities.append(requiredPTYAttachCancelCapability)
         }
         if configuration.persistentDaemonSlot != nil {
             capabilities.append(requiredPTYPersistentDaemonCapability)
@@ -204,6 +266,8 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         stderrBuffer = ""
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
+        advertisedCapabilities.removeAll(keepingCapacity: false)
+        advertisedVersion = nil
     }
 
     func failPTYSubscriptionsLocked(_ detail: String) {
@@ -221,6 +285,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
             let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
+            removeForwardSocketDirectoryLocked()
             if isClosed {
                 return (nil, nil, nil, nil, nil, nil, false, detail)
             }
@@ -235,6 +300,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capturedWebSocketSession = webSocketSession
 
             stopWebSocketKeepaliveLocked()
+            stopTransportKeepaliveLocked()
             process = nil
             stdinPipe = nil
             stdoutPipe = nil
@@ -276,5 +342,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
 
     func signalPendingFailureLocked(_ message: String) {
         pendingCalls.failAll(message)
+    }
+
+    func removeForwardSocketDirectoryLocked() {
+        forwardSocketDirectory?.remove()
+        forwardSocketDirectory = nil
     }
 }

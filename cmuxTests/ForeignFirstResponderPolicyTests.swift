@@ -31,6 +31,35 @@ import Testing
         #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
     }
 
+    @Test func respectsTextEditorInAttachedChildWindow() {
+        let window = makeWindow()
+        let child = makeWindow()
+        defer { window.removeChildWindow(child) }
+
+        let textView = NSTextView(frame: .zero)
+        child.contentView?.addSubview(textView)
+        window.addChildWindow(child, ordered: .above)
+
+        #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
+    }
+
+    @Test func respectsTextEditorInAttachedGrandchildWindow() {
+        let window = makeWindow()
+        let child = makeWindow()
+        let grandchild = makeWindow()
+        defer {
+            child.removeChildWindow(grandchild)
+            window.removeChildWindow(child)
+        }
+
+        let textView = NSTextView(frame: .zero)
+        grandchild.contentView?.addSubview(textView)
+        window.addChildWindow(child, ordered: .above)
+        child.addChildWindow(grandchild, ordered: .above)
+
+        #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
+    }
+
     /// The #5269 regression: a text responder stranded in another window must NOT be respected, so
     /// the terminal can reclaim focus. Without the window-membership check this returns `true`.
     @Test func reclaimsFromStrandedTextEditorInAnotherWindow() {

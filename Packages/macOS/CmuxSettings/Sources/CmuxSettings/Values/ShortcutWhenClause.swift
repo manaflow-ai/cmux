@@ -89,8 +89,8 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
     /// actions in different contexts.
     ///
     /// Focus atoms are enumerated over ``ShortcutFocusState/realizableStates``
-    /// (preserving the rule that browser and markdown focus never co-occur, and
-    /// keeping `terminalFocus` derived); every other distinct key/comparison term
+    /// (preserving the focus exclusivity rules and keeping `terminalFocus`
+    /// derived); every other distinct key/comparison term
     /// is treated as an independent free boolean. This is **sound** for conflict
     /// detection — it never reports two clauses as non-coexisting when they can in
     /// fact both hold — and is **exact** for focus-only clauses. Distinct

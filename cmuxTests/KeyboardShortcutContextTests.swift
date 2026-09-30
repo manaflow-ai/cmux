@@ -18,6 +18,22 @@ private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
 final class KeyboardShortcutContextTests: XCTestCase {
+    func testSimulatorShortcutsYieldToTextEditors() {
+        let textView = NSTextView()
+        textView.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textView))
+
+        let fieldEditor = NSTextView()
+        fieldEditor.isFieldEditor = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(fieldEditor))
+
+        let textField = NSTextField()
+        textField.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textField))
+
+        XCTAssertFalse(shortcutResponderAcceptsTextEditing(NSView()))
+    }
+
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 
@@ -134,6 +150,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {
+        // The Cmd+I italics collision is special-cased in the browser routing path,
+        // not by scoping the whole action out of browser panes. Show Notifications
+        // therefore stays `.application` so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open it from a browser pane (issue #6776).
+        XCTAssertEqual(KeyboardShortcutSettings.Action.showNotifications.shortcutContext, .application)
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
@@ -150,6 +174,41 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
+    }
+
+    /// Factory defaults may share a keystroke only when their built-in contexts or
+    /// router priority keep them apart, using the same collision rule the Settings
+    /// recorder applies. The one deliberate exception is Cmd+Shift+G:
+    /// groupSelectedWorkspaces consumes it only with two or more eligible selected
+    /// workspaces and otherwise falls through to toggleReactGrab in the dispatcher.
+    func testDefaultShortcutsDoNotCollideWithinAContext() {
+        let actions = KeyboardShortcutSettings.Action.allCases
+        let intentionalFallThroughPairs: Set<Set<KeyboardShortcutSettings.Action>> = [
+            [.groupSelectedWorkspaces, .toggleReactGrab],
+        ]
+
+        var collisions: Set<Set<KeyboardShortcutSettings.Action>> = []
+        for (index, lhs) in actions.enumerated() {
+            for rhs in actions[(index + 1)...] {
+                let collides = lhs.conflicts(
+                    with: rhs.defaultShortcut,
+                    proposedAction: rhs,
+                    configuredShortcut: lhs.defaultShortcut
+                )
+                if collides {
+                    collisions.insert([lhs, rhs])
+                }
+            }
+        }
+
+        let unexpected = collisions.subtracting(intentionalFallThroughPairs)
+        XCTAssertTrue(
+            unexpected.isEmpty,
+            "Default shortcuts collide in a shared context: " +
+                unexpected.map { $0.map(\.rawValue).sorted().joined(separator: " + ") }.sorted().joined(separator: ", ")
+        )
+        // Keep the exception list honest: drop a pair once it stops colliding.
+        XCTAssertEqual(collisions.intersection(intentionalFallThroughPairs), intentionalFallThroughPairs)
     }
 
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
@@ -449,14 +508,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let button = RecorderHostButton(frame: .zero)
         defer {
             if RecorderHostButton.isActivelyRecording {
-                button.debugStopRecording()
+                button.stopRecording()
             }
         }
 
         XCTAssertFalse(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), KeyboardShortcutSettings.shortcut(for: .closeTab))
 
-        button.debugStartRecording()
+        button.startRecording()
 
         XCTAssertTrue(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), .unbound)

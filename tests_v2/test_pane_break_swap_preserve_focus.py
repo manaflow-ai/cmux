@@ -71,7 +71,7 @@ def main() -> int:
 
             _ = client.new_split("right")
             panes = _wait_for(
-                lambda: (p := _panes(client, workspace_id)) if len(p) == 2 else None,
+                lambda: (p if len(p := _panes(client, workspace_id)) == 2 else None),
                 "two panes appear after split",
             )
 

@@ -1,6 +1,7 @@
 internal import Foundation
 
 /// The small system-domain bodies: `auth.login`, `session.restore_previous`,
+/// `session.import`, `session.export`,
 /// `settings.open`, `feedback.open`, `extension.sidebar.snapshot`, the
 /// `surface.split_off` / `surface.drag_to_split` bridge, and the DEBUG-only
 /// `mobile.dev_stack_auth.configure`.
@@ -26,14 +27,134 @@ extension ControlCommandCoordinator {
         }
     }
 
+    /// `session.import` — reopen another install's saved session (`source`:
+    /// a channel name or bundle identifier) or a snapshot file (`path`, an
+    /// absolute path) as additional windows.
+    func sessionImport(_ params: [String: JSONValue]) -> ControlCallResult {
+        let path = string(params, "path")
+        let channel = string(params, "source")
+        let source: ControlSessionImportSource
+        switch (path, channel) {
+        case (let path?, nil):
+            guard path.hasPrefix("/") else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        format: String(
+                            localized: "socket.sessionTransfer.absolutePathRequired",
+                            defaultValue: "%@ must be an absolute path.",
+                            bundle: .module
+                        ),
+                        "session.import params.path"
+                    ),
+                    data: .object(["path": .string(path)])
+                )
+            }
+            source = .file(path: path)
+        case (nil, let channel?):
+            source = .channel(channel)
+        default:
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sessionTransfer.importSelectorRequired",
+                    defaultValue: "session.import requires exactly one of params.source or params.path.",
+                    bundle: .module
+                ),
+                data: nil
+            )
+        }
+        guard let systemContext else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "socket.sessionTransfer.contextUnavailable",
+                    defaultValue: "Session context is unavailable.",
+                    bundle: .module
+                ),
+                data: nil
+            )
+        }
+        switch systemContext.controlSessionImport(source: source) {
+        case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount):
+            return .ok(.object([
+                "restored": .bool(true),
+                "source_path": .string(sourcePath),
+                "window_count": .int(Int64(windowCount)),
+                "trusted": .bool(source.isTrusted),
+                "held_back_resume_count": .int(Int64(heldBackResumeCount)),
+                "dropped_remote_workspace_count": .int(Int64(droppedRemoteWorkspaceCount)),
+            ]))
+        case let .failed(code, message, path):
+            return .err(code: code, message: message, data: .object(["path": orNull(path)]))
+        }
+    }
+
+    /// `session.export` — write this install's saved session snapshot to an
+    /// absolute `path`; `force` allows replacing an existing file.
+    func sessionExport(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let path = string(params, "path") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.sessionTransfer.exportPathRequired",
+                    defaultValue: "session.export requires params.path.",
+                    bundle: .module
+                ),
+                data: nil
+            )
+        }
+        guard path.hasPrefix("/") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    format: String(
+                        localized: "socket.sessionTransfer.absolutePathRequired",
+                        defaultValue: "%@ must be an absolute path.",
+                        bundle: .module
+                    ),
+                    "session.export params.path"
+                ),
+                data: .object(["path": .string(path)])
+            )
+        }
+        guard let systemContext else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "socket.sessionTransfer.contextUnavailable",
+                    defaultValue: "Session context is unavailable.",
+                    bundle: .module
+                ),
+                data: nil
+            )
+        }
+        switch systemContext.controlSessionExport(path: path, overwrite: bool(params, "force") ?? false) {
+        case let .exported(exportedPath, sourcePath):
+            return .ok(.object([
+                "exported": .bool(true),
+                "path": .string(exportedPath),
+                "source_path": .string(sourcePath),
+            ]))
+        case let .failed(code, message, path):
+            return .err(code: code, message: message, data: .object(["path": orNull(path)]))
+        }
+    }
+
     /// `settings.open` — open the settings window, optionally at a target pane.
     func settingsOpen(_ params: [String: JSONValue]) -> ControlCallResult {
         let targetRaw = string(params, "target")
         let requestedActivate = bool(params, "activate") ?? true
-        let resolution = systemContext?.controlSettingsOpen(
+        guard let systemContext else {
+            // Fail closed: without the app context no window can have been
+            // presented, and `opened` must mean a window actually exists
+            // (https://github.com/manaflow-ai/cmux/issues/7775).
+            return .err(code: "unavailable", message: "Settings context not attached", data: nil)
+        }
+        let resolution = systemContext.controlSettingsOpen(
             targetRaw: targetRaw,
             requestedActivate: requestedActivate
-        ) ?? .opened(target: targetRaw ?? "general")
+        )
         switch resolution {
         case .invalidTarget:
             return .err(
@@ -46,6 +167,12 @@ extension ControlCommandCoordinator {
                 "opened": .bool(true),
                 "target": .string(target),
             ]))
+        case .failed(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["target": orNull(targetRaw)])
+            )
         }
     }
 

@@ -21,10 +21,10 @@ public protocol HostBrowserAuthSessionFactory {
     ///   - signInURL: The hosted sign-in page URL.
     ///   - callbackScheme: The custom scheme the callback redirect uses.
     ///   - completion: Delivered exactly once on the main actor with the
-    ///     callback URL, or `nil` on error/cancellation.
+    ///     browser session's terminal result.
     func makeSession(
         signInURL: URL,
         callbackScheme: String,
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession
 }

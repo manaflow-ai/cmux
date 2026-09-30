@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -19,7 +20,7 @@ struct ThemePickerRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
-                .font(.system(size: 13, weight: .medium))
+                .cmuxFont(size: 13, weight: .medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
@@ -62,7 +63,7 @@ struct ThemePickerRow: View {
                             .frame(width: thumbWidth, height: thumbHeight)
 
                             Text(themeDisplayName(mode))
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .fontWeight(isSelected ? .semibold : .regular)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }

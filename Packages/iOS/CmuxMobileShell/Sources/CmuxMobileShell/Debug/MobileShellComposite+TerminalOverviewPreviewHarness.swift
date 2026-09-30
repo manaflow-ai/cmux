@@ -12,12 +12,13 @@ extension MobileShellComposite {
         store.signIn()
         store.pairingCode = "debug"
         store.connectPreviewHost()
+        store.navigateToWorkspaceForDeeplink("workspace-main")
         store.terminalOverviewPreviewLinesByID = [
             "terminal-build": [
-                "$ CMUX_SKIP_ZIG_BUILD=1 ./ios/scripts/reload.sh --tag issue-6347-ios-tab-overview",
-                "Building cmux-ios for iPhone 17 simulator",
+                "$ swift build --package-path Packages/iOS/CmuxMobileShell",
+                "Building cmux-ios for iPhone simulator",
                 "Compile Swift sources",
-                "Install and launch dev.cmux.ios.issue-6347-ios-tab-overview",
+                "Install and launch cmux DEV",
                 "Build succeeded",
             ],
             "terminal-agent": [
@@ -25,12 +26,12 @@ extension MobileShellComposite {
                 "Suite MobileShellCompositePreviewTests started",
                 "overviewPreviewLinesUseRenderGridRows passed",
                 "closeTerminalRemovesSelectedTerminalAndSelectsNeighbor passed",
-                "Test run with 16 tests passed",
+                "Test run passed",
             ],
             "terminal-tui": [
                 "LAZYGIT",
                 "files branches log",
-                "main issue-6347-ios-tab-overview",
+                "main feature branch",
                 "A TerminalTabOverviewView.swift",
                 "A TerminalTabOverviewCard.swift",
             ],

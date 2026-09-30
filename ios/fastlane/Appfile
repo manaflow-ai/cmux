@@ -1,0 +1,9 @@
+# Public App Store iOS app identity. Beta dogfood ships under dev.cmux.app.beta;
+# this is the public listing.
+app_identifier("com.cmux.app")
+itc_team_id("7WLXT3NR37") # Manaflow, Inc. (App Store Connect / dev team)
+team_id("7WLXT3NR37")
+
+# Authentication for upload lanes (deliver) uses an App Store Connect API key,
+# resolved from ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_PATH or
+# ios/Config/AppStoreConnect.local.plist (see Fastfile app_store_connect_api_key).

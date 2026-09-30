@@ -178,8 +178,7 @@ def _wait_for_tmp_write(c: cmux, panel_id: str, tmp: str, token: str) -> None:
             pass
         time.sleep(0.05)
 
-    print(f"WARN: Timed out waiting for tmp file write: {tmp}; continuing in v2 VM mode")
-    return
+    raise cmuxError(f"Timed out waiting for tmp file write: {tmp}")
 
 
 def main() -> int:

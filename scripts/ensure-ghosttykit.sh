@@ -58,11 +58,8 @@ if [[ ! -d "$PROJECT_DIR/ghostty" ]]; then
   exit 1
 fi
 
-if ! command -v zig >/dev/null 2>&1; then
-  echo "Error: zig is not installed." >&2
-  echo "Install via: brew install zig" >&2
-  exit 1
-fi
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
 
 if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty.h" ]]; then
   echo "error: ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh first." >&2
@@ -77,7 +74,10 @@ fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="${CMUX_GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
-GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-v1"
+# cmux owns process-wide crash capture through Sentry Cocoa. Linking Ghostty's
+# native Sentry as well creates a second global crash handler and starts its
+# environment-reading init thread during Ghostty locale mutation.
+GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-sentry-off-noi18n-v2"
 GHOSTTY_CLEAN_KEY="${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
 GHOSTTY_KEY="$GHOSTTY_CLEAN_KEY"
 UNTRACKED_FILES="$(git -C ghostty ls-files --others --exclude-standard)"
@@ -219,10 +219,27 @@ else
   elif try_fetch_prebuilt_xcframework; then
     echo "==> Seeding cache from prebuilt GhosttyKit.xcframework"
   else
+    ghostty_require_compatible_zig "$PROJECT_DIR"
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    if [[ -x "$SCRIPT_DIR/ensure-metal-toolchain.sh" ]]; then
+      "$SCRIPT_DIR/ensure-metal-toolchain.sh"
+    fi
     (
       cd ghostty
-      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's
+      # msgfmt, which not every builder has, and cmux never bundles the
+      # resulting .mo files (they only install into Ghostty's own app
+      # bundle, skipped by -Demit-macos-app=false). Runtime lookups are
+      # comptime-gated to return the msgid, which is what cmux shipped
+      # all along.
+      zig build \
+        -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" \
+        -Dsentry=false \
+        -Di18n=false \
+        -Demit-macos-app=false \
+        -Demit-xcframework=true \
+        -Dxcframework-target=universal \
+        -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"

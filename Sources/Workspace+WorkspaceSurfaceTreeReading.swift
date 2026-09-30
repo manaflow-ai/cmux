@@ -10,6 +10,33 @@ import Foundation
 /// reads exactly. The model is held by `Workspace` and references this host
 /// weakly, so there is no retain cycle.
 extension Workspace: WorkspaceSurfaceTreeReading {
+    func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
+        paneTree.panelId(forSurfaceId: surfaceId)
+    }
+
+    func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
+        paneTree.surfaceId(forPanelId: panelId)
+    }
+
+    /// The pane that currently holds this panel's surface.
+    ///
+    /// Bonsplit keeps a pane-ownership index, so ask it. The scan this replaced
+    /// built a `Tab` for every tab in every pane, and `Tab.init(from:)` copies
+    /// all fourteen `TabItem` properties. Run inside a SwiftUI update, as the
+    /// portal-ownership resolver does, that subscribed the update to every tab
+    /// title in the window, so an animating title invalidated the terminal
+    /// surfaces. `DockSplitStore.paneId(forPanelId:)` already did it this way.
+    func paneId(forPanelId panelId: UUID) -> PaneID? {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
+        return bonsplitController.paneId(containing: tabId)
+    }
+
+    func indexInPane(forPanelId panelId: UUID) -> Int? {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else { return nil }
+        return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+    }
+
     var surfaceIdsInTabOrderAcrossAllPanes: [UUID] {
         bonsplitController.allTabIds.map(\.uuid)
     }

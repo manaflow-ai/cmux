@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileTerminal",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
     ],
     products: [
         .library(
@@ -15,26 +15,40 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../CmuxMobileDiagnostics"),
+        .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTerminalKit"),
     ],
     targets: [
-        // The same libghostty the Mac links; iOS feeds raw PTY bytes straight
-        // into ghostty_surface_* so the phone runs the identical terminal core.
-        .binaryTarget(
-            name: "GhosttyKit",
-            path: "../../../GhosttyKit.xcframework"
-        ),
         .target(
             name: "CmuxMobileTerminal",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAgentChat",
                 "CmuxMobileDiagnostics",
+                "CmuxMobileSupport",
                 "CmuxMobileTerminalKit",
-                "GhosttyKit",
+                // The same libghostty the Mac links; iOS feeds raw PTY bytes
+                // straight into ghostty_surface_* so the phone runs the
+                // identical terminal core.
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileTerminalTests",
+            dependencies: ["CmuxMobileTerminal", "CmuxMobileTerminalKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ],
+            // GhosttyKit's static lib carries C++ objects (glslang); the
+            // standalone xctest bundle must link the C++ runtime itself.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
     ]

@@ -14,9 +14,15 @@ let package = Package(
             targets: ["CmuxFeedback"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
             name: "CmuxFeedback",
+            dependencies: [
+                "CmuxFoundation",
+            ],
             resources: [
                 // Folded from CmuxFeedbackUI: the composer's localized strings.
                 .process("ComposerUI/Resources"),

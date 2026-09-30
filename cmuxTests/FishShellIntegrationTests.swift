@@ -132,6 +132,7 @@ struct FishShellIntegrationTests {
                 "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             ]
         )
 
@@ -149,7 +150,7 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
         expectTrue(
@@ -157,9 +158,129 @@ struct FishShellIntegrationTests {
             result.stdout
         )
         expectTrue(
-            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --terminal-lifecycle-id=33333333-3333-3333-3333-333333333333"),
             result.stdout
         )
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishClaudeIntegrationToggleControlsWrapperAndShim() throws {
+        _ = try requireFishExecutable()
+        let probe = """
+        if functions -q claude
+            printf 'function=1\\n'
+        else
+            printf 'function=0\\n'
+        end
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM; and test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+            printf 'shim=1\\n'
+        else
+            printf 'shim=0\\n'
+        end
+        """
+
+        let enabled = try runInteractiveFish(command: probe)
+        expectTrue(enabled.stdout.contains("function=1"), enabled.stdout)
+        expectTrue(enabled.stdout.contains("shim=1"), enabled.stdout)
+
+        let disabled = try runInteractiveFish(
+            command: probe,
+            extraEnvironment: ["CMUX_CLAUDE_INTEGRATION_DISABLED": "1"]
+        )
+        expectTrue(disabled.stdout.contains("function=0"), disabled.stdout)
+        expectTrue(disabled.stdout.contains("shim=0"), disabled.stdout)
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishIntegrationRelayPromptReportsPWD() throws {
+        _ = try requireFishExecutable()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fish-relay-pwd-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote-cwd", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+        let cmuxPath = binDir.appendingPathComponent("cmux", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: cmuxPath,
+            body: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            """
+        )
+
+        let result = try runInteractiveFish(
+            command: """
+            printf '' > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            set -g _CMUX_TTY_REPORTED 1
+            set -g _CMUX_PORTS_LAST_RUN (_cmux_now)
+            set -g _CMUX_PWD_LAST_PWD /tmp/local-launch
+            _cmux_prompt
+            for _cmux_i in (seq 1 20)
+                test -s "\(logPath.path)"; and break
+                sleep 0.05
+            end
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_BUNDLED_CLI_PATH": cmuxPath.path,
+            ]
+        )
+
+        expectTrue(
+            result.stdout.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","path":"\#(remoteDirectory.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
+        )
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testReattachedTmuxFishAdoptsSessionWorkspaceBinding() throws {
+        _ = try requireFishExecutable()
+        let result = try runInteractiveFish(
+            command: """
+            function tmux
+                if test "$argv[1]" = show-environment
+                    if test "$argv[2]" = -g
+                        printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:63135' 'CMUX_SSH_ATTEMPT_ID=stale-attempt' 'CMUX_TAB_ID=stale-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=stale-lifecycle' 'CMUX_WORKSPACE_ID=stale-workspace'
+                    else
+                        printf '%s\\n' 'CMUX_SOCKET_PATH=127.0.0.1:55272' 'CMUX_SSH_ATTEMPT_ID=current-attempt' 'CMUX_TAB_ID=current-workspace' 'CMUX_TERMINAL_LIFECYCLE_ID=current-lifecycle' 'CMUX_WORKSPACE_ID=current-workspace'
+                    end
+                end
+            end
+            _cmux_tmux_sync_cmux_environment
+            printf 'workspace=%s\\nsocket=%s\\nlifecycle=%s\\nattempt=%s\\nsurface=%s\\npanel=%s\\n' \
+                "$CMUX_WORKSPACE_ID" "$CMUX_SOCKET_PATH" "$CMUX_TERMINAL_LIFECYCLE_ID" "$CMUX_SSH_ATTEMPT_ID" \
+                (set -q CMUX_SURFACE_ID; and printf %s "$CMUX_SURFACE_ID"; or printf %s '<unset>') \
+                (set -q CMUX_PANEL_ID; and printf %s "$CMUX_PANEL_ID"; or printf %s '<unset>')
+            """,
+            extraEnvironment: [
+                "CMUX_PANEL_ID": "stale-surface",
+                "CMUX_SOCKET_PATH": "127.0.0.1:63135",
+                "CMUX_SURFACE_ID": "stale-surface",
+                "CMUX_TAB_ID": "stale-workspace",
+                "CMUX_TERMINAL_LIFECYCLE_ID": "stale-lifecycle",
+                "CMUX_SSH_ATTEMPT_ID": "stale-attempt",
+                "CMUX_WORKSPACE_ID": "stale-workspace",
+                "TMUX": "/tmp/tmux-test,1,0",
+            ]
+        )
+
+        expectTrue(result.stdout.contains("workspace=current-workspace"), result.stdout)
+        expectTrue(result.stdout.contains("socket=127.0.0.1:55272"), result.stdout)
+        expectTrue(result.stdout.contains("lifecycle=current-lifecycle"), result.stdout)
+        expectTrue(result.stdout.contains("attempt=current-attempt"), result.stdout)
+        expectTrue(result.stdout.contains("surface=<unset>"), result.stdout)
+        expectTrue(result.stdout.contains("panel=<unset>"), result.stdout)
     }
 
     @Test
@@ -191,6 +312,21 @@ struct FishShellIntegrationTests {
             } > "$CMUX_CAPTURE_FISH"
             """
         )
+        let persistentPTYExecHelper = bin.appendingPathComponent("persistent-pty-exec-helper")
+        try writeExecutableShellFile(
+            at: persistentPTYExecHelper,
+            body: """
+            #!/bin/sh
+            [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+            shift
+            executable="${1:-}"
+            [ -n "$executable" ] || exit 2
+            shift
+            [ "${1:-}" = "$executable" ] || exit 2
+            shift
+            exec "$executable" "$@"
+            """
+        )
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
@@ -207,6 +343,7 @@ struct FishShellIntegrationTests {
                 "USER=\(NSUserName())",
                 "XDG_CONFIG_HOME=\(userConfigHome.path)",
                 "CMUX_CAPTURE_FISH=\(capturePath.path)",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(persistentPTYExecHelper.path)",
                 "/bin/sh",
                 "-c",
                 script,
@@ -354,16 +491,11 @@ struct FishShellIntegrationTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
 
         return ProcessRunResult(

@@ -46,7 +46,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -62,7 +62,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
             "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
@@ -71,6 +71,52 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             !context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
             "Claude hooks with a TTY binding must not do a process snapshot; saw \(context.state.snapshot())"
         )
+    }
+
+    @Test func claudeOrdinarySessionStartPublishesResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-ordinary-session-start")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ordinary-session-start-session"
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ordinary-session-start",
+            ttySurfaceId: context.surfaceId
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected ordinary Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(request["checkpoint_id"] as? String == sessionId)
+        #expect(request["workspace_id"] as? String == context.workspaceId)
+        #expect(request["surface_id"] as? String == context.surfaceId)
     }
 
     @Test func claudeSessionStartOverridesLeakedEnvWorkspaceAndSurfaceWithTTYBinding() throws {
@@ -117,7 +163,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -137,7 +183,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(ttyWorkspaceId)")
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
@@ -194,7 +240,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -274,7 +320,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -345,7 +391,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -365,7 +411,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         #expect(
             context.state.snapshot().contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
@@ -426,10 +472,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
-    private typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
+    struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
+    typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -445,25 +491,9 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
 
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
-
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
@@ -597,7 +627,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return handled
     }
 
-    private func startClaudeSurfaceResolutionServer(
+    func startClaudeSurfaceResolutionServer(
         context: ClaudeHookContext,
         surfaces: [SurfaceFixture],
         ttyName: String,
@@ -668,7 +698,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
+    func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
         [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -754,7 +784,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 storeURL: storeURL
             ),
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -779,10 +809,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private func assertSuccessfulHook(_ result: ProcessRunResult) {
+    func assertSuccessfulHook(_ result: ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "OK\n")
+        #expect(result.stdout == "{}\n")
     }
 
     private func resumeBindingRequests(in context: ClaudeHookContext) -> [[String: Any]] {
@@ -822,7 +852,14 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return data.base64EncodedString()
     }
 
-    private func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+    func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        currentDirectoryURL: URL? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -830,9 +867,16 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        // Process can finish while the test host is busy servicing another
+        // fixture. Observe termination directly instead of queueing a blocking
+        // waitUntilExit() on the shared global pool, where the waiter can be
+        // starved and report a successful child as a timeout.
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -844,16 +888,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

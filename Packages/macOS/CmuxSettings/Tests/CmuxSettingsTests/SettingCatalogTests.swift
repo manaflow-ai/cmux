@@ -23,6 +23,14 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "piHooksEnabled": [
+                "automation.piIntegration",
+                "integrations.pi.hooksEnabled",
+            ],
+            "codexHooksEnabled": [
+                "automation.codexIntegration",
+                "integrations.codex.hooksEnabled",
+            ],
             "cursorHooksEnabled": [
                 "automation.cursorIntegration",
                 "integrations.cursor.hooksEnabled",
@@ -89,9 +97,50 @@ struct SettingCatalogTests {
         // `automation.socketPassword` must appear in `all`.
         let ids = Set(SettingCatalog().all.map(\.id))
         #expect(ids.contains("app.appearance"))
+        #expect(ids.contains("app.focusHistoryIncludesPanesAndTabs"))
+        #expect(ids.contains("paneBorderColor"))
+        #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
+        #expect(ids.contains("mobile.artifactFolderAccess"))
+        #expect(ids.contains("mobile.browserTunnel.allowOtherHosts"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
+    }
+
+    @Test func browserCatalogIncludesDefaultZoomLevel() {
+        let ids = Set(SettingCatalog().browser.all.map(\.id))
+        #expect(ids.contains("browser.defaultZoomLevel"))
+    }
+
+    @Test func equalizeSplitsOnCreateDefaultsOff() {
+        #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
+    }
+
+    @Test func installUpdatesAutomaticallySharesTheUpdaterStorageKey() {
+        // The updater registers the per-channel default under this key (UpdateSettings).
+        let key = SettingCatalog().app.installUpdatesAutomatically
+        #expect(!key.defaultValue)
+        #expect(key.userDefaultsKey == "updateInstallAutomatically")
+    }
+
+    @Test func focusHistoryDefaultsToWorkspacesOnly() {
+        #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
+    }
+
+    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
+        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
+    }
+
+    @Test func runawayMemoryGuardrailDefaultsOffForUntouchedConfigs() {
+        #expect(!SettingCatalog().terminal.runawayMemoryGuardrailEnabled.defaultValue)
+    }
+
+    @Test func hardWrapReflowOnCopyDefaultsOff() {
+        #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
+    @Test func unsafePasteConfirmationDefaultsOff() {
+        #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {
@@ -101,5 +150,7 @@ struct SettingCatalogTests {
         for key in catalog.app.all { #expect(key.id.hasPrefix("app.")) }
         for key in catalog.mobile.all { #expect(key.id.hasPrefix("mobile.")) }
         for key in catalog.automation.all { #expect(key.id.hasPrefix("automation.")) }
+        #expect(catalog.paneChrome.paneBorderColorHex.id == "paneBorderColor")
+        #expect(catalog.paneChrome.activePaneBorderColorHex.id == "activePaneBorderColor")
     }
 }

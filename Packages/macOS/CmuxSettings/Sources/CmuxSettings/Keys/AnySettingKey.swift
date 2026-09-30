@@ -56,6 +56,9 @@ public struct AnySettingKey: Sendable {
     /// surface them separately or treat them as best-effort.
     public let resetInJSON: @Sendable (JSONConfigStore) async -> Void
 
+    /// The UserDefaults fallback value, type-erased for batch reset bookkeeping.
+    public let userDefaultsDefaultValue: (any Sendable)?
+
     /// Wraps a UserDefaults-backed key.
     public init<Value>(_ key: DefaultsKey<Value>) {
         self.id = key.id
@@ -68,6 +71,7 @@ public struct AnySettingKey: Sendable {
             AnySettingKey.migrateLegacyDefaultsKey(key, defaults: defaults)
         }
         self.resetInJSON = { _ in }
+        self.userDefaultsDefaultValue = key.defaultValue
     }
 
     /// Wraps a JSON-backed key.
@@ -78,6 +82,7 @@ public struct AnySettingKey: Sendable {
         self.resetInJSON = { store in
             try? await store.reset(key)
         }
+        self.userDefaultsDefaultValue = nil
     }
 
     /// Wraps a secret-file-backed key. Secrets are reset through
@@ -88,6 +93,7 @@ public struct AnySettingKey: Sendable {
         self.kind = .secretFile(fileName: key.fileName)
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
+        self.userDefaultsDefaultValue = nil
     }
 
     private static func migrateLegacyDefaultsKey<Value>(

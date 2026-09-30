@@ -1,6 +1,13 @@
 import Foundation
 
-public enum ClaudeConfigDirectoryPath {
+/// Resolves Claude configuration directories that may have moved between cmux-managed auth roots.
+public struct ClaudeConfigDirectoryPath: Sendable {
+    private init() {}
+
+    /// Returns the preferred on-disk Claude config path for a captured launch environment value.
+    ///
+    /// Legacy cmux auth directories under `~/.subrouter/codex/claude` are mapped to the newer
+    /// `~/.codex-accounts/claude` location when the corresponding account directory exists.
     public static func preferredPath(
         _ rawPath: String,
         fileManager: FileManager = .default,
@@ -23,10 +30,29 @@ public enum ClaudeConfigDirectoryPath {
     }
 }
 
-public enum AgentLaunchEnvironmentPolicy {
+/// Selects the non-secret launch environment values that are safe to replay when restoring agents.
+public struct AgentLaunchEnvironmentPolicy: Sendable {
+    /// Creates a launch environment policy.
+    public init() {}
+
     private static let hermesAgentEnvironmentKeys: Set<String> = [
         "CUSTOM_BASE_URL",
         "HERMES_CODEX_BASE_URL",
+    ]
+
+    /// Keys campfire manages itself and must not inherit from a captured Pi
+    /// environment. Replaying a captured PI_PACKAGE_DIR would pin a resumed
+    /// campfire to the previous binary's extracted asset cache
+    /// (version+fingerprint keyed) after an upgrade, and replaying
+    /// PI_CODING_AGENT_SESSION_DIR would let the embedded Pi runtime resolve
+    /// session state under the user's Pi session root instead of the Campfire
+    /// root that cmux's scanner uses (`CAMPFIRE_CODING_AGENT_SESSION_DIR` /
+    /// `CAMPFIRE_CODING_AGENT_DIR`). Both are dropped for campfire resumes
+    /// specifically; pi/omp keep them (Nix installs and custom Pi session
+    /// roots rely on them).
+    private static let campfireManagedEnvironmentKeys: Set<String> = [
+        "PI_CODING_AGENT_SESSION_DIR",
+        "PI_PACKAGE_DIR",
     ]
 
     private static let safeEnvironmentKeys: Set<String> = [
@@ -38,8 +64,16 @@ public enum AgentLaunchEnvironmentPolicy {
         "AMP_URL",
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
+        "CAMPFIRE_CODING_AGENT_DIR",
+        "CAMPFIRE_CODING_AGENT_SESSION_DIR",
+        "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
+        // so restoring it keeps a restored agent on the account it launched with.
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_CUSTOM_AMP_PATH",
+        "CMUX_CUSTOM_CODEX_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -69,8 +103,14 @@ public enum AgentLaunchEnvironmentPolicy {
         "KIRO_HOME",
         "KIRO_LOG_LEVEL",
         "KIRO_LOG_NO_COLOR",
+        "KIMI_CODE_HOME",
+        "KIMI_SHARE_DIR",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
+        "OLLAMA_EDITOR",
+        "OLLAMA_HOST",
+        "OLLAMA_NOHISTORY",
+        "OMP_AGENT_DIR",
         "PI_CACHE_RETENTION",
         "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",
@@ -82,25 +122,148 @@ public enum AgentLaunchEnvironmentPolicy {
         "USE_BUILTIN_RIPGREP"
     ]
 
-    public static func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+    private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
+
+    /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
+    ///
+    /// Out-of-process hook producers capture exactly these values so the
+    /// consumer's selection matches what it would read from its own process.
+    public var inputEnvironmentKeys: [String] {
+        Self.sortedSafeEnvironmentKeys + [
+            "CMUX_ORIGINAL_NODE_OPTIONS",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
+        ]
+    }
+
+    /// Returns the subset of captured environment variables that should be replayed for an agent.
+    ///
+    /// The optional `kind` applies agent-specific exclusions for values that are safe for one
+    /// agent but managed or incorrect for another.
+    public func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         var result: [String: String] = [:]
-        for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
+        for key in Self.sortedSafeEnvironmentKeys where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
             result[key] = value
         }
         if let nodeOptions = selectedNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
         }
-        if kind != "hermes-agent" {
-            for key in hermesAgentEnvironmentKeys {
+        if normalizedKind != "hermes-agent" {
+            for key in Self.hermesAgentEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
+        if normalizedKind != "codex" {
+            result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
+        if normalizedKind == "campfire" {
+            for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
         return result
     }
 
-    public static func sanitizedValue(key: String, value: String?) -> String? {
-        guard safeEnvironmentKeys.contains(key) else { return nil }
+    /// Returns the captured environment that may cross the restore transport boundary.
+    ///
+    /// Pi-family agents also retain their captured `PATH` because Nix and other
+    /// custom installations rely on executable locations outside the login shell.
+    ///
+    /// - Parameters:
+    ///   - env: The captured process environment.
+    ///   - kind: The restored agent kind.
+    /// - Returns: The non-secret environment values safe to transport and replay.
+    public func selectedRestoreEnvironment(
+        from env: [String: String],
+        kind: String?
+    ) -> [String: String] {
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        var selected = selectedEnvironment(from: env, kind: kind)
+        if normalizedKind == "pi" || normalizedKind == "omp",
+           let path = normalizedValue(env["PATH"]) {
+            selected["PATH"] = path
+        }
+        if normalizedKind == "claude" {
+            // Subrouter's resume marker and the wrapper's launch-bound copy are
+            // exact command text, never a URL or credential. They cross into
+            // the durable restore record only as an agreeing pair, so a marker
+            // inherited from an ancestor `sr claude` session proves nothing.
+            let router = SubrouterClaudeResumeRouting()
+            selected.merge(router.capturedEnvironment(in: env)) { _, marker in
+                marker
+            }
+            // The account a routed launch was pinned to, recorded by the
+            // wrapper. It only picks the launcher's `--account` on restore.
+            selected.merge(router.capturedAccountEnvironment(in: env)) { _, account in
+                account
+            }
+        }
+        return selected
+    }
+
+    /// Returns the bounded environment metadata that may cross the structured
+    /// restore-record boundary. Subrouter's Codex resume marker is retained
+    /// only when the captured argv independently proves routed execution; the
+    /// ordinary restore policy still removes it before process replay.
+    public func selectedRestoreRecordEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreEnvironment(from: env, kind: kind)
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedKind == "codex" else { return selected }
+
+        let router = SubrouterCodexResumeRouting()
+        guard router.resumeArguments(
+            launcher: launcher,
+            sessionID: "restore-record-validation",
+            launchArguments: arguments,
+            environment: env
+        ) != nil,
+        let marker = router.capturedMarker(in: env) else {
+            return selected
+        }
+        selected.merge(router.capturedRoutingEnvironment(in: env)) { _, routingValue in
+            routingValue
+        }
+        selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        selected[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] = marker
+        return selected
+    }
+
+    /// Returns replay-safe environment values for a rendered resume command.
+    /// Routed Codex resumes retain their bounded account/server inputs after
+    /// the metadata-only launcher marker has selected the explicit `sr` argv.
+    public func selectedReplayEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreRecordEnvironment(
+            from: env,
+            kind: kind,
+            launcher: launcher,
+            arguments: arguments
+        )
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
+        selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
+        return selected
+    }
+
+    /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
+    public func sanitizedValue(key: String, value: String?) -> String? {
+        guard Self.safeEnvironmentKeys.contains(key) else { return nil }
         switch key {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
@@ -111,7 +274,7 @@ public enum AgentLaunchEnvironmentPolicy {
         }
     }
 
-    private static func selectedNodeOptions(from env: [String: String]) -> String? {
+    private func selectedNodeOptions(from env: [String: String]) -> String? {
         switch normalizedValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
         case "1":
             return sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
@@ -122,10 +285,8 @@ public enum AgentLaunchEnvironmentPolicy {
         }
     }
 
-    private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
+    private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
+        let tokens = rawValue.map { nodeOptionsTokens($0) } ?? []
         guard !tokens.isEmpty else { return nil }
 
         var sanitized: [String] = []
@@ -163,7 +324,40 @@ public enum AgentLaunchEnvironmentPolicy {
         return joined.isEmpty ? nil : joined
     }
 
-    private static func normalizedValue(_ value: String?) -> String? {
+    /// Splits `NODE_OPTIONS` the way Node does: on whitespace outside double quotes,
+    /// with backslash escapes inside quotes. Tokens keep their quotes so an
+    /// unmatched token rejoins unchanged, e.g. `--require="/Users/a b/x.cjs"`.
+    private func nodeOptionsTokens(_ rawValue: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inQuotes = false
+        var escaped = false
+        for character in rawValue {
+            if escaped {
+                current.append(character)
+                escaped = false
+            } else if inQuotes, character == "\\" {
+                current.append(character)
+                escaped = true
+            } else if character == "\"" {
+                current.append(character)
+                inQuotes.toggle()
+            } else if !inQuotes, character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current = ""
+                }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
+    }
+
+    private func normalizedValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -171,18 +365,18 @@ public enum AgentLaunchEnvironmentPolicy {
         return trimmed
     }
 
-    private static func isRequireOption(_ token: String) -> Bool {
+    private func isRequireOption(_ token: String) -> Bool {
         token == "--require" || token == "-r"
     }
 
-    private static func inlineRequireOptionPath(_ token: String) -> String? {
+    private func inlineRequireOptionPath(_ token: String) -> String? {
         for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
             return String(token.dropFirst(prefix.count))
         }
         return nil
     }
 
-    private static func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
+    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
         guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
             return false
@@ -190,7 +384,7 @@ public enum AgentLaunchEnvironmentPolicy {
         return trimmed.contains("/cmux-")
     }
 
-    private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
+    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
         guard index < tokens.count else { return false }
         let token = tokens[index]
         if token == "--max-old-space-size" {
@@ -199,7 +393,7 @@ public enum AgentLaunchEnvironmentPolicy {
         return token == "--max-old-space-size=4096"
     }
 
-    private static func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
+    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
         guard index < tokens.count else { return 1 }
         return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }

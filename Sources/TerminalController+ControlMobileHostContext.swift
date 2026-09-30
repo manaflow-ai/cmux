@@ -65,6 +65,36 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
     }
 
+    func controlMobileTaskAttachmentUpload(
+        params: [String: JSONValue]
+    ) -> ControlCallResult {
+        bridgeMobileResult(
+            v2MobileTaskAttachmentUpload(params: foundationParams(params))
+        )
+    }
+
+    nonisolated func controlMobileTaskModelsList(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(
+            await v2MobileTaskModelsList(params: foundationParams(params))
+        )
+    }
+
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatSend(params: params))
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatInterrupt(params: params))
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         bridgeMobileResult(v2ChatSessionsDump())
     }
@@ -73,7 +103,9 @@ extension TerminalController: ControlMobileHostContext {
     /// typed params. This is the exact inverse of the dispatcher's
     /// `request.params.mapValues { $0.foundationObject }`, so the legacy body
     /// receives the identical Foundation dictionary it always did.
-    private func foundationParams(_ params: [String: JSONValue]) -> [String: Any] {
+    private nonisolated func foundationParams(
+        _ params: [String: JSONValue]
+    ) -> [String: Any] {
         params.mapValues(\.foundationObject)
     }
 
@@ -81,7 +113,9 @@ extension TerminalController: ControlMobileHostContext {
     /// `ControlCallResult`. The mobile bodies only build valid-JSON payloads, so
     /// the bridge never fails; the empty-object / `nil` fallbacks keep the
     /// conversion total.
-    private func bridgeMobileResult(_ result: V2CallResult) -> ControlCallResult {
+    private nonisolated func bridgeMobileResult(
+        _ result: V2CallResult
+    ) -> ControlCallResult {
         switch result {
         case let .ok(payload):
             return .ok(JSONValue(foundationObject: payload) ?? .object([:]))

@@ -6,9 +6,11 @@ import Foundation
 /// Canvas-domain witnesses. Reads snapshot the workspace's `canvasModel`;
 /// mutations route through `CanvasActionExecutor` / the model so the socket
 /// shares one execution path with shortcuts, the palette, and the View menu.
+/// Socket verbs never animate: an agent's change lands in place instead of
+/// sliding panes or the viewport under the user.
 extension TerminalController: ControlCanvasContext {
     /// The routing twin used by every canvas verb: TabManager, then workspace.
-    private func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
+    func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
         if let wsId = routing.workspaceID {
             return tabManager.tabs.first(where: { $0.id == wsId })
@@ -91,7 +93,7 @@ extension TerminalController: ControlCanvasContext {
             CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height),
             for: surfaceID
         )
-        ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+        ws.canvasModel.viewport?.modelDidChangeExternally(animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -103,7 +105,7 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        CanvasActionExecutor(workspace: ws).perform(.alignment(command.alignmentCommand))
+        CanvasActionExecutor(workspace: ws).perform(.alignment(command.alignmentCommand), animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -121,7 +123,7 @@ extension TerminalController: ControlCanvasContext {
         guard ws.canvasModel.frame(of: target) != nil else {
             return .paneNotFound(target)
         }
-        ws.canvasModel.viewport?.revealPane(target, animated: true)
+        ws.canvasModel.viewport?.revealPane(target, animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -132,7 +134,7 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        ws.canvasModel.viewport?.toggleOverview()
+        ws.canvasModel.viewport?.toggleOverview(animated: false)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -147,11 +149,11 @@ extension TerminalController: ControlCanvasContext {
         let executor = CanvasActionExecutor(workspace: ws)
         switch direction {
         case .zoomIn:
-            executor.perform(.zoomIn)
+            executor.perform(.zoomIn, animated: false)
         case .zoomOut:
-            executor.perform(.zoomOut)
+            executor.perform(.zoomOut, animated: false)
         case .reset:
-            executor.perform(.zoomReset)
+            executor.perform(.zoomReset, animated: false)
         }
         return .ok(mode: ws.layoutMode.rawValue)
     }
@@ -168,7 +170,7 @@ extension TerminalController: ControlCanvasContext {
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         guard ws.canvasModel.frame(of: targetSurfaceID) != nil else { return .paneNotFound(targetSurfaceID) }
         if ws.canvasModel.joinPanel(surfaceID, withPaneContaining: targetSurfaceID) {
-            ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+            ws.canvasModel.viewport?.modelDidChangeExternally(animated: false)
             ws.focusPanel(surfaceID)
         }
         return .ok(mode: ws.layoutMode.rawValue)
@@ -184,9 +186,9 @@ extension TerminalController: ControlCanvasContext {
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         if ws.canvasModel.breakOutPanel(surfaceID) {
-            ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+            ws.canvasModel.viewport?.modelDidChangeExternally(animated: false)
             ws.focusPanel(surfaceID)
-            ws.canvasModel.viewport?.revealPane(surfaceID, animated: true)
+            ws.canvasModel.viewport?.revealPane(surfaceID, animated: false)
         }
         return .ok(mode: ws.layoutMode.rawValue)
     }
@@ -231,8 +233,13 @@ extension TerminalController: ControlCanvasContext {
             return .workspaceNotFound
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        let paneType: CanvasNewPaneType = (type == "browser") ? .browser : .terminal
-        guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {
+        let paneType: CanvasNewPaneType
+        switch type {
+        case "browser": paneType = .browser
+        case "simulator": paneType = .simulator
+        default: paneType = .terminal
+        }
+        guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true, animated: false) else {
             return .tabManagerUnavailable
         }
         return .created(mode: ws.layoutMode.rawValue, surfaceID: surfaceID)

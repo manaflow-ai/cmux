@@ -37,9 +37,22 @@ HTTP_CODE=$(curl -sL \
 FILE_SIZE=$(stat -f%z "$TMPFILE" 2>/dev/null || stat --printf="%s" "$TMPFILE" 2>/dev/null || echo 0)
 
 if [ "$HTTP_CODE" != "200" ]; then
-  echo "WARN: could not download release DMG (HTTP $HTTP_CODE); skipping SHA check"
-  echo "PASS (soft): network/transport failure, not a SHA mismatch"
-  exit 0
+  case "$HTTP_CODE" in
+    000|408|429|5??)
+      # Transient transport/server failure (no response, timeout, rate-limit, 5xx):
+      # soft-skip so a GitHub/CDN hiccup does not flake the check.
+      echo "WARN: transient download failure (HTTP $HTTP_CODE); skipping SHA check"
+      echo "PASS (soft): network/transport failure, not a SHA mismatch"
+      exit 0
+      ;;
+    *)
+      # Deterministic client-side error (e.g. 404 for a missing/renamed release
+      # asset). This is a real regression, not a network blip: fail hard.
+      echo "FAIL: release DMG unavailable at expected URL (HTTP $HTTP_CODE)"
+      echo "  URL: $URL"
+      exit 1
+      ;;
+  esac
 fi
 
 if [ "$FILE_SIZE" -lt 1000000 ]; then

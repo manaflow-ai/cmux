@@ -1,11 +1,17 @@
 public import SwiftUI
+import CmuxAppKitSupportUI
 public import CmuxUpdater
+import AppKit
 
 /// A badge view that displays the current state of an update operation (icon, progress ring,
 /// or loading spinner) for the update pill.
 public struct UpdateBadge: View {
     private let model: UpdateStateModel
     private let appearance: UpdateAppearance
+
+    private static let iconSize: CGFloat = 14
+    private static let iconPointSize: CGFloat = 13
+    private static let iconWeight: NSFont.Weight = .semibold
 
     /// Creates a badge for `model`, using `appearance` for the loading-spinner tint.
     public init(model: UpdateStateModel, appearance: UpdateAppearance) {
@@ -22,7 +28,7 @@ public struct UpdateBadge: View {
     private var badgeContent: some View {
         if model.showsDetectedBackgroundUpdate {
             if let iconName = model.iconName {
-                Image(systemName: iconName)
+                badgeImage(iconName)
             }
         } else {
             switch model.effectiveState {
@@ -31,21 +37,49 @@ public struct UpdateBadge: View {
                     let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
                     ProgressRingView(progress: progress)
                 } else {
-                    Image(systemName: "arrow.down.circle")
+                    badgeImage("arrow.down.circle")
                 }
 
             case .extracting(let extracting):
                 ProgressRingView(progress: min(1, max(0, extracting.progress)))
 
-            case .checking:
+            case .preparingCheck, .checking, .startingDownload:
                 BrowserStyleLoadingSpinner(size: 14, color: appearance.foregroundColor(for: model))
 
             default:
                 if let iconName = model.iconName {
-                    Image(systemName: iconName)
+                    badgeImage(iconName)
                 }
             }
         }
+    }
+
+    /// Builds the AppKit-owned request used by every updater symbol.
+    @MainActor
+    static func hostedIconRequest(
+        systemName: String,
+        tintColor: NSColor
+    ) -> CmuxResolvedIconRequest {
+        CmuxResolvedIconRequest(
+            source: .systemSymbol(name: systemName, accessibilityDescription: nil),
+            size: NSSize(width: iconSize, height: iconSize),
+            tintColor: tintColor,
+            symbolWeight: iconWeight,
+            fallbackSource: .systemSymbol(
+                name: systemName,
+                accessibilityDescription: nil
+            ),
+            symbolPointSize: iconPointSize
+        )
+    }
+
+    private func badgeImage(_ systemName: String) -> some View {
+        CmuxResolvedIconImage(request: Self.hostedIconRequest(
+            systemName: systemName,
+            tintColor: NSColor(appearance.foregroundColor(for: model))
+        ))
+        .frame(width: Self.iconSize, height: Self.iconSize)
+        .accessibilityHidden(true)
     }
 }
 

@@ -1,0 +1,1 @@
+терминал,ИИ-агент,claude,codex,ssh,разработчик,devops,ghostty,удалённый,cli,cmux,автоматизация

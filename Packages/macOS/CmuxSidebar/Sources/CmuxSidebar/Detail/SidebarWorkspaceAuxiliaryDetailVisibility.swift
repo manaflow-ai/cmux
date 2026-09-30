@@ -21,6 +21,18 @@ public struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable, Sendable {
     /// Whether forwarded-port rows are shown.
     public let showsPorts: Bool
 
+    /// Local git metadata is needed only when at least one git-backed detail
+    /// row is visible. Callers combine this with the user's master
+    /// `watchGitStatus` preference.
+    public var requiresGitMetadata: Bool {
+        showsBranchDirectory || showsPullRequests
+    }
+
+    /// GitHub polling is useful only while the pull-request row is visible.
+    public var requiresPullRequestPolling: Bool {
+        showsPullRequests
+    }
+
     /// Creates a visibility value with each row's flag as given.
     public init(
         showsMetadata: Bool,

@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
@@ -20,6 +21,7 @@ struct CustomSidebarPanelView: View {
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var renderWorkerClient: RenderWorkerClient?
+    @State private var surfaceStyle: String?
     @State private var focusFlashStartedAt: Date?
     @State private var completedFocusFlashStartedAt: Date?
 
@@ -41,6 +43,11 @@ struct CustomSidebarPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onPreferenceChange(CustomSidebarSurfacePreferenceKey.self) { value in
+            MainActor.assumeIsolated {
+                surfaceStyle = value
+            }
+        }
         .background(sidebarBackdrop)
         .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
         .background(
@@ -71,7 +78,12 @@ struct CustomSidebarPanelView: View {
 
     private var sidebarBackdrop: some View {
         ZStack {
-            Color(nsColor: appearance.backgroundColor)
+            // A glass surface (sidebar(fn, { surface: "glass" })) drops the
+            // opaque fill so the content view's material actually samples the
+            // window behind it instead of a solid color.
+            if surfaceStyle == nil {
+                Color(nsColor: appearance.backgroundColor)
+            }
             WindowBackdropLayer(role: .rightSidebar, snapshot: windowAppearance)
         }
         .clipShape(RoundedRectangle(cornerRadius: windowAppearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
@@ -96,82 +108,33 @@ struct CustomSidebarPanelView: View {
     private func buildCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let groups = tabManager.workspaceGroups.map { group in
+            CustomSidebarGroupSnapshot(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceId: group.anchorWorkspaceId,
+                customColor: group.customColor,
+                iconSymbol: group.iconSymbol
+            )
+        }
         let snapshot = CustomSidebarContextSnapshot(
             workspaces: workspaces,
+            groups: groups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
-    }
-
-    private func customSidebarWorkspaceSnapshot(
-        _ workspace: Workspace,
-        index: Int,
-        selectedId: UUID?
-    ) -> CustomSidebarWorkspaceSnapshot {
-        let focusedPanelId = workspace.focusedPanelId
-        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
-        let progress = workspace.progress.map {
-            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
-        }
-        let remote = workspace.remoteDisplayTarget.map { target in
-            CustomSidebarWorkspaceSnapshot.Remote(
-                target: target,
-                stateRawValue: workspace.remoteConnectionState.rawValue,
-                isConnected: workspace.remoteConnectionState == .connected
-            )
-        }
-        return CustomSidebarWorkspaceSnapshot(
-            id: workspace.id,
-            title: workspace.customTitle ?? workspace.title,
-            isSelected: workspace.id == selectedId,
-            isPinned: workspace.isPinned,
-            index: index,
-            directory: workspace.currentDirectory,
-            listeningPorts: workspace.listeningPorts,
-            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
-            surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
-            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
-            customDescription: workspace.customDescription,
-            customColor: workspace.customColor,
-            gitBranch: firstBranch?.branch,
-            gitIsDirty: firstBranch?.isDirty ?? false,
-            pullRequestValues: workspace.customSidebarPullRequestValues(),
-            progress: progress,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt,
-            remote: remote
-        )
-    }
-
-    private func customSidebarSurfaceSnapshots(
-        _ workspace: Workspace,
-        focusedPanelId: UUID?
-    ) -> [CustomSidebarSurfaceSnapshot] {
-        var surfaces: [CustomSidebarSurfaceSnapshot] = []
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                let git = workspace.panelGitBranches[panelId]
-                surfaces.append(CustomSidebarSurfaceSnapshot(
-                    panelId: panelId,
-                    title: tab.title,
-                    isFocused: panelId == focusedPanelId,
-                    isPinned: workspace.pinnedPanelIds.contains(panelId),
-                    directory: workspace.panelDirectories[panelId],
-                    gitBranch: git?.branch,
-                    gitIsDirty: git?.isDirty ?? false,
-                    listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
-                ))
-            }
-        }
-        return surfaces
     }
 
     private func requestPanelFocusIfNeeded() {

@@ -64,7 +64,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         transport: MobileSyncTransportKind
     ) throws {
         self.version = version
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.host = host
         self.port = port
@@ -84,7 +84,9 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
-        macDeviceID = try container.decode(String.self, forKey: .macDeviceID)
+        macDeviceID = cmxCanonicalDeviceID(
+            try container.decode(String.self, forKey: .macDeviceID)
+        )
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)
@@ -109,19 +111,27 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         }
     }
 
-    public func encodedURL() throws -> URL {
+    /// The pairing URL for this payload, in the scheme of the iOS build the
+    /// QR is meant for. Callers that are not an app -- tests, most of all --
+    /// should name the scheme: the default reads `Bundle.main`, which in an
+    /// xctest process is the test runner rather than a cmux build.
+    public func encodedURL(
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
+    ) throws -> URL {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(string: "\(scheme)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
     }
 
     public static func decodeURL(_ url: URL, now: Date = Date()) throws -> MobileSyncPairingPayload {
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
@@ -177,6 +187,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 
 public enum MobileSyncFrameCodecError: Error, Equatable, Sendable {
     case frameTooLarge(Int)
+    case tooManyFrames(Int)
 }
 
 /// Length-prefixed frame codec for the mobile sync wire protocol.
@@ -185,6 +196,7 @@ public struct MobileSyncFrameCodec {
 
     public static let headerByteCount = 4
     public static let defaultMaximumFrameByteCount = 8 * 1024 * 1024
+    public static let defaultMaximumDecodedFrameCount = 256
 
     public static func encodeFrame(_ payload: Data) throws -> Data {
         guard payload.count <= defaultMaximumFrameByteCount else {
@@ -196,26 +208,58 @@ public struct MobileSyncFrameCodec {
         return frame
     }
 
+    /// Decodes at most one bounded batch, leaving later frames in `buffer`.
+    /// Callers drain another batch before awaiting more network bytes whenever
+    /// the returned count reaches `maximumDecodedFrameCount`. A transport read
+    /// may coalesce any number of valid frames; its boundary is not a message limit.
     public static func decodeFrames(
         from buffer: inout Data,
-        maximumFrameByteCount: Int = defaultMaximumFrameByteCount
+        maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
+        maximumDecodedFrameCount: Int = defaultMaximumDecodedFrameCount
     ) throws -> [Data] {
+        precondition(maximumFrameByteCount >= 0)
+        precondition(maximumDecodedFrameCount > 0)
         var frames: [Data] = []
-        while buffer.count >= headerByteCount {
-            let length = buffer.prefix(headerByteCount).reduce(UInt32(0)) { partial, byte in
+        frames.reserveCapacity(min(maximumDecodedFrameCount, 16))
+        var consumedByteCount = 0
+        defer {
+            if consumedByteCount > 0 {
+                buffer.removeSubrange(
+                    buffer.startIndex..<buffer.index(
+                        buffer.startIndex,
+                        offsetBy: consumedByteCount
+                    )
+                )
+            }
+        }
+
+        while frames.count < maximumDecodedFrameCount,
+              buffer.count - consumedByteCount >= headerByteCount {
+            let frameStart = buffer.index(
+                buffer.startIndex,
+                offsetBy: consumedByteCount
+            )
+            let headerEnd = buffer.index(
+                frameStart,
+                offsetBy: headerByteCount
+            )
+            let length = buffer[frameStart..<headerEnd].reduce(UInt32(0)) { partial, byte in
                 (partial << 8) | UInt32(byte)
             }
             let payloadLength = Int(length)
             guard payloadLength <= maximumFrameByteCount else {
                 throw MobileSyncFrameCodecError.frameTooLarge(payloadLength)
             }
-            guard buffer.count >= headerByteCount + payloadLength else {
+            guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
                 break
             }
-            let payloadStart = headerByteCount
-            let payloadEnd = payloadStart + payloadLength
+            let payloadStart = headerEnd
+            let payloadEnd = buffer.index(
+                payloadStart,
+                offsetBy: payloadLength
+            )
             frames.append(buffer.subdata(in: payloadStart..<payloadEnd))
-            buffer.removeSubrange(0..<payloadEnd)
+            consumedByteCount += headerByteCount + payloadLength
         }
         return frames
     }

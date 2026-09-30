@@ -31,6 +31,17 @@ public protocol ControlPaneContext: AnyObject {
     /// - Returns: Whether a TabManager resolved.
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool
 
+    /// Returns the app-localized message for malformed `pane.resize` parameters.
+    ///
+    /// - Returns: The localized invalid-parameters message.
+    func controlPaneResizeInvalidParametersMessage() -> String
+
+    /// Returns the app-localized generic surface-not-found message for pane
+    /// mutations whose explicit `surface_id` cannot be parsed or resolved.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlPaneSurfaceNotFoundMessage() -> String
+
     /// Focuses the pane `paneID` in the resolved workspace for `pane.focus`.
     ///
     /// - Parameters:

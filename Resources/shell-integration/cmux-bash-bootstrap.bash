@@ -22,12 +22,19 @@
 # reads it (stripping these comments) and exports it as PROMPT_COMMAND, and
 # tests/test_issue_5164_starship_prompt_composition.py exercises it.
 #
+# The welcome-banner token path (CMUX_SHOW_WELCOME_FILE) is moved into a
+# shell-local variable first thing, so nothing the integration or later prompts
+# start inherits it. bash has no earlier cmux hook: .bashrc runs before this
+# bootstrap, so an `exec` there still inherits it, and the integration's token
+# `rm` plus its tmux skip keep the banner from printing twice.
+#
 # INJECTION CONSTRAINT: the app and the test both drop full-line `#` comments and
 # blank lines before exporting this as PROMPT_COMMAND (so users never see a wall
 # of comments in $PROMPT_COMMAND). Such lines are bash comments anyway, so this is
 # behavior-preserving -- but every executable line below must stand on its own and
 # must not begin with `#` (no full-line comments interleaved in the body).
 PROMPT_COMMAND="${PROMPT_COMMAND##*__cmux_bash_bootstrap_marker__}"
+_CMUX_BOOTSTRAP_WELCOME_FILE="${CMUX_SHOW_WELCOME_FILE:-}"; unset CMUX_SHOW_WELCOME_FILE
 while [[ "$PROMPT_COMMAND" == [[:space:]\;]* ]]; do PROMPT_COMMAND="${PROMPT_COMMAND#?}"; done
 if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
     _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"
@@ -37,6 +44,9 @@ if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:
     _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"
     [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"
 fi
-unset _cmux_ghostty_bash _cmux_bash_integration
+# The bootstrap must be exported for its first evaluation, but the composed
+# function names are shell-local and must not leak into child processes.
+export -n PROMPT_COMMAND 2>/dev/null || true
+unset _cmux_ghostty_bash _cmux_bash_integration _CMUX_BOOTSTRAP_WELCOME_FILE
 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
 : __cmux_bash_bootstrap_marker__

@@ -137,7 +137,7 @@ extension MobileShellComposite {
         terminalCloseRequestGeneration &+= 1
         let closeGeneration = terminalCloseRequestGeneration
         do {
-            let response = try await Self.requestCloseRemoteTerminal(
+            try await Self.requestCloseRemoteTerminal(
                 workspaceID: workspaceID,
                 terminalID: terminalID,
                 clientID: clientID,
@@ -149,7 +149,10 @@ extension MobileShellComposite {
                   !Task.isCancelled else { return }
             terminalOverviewPreviewLinesByID[terminalID] = nil
             terminalOverviewPreviewUpdatedAtByID[terminalID] = nil
-            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            // The close endpoint returns a small mutation receipt. Refresh the
+            // authoritative list so selection, closeability, and any concurrent
+            // Mac-side tab changes are reconciled in one place.
+            await refreshWorkspaces()
         } catch {
             guard remoteClient === client,
                   closeGeneration == terminalCloseRequestGeneration,
@@ -167,7 +170,7 @@ extension MobileShellComposite {
         terminalID: MobileTerminalPreview.ID,
         clientID: String,
         client: MobileCoreRPCClient
-    ) async throws -> MobileSyncWorkspaceListResponse {
+    ) async throws {
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.terminal.close",
             params: [
@@ -176,8 +179,7 @@ extension MobileShellComposite {
                 "client_id": clientID,
             ]
         )
-        let responseData = try await client.sendRequest(request)
-        return try MobileSyncWorkspaceListResponse.decode(responseData)
+        _ = try await client.sendRequest(request)
     }
 
     private func closePreviewTerminal(
@@ -192,7 +194,15 @@ extension MobileShellComposite {
               let closingIndex = terminals.firstIndex(where: { $0.id == terminalID }) else {
             return
         }
-        workspaces[workspaceIndex].terminals.remove(at: closingIndex)
+        mutateForegroundWorkspaces { workspaces in
+            guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+                return
+            }
+            guard let closingIndex = workspaces[index].terminals.firstIndex(where: { $0.id == terminalID }) else {
+                return
+            }
+            workspaces[index].terminals.remove(at: closingIndex)
+        }
         terminalOverviewPreviewLinesByID[terminalID] = nil
         terminalOverviewPreviewUpdatedAtByID[terminalID] = nil
         if selectedWorkspaceID == workspaceID, selectedTerminalID == terminalID {

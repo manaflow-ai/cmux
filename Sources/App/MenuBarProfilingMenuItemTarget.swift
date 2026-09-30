@@ -1,10 +1,11 @@
 import AppKit
 
-@MainActor
 final class MenuBarProfilingMenuItemTarget: NSObject {
     static let shared = MenuBarProfilingMenuItemTarget()
 
     @objc func startProfiling(_ sender: NSMenuItem) {
-        MenuBarProfilingLauncher.start()
+        Task { @MainActor in
+            MenuBarProfilingProgressWindowController.shared.startProfiling()
+        }
     }
 }

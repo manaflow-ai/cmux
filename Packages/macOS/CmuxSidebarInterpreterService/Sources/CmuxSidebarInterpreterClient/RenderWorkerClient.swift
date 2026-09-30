@@ -124,8 +124,7 @@ public actor RenderWorkerClient {
         )
         nextSceneSeq &+= 1
         lastScene = scene
-        send(.scene(scene))
-        armAckWatchdog(for: scene.seq)
+        send(.scene(scene), ackSequence: scene.seq)
     }
 
     /// Tells the worker the host surface's size or backing scale changed.
@@ -154,26 +153,38 @@ public actor RenderWorkerClient {
 
     // MARK: - Sending
 
-    private func send(_ message: RenderWorkerInbound) {
-        guard let data = try? JSONEncoder().encode(message) else { return }
-        // One retry: a worker that died since the last send surfaces here as a
-        // broken pipe (its Process may still read as running before the
-        // termination handler lands), so relaunch once and re-deliver instead
-        // of dropping the message until the next tick.
-        for _ in 0..<2 {
-            let channel: LengthPrefixedMessageChannel
-            do {
-                channel = try ensureRunning()
-            } catch {
-                return
-            }
-            do {
-                try channel.sendMessage(data)
-                return
-            } catch {
-                discardWorker()
-            }
+    private func send(
+        _ message: RenderWorkerInbound,
+        ackSequence: UInt64? = nil
+    ) {
+        guard let outbound = RenderWorkerOutboundWrite(
+            message: message,
+            remainingRelaunches: 1,
+            ackSequence: ackSequence
+        ) else {
+            return
         }
+        enqueue(outbound)
+    }
+
+    private func enqueue(_ outbound: RenderWorkerOutboundWrite) {
+        let writer: RenderWorkerWritePump
+        do {
+            writer = try ensureRunning(recovering: outbound)
+        } catch {
+            return
+        }
+        enqueueOnWriter(writer, outbound: outbound, generation: generation)
+    }
+
+    private func writeFailed(
+        _ outbound: RenderWorkerOutboundWrite,
+        generation gen: Int
+    ) {
+        guard gen == generation else { return }
+        discardWorker()
+        guard let retry = outbound.consumingRelaunch() else { return }
+        enqueue(retry)
     }
 
     /// Arms (or extends) the hang watchdog for `seq`.
@@ -209,14 +220,18 @@ public actor RenderWorkerClient {
 
     // MARK: - Worker lifecycle
 
-    private func ensureRunning() throws -> LengthPrefixedMessageChannel {
+    private func ensureRunning(
+        recovering outbound: RenderWorkerOutboundWrite
+    ) throws -> RenderWorkerWritePump {
         if let child, child.process.isRunning {
-            return child.channel
+            return child.writer
         }
-        return try launch()
+        return try launch(recovering: outbound)
     }
 
-    private func launch() throws -> LengthPrefixedMessageChannel {
+    private func launch(
+        recovering outbound: RenderWorkerOutboundWrite
+    ) throws -> RenderWorkerWritePump {
         generation &+= 1
         let gen = generation
         pendingAckSeq = nil
@@ -235,9 +250,14 @@ public actor RenderWorkerClient {
                 .merging(extraEnvironment) { _, new in new }
         }
 
-        let channel = LengthPrefixedMessageChannel(
+        let channel = try LengthPrefixedMessageChannel(
             readFD: stdout.fileHandleForReading.fileDescriptor,
             writeFD: stdin.fileHandleForWriting.fileDescriptor
+        )
+        let writer = RenderWorkerWritePump(
+            channel: channel,
+            generation: gen,
+            writeTimeout: ackTimeout
         )
         process.terminationHandler = { [weak self] _ in
             guard let self else { return }
@@ -245,7 +265,27 @@ public actor RenderWorkerClient {
         }
 
         try process.run()
-        child = RenderChild(process: process, channel: channel, stdin: stdin, stdout: stdout)
+        // The host owns stdin's write end and stdout's read end. Keeping the
+        // other parent copies open would hide worker EOF/EPIPE from the
+        // channel, so close them once the child has inherited its endpoints.
+        do {
+            try stdin.fileHandleForReading.close()
+            try stdout.fileHandleForWriting.close()
+        } catch {
+            try? stdin.fileHandleForReading.close()
+            try? stdout.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+            }
+            throw error
+        }
+        child = RenderChild(
+            process: process,
+            channel: channel,
+            writer: writer,
+            stdin: stdin,
+            stdout: stdout
+        )
 
         // Reader thread: blocks draining framed worker messages off the
         // worker's stdout descriptor and hands each to the actor. The channel
@@ -274,15 +314,52 @@ public actor RenderWorkerClient {
 
         // Replay the current state so a respawned worker rebuilds the sidebar
         // without the host having to notice the crash.
-        if let lastGeometry, let data = try? JSONEncoder().encode(RenderWorkerInbound.resize(lastGeometry)) {
-            try? channel.sendMessage(data)
+        if let lastGeometry,
+           let replay = RenderWorkerOutboundWrite(
+               message: .resize(lastGeometry),
+               remainingRelaunches: 0,
+               ackSequence: nil
+           ) {
+            enqueueOnWriter(
+                writer,
+                outbound: replay,
+                generation: gen,
+                failureOutbound: outbound
+            )
         }
-        if let lastScene, let data = try? JSONEncoder().encode(RenderWorkerInbound.scene(lastScene)) {
-            try? channel.sendMessage(data)
-            armAckWatchdog(for: lastScene.seq)
+        if let lastScene,
+           let replay = RenderWorkerOutboundWrite(
+               message: .scene(lastScene),
+               remainingRelaunches: 0,
+               ackSequence: lastScene.seq
+           ) {
+            enqueueOnWriter(
+                writer,
+                outbound: replay,
+                generation: gen,
+                failureOutbound: outbound
+            )
         }
 
-        return channel
+        return writer
+    }
+
+    private func enqueueOnWriter(
+        _ writer: RenderWorkerWritePump,
+        outbound: RenderWorkerOutboundWrite,
+        generation gen: Int,
+        failureOutbound: RenderWorkerOutboundWrite? = nil
+    ) {
+        let failureOutbound = failureOutbound ?? outbound
+        let accepted = writer.enqueue(outbound) { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.writeFailed(failureOutbound, generation: gen)
+            }
+        }
+        if accepted, let ackSequence = outbound.ackSequence {
+            armAckWatchdog(for: ackSequence)
+        }
     }
 
     private func deliver(_ message: RenderWorkerOutbound, generation gen: Int) {
@@ -303,7 +380,14 @@ public actor RenderWorkerClient {
     /// relaunches a fresh one. The old worker's reader/termination handler
     /// run under its now-stale generation and no-op.
     private func discardWorker() {
-        child?.process.terminate()
+        generation &+= 1
+        if let doomed = child {
+            doomed.writer.cancel()
+            try? doomed.stdin.fileHandleForWriting.close()
+            if doomed.process.isRunning {
+                doomed.process.terminate()
+            }
+        }
         child = nil
         ackWatchdog?.cancel()
         ackWatchdog = nil
@@ -314,6 +398,10 @@ public actor RenderWorkerClient {
 
     private func workerEnded(generation gen: Int) {
         guard gen == generation else { return }
+        child?.writer.cancel()
+        if let stdin = child?.stdin {
+            try? stdin.fileHandleForWriting.close()
+        }
         child = nil
         ackWatchdog?.cancel()
         ackWatchdog = nil
@@ -329,6 +417,7 @@ public actor RenderWorkerClient {
 private struct RenderChild {
     let process: Process
     let channel: LengthPrefixedMessageChannel
+    let writer: RenderWorkerWritePump
     let stdin: Pipe
     let stdout: Pipe
 }

@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
+private struct MarkerGitReferenceReader: GitReferenceReading {
+    let markerDirectory: URL
+
+    func snapshot(repository _: ResolvedGitRepository) -> GitReferenceSnapshot {
+        try? Data().write(
+            to: markerDirectory.appendingPathComponent(UUID().uuidString),
+            options: .atomic
+        )
+        return GitReferenceSnapshot(
+            checkedOutBranch: .branch("main"),
+            headSignature: "refs/heads/main\n" + String(repeating: "f", count: 40),
+            currentCommit: String(repeating: "f", count: 40),
+            usesGitPlumbing: true
+        )
+    }
+}
+
 @Suite struct GitMetadataServiceTests {
     // MARK: Repository resolution
 
@@ -47,6 +64,30 @@ import Testing
         #expect(repo.gitDirectory == realGitDir.standardizedFileURL.path)
     }
 
+    @Test func oversizedDotGitPointerIsRejectedWithoutUnboundedRead() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-gitfile-oversized-\(UUID().uuidString)", isDirectory: true)
+        let worktree = base.appendingPathComponent("wt", isDirectory: true)
+        let realGitDir = base.appendingPathComponent("realgit", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realGitDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let pointer = "gitdir: \(realGitDir.path)\n" + String(repeating: "x", count: 20_000)
+        try pointer.write(
+            to: worktree.appendingPathComponent(".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(
+            GitMetadataService.gitDirectoryFromDotGitFile(
+                worktree.appendingPathComponent(".git"),
+                relativeTo: worktree
+            ) == nil
+        )
+    }
+
     @Test(arguments: [
         ("/", "/"),
         // Older Foundation can report /.. as the parent of /, or escape above
@@ -80,6 +121,26 @@ import Testing
         #expect(meta.headSignature != nil)
     }
 
+    @Test func plumbingMetadataRefreshUsesOneFullReferenceSnapshot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: []))
+        let markerDirectory = fixture.root.appendingPathComponent("reference-markers", isDirectory: true)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            referenceReader: MarkerGitReferenceReader(markerDirectory: markerDirectory)
+        )
+
+        _ = await service.workspaceMetadata(for: fixture.root.path)
+
+        let markers = try FileManager.default.contentsOfDirectory(
+            at: markerDirectory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(markers.count == 1)
+    }
+
     @Test func workspaceMetadataReportsNotARepository() async {
         let service = GitMetadataService()
         let meta = await service.workspaceMetadata(for: "/definitely/not/a/repo/\(UUID().uuidString)")
@@ -93,6 +154,61 @@ import Testing
         let meta = await service.workspaceMetadata(for: fixture.root.path)
         #expect(meta.isRepository)
         #expect(meta.branch == nil)
+    }
+
+    @Test func checkedOutBranchReadsCheckedOutBranch() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/current")
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .branch("feature/current"))
+    }
+
+    @Test func checkedOutBranchIsDetachedForDetachedHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeDetachedHead(commit: String(repeating: "1", count: 40))
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .detached)
+    }
+
+    @Test func checkedOutBranchIsUnreadableForMissingHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .unreadable)
+    }
+
+    @Test func checkedOutBranchIsUnreadableForMalformedHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        try "not a ref and not a sha\n".write(
+            to: fixture.gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let service = GitMetadataService()
+
+        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
+
+        #expect(branch == .unreadable)
+    }
+
+    @Test func checkedOutBranchIsNotARepositoryOutsideRepositories() async throws {
+        let service = GitMetadataService()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-nonrepo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let branch = await service.checkedOutBranch(forDirectory: directory.path)
+
+        #expect(branch == .notARepository)
     }
 
     // MARK: Dirty detection (index v2)
@@ -145,6 +261,115 @@ import Testing
         let service = GitMetadataService()
         let meta = await service.workspaceMetadata(for: fixture.root.path)
         #expect(meta.isDirty == false)
+    }
+
+    @Test func unchangedIndexAndGenerationReusesTrackedChangesSnapshot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 10)
+
+        let first = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: generation
+        )
+        let second = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: generation
+        )
+
+        #expect(first == second)
+        #expect(reader.callCount(atPath: filePath) == 1)
+    }
+
+    @Test func trackedPathEventGenerationRescansAndDetectsUnstagedEdit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let fileURL = fixture.root.appendingPathComponent("file.txt")
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let namespace = UUID()
+
+        let clean = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 20)
+        )
+        try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let dirty = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 21)
+        )
+
+        #expect(clean.isDirty == false)
+        #expect(dirty.isDirty)
+        #expect(reader.callCount(atPath: fileURL.path) == 2)
+    }
+
+    @Test func sameGenerationFromIndependentOwnersRescansAndDetectsUnstagedEdit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let fileURL = fixture.root.appendingPathComponent("file.txt")
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let firstOwner = UUID()
+        let secondOwner = UUID()
+
+        let clean = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: firstOwner, generation: 1)
+        )
+        try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let dirty = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: secondOwner, generation: 1)
+        )
+
+        #expect(clean.isDirty == false)
+        #expect(dirty.isDirty)
+        #expect(reader.callCount(atPath: fileURL.path) == 2)
+    }
+
+    @Test func indexStatChangeRescansTrackedEntries() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let indexPath = fixture.gitDirectory.appendingPathComponent("index").path
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 30)
+
+        _ = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: generation
+        )
+        var changedIndexStatus = try #require(reader.statusWithoutRecording(atPath: indexPath))
+        changedIndexStatus = GitFileStatus(
+            mode: changedIndexStatus.mode,
+            size: changedIndexStatus.size,
+            mtimeSeconds: changedIndexStatus.mtimeSeconds + 1,
+            mtimeNanoseconds: changedIndexStatus.mtimeNanoseconds
+        )
+        reader.overrideStatus(changedIndexStatus, atPath: indexPath)
+        _ = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: generation
+        )
+
+        #expect(reader.callCount(atPath: filePath) == 2)
     }
 
     // MARK: Index v4 prefix-compression
