@@ -33,6 +33,12 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashDoubleBlink"
     )
 
+    public let paneFlashThemeColor = DefaultsKey<Bool>(
+        id: "notifications.paneFlashThemeColor",
+        defaultValue: false,
+        userDefaultsKey: "notificationPaneFlashThemeColor"
+    )
+
     /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
     /// Empty (the default) uses the cmux accent (`app.accentColor`).
     public let paneFlashColorHex = DefaultsKey<String>(
