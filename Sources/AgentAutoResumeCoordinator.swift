@@ -268,6 +268,7 @@ final class AgentAutoResumeCoordinator {
             }
         }
 
+        @MainActor
         func matchesManagedSession(_ sessionId: String?, agent: String) -> Bool {
             guard let sessionId, !sessionId.isEmpty else { return true }
             let binding: SurfaceResumeBindingSnapshot?
