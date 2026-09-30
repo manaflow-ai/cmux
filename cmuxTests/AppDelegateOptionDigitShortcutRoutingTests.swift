@@ -31,7 +31,7 @@ private final class MarkedOptionTextView: NSTextView {
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test

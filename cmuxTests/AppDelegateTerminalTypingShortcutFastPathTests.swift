@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct AppDelegateTerminalTypingShortcutFastPathTests {
 #if DEBUG
     @Test

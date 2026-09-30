@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorPlacementTests {
+@Suite(.serialized, .isolatedWindowGeometry) struct RemoteTmuxMirrorPlacementTests {
     @Test func explicitWindowRoutingFailsClosedButExistingMirrorAffinityWins() {
         let existing = UUID()
         let explicit = UUID()

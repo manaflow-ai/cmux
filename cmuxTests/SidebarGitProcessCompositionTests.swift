@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct SidebarGitProcessCompositionTests {
     @Test func nonactivatingWindowsShareTheProcessRequestCoordinator() throws {
         let previousAppDelegate = AppDelegate.shared

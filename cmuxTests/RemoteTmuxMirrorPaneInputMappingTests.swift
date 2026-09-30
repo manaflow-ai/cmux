@@ -29,7 +29,7 @@ import CmuxTerminal
 /// mount the real manual-I/O surface and inspect the exact tmux control commands
 /// produced by physical key events, including live/restored terminal-mode changes.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct RemoteTmuxMirrorPaneInputMappingTests {
 
     // MARK: - Harness (mirrors MirrorTitleHarness in RemoteTmuxMirrorTargetingTests)

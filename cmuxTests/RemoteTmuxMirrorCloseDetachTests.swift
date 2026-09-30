@@ -26,7 +26,7 @@ import Testing
 /// The marker is set-then-consumed synchronously inside the real close gesture, so
 /// this test exercises the marking decision directly to observe it deterministically.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorCloseDetachTests {
+@Suite(.serialized, .isolatedWindowGeometry) struct RemoteTmuxMirrorCloseDetachTests {
     fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
 

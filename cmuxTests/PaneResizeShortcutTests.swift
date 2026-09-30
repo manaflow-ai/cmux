@@ -9,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Pane resize shortcuts", .serialized)
+@Suite("Pane resize shortcuts", .serialized, .isolatedWindowGeometry)
 @MainActor
 struct PaneResizeShortcutTests {
     @Test(arguments: ["left", "right", "up", "down"])

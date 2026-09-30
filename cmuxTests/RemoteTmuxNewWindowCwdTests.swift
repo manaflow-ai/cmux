@@ -120,7 +120,7 @@ import Testing
 /// created from. A local path is meaningless on the remote and would open the
 /// new tab in the wrong directory.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxNewWindowWorkingDirectoryResolutionTests {
+@Suite(.serialized, .isolatedWindowGeometry) struct RemoteTmuxNewWindowWorkingDirectoryResolutionTests {
     @Test func inheritsSourceTabsReportedRemoteDirectory() throws {
         let harness = try Harness()
         defer { harness.tearDown() }

@@ -16,7 +16,7 @@ import WebKit
 /// resigns the sidebar's first responder, so Cmd+F kept routing to the
 /// sidebar's file search instead of the just-opened document's find bar.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct SidebarFileDropFindRoutingTests {
     @Test func sidebarFileDropHandsFindShortcutToOpenedMarkdownPanel() async throws {
         let appDelegate = try #require(AppDelegate.shared)

@@ -13,7 +13,7 @@ private typealias SimulatorStoredShortcut = cmux_DEV.StoredShortcut
 private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 #endif
 
-@Suite("Keyboard shortcut context")
+@Suite("Keyboard shortcut context", .isolatedWindowGeometry)
 struct KeyboardShortcutContextSwiftTests {
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
     func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {

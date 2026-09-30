@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("TextBox Escape passthrough", .serialized)
+@Suite("TextBox Escape passthrough", .serialized, .isolatedWindowGeometry)
 struct TextBoxEscapePassthroughTests {
     @Test
     func runningAgentReceivesEscapeFromTextBox() throws {

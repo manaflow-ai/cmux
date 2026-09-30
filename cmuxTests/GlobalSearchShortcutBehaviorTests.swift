@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct GlobalSearchShortcutBehaviorTests {}
 
 extension GlobalSearchShortcutBehaviorTests {

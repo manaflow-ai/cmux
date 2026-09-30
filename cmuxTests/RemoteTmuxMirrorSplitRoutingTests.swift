@@ -19,7 +19,7 @@ import Testing
 /// reporting routed requests as errors makes automation retry and duplicate
 /// remote panes.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorSplitRoutingTests {
+@Suite(.serialized, .isolatedWindowGeometry) struct RemoteTmuxMirrorSplitRoutingTests {
     @Test func mirrorWorkspaceSplitNeverCreatesLocalPanel() throws {
         let harness = try Harness()
         defer { harness.tearDown() }

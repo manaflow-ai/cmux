@@ -165,7 +165,7 @@ struct CanvasShortcutContextTests {
 }
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct CanvasShortcutRoutingFeedbackTests {
     @Test func canvasSurfaceDigitsWinOverRightSidebarModeDigitsInCanvasMode() throws {
         try withIsolatedShortcutSettings {

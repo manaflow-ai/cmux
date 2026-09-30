@@ -298,7 +298,9 @@ final class KeyStatusTestWindow: NSWindow {
 
 /// The cmuxTests bundle's NSPrincipalClass. XCTest creates it when the bundle
 /// loads, before the first test, and it restores `AppDelegate.shared` after
-/// every XCTest case.
+/// every XCTest case. Each case also runs under
+/// `PersistedWindowGeometryIsolation`, so it neither opens its windows at a
+/// size an earlier test left behind nor leaves its own for a later one.
 ///
 /// `AppDelegate.init` installs the new delegate as `shared`, and hundreds of
 /// tests build a throwaway delegate without restoring the host's. Whichever
@@ -321,9 +323,11 @@ final class CmuxTestsPrincipal: NSObject, XCTestObservation {
 
     func testCaseWillStart(_ testCase: XCTestCase) {
         sharedAtStart = AppDelegate.shared
+        PersistedWindowGeometryIsolation.begin()
     }
 
     func testCaseDidFinish(_ testCase: XCTestCase) {
+        PersistedWindowGeometryIsolation.end()
         if AppDelegate.shared !== sharedAtStart {
             AppDelegate.shared = sharedAtStart
             if let sharedAtStart {
@@ -367,4 +371,78 @@ struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == ExclusiveAppContextTrait {
     static var exclusiveAppContext: Self { Self() }
+}
+
+/// Keeps the main-window size one test leaves behind out of the next test.
+///
+/// Closing a main window saves its frame as the app's last window geometry,
+/// and `createMainWindow()` opens a window that has no source window at that
+/// saved size. App-host tests share one defaults domain, kept in an isolated
+/// home that outlasts the batch, so the last test window closed set the size
+/// of every later test's window in the shard.
+/// `AppDelegateShortcutRoutingTests` closes a 560 pt wide window, which leaves
+/// a 320 pt terminal area beside the 240 pt sidebar. Split admission (#15392)
+/// refuses a split that would leave a pane narrower than 160 pt, so the splits
+/// of the tests that ran after it failed, and which tests those were depended
+/// on how the shard was packed.
+///
+/// A test runs with no saved geometry, so its windows open at the default size
+/// (or at their source window's), and the saved geometry is put back when the
+/// test ends, so its own windows' sizes do not outlive it. XCTest cases get this
+/// from `CmuxTestsPrincipal`; a Swift Testing suite that opens main windows
+/// takes `.isolatedWindowGeometry`.
+enum PersistedWindowGeometryIsolation {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var depth = 0
+    nonisolated(unsafe) private static var saved: Any?
+
+    static func begin(defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        if depth == 0 {
+            saved = defaults.object(forKey: key)
+        }
+        depth += 1
+        defaults.removeObject(forKey: key)
+    }
+
+    static func end(defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard depth > 0 else { return }
+        depth -= 1
+        guard depth == 0 else { return }
+        let key = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        if let saved {
+            defaults.set(saved, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+        saved = nil
+    }
+}
+
+/// `PersistedWindowGeometryIsolation` around each test of a Swift Testing
+/// suite that opens main windows.
+struct IsolatedWindowGeometryTrait: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    func scopeProvider(for test: Test, testCase: Test.Case?) -> Self? {
+        testCase == nil ? nil : self
+    }
+
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        PersistedWindowGeometryIsolation.begin()
+        defer { PersistedWindowGeometryIsolation.end() }
+        try await function()
+    }
+}
+
+extension Trait where Self == IsolatedWindowGeometryTrait {
+    static var isolatedWindowGeometry: Self { Self() }
 }

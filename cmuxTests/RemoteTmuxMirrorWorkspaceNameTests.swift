@@ -12,7 +12,7 @@ import Testing
 /// Behavior tests for `cmux ssh-tmux --name` (cosmetic local workspace title,
 /// applied at mirror time — see `RemoteTmuxController.mirrorSession(customTitle:)`).
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct RemoteTmuxMirrorWorkspaceNameTests {
     private func session(_ name: String, id: String? = nil) -> RemoteTmuxSession {
         RemoteTmuxSession(

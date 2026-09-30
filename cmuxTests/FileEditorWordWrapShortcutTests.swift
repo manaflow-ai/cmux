@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("File editor word wrap shortcut", .serialized)
+@Suite("File editor word wrap shortcut", .serialized, .isolatedWindowGeometry)
 struct FileEditorWordWrapShortcutTests {
     /// Checks that Option-Z changes layout without replacing storage or the selection.
     @Test("Option-Z reflows the existing editor without editing its document")

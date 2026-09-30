@@ -22,7 +22,7 @@ import SwiftUI
 /// socket command active, so without the factory setting that policy itself the new tab
 /// appears behind the current one and Cmd+T looks like it did nothing.
 @MainActor
-@Suite(.serialized) struct SurfacePaneFactoryFocusTests {
+@Suite(.serialized, .isolatedWindowGeometry) struct SurfacePaneFactoryFocusTests {
     @Test(arguments: ["right", "down"])
     func routedCloudSplitIsAcceptedBeforeItsPanelExists(directionName: String) async throws {
         let harness = try Harness()

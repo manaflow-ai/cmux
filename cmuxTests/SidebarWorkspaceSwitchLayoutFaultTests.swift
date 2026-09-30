@@ -12,7 +12,7 @@ import Testing
 /// required: workspace selection updates both the AppKit sidebar and the
 /// window-level terminal portal around SwiftUI's root hosting view.
 @MainActor
-@Suite("Sidebar workspace switching layout", .serialized)
+@Suite("Sidebar workspace switching layout", .serialized, .isolatedWindowGeometry)
 struct SidebarWorkspaceSwitchLayoutFaultTests {
     @Test
     func switchingWorkspacesDoesNotReenterHostingViewLayout() async throws {

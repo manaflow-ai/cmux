@@ -11,7 +11,7 @@ import Testing
 
 #if DEBUG
 @MainActor
-@Suite("Workspace group cycle shortcuts", .serialized, .exclusiveAppContext)
+@Suite("Workspace group cycle shortcuts", .serialized, .exclusiveAppContext, .isolatedWindowGeometry)
 struct WorkspaceGroupCycleShortcutTests {
     @Test func actionsAreVisibleAndUnboundByDefault() throws {
         let actions: [KeyboardShortcutSettings.Action] = [

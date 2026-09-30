@@ -31,7 +31,7 @@ private final class CanvasViewportSpy: CanvasViewportControlling {
 }
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct AppDelegateSurfaceShortcutRoutingTests {
     @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
         try withIsolatedShortcutSettings {

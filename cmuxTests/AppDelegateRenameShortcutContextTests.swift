@@ -44,7 +44,7 @@ private final class ShortcutNotificationFlag {
 }
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .isolatedWindowGeometry)
 struct AppDelegateRenameShortcutContextTests {
     @Test func defaultCmdRRequestsRenameTabOnlyWhenBrowserNotFocused() throws {
         try withIsolatedShortcutSettings {
