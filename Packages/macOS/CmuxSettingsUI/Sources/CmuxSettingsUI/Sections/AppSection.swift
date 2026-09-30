@@ -440,7 +440,7 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("agentSession.renderer"),
+                configurationReview: .json("app.agentSession.renderer"),
                 String(localized: "settings.agentSession.renderer", defaultValue: "Agent Session Renderer"),
                 subtitle: String(localized: "settings.agentSession.renderer.subtitle", defaultValue: "Choose the native pane or the TypeScript React renderer for new agent sessions."),
                 controlWidth: Self.columnWidth

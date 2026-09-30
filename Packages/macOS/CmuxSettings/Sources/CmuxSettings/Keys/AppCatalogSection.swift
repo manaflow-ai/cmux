@@ -5,7 +5,7 @@ import Foundation
 public struct AppCatalogSection: SettingCatalogSection {
     /// Renderer used for newly opened acpmux agent-session panes.
     public let agentSessionRenderer = JSONKey<String>(
-        id: "agentSession.renderer",
+        id: "app.agentSession.renderer",
         defaultValue: "native"
     )
     public let appearance = DefaultsKey<AppearanceMode>(
