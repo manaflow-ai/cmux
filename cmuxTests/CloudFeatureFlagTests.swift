@@ -192,6 +192,7 @@ struct CloudFeatureFlagTests {
         #expect(coordinator.state == .enabling)
         var iterator = started.stream.makeAsyncIterator()
         _ = await iterator.next()
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         release?.resume()
         await coordinator.waitForActivation()
         #expect(coordinator.state == .enabled)
@@ -206,6 +207,7 @@ struct CloudFeatureFlagTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
         var prepareCalls = 0
+        var cleanupCalls = 0
         let coordinator = CloudActivationCoordinator(
             defaults: defaults,
             notificationCenter: NotificationCenter(),
@@ -215,13 +217,15 @@ struct CloudFeatureFlagTests {
                 if prepareCalls == 1 {
                     throw VMClientError.backendUnreachable(url: "https://cloud.invalid", detail: "fixture")
                 }
-            }
+            },
+            cleanup: { cleanupCalls += 1 }
         )
 
         coordinator.enable()
         await coordinator.waitForActivation()
         #expect(coordinator.state == .failed(.serviceUnavailable))
-        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(cleanupCalls == 1)
 
         coordinator.retry()
         await coordinator.waitForActivation()

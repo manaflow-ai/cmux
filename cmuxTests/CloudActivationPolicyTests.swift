@@ -304,11 +304,7 @@ struct CloudActivationPolicyTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         })
 
-        #if DEBUG
-        let expectedDefault = true
-        #else
         let expectedDefault = false
-        #endif
         #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
 

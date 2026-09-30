@@ -52,7 +52,11 @@ public struct CloudMachinesSection: View {
             }
             Spacer()
             Button(manageButtonTitle) {
-                hostActions.openCloudMachinesBilling()
+                if hostActions.isCloudMachinesEnabled {
+                    hostActions.openCloudMachinesBilling()
+                } else {
+                    hostActions.openCloudMachinesPanel()
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -89,13 +93,17 @@ public struct CloudMachinesSection: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                Text(String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."))
+                Text(vpnDescription)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Button(String(localized: "cloudTree.ports.setupVPN", defaultValue: "Set Up VPN…")) {
-                hostActions.openCloudVPNSetup()
+            Button(vpnActionTitle) {
+                if hostActions.isCloudMachinesEnabled {
+                    hostActions.openCloudVPNSetup()
+                } else {
+                    hostActions.openCloudMachinesPanel()
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -107,6 +115,12 @@ public struct CloudMachinesSection: View {
     }
 
     private var planSubtitle: String {
+        guard hostActions.isCloudMachinesEnabled else {
+            return String(
+                localized: "settings.cloudMachines.plan.enableFirst",
+                defaultValue: "Open the Machines tab to enable Cloud."
+            )
+        }
         guard let plan else {
             return hasLoaded
                 ? String(localized: "settings.cloudMachines.plan.unavailable", defaultValue: "Sign in to see your plan.")
@@ -127,9 +141,31 @@ public struct CloudMachinesSection: View {
     }
 
     private var manageButtonTitle: String {
+        guard hostActions.isCloudMachinesEnabled else {
+            return String(localized: "settings.cloudMachines.plan.enable", defaultValue: "Enable…")
+        }
         if let plan, !plan.isPaidPlan {
             return String(localized: "settings.cloudMachines.plan.upgrade", defaultValue: "Upgrade…")
         }
         return String(localized: "settings.cloudMachines.plan.manage", defaultValue: "Manage…")
+    }
+
+    private var vpnDescription: String {
+        if hostActions.isCloudMachinesEnabled {
+            return String(
+                localized: "cloud.vpn.setup.howItWorks.body",
+                defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."
+            )
+        }
+        return String(
+            localized: "settings.cloudMachines.vpn.enableFirst",
+            defaultValue: "Enable Cloud in the Machines tab before setting up private IP access."
+        )
+    }
+
+    private var vpnActionTitle: String {
+        hostActions.isCloudMachinesEnabled
+            ? String(localized: "cloudTree.ports.setupVPN", defaultValue: "Set Up VPN…")
+            : String(localized: "settings.cloudMachines.vpn.openMachines", defaultValue: "Open Machines")
     }
 }

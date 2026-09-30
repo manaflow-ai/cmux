@@ -205,10 +205,10 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         navigate(window, to: "Devices")
         let discovery = toggle(window, id: discoveryToggleID)
         let incomingAccess = toggle(window, id: incomingAccessToggleID)
-        // Match the note's own wording: "Beta Features" alone also matches
+        // Match the note's own wording: the old beta-label text also matches
         // the sidebar row and would pass without the note.
         let reason = window.staticTexts
-            .matching(NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", "Turn on Cloud Machines", "Turn on Cloud Machines"))
+            .matching(NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", "Enable Cloud Machines", "Enable Cloud Machines"))
             .firstMatch
         XCTAssertTrue(reason.waitForExistence(timeout: 4), "Devices should say to enable Cloud Machines in the Cloud tab")
 

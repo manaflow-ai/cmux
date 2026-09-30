@@ -7,6 +7,9 @@ extension HostSettingsActions {
     var isCloudMachinesAvailable: Bool {
         CloudMachinesFeature.isAvailable
     }
+    var isCloudMachinesEnabled: Bool {
+        CloudMachinesFeature.isEnabled
+    }
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
         guard CloudMachinesFeature.isEnabled else { return nil }
         guard let client = VMClient.shared else { return nil }

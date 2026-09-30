@@ -361,7 +361,7 @@ public protocol SettingsHostActions: AnyObject {
     /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
     /// false the Cloud Machines settings section renders nothing.
     var isCloudMachinesAvailable: Bool { get }
-
+    var isCloudMachinesEnabled: Bool { get }
     /// The caller's machine plan: plan name, machines in use, and the plan's
     /// machine ceiling. `nil` when signed out or the backend is unreachable.
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
@@ -486,7 +486,7 @@ public extension SettingsHostActions {
 
     /// Cloud Machines defaults for previews, tests, and package-only hosts:
     /// unavailable, no plan, no-op actions.
-    var isCloudMachinesAvailable: Bool { false }
+    var isCloudMachinesAvailable: Bool { false }; var isCloudMachinesEnabled: Bool { false }
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
     func openCloudMachinesPanel() {}
     func openCloudVPNSetup() {}

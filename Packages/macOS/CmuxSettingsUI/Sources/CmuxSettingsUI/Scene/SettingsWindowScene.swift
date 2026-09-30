@@ -191,6 +191,13 @@ public struct SettingsWindowRoot: View {
             cloudFeatureFlagRevision &+= 1
             leaveCloudSectionIfDisabledByPolicy()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("rightSidebarBetaFeatureDidChange"))) { _ in
+            // Cloud's first-use marker still uses the legacy notification so
+            // the registry and tunnel owners share one mutation path. Mirror
+            // that transition here so an already-open Settings window updates
+            // its plan and VPN actions immediately.
+            cloudFeatureFlagRevision &+= 1
+        }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
             // section row whenever the search text is cleared, so

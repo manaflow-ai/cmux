@@ -36,29 +36,40 @@ final class CloudActivationCoordinator {
     private let notificationCenter: NotificationCenter
     private let isAvailable: @MainActor () -> Bool
     private let prepare: @MainActor () async throws -> Void
+    private let cleanup: @MainActor () async -> Void
     private var activationTask: Task<Void, Never>?
+    private var activationID: UUID?
+    private var cleanupTask: Task<Void, Never>?
+    private var cleanupID: UUID?
     private var observations: [NSObjectProtocol] = []
 
     init(
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default,
         isAvailable: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isAvailable },
-        prepare: @escaping @MainActor () async throws -> Void
+        prepare: @escaping @MainActor () async throws -> Void,
+        cleanup: @escaping @MainActor () async -> Void = {},
+        observeChanges: Bool = true
     ) {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.isAvailable = isAvailable
         self.prepare = prepare
+        self.cleanup = cleanup
+        let isPersistedEnabled = defaults.object(forKey: Self.activationKey) as? Bool == true
         self.state = isAvailable()
-            ? (CloudMachinesFeature.localOptIn(defaults: defaults) ? .enabled : .disabled)
+            ? (isPersistedEnabled ? .enabled : .disabled)
             : .unavailable
-        observations = [
-            .cmuxFeatureFlagsDidChange,
-            RightSidebarBetaFeatureSettings.didChangeNotification,
-            ManagedDevicePolicy.didChangeNotification,
-        ].map { name in
-            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reconcile() }
+        if observeChanges {
+            observations = [
+                .cmuxFeatureFlagsDidChange,
+                RightSidebarBetaFeatureSettings.didChangeNotification,
+                ManagedDevicePolicy.didChangeNotification,
+                UserDefaults.didChangeNotification,
+            ].map { name in
+                notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.reconcile() }
+                }
             }
         }
     }
@@ -68,7 +79,8 @@ final class CloudActivationCoordinator {
         CloudActivationCoordinator(
             defaults: UserDefaults(suiteName: "cmux.cloud.unconfigured.\(UUID().uuidString)") ?? .standard,
             isAvailable: { false },
-            prepare: {}
+            prepare: {},
+            observeChanges: false
         )
     }
 
@@ -84,7 +96,27 @@ final class CloudActivationCoordinator {
             state = .unavailable
             return
         }
-        state = CloudMachinesFeature.localOptIn(defaults: defaults) ? .enabled : .disabled
+        let wasEnabled: Bool
+        if case .enabled = state {
+            wasEnabled = true
+        } else {
+            wasEnabled = false
+        }
+        let isPersistedEnabled = defaults.object(forKey: Self.activationKey) as? Bool == true
+        if isPersistedEnabled {
+            state = .enabled
+        } else {
+            switch state {
+            case .failed, .cancelled:
+                // Keep the actionable outcome visible until the user retries.
+                return
+            case .disabled, .enabling, .enabled, .unavailable:
+                state = .disabled
+            }
+        }
+        if wasEnabled, !isPersistedEnabled {
+            notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+        }
     }
 
     /// Starts the shared Cloud setup exactly once for the current activation.
@@ -96,23 +128,44 @@ final class CloudActivationCoordinator {
             return
         }
         state = .enabling
-        defaults.set(true, forKey: Self.activationKey)
+        let id = UUID()
+        activationID = id
+        let previousCleanup = cleanupTask
         activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.activationTask = nil }
+            defer {
+                if self.activationID == id {
+                    self.activationID = nil
+                    self.activationTask = nil
+                }
+            }
             do {
+                await previousCleanup?.value
+                try Task.checkCancellation()
+                guard self.activationID == id else { throw CancellationError() }
                 try await self.prepare()
-                guard !Task.isCancelled else { throw CancellationError() }
+                guard !Task.isCancelled, self.activationID == id else { throw CancellationError() }
+                guard self.isAvailable() else {
+                    await self.settle(id: id, state: .unavailable)
+                    return
+                }
+                self.defaults.set(true, forKey: Self.activationKey)
+                self.notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
                 self.state = .enabled
             } catch is CancellationError {
-                self.state = .cancelled
+                await self.settle(id: id, state: .cancelled)
             } catch let error as VMClientError {
-                self.state = .failed(Self.failure(for: error))
+                await self.settle(
+                    id: id,
+                    state: self.isAvailable() ? .failed(Self.failure(for: error)) : .unavailable
+                )
             } catch {
-                self.state = .failed(.serviceUnavailable)
+                await self.settle(
+                    id: id,
+                    state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
+                )
             }
         }
-        notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
     }
 
     /// Cancels first-use setup and returns to the disabled state without
@@ -122,10 +175,11 @@ final class CloudActivationCoordinator {
             state = .cancelled
             return
         }
-        activationTask?.cancel()
+        let task = activationTask
+        activationID = nil
         activationTask = nil
-        defaults.set(false, forKey: Self.activationKey)
-        notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+        task?.cancel()
+        scheduleCleanup(after: task)
         state = .cancelled
     }
 
@@ -141,8 +195,33 @@ final class CloudActivationCoordinator {
     /// not need this, but composition and behavior tests can await the same
     /// task without polling or sleeping.
     func waitForActivation() async {
-        guard let activationTask else { return }
-        await activationTask.value
+        await activationTask?.value
+        await cleanupTask?.value
+    }
+
+    private func settle(id: UUID, state: State) async {
+        guard activationID == id else { return }
+        await cleanup()
+        guard activationID == id else { return }
+        self.state = state
+    }
+
+    private func scheduleCleanup(after activationTask: Task<Void, Never>?) {
+        let id = UUID()
+        cleanupID = id
+        let cleanup = self.cleanup
+        cleanupTask = Task { @MainActor [weak self] in
+            await cleanup()
+            // Stop shared transports immediately, then wait for a
+            // cancellation-insensitive preparation closure to unwind before
+            // a retry can start. A second stop closes any late resource it
+            // managed to acquire while unwinding.
+            await activationTask?.value
+            await cleanup()
+            guard let self, self.cleanupID == id else { return }
+            self.cleanupID = nil
+            self.cleanupTask = nil
+        }
     }
 
     private static func failure(for error: VMClientError) -> Failure {

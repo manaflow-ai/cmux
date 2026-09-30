@@ -315,6 +315,9 @@ final class HiveComputersService {
     /// the Cloud gate's reason: managed policy, the activation marker, or the flag.
     private static var unavailableMessage: String? {
         guard !DevicesFeature.isAvailable() else { return nil }
+        guard CloudMachinesFeature.isAvailable else {
+            return CloudMachinesFeature.disabledMessage
+        }
         if !ManagedDevicePolicy().isEnforced(.disableCloud), !CloudMachinesFeature.localOptIn(defaults: .standard) {
             return String(localized: "settings.devices.cloudRequired", defaultValue: "Enable Cloud Machines in the Cloud tab to use My Devices.")
         }

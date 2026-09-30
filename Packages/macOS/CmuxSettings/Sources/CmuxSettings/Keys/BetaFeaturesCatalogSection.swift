@@ -66,11 +66,7 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    #if DEBUG
-    private static let cloudMachinesDefault = true
-    #else
     private static let cloudMachinesDefault = false
-    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as

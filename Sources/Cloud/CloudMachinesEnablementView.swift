@@ -6,6 +6,7 @@ import SwiftUI
 /// every setup outcome a recoverable action where one exists.
 struct CloudMachinesEnablementView: View {
     let coordinator: CloudActivationCoordinator
+    let accountFlow: HostAccountFlow?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -114,7 +115,17 @@ struct CloudMachinesEnablementView: View {
             .controlSize(.small)
             .accessibilityIdentifier("CloudMachinesEnableUpgradeButton")
             retryButton
-        case .failed(.signInRequired), .failed(.serviceUnavailable):
+        case .failed(.signInRequired):
+            if let accountFlow {
+                Button(String(localized: "cloud.enable.signIn.action", defaultValue: "Sign In")) {
+                    accountFlow.startSignIn()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("CloudMachinesEnableSignInButton")
+            }
+            retryButton
+        case .failed(.serviceUnavailable):
             retryButton
         case .enabled, .unavailable:
             EmptyView()
