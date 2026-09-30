@@ -168,6 +168,23 @@ class BackendScriptContractTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("completion signal received", completed.stdout)
 
+    def test_backend_up_hold_empty_state_dir_has_no_crash_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_script(
+                BACKEND_UP,
+                "hold",
+                env={
+                    "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
+                    "CMUX_E2E_BACKEND_STATE_DIR": directory,
+                    "CMUX_E2E_BACKEND_DONE_FILE": str(Path(directory) / "done"),
+                    "CMUX_E2E_WAIT_TIMEOUT_SECONDS": "1",
+                },
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("cat:", result.stderr)
+        self.assertNotIn("backend crash: *", result.stderr)
+
     def test_backend_up_rejects_unknown_commands(self) -> None:
         result = self.run_script(BACKEND_UP, "unknown", env={
             "CMUX_E2E_BACKEND_NAME": "cmux-e2e-backend.example.ts.net",
