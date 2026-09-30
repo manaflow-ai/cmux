@@ -392,3 +392,13 @@ func TestSendSubmitHooklessBusyCodexQueues(t *testing.T) {
 		t.Fatalf("output=%q keys=%v", output, mock.keys)
 	}
 }
+
+func TestSendSubmitShellGlyphPromptDoesNotProbe(t *testing.T) {
+	mock, socket := startSendSubmitMock(t, nil, []string{"❯ "})
+	if code := runCLI([]string{"--socket", socket, "send", "--submit", "echo hi"}); code != 0 {
+		t.Fatalf("bare shell prompt: exit %d", code)
+	}
+	if len(mock.keys) != 1 || mock.keys[0] != "return" {
+		t.Fatalf("keys = %v, want one return", mock.keys)
+	}
+}
