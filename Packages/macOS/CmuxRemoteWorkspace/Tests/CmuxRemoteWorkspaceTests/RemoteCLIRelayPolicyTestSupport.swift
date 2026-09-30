@@ -54,6 +54,18 @@ final class PolicyFakeUnixSocketServer: @unchecked Sendable {
         guard fd >= 0 else {
             throw NSError(domain: "PolicyFakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
         }
+        // Accepted sockets inherit SO_NOSIGPIPE from the listener. The relay
+        // closes its end without reading a reply whenever it abandons a round
+        // trip (a refused peer, a session closed mid-forward), and the reply
+        // write in `serve` must then fail with EPIPE instead of killing the
+        // test process. Setting it after accept fails with EINVAL once the
+        // relay has already closed.
+        var noSIGPIPE: Int32 = 1
+        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSIGPIPE, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            let optionErrno = errno  // capture before close() can overwrite errno
+            Darwin.close(fd)
+            throw NSError(domain: "PolicyFakeUnixSocketServer", code: Int(optionErrno), userInfo: [NSLocalizedDescriptionKey: "setsockopt(SO_NOSIGPIPE) failed errno=\(optionErrno)"])
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
