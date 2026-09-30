@@ -2,7 +2,8 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 import SwiftUI
 
-/// A persistent create row rendered at the end of its owning Cloud category.
+/// A persistent create row in its owning Cloud category: first under the Cloud
+/// Machines header, last in a machine's Workspaces category.
 enum CloudTreeCreateAction: Equatable {
     case newCloudVM
     case newWorkspace(SurfaceMachineID)

@@ -144,9 +144,16 @@ struct CloudTreeRowContentView: View {
         }
     }
     /// One section label ("Workspaces", "My Devices") in the shared group row,
-    /// so the row switch stays a list of one-line cases.
+    /// so the row switch stays a list of one-line cases. A top-level section
+    /// leads with its identity glyph in the shared icon slot.
+    @ViewBuilder
     private func groupRow(title: String) -> some View {
-        CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+        let label = CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+        if let symbol = kind.sectionHeaderSymbol {
+            CloudTreeSectionHeaderRow(style: style, symbol: symbol) { label }
+        } else {
+            label
+        }
     }
 
     /// The count a group header shows after its title ("My Devices 2"); nil shows none.
