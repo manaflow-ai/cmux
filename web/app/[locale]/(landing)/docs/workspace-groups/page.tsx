@@ -83,6 +83,7 @@ cmux workspace-group expand <group-id>
 cmux workspace-group pin <group-id>
 cmux workspace-group unpin <group-id>
 cmux workspace-group add --group <group-id> --workspace <workspace-id>
+cmux workspace-group join "Release" [--workspace <workspace-id>]
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]

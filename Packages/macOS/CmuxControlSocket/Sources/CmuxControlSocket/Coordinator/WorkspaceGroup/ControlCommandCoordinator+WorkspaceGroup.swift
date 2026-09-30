@@ -1,6 +1,5 @@
 internal import CmuxSettings
 internal import Foundation
-
 /// The workspace-group control domain (`workspace.group.*`). Payloads use typed
 /// ``JSONValue`` dictionaries, and destructive or ambient-state behavior must
 /// be expressed explicitly at this boundary.
@@ -36,6 +35,8 @@ extension ControlCommandCoordinator {
             return workspaceGroupAdd(request.params)
         case "workspace.group.remove":
             return workspaceGroupRemove(request.params)
+        case "workspace.group.join":
+            return workspaceGroupJoin(request.params)
         case "workspace.group.set_anchor":
             return workspaceGroupSetAnchor(request.params)
         case "workspace.group.new_workspace":
@@ -52,12 +53,10 @@ extension ControlCommandCoordinator {
             return nil
         }
     }
-
     // MARK: - Payload
-
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.
-    private func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
+    func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
         // Keep the established non-null id field for older control clients. A
         // header-only group uses its stable group id as a wire placeholder;
         // `is_empty` and the nullable typed snapshot distinguish it from a
@@ -578,5 +577,4 @@ extension ControlCommandCoordinator {
         if case .null = value { return true }
         return false
     }
-
 }

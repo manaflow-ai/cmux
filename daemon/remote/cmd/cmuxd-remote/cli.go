@@ -532,6 +532,7 @@ var workspaceGroupFlagKeys = map[string][]string{
 	"pin":           {"group", "window"},
 	"unpin":         {"group", "window"},
 	"add":           {"group", "workspace", "window"},
+	"join":          {"name", "workspace", "window"},
 	"remove":        {"workspace", "window"},
 	"set-anchor":    {"group", "workspace", "window"},
 	"new-workspace": {"group", "placement", "window"},
@@ -545,7 +546,7 @@ var workspaceGroupFlagKeys = map[string][]string{
 // "workspace-group" alias) by mapping each subcommand to its
 // workspace.group.* v2 method, mirroring the macOS cmux CLI flags.
 func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
-	const subcommandHint = "list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus"
+	const subcommandHint = "list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, join, remove, set-anchor, new-workspace, set-color, set-icon, move, focus"
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "cmux workspace group: requires a subcommand (%s)\n", subcommandHint)
 		return 2
@@ -643,6 +644,24 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 		}
 		params["group_id"] = gid
 		params["workspace_id"] = ws
+
+	case "join":
+		name, ok := parsed.flags["name"]
+		if !ok && len(positional) > 0 {
+			name = positional[0]
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return fail("requires a group name")
+		}
+		params["name"] = name
+		if ws, ok := parsed.flags["workspace"]; ok {
+			params["workspace_id"] = ws
+		} else if os.Getenv("CMUX_WORKSPACE_ID") == "" {
+			return fail("requires --workspace <id> when run outside a cmux terminal")
+		}
+		// Without --workspace, the env fallback below files the caller's own
+		// workspace.
 
 	case "remove":
 		ws, ok := parsed.flags["workspace"]
@@ -1406,7 +1425,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  mark-notification-read    Mark a notification as read")
 	fmt.Fprintln(os.Stderr, "  open-notification         Open a notification")
 	fmt.Fprintln(os.Stderr, "  workspace group <sub>     Manage sidebar workspace groups (list, create, ungroup,")
-	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, remove,")
+	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, join, remove,")
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")

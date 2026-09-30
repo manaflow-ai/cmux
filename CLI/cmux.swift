@@ -132,21 +132,18 @@ struct ClaudeHookSessionRecord: Codable {
             self.createdAt = createdAt
             self.requiresToolUseId = requiresToolUseId
         }
-
         static func identity(for normalizedCommand: String) -> (fingerprint: String, length: Int) {
             (
                 fingerprint: fingerprint(for: normalizedCommand),
                 length: normalizedCommand.utf8.count
             )
         }
-
         private static func normalizedCommand(_ value: String) -> String {
             value
                 .replacingOccurrences(of: "\r\n", with: "\n")
                 .replacingOccurrences(of: "\r", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
         private static func fingerprint(for value: String) -> String {
             var encoded: [UInt8] = []
             encoded.reserveCapacity(64)
@@ -156,7 +153,6 @@ struct ClaudeHookSessionRecord: Codable {
             }
             return String(decoding: encoded, as: UTF8.self)
         }
-
         private static func redactedPreview(for value: String) -> String {
             _ = value
             return String(
@@ -164,7 +160,6 @@ struct ClaudeHookSessionRecord: Codable {
                 defaultValue: "Approval needed"
             )
         }
-
         private enum CodingKeys: String, CodingKey {
             case commandFingerprint
             case commandLength
@@ -175,7 +170,6 @@ struct ClaudeHookSessionRecord: Codable {
             case requiresToolUseId
             case legacyCommand = "command"
         }
-
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             if let fingerprint = try container.decodeIfPresent(String.self, forKey: .commandFingerprint),
@@ -198,7 +192,6 @@ struct ClaudeHookSessionRecord: Codable {
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
-
         /// Encodes the persisted approval fields without emitting the
         /// decode-only legacy command. The legacy key is retained only for
         /// decoding stores written by older builds.
@@ -213,7 +206,6 @@ struct ClaudeHookSessionRecord: Codable {
             try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
         }
     }
-
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -283,16 +275,13 @@ struct ClaudeHookSessionRecord: Codable {
     /// eviction would let an old delayed callback consume a newer approval.
     var cursorShellCommandOnlyCorrelationDisabled: Bool? = nil
 }
-
 struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
     var updatedAt: TimeInterval
 }
-
 typealias AgentHookLaunchCommandRecord = AgentLaunchCommand
-
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
     var sessionId: String
@@ -302,7 +291,6 @@ private struct CodexMonitorLeaseRecord: Codable {
     var createdAt: TimeInterval
     var retiredAt: TimeInterval?
 }
-
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
     typealias CursorShellApprovalResolution = (
@@ -323,18 +311,15 @@ final class ClaudeHookSessionStore {
         cleared: Bool,
         notificationCorrelationKeys: [String]
     )
-
     final class CursorShellApprovalReconciliationLease {
         private var fileDescriptor: Int32
         private let lockStart: off_t
         private let lockLength: off_t
-
         init(fileDescriptor: Int32, lockStart: off_t, lockLength: off_t) {
             self.fileDescriptor = fileDescriptor
             self.lockStart = lockStart
             self.lockLength = lockLength
         }
-
         func release() {
             guard fileDescriptor >= 0 else { return }
             var lock = flock(
@@ -348,7 +333,6 @@ final class ClaudeHookSessionStore {
             Darwin.close(fileDescriptor)
             fileDescriptor = -1
         }
-
         deinit {
             release()
         }
@@ -367,12 +351,10 @@ final class ClaudeHookSessionStore {
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
-
     private let statePath: String
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -391,7 +373,6 @@ final class ClaudeHookSessionStore {
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
-
     func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
@@ -399,7 +380,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized]
         }
     }
-
     /// Records one Cursor shell command for atomic completion correlation.
     /// Cursor's after/failure hook payloads do not expose the native approval
     /// decision or a stable tool id, so the normalized command is the durable
@@ -552,7 +532,6 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     /// Resolves exactly one pending Cursor shell command, rejecting unrelated
     /// or sandboxed completions without touching visible notification state.
     /// The compare-and-remove happens under the store lock so overlapping hook
@@ -754,7 +733,6 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     /// Drops all pending Cursor shell approvals when a session stops or starts
     /// a new turn, returning the exact notification identities that were
     /// visible for those approvals.
@@ -806,7 +784,6 @@ final class ClaudeHookSessionStore {
             return (cleared: true, notificationCorrelationKeys: notificationCorrelationKeys)
         }
     }
-
     /// Whether another Cursor approval remains pending on the same surface.
     /// Used to keep a late completion from clearing a newer session's wait.
     func hasPendingCursorShellApproval(
@@ -845,13 +822,11 @@ final class ClaudeHookSessionStore {
             return false
         }
     }
-
     /// Pending approval ownership follows the globally stable surface id;
     /// workspace ids are transient while panes move between windows.
     private func cursorPendingSurfaceKey(surfaceId: String) -> String {
         surfaceId
     }
-
     private func hasUnexpiredCursorShellApproval(
         _ record: ClaudeHookSessionRecord,
         now: TimeInterval
@@ -860,7 +835,6 @@ final class ClaudeHookSessionStore {
             now - $0.createdAt <= Self.maxPendingCursorShellApprovalAgeSeconds
         } == true
     }
-
     private func addCursorPendingIndex(
         _ state: inout ClaudeHookSessionStoreFile,
         sessionId: String,
@@ -11483,7 +11457,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, join, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -11607,6 +11581,9 @@ struct CMUXCLI {
             params["workspace_id"] = wsId
             let resp = try client.sendV2(method: "workspace.group.add", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "join":
+            try runWorkspaceGroupJoin(rest: rest, params: &params, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "remove":
             let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
@@ -12223,8 +12200,7 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
-                sshFallbackCommand: initialSSHStartupCommand,
-                sshFallbackLauncherPaths: launchScripts.unlaunchedPaths
+                sshFallbackCommand: initialSSHStartupCommand
             )
             remoteTerminalSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
@@ -19725,6 +19701,7 @@ struct CMUXCLI {
                 localized: "cli.workspaceGroup.help.destructiveDelete",
                 defaultValue: "Delete the group AND close every member workspace. Explicitly destructive."
             )
+            let joinHelp = String(localized: "cli.workspaceGroup.help.join", defaultValue: "Move a workspace (default: this terminal's) into the group with this name, creating the group if none exists. Names match ignoring case. Safe to repeat.")
             let overview = String(
                 localized: "cli.workspaceGroup.help.overview",
                 defaultValue: "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
@@ -19752,6 +19729,7 @@ struct CMUXCLI {
               pin <group>
               unpin <group>
               add --group <group> --workspace <ws>
+              join <name> [--workspace <ws>] \(joinHelp)
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
               new-workspace <group> [--placement afterCurrent|top|end]
@@ -21689,7 +21667,7 @@ struct CMUXCLI {
     }
 
     /// Pick the display handle for an item dict based on --id-format.
-    private func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+    func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
         let ref = item["ref"] as? String
         let id = item["id"] as? String
         switch idFormat {

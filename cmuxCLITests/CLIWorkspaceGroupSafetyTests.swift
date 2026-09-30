@@ -59,7 +59,34 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(params["remove_generated_anchor"] as? Bool == true)
     }
 
-    private func run(_ arguments: [String]) async throws -> [String: Any] {
+    @Test func joinDefaultsToTheCallingWorkspace() async throws {
+        let workspaceID = UUID().uuidString
+        let request = try await run(
+            ["workspace", "group", "join", "Release", "--json"],
+            environment: ["CMUX_WORKSPACE_ID": workspaceID]
+        )
+        let params = try requestParams(request, method: "workspace.group.join")
+
+        #expect(params["name"] as? String == "Release")
+        #expect(params["workspace_id"] as? String == workspaceID)
+    }
+
+    @Test func joinForwardsAnExplicitWorkspace() async throws {
+        let workspaceID = UUID().uuidString
+        let request = try await run([
+            "workspace", "group", "join", "--name", " Sidebar work ",
+            "--workspace", workspaceID, "--json",
+        ])
+        let params = try requestParams(request, method: "workspace.group.join")
+
+        #expect(params["name"] as? String == "Sidebar work")
+        #expect(params["workspace_id"] as? String == workspaceID)
+    }
+
+    private func run(
+        _ arguments: [String],
+        environment overrides: [String: String] = [:]
+    ) async throws -> [String: Any] {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceGroupSafetyMockServer(socketPath: socketPath)
         let requestTask = server.start()
@@ -71,6 +98,7 @@ struct CLIWorkspaceGroupSafetyTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "2"
+        environment.merge(overrides) { _, override in override }
 
         let process = Process()
         let outputPipe = Pipe()

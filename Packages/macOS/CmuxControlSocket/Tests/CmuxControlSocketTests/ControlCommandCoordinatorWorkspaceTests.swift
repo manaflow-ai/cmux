@@ -157,7 +157,6 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.addWorkspaceToGroupCall?.placement == .afterCurrent)
         #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
     }
-
     @Test func workspaceGroupAddAcceptsNullReferenceWorkspaceID() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

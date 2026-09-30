@@ -199,6 +199,7 @@ extension TerminalController {
             "workspace.group.unpin",
             "workspace.group.add",
             "workspace.group.remove",
+            "workspace.group.join",
             "workspace.group.set_anchor",
             "workspace.group.new_workspace",
             "workspace.group.set_color",

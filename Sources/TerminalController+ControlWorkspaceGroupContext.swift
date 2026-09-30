@@ -286,6 +286,66 @@ extension TerminalController: ControlWorkspaceGroupContext {
         return .notFound
     }
 
+    func controlJoinWorkspaceGroup(
+        routing: ControlRoutingSelectors,
+        name: String,
+        workspaceID: UUID
+    ) -> ControlWorkspaceGroupJoinResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let tab = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return .workspaceNotFound
+        }
+        // Lookup, create and add run in this one main-actor turn, so two agents
+        // joining the same name at once end up in one group.
+        let existing = tabManager.workspaceGroups.first {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(name) == .orderedSame
+        }
+        if let existing {
+            if tab.groupId == existing.id {
+                return .joined(
+                    controlWorkspaceGroupSnapshot(existing, tabManager: tabManager),
+                    created: false,
+                    alreadyMember: true
+                )
+            }
+            // addWorkspaceToGroup silently no-ops for anchors of other groups.
+            tabManager.addWorkspaceToGroup(workspaceId: workspaceID, groupId: existing.id)
+            guard tab.groupId == existing.id,
+                  let group = tabManager.workspaceGroups.first(where: { $0.id == existing.id }) else {
+                return tabManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == workspaceID })
+                    ? .workspaceIsOtherGroupAnchor
+                    : .workspaceNotFound
+            }
+            return .joined(
+                controlWorkspaceGroupSnapshot(group, tabManager: tabManager),
+                created: false,
+                alreadyMember: false
+            )
+        }
+        // A new group would silently drop an anchor child and come out empty.
+        if tabManager.workspaceGroups.contains(where: { $0.liveAnchorWorkspaceId == workspaceID }) {
+            return .workspaceIsOtherGroupAnchor
+        }
+        // Same shape as New Group from Selection, without taking focus.
+        guard let groupID = tabManager.createWorkspaceGroup(
+            name: name,
+            childWorkspaceIds: [workspaceID],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ),
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
+            return .notCreated
+        }
+        return .joined(
+            controlWorkspaceGroupSnapshot(group, tabManager: tabManager),
+            created: true,
+            alreadyMember: false
+        )
+    }
+
     func controlRemoveWorkspaceFromGroup(
         routing: ControlRoutingSelectors,
         workspaceID: UUID

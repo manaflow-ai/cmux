@@ -21,6 +21,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         placement: WorkspaceGroupNewPlacement?,
         referenceWorkspaceID: UUID?
     )?
+    var joinWorkspaceGroupResolution: ControlWorkspaceGroupJoinResolution = .tabManagerUnavailable
+    var joinWorkspaceGroupCall: (name: String, workspaceID: UUID)?
     var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
     var terminalSessionConnectedResolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution = .notFound
     var terminalSessionLaunchingCall: (
@@ -147,6 +149,15 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlJoinWorkspaceGroup(
+        routing: ControlRoutingSelectors,
+        name: String,
+        workspaceID: UUID
+    ) -> ControlWorkspaceGroupJoinResolution {
+        joinWorkspaceGroupCall = (name: name, workspaceID: workspaceID)
+        return joinWorkspaceGroupResolution
     }
 
     func controlReorderWorkspace(
