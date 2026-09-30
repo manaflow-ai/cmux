@@ -183,6 +183,36 @@ export type FreestyleProviderDependencies = {
   readonly client: (timeoutMs?: number) => Freestyle;
 };
 
+export type FreestylePreconnectOptions = {
+  readonly baseUrl?: string;
+  readonly fetch?: typeof fetch;
+  readonly timeoutMs?: number;
+};
+
+type FreestyleWarmupState = { promise?: Promise<void> };
+
+const freestyleWarmupStates = new WeakMap<object, FreestyleWarmupState>();
+
+const globalForFreestyle = globalThis as typeof globalThis & {
+  __cmuxFreestyleClients?: Map<string, Freestyle>;
+};
+
+function warmupStateFor(fetchImpl: typeof fetch): FreestyleWarmupState {
+  const key = fetchImpl as unknown as object;
+  const existing = freestyleWarmupStates.get(key);
+  if (existing) return existing;
+  const state: FreestyleWarmupState = {};
+  freestyleWarmupStates.set(key, state);
+  return state;
+}
+
+async function warmFreestyleConnection(options: Required<FreestylePreconnectOptions>): Promise<void> {
+  await options.fetch(`${options.baseUrl}/`, {
+    method: "HEAD",
+    signal: AbortSignal.timeout(options.timeoutMs),
+  });
+}
+
 /**
  * FREESTYLE_API_URL stays as an operator escape hatch (a staging edge); unset,
  * the SDK's own default — the public api.freestyle.sh — is used. The
@@ -193,15 +223,35 @@ export type FreestyleProviderDependencies = {
  * first Freestyle call of a function invocation paid about 130 ms of DNS, TCP,
  * and TLS in production (vpc.get: 150 ms from pdx1, 12 ms warm); a route fires
  * this while it is still verifying the caller so the real call finds the
- * connection in undici's pool. Best effort, never awaited for correctness.
+ * connection in undici's pool. Concurrent route requests share one in-flight
+ * warm-up, and a failed probe is best-effort so provider errors remain typed.
  */
-export function preconnectFreestyle(): void {
-  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
-  fetch(`${baseUrl}/`, { method: "HEAD", signal: AbortSignal.timeout(3_000) }).catch(() => undefined);
+export function preconnectFreestyle(options: FreestylePreconnectOptions = {}): Promise<void> {
+  const baseUrl = options.baseUrl?.trim() || process.env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
+  const fetchImpl = options.fetch ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 3_000;
+  const state = warmupStateFor(fetchImpl);
+  if (state.promise) return state.promise;
+  const promise = warmFreestyleConnection({ baseUrl, fetch: fetchImpl, timeoutMs }).catch(() => undefined);
+  const settled = promise.finally(() => {
+    if (state.promise === settled) state.promise = undefined;
+  });
+  state.promise = settled;
+  return settled;
 }
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
+  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
+  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
+  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
+  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
+  const credentialKind = apiKey ? "api-key" : stackAccessToken && teamId ? "stack" : "missing";
+  const cacheKey = `${baseUrl ?? "https://api.freestyle.sh"}|${credentialKind}|${timeoutMs}`;
+  const clients = globalForFreestyle.__cmuxFreestyleClients ??= new Map<string, Freestyle>();
+  const cached = clients.get(cacheKey);
+  if (cached) return cached;
+
   const longFetch = freestyleRequestFetch({
     timeoutMs,
     record: process.env.NODE_ENV === "development" ? (event) => {
@@ -211,18 +261,19 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
       }));
     } : undefined,
   });
-  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  const apiKey = process.env.FREESTYLE_API_KEY?.trim();
-  if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
-  const stackAccessToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim();
-  const teamId = process.env.FREESTYLE_TEAM_ID?.trim();
-  if (stackAccessToken && teamId) {
-    return new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch });
+  const client = apiKey
+    ? new Freestyle({ apiKey, baseUrl, fetch: longFetch })
+    : stackAccessToken && teamId
+      ? new Freestyle({ stackAccessToken, teamId, baseUrl, fetch: longFetch })
+      : null;
+  if (!client) {
+    throw new ProviderError(
+      "freestyle",
+      "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
+    );
   }
-  throw new ProviderError(
-    "freestyle",
-    "freestyle requires FREESTYLE_API_KEY (or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID)",
-  );
+  clients.set(cacheKey, client);
+  return client;
 }
 
 /**
@@ -935,8 +986,12 @@ export class FreestyleProvider implements VMProvider {
       },
       async (span) => {
         try {
+          const clientStartedAt = performance.now();
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const clientInitMs = Math.round((performance.now() - clientStartedAt) * 100) / 100;
+          setSpanAttributes(span, { "cmux.vm.provider.client_init_ms": clientInitMs });
           const networkId = options.network?.id;
+          const providerStartedAt = performance.now();
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
@@ -951,9 +1006,14 @@ export class FreestyleProvider implements VMProvider {
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
+          const providerMs = Math.round((performance.now() - providerStartedAt) * 100) / 100;
           setSpanAttributes(span, {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
+            // The SDK resolves only after the provider response has been
+            // decoded, so this is both API provisioning and machine-id receipt.
+            "cmux.vm.provider.api_provision_ms": providerMs,
+            "cmux.vm.provider.machine_id_receipt_ms": providerMs,
           });
           try {
             // Validate the provider-assigned VPC address without issuing the
