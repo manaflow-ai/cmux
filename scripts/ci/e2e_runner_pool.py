@@ -131,6 +131,7 @@ from typing import Any, Protocol
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+import simple_pool_picker  # noqa: E402
 
 SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
@@ -548,6 +549,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
+
+    # Auto choices use the shared live rule. Explicit labels retain the
+    # workflow's direct-request contract and its validation below.
+    if not args.retry_of and (args.requested or "auto").strip() == "auto":
+        values = dict(env)
+        values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
+                       "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,
+                       "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app})
+        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+            token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
+            repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
+            jobs=1, env=values, fork=values.get("FORK_PULL_REQUEST") == "true"))
+        print(choice.label or args.variable or SMALL_RUNNER)
+        return 0
     if args.retry_of is not None:
         print(retry_runner(args.retry_of.strip(), ui=ui_run(args.test_filter)))
         return 0

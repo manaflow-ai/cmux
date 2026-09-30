@@ -722,29 +722,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          CI_PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-          # Rounds of queue a pool may hold, owned or Blacksmith (default 1; 0 off).
           POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
-          # Owned Mac pools (off unless 1), their machine counts, and the lane
-          # Xcode whose version names their label (glaeda-std-xcode-26.6).
-          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          # 1 lets a run take the owned machines that are free and send its
-          # other jobs to Blacksmith, instead of all or nothing (off unless 1).
+          # Owned Mac pools (off unless 1), their live capacity, and the lane
+          # Xcode whose version names their label.
+          CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
-          # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
-          # Machines and root runners main's dispatch leaves free (default 0).
           CMUX_CI_XCODE_APP_PR: ${{ (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-          # This run's macOS jobs, from the routing above, so an owned pool is
-          # taken only when every job of the run gets a machine at once.
+          # The run's machine count. A chosen label is never split.
           RUN_MACOS: ${{ steps.detect.outputs.macos }}
           RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
           RUN_UNIT_SUITE: ${{ steps.suite.outputs.unit_suite }}
@@ -753,21 +747,13 @@ jobs:
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
-          # swift-package-tests takes an owned Mac when it builds no SDK 15
-          # Release helper (full suite plus release_build), which the minis
-          # cannot build (pr_runner_pool.package_lane_owned()).
           RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
           RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
-          # The main commit this run merges onto: compile admission may take
-          # the root runner the snapshot calls warm for it (warm affinity).
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
-          # Or, failing that, the root runner warm for this pull request.
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
-          # 0 pins admission on exact warm keys only; otherwise every mini's
-          # kept builds are scored by distance (warm_distance.distance_route()).
           OWNED_WARM_DISTANCE: ${{ vars.CI_OWNED_WARM_DISTANCE }}
-        run: python3 scripts/ci/pr_runner_pool.py
+        run: python3 scripts/ci/simple_pool_picker.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. ci-owned-pool-rescue.yml's sweeper, running from main,
