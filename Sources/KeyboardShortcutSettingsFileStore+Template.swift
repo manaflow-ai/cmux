@@ -142,6 +142,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebar": [
+                    "density": SettingCatalog().sidebar.density.defaultValue.rawValue,
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,

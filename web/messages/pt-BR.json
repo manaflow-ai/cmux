@@ -2084,6 +2084,7 @@
           "compactAgentStatus": "Mostrar cada workspace em uma única linha: um ícone colorido antes do título indica o estado do agente, dos não lidos e da pull request e substitui as linhas de status dos agentes (por exemplo, Em execução ou Precisa de entrada), a linha de branch e diretório e as linhas de pull request, cujos detalhes passam para a dica do ícone. As outras entradas de status mantêm suas linhas.",
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
+          "density": "Nível padrão de detalhes dos espaços de trabalho na barra lateral. full mostra todos os detalhes; compact oculta a última linha de log e limita as prévias de notificação a duas linhas; quiet mostra apenas a linha do título e os indicadores de não lido e de atividade de agentes. Configurações de detalhe definidas explicitamente, como sidebar.showPorts, têm prioridade sobre a densidade. hideAllDetails continua ocultando tudo.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
         },
         "fileExplorer": {

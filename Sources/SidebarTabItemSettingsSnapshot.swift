@@ -73,8 +73,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
         compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
         let detailVisibility = SidebarWorkspaceDetailVisibility(
-            showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
-            showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
+            showWorkspaceDescription: settings.sidebarDetailValue(for: sidebar.showWorkspaceDescription),
+            showNotificationMessage: settings.sidebarDetailValue(for: sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
@@ -82,7 +82,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(
             max(
-                settings.value(for: sidebar.notificationMessageLineLimit),
+                settings.sidebarNotificationMessageLineLimit(),
                 SidebarCatalogSection.notificationMessageLineLimitRange.lowerBound
             ),
             SidebarCatalogSection.notificationMessageLineLimitRange.upperBound

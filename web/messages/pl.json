@@ -2085,6 +2085,7 @@
           "compactAgentStatus": "Pokazuj każdy obszar roboczy w jednym wierszu: jedna kolorowa ikona przed tytułem pokazuje stan agenta, nieprzeczytanych i pull requesta oraz zastępuje wiersze stanu agentów (na przykład Działa lub Wymaga danych), wiersz gałęzi i katalogu oraz wiersze pull requestów, których szczegóły trafiają do podpowiedzi ikony. Pozostałe wpisy stanu zachowują własne wiersze.",
           "compactStatusIcons": "Nazwy SF Symbols zastępujące glif compactAgentStatus dla każdego stanu, na przykład {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nieustawione stany zachowują wbudowany symbol, a nazwa, której nie da się wyświetlić, wraca do niego.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
+          "density": "Domyślny poziom szczegółów obszarów roboczych na pasku bocznym. full pokazuje wszystkie szczegóły; compact ukrywa ostatni wiersz dziennika i ogranicza podglądy powiadomień do dwóch wierszy; quiet pokazuje tylko wiersz tytułu oraz wskaźniki nieprzeczytanych i aktywności agentów. Jawnie ustawione opcje szczegółów, np. sidebar.showPorts, mają pierwszeństwo przed gęstością. hideAllDetails nadal ukrywa wszystko.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

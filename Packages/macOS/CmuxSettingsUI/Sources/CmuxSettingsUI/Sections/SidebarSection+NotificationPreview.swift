@@ -10,8 +10,8 @@ extension SidebarSection {
             controlWidth: 100
         ) {
             Stepper(
-                "\(notificationMessageLineLimit.current)",
-                value: Binding(get: { notificationMessageLineLimit.current }, set: { notificationMessageLineLimit.set($0) }),
+                "\(effectiveNotificationMessageLineLimit)",
+                value: Binding(get: { effectiveNotificationMessageLineLimit }, set: { notificationMessageLineLimit.set($0) }),
                 in: SidebarCatalogSection.notificationMessageLineLimitRange
             )
             .accessibilityIdentifier("SettingsSidebarNotificationMessageLineLimitStepper")
@@ -19,6 +19,6 @@ extension SidebarSection {
                 String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines")
             )
         }
-        .disabled(hideAll.current || !showNotification.current)
+        .disabled(hideAll.current || !effectiveDetailValue(showNotification, key: catalog.sidebar.showNotificationMessage))
     }
 }

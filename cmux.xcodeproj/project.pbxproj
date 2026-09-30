@@ -3052,6 +3052,7 @@
 		71D6C8FB21FA9335AC60ECD2 /* SidebarCompactStatusGlyph+Resolve.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2558AE4F66A522BE42F1802 /* SidebarCompactStatusGlyph+Resolve.swift */; };
 		7CB5B5D87E4CCA04CACEAEB0 /* SidebarCompactStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A56F37BE9679A42D1CA606 /* SidebarCompactStatusGlyph.swift */; };
 		4653DE3101390738A2CF02E0 /* SidebarCompactStatusGlyphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF059E045A7A63F7202EE198 /* SidebarCompactStatusGlyphView.swift */; };
+		884459C6E82787081D179D66 /* SidebarDensityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB458C70DE5D1C097C5CDCBD /* SidebarDensityTests.swift */; };
 		A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */; };
 		EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1F00000000000000000004 /* SidebarDirectoryText.swift */; };
 		B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0270000000000000027 /* SidebarDividerTrackingView.swift */; };
@@ -7233,6 +7234,7 @@
 		E2558AE4F66A522BE42F1802 /* SidebarCompactStatusGlyph+Resolve.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarCompactStatusGlyph+Resolve.swift"; sourceTree = "<group>"; };
 		28A56F37BE9679A42D1CA606 /* SidebarCompactStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarCompactStatusGlyph.swift; sourceTree = "<group>"; };
 		EF059E045A7A63F7202EE198 /* SidebarCompactStatusGlyphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarCompactStatusGlyphView.swift; sourceTree = "<group>"; };
+		EB458C70DE5D1C097C5CDCBD /* SidebarDensityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarDensityTests.swift"; sourceTree = "<group>"; };
 		A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarDerivedStateScaleTests.swift; sourceTree = "<group>"; };
 		EA1F00000000000000000004 /* SidebarDirectoryText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDirectoryText.swift; sourceTree = "<group>"; };
 		B804B0270000000000000027 /* SidebarDividerTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDividerTrackingView.swift; sourceTree = "<group>"; };
@@ -12746,6 +12748,7 @@
 				A29C9B70624D86CFFD27EFEE /* CmuxEventSequenceStoreTests.swift */,
 				BCAE531397347899AA9F4E4E /* CloudCursorlessSnapshotTests.swift */,
 				FF5E22859B10B563032FECE7 /* CloudLinkRetryBackoffTests.swift */,
+				EB458C70DE5D1C097C5CDCBD /* SidebarDensityTests.swift */,
 				DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */,
 				5D45948E0E0E282796BE8936 /* NotificationSuppressWhenAppFocusedTests.swift */,
 				4772A4FA42EB29D54779B2F4 /* GhosttyConfigDiagnosticsNoticePlacementTests.swift */,
@@ -17333,6 +17336,7 @@
 				FE9F9435374CB344628420AB /* SidebarBoundedDisplayStringTests.swift in Sources */,
 				9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */,
 				5EB96EEB7197F4186489176F /* SidebarCompactAgentStatusTests.swift in Sources */,
+				884459C6E82787081D179D66 /* SidebarDensityTests.swift in Sources */,
 				A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */,
 				B804C0010000000000009043 /* SidebarEmptyAreaNewWorkspaceActionTests.swift in Sources */,
 				9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */,

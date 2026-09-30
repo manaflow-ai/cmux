@@ -44,6 +44,12 @@ public actor UserDefaultsSettingsStore {
         storage.value(for: key)
     }
 
+    /// Synchronously reports whether the suite stores an explicit value for
+    /// the key, as opposed to falling back to its default.
+    public nonisolated func initialHasStoredValue<Value>(for key: DefaultsKey<Value>) -> Bool {
+        storage.hasStoredValue(for: key.userDefaultsKey)
+    }
+
     /// Writes a value for the key.
     @discardableResult
     public func set<Value>(

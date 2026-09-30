@@ -15,6 +15,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         vertical || explicit
     }
 
+    /// How much secondary detail workspace rows show (`sidebar.density`).
+    /// Supplies defaults for the detail toggles below; see ``SidebarDensity``.
+    public let density = DefaultsKey<SidebarDensity>(
+        id: "sidebar.density",
+        defaultValue: .full,
+        userDefaultsKey: "sidebarDensity"
+    )
+
     public let hideAllDetails = DefaultsKey<Bool>(
         id: "sidebar.hideAllDetails",
         defaultValue: false,

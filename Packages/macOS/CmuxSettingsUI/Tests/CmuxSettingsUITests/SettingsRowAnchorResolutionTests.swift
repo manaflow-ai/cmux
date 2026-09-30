@@ -110,6 +110,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.soundWhenFocused",
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
+        "sidebar.density",
         "sidebar.hideAllDetails",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPortLinksInCmuxBrowser",

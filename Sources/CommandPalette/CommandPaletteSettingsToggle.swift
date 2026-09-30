@@ -51,6 +51,13 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         self.sectionTitle = sectionTitle
         self.keywords = keywords
         self.isOn = { defaults in
+            if SidebarDensity.governedSettingIDs.contains(settingsKey) {
+                // Sidebar detail toggles resolve like the sidebar does: an
+                // explicit value, else the `sidebar.density` preset.
+                return UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(
+                    for: DefaultsKey(id: settingsKey, defaultValue: defaultValue, userDefaultsKey: defaultsKey)
+                )
+            }
             if defaults.object(forKey: defaultsKey) == nil {
                 return defaultValue
             }
@@ -172,11 +179,7 @@ enum CommandPaletteSettingsToggleCommands {
         }
         let sidebarPortLinksAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             sidebarDetailsAvailable(defaults)
-                && SidebarWorkspaceDetailDefaults.boolValue(
-                    defaults: defaults,
-                    key: SidebarWorkspaceDetailDefaults.showPortsKey,
-                    defaultValue: SidebarWorkspaceDetailDefaults.showPorts
-                )
+                && UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(for: SettingCatalog().sidebar.showPorts)
         }
 
         return [
@@ -995,6 +998,48 @@ enum CommandPaletteSettingsToggleCommands {
     }()
 }
 
+/// Palette commands that switch `sidebar.density`, one per density.
+///
+/// Owns its settings client so the palette and its tests share one write path
+/// instead of threading a `UserDefaults` through every call.
+struct CommandPaletteSidebarDensityCommands {
+    static let commandIdPrefix = "palette.sidebarDensity."
+
+    private let settings: UserDefaultsSettingsClient
+    private let densityKey: DefaultsKey<SidebarDensity>
+
+    init(defaults: UserDefaults = .standard, catalog: SettingCatalog = SettingCatalog()) {
+        settings = UserDefaultsSettingsClient(defaults: defaults)
+        densityKey = catalog.sidebar.density
+    }
+
+    func commandId(for density: SidebarDensity) -> String {
+        Self.commandIdPrefix + density.rawValue
+    }
+
+    func title(for density: SidebarDensity) -> String {
+        let format = String(localized: "command.sidebarDensity.title", defaultValue: "Set Sidebar Density: %@")
+        return String.localizedStringWithFormat(format, SidebarSection.densityLabel(density))
+    }
+
+    func subtitle(for density: SidebarDensity) -> String {
+        let section = String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
+        guard current() == density else { return section }
+        let format = String(localized: "command.sidebarDensity.subtitleCurrent", defaultValue: "%@ • Current")
+        return String.localizedStringWithFormat(format, section)
+    }
+
+    func current() -> SidebarDensity {
+        settings.value(for: densityKey)
+    }
+
+    /// The single write path for switching density from the palette. Settings
+    /// writes the same key through its `DefaultsValueModel`.
+    func apply(_ density: SidebarDensity) {
+        settings.set(density, for: densityKey)
+    }
+}
+
 extension ContentView {
     nonisolated static func commandPaletteSettingsToggleCommandContributions() -> [CommandPaletteCommandContribution] {
         CommandPaletteSettingsToggleCommands.descriptors.map { descriptor in
@@ -1008,10 +1053,31 @@ extension ContentView {
         }
     }
 
+    nonisolated static func commandPaletteSidebarDensityCommandContributions() -> [CommandPaletteCommandContribution] {
+        let commands = CommandPaletteSidebarDensityCommands()
+        return SidebarDensity.allCases.map { density in
+            CommandPaletteCommandContribution(
+                commandId: commands.commandId(for: density),
+                title: { _ in commands.title(for: density) },
+                subtitle: { _ in commands.subtitle(for: density) },
+                keywords: ["sidebar.density", "sidebar", "density", "details", "settings", density.rawValue]
+            )
+        }
+    }
+
     func registerSettingsToggleCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         for descriptor in CommandPaletteSettingsToggleCommands.descriptors {
             registry.register(commandId: descriptor.commandId) {
                 descriptor.toggle()
+            }
+        }
+    }
+
+    func registerSidebarDensityCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        let commands = CommandPaletteSidebarDensityCommands()
+        for density in SidebarDensity.allCases {
+            registry.register(commandId: commands.commandId(for: density)) {
+                commands.apply(density)
             }
         }
     }

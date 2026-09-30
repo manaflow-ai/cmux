@@ -64,19 +64,12 @@ enum SidebarWorkspaceTitleWrapSettings {
 }
 
 extension SidebarWorkspaceDetailDefaults {
-    static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(for: SidebarCatalogSection().showPullRequests)
     }
 
     static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
+        UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(for: SidebarCatalogSection().showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {

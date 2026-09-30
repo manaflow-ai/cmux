@@ -2084,6 +2084,7 @@
           "compactAgentStatus": "Jeden Workspace in einer Zeile anzeigen: Ein farbiges Symbol vor dem Titel zeigt Agenten-, Ungelesen- und Pull-Request-Status und ersetzt die Status-Zeilen von Agenten (zum Beispiel „Wird ausgeführt“ oder „Eingabe erforderlich“), die Branch- und Verzeichniszeile sowie die Pull-Request-Zeilen, deren Details in den Tooltip des Symbols wandern. Andere Statuseinträge behalten ihre eigenen Zeilen.",
           "compactStatusIcons": "SF-Symbol-Namen, die das compactAgentStatus-Symbol je Zustand ersetzen, zum Beispiel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nicht gesetzte Zustände behalten das eingebaute Symbol, und ein Name, der nicht darstellbar ist, fällt darauf zurück.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
+          "density": "Standardumfang der Arbeitsbereichsdetails in der Seitenleiste. full zeigt alle Details; compact blendet die letzte Logzeile aus und begrenzt Benachrichtigungsvorschauen auf zwei Zeilen; quiet zeigt nur die Titelzeile sowie Ungelesen- und Agentenaktivitätsanzeigen. Explizit gesetzte Detaileinstellungen wie sidebar.showPorts haben Vorrang vor der Dichte. hideAllDetails blendet weiterhin alles aus.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {
