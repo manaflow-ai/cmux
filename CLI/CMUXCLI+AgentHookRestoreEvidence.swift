@@ -299,7 +299,9 @@ extension CMUXCLI {
         before capturedAt: TimeInterval
     ) -> [String] {
         let expandedPath = (transcriptPath as NSString).expandingTildeInPath
-        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
+        // Only Codex's own session transcripts count as evidence.
+        guard Self.isCodexTranscript(expandedPath),
+              let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
         defer { try? handle.close() }
         guard let endOffset = try? handle.seekToEnd() else { return [] }
         let formatter = ISO8601DateFormatter()
@@ -332,6 +334,17 @@ extension CMUXCLI {
         return codexPermissionArguments(from: pending, before: capturedAt, formatter: formatter) ?? []
     }
 
+    /// Whether `path` resolves (symlinks included) inside Codex's home
+    /// (`CODEX_HOME`, default `~/.codex`).
+    static func isCodexTranscript(_ path: String) -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        let home = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".codex")
+        let root = URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        return resolved.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
     private func codexPermissionArguments(
         from line: Data,
         before capturedAt: TimeInterval,
@@ -350,18 +363,15 @@ extension CMUXCLI {
         let sandboxMode = (payload["sandbox_policy"] as? [String: Any]).flatMap {
             normalizedHookValue($0["type"] as? String)
         }
-        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
-            return ["--yolo"]
-        }
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
+        // The transcript path comes from the hook payload, so this evidence
+        // may never widen what the restored Codex can do: no `--yolo`, no
+        // sandbox bypass, no full-access sandbox. Those return only from the
+        // captured launch command itself.
         var arguments: [String] = []
-        if let approvalPolicy {
+        if let approvalPolicy, ["untrusted", "on-failure", "on-request", "never"].contains(approvalPolicy) {
             arguments.append(contentsOf: ["-a", approvalPolicy])
         }
-        if let sandboxMode,
-           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
+        if let sandboxMode, ["read-only", "workspace-write"].contains(sandboxMode) {
             arguments.append(contentsOf: ["-s", sandboxMode])
         }
         return arguments.isEmpty ? nil : arguments
