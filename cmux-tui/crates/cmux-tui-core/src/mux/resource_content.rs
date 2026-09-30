@@ -37,7 +37,7 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
@@ -236,7 +236,19 @@ impl Mux {
                     },
                 ))
             },
-        )
+        )?;
+        self.emit_raw_tree_changed(&commit);
+        Ok(commit)
+    }
+
+    /// Raw v12 clients subscribed with `tree_events` learn about a tab that
+    /// a resource content mutation added or moved: the resource journal
+    /// alone reaches only resource API v2 subscribers. A replay commits
+    /// nothing new and stays quiet.
+    fn emit_raw_tree_changed(&self, commit: &ResourcePatchCommit) {
+        if !commit.replayed {
+            self.emit(super::MuxEvent::TreeChanged);
+        }
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -575,6 +587,7 @@ impl Mux {
                 );
             }
         }
+        self.emit_raw_tree_changed(&commit);
         Ok(commit)
     }
 }
