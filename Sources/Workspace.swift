@@ -197,8 +197,11 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID) },
+            cloudVM: cloudVMBinding.map {
+                SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID, teamID: $0.teamID)
+            },
             surfaceProjections: surfaceProjectionRecordsForSession,
+            cloudMachineTeams: cloudMachineTeamsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
@@ -286,7 +289,12 @@ extension Workspace {
         }
         // The binding survives restore so the machine's workspace is found again; its pane's
         // link was a process and is not reconnected here (a fresh open re-attaches).
-        cloudVMBinding = Self.restoredCloudVMBinding(from: snapshot.cloudVM)
+        // Owning teams go to the registry before any pane restores, so a pane
+        // of a team other than the selected one reconnects with its own team.
+        adoptRestoredCloudMachineTeams(snapshot)
+        // A legacy binding without a team adopts the selected team and is
+        // persisted with it from then on.
+        cloudVMBinding = Self.restoredCloudVMBinding(from: snapshot.cloudVM)?.adoptingOwningTeam()
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -746,6 +754,7 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
                 resumeWithContinuation: localTmuxStartCommand == nil
                     ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
                     : nil
@@ -775,7 +784,8 @@ extension Workspace {
                     forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                     transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewerComponents?.token,
-                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession
+                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession,
+                    cloudTeamID: browserPanel.cloudTeamIDForSession
                 )
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
                 // A deferred panel already owns the exact persisted browser DTO;
@@ -2204,6 +2214,7 @@ extension Workspace {
                 }
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
+            terminalPanel.restoreExplicitInputState(snapshot.terminal?.hasReceivedExplicitInput ?? true)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             armRestoredPanelTitleBoundary(
                 panelId: terminalPanel.id,
@@ -6948,18 +6959,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
-    /// Whether remote listening-port discovery may run, derived from the global
-    /// sidebar ports-visibility settings. Mirrors the sidebar's own precedence
-    /// (`sidebar.hideAllDetails` wins over `sidebar.showPorts`, see
-    /// `SidebarWorkspaceAuxiliaryDetailVisibility.resolved`): when the ports
-    /// detail is not displayed there is nothing for the remote scans to
-    /// populate, so the backend ssh port-scan loop is suspended (issue #6123).
+    /// Whether remote listening-port discovery may run. Local and remote scans
+    /// share one rule, so both stop when the ports detail is hidden
+    /// (issue #6123).
     static func remotePortScanningEnabledFromSettings(defaults: UserDefaults = .standard) -> Bool {
-        let settings = UserDefaultsSettingsClient(defaults: defaults)
-        let catalog = SettingCatalog()
-        let showsPorts = settings.value(for: catalog.sidebar.showPorts)
-        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
-        return showsPorts && !hidesAllDetails
+        SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: defaults)
     }
 
     /// Pushes the current remote port-scanning enablement to this workspace's
