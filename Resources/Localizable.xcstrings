@@ -269026,65 +269026,6 @@
         }
       }
     },
-    "pricing.native.compare.cloud.free": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 VM trial"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM トライアル 1 回"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 个 VM 试用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 Test-VM"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Essai d’une VM"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجربة جهاز افتراضي واحد"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prueba de 1 VM"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 個 VM 試用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VM 1개 체험"
-          }
-        }
-      }
-    },
     "pricing.native.compare.cloud.pro": {
       "extractionState": "manual",
       "localizations": {
@@ -269258,23 +269199,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "동시 실행 Cloud VM"
-          }
-        }
-      }
-    },
-    "pricing.native.compare.concurrent.free": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1"
           }
         }
       }
@@ -270853,6 +270777,65 @@
         }
       }
     },
+    "pricing.native.free.feature.history": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local session history"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルセッション履歴"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地会话历史"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Sitzungsverlauf"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historique de session local"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجل جلسات محلي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historial de sesiones locales"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地工作階段歷程紀錄"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 세션 기록"
+          }
+        }
+      }
+    },
     "pricing.native.free.feature.terminal": {
       "extractionState": "manual",
       "localizations": {
@@ -270908,65 +270891,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "네이티브 Ghostty 기반 터미널"
-          }
-        }
-      }
-    },
-    "pricing.native.free.feature.trial": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Local session history and one Cloud VM trial"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルセッション履歴と Cloud VM の1回分トライアル"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地会话历史与一次 Cloud VM 试用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lokaler Sitzungsverlauf und eine Cloud-VM-Testversion"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Historique de session local et essai d’une VM cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سجل جلسات محلي وتجربة لجهاز افتراضي سحابي واحد"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Historial de sesiones locales y una prueba de VM en la nube"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地工作階段歷程紀錄與一個 Cloud VM 試用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로컬 세션 기록 및 Cloud VM 1개 체험"
           }
         }
       }
@@ -290059,55 +289983,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
+            "value": "5 Cloud VMs, the iOS app, and cmux AI. $50/month."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$50、または年額$480。"
+            "value": "Cloud VM 5 台、iOSアプリ、cmux AI。月額$50。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端开发机、iOS 应用与 cmux AI。每月 $50，或每年 $480。"
+            "value": "5 台云端虚拟机、iOS 应用与 cmux AI。每月 $50。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Entwicklerboxen, die iOS-App und cmux AI. 50 $/Monat oder 480 $/Jahr."
+            "value": "5 Cloud-VMs, die iOS-App und cmux AI. 50 $/Monat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines de dev cloud, l’application iOS et l’IA cmux. 50 $/mois, ou 480 $/an."
+            "value": "5 VM cloud, l’application iOS et l’IA cmux. 50 $/mois."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بيئات تطوير سحابية، وتطبيق iOS، ومساعد cmux الذكي. 50$ شهريًا، أو 480$ سنويًا."
+            "value": "5 أجهزة افتراضية سحابية، وتطبيق iOS، ومساعد cmux الذكي. 50$ شهريًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entornos de desarrollo en la nube, la aplicación para iOS y cmux AI. $50 al mes o $480 al año."
+            "value": "5 VM en la nube, la aplicación para iOS y cmux AI. $50 al mes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端開發盒、iOS 應用程式和 cmux AI。每月 50 美元，或每年 480 美元。"
+            "value": "5 台雲端虛擬機、iOS 應用程式和 cmux AI。每月 50 美元。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 개발 상자, iOS 앱 및 cmux AI. 월 $50 또는 연 $480."
+            "value": "클라우드 VM 5개, iOS 앱 및 cmux AI. 월 $50."
           }
         }
       }

@@ -445,7 +445,7 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.free.feature.terminal", defaultValue: "Native Ghostty-based terminal"),
                     String(localized: "pricing.native.free.feature.agents", defaultValue: "Claude Code, Codex, Gemini, and local CLI agents"),
                     String(localized: "pricing.native.free.feature.workspaces", defaultValue: "Vertical tabs, split panes, browser panels, and notifications"),
-                    String(localized: "pricing.native.free.feature.trial", defaultValue: "Local session history and one Cloud VM trial"),
+                    String(localized: "pricing.native.free.feature.history", defaultValue: "Local session history"),
                     String(localized: "pricing.native.free.feature.community", defaultValue: "Community support on Discord and GitHub"),
                 ]
             )
@@ -693,7 +693,7 @@ private struct NativePricingComparisonSection: View {
         NativePricingCompareRow(
             id: "cloud",
             label: String(localized: "pricing.native.compare.cloud", defaultValue: "Cloud agents on Cloud VMs"),
-            free: .text(String(localized: "pricing.native.compare.cloud.free", defaultValue: "1 VM trial")),
+            free: .unavailable,
             pro: .text(String(localized: "pricing.native.compare.cloud.pro", defaultValue: "Included")),
             max: .text(String(localized: "pricing.native.compare.cloud.max", defaultValue: "Included")),
             team: .text(String(localized: "pricing.native.compare.cloud.team", defaultValue: "Included")),
@@ -702,7 +702,7 @@ private struct NativePricingComparisonSection: View {
         NativePricingCompareRow(
             id: "concurrent",
             label: String(localized: "pricing.native.compare.concurrent", defaultValue: "Concurrent Cloud VMs"),
-            free: .text(String(localized: "pricing.native.compare.concurrent.free", defaultValue: "1")),
+            free: .unavailable,
             pro: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "5")),
             max: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "5")),
             team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "5 per user")),
@@ -711,7 +711,7 @@ private struct NativePricingComparisonSection: View {
         NativePricingCompareRow(
             id: "largestVm",
             label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
-            free: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "8 GB RAM")),
+            free: .unavailable,
             pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "8 GB RAM")),
             max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "32 GB RAM")),
             team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "8 GB RAM")),

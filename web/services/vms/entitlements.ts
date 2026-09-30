@@ -209,9 +209,9 @@ export function maxMemoryMbForPlan(
   if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
-    // The free machine is the product demo: the same computer Pro gets, not a
-    // cut-down teaser. The paywall is the 7-day access window and the machine
-    // count, never the machine's usefulness.
+    // Free accounts get no machine in production (isVmFreeProvisioningAllowed).
+    // Where an operator opens free provisioning for a demo or dev stack, the
+    // machine is the same size Pro gets.
     return Math.min(ceiling, positiveInteger(
       env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
@@ -394,6 +394,10 @@ export function isVmProGateEnforced(
 export function isVmFreeProvisioningAllowed(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
+  // Free accounts get no Cloud machine in production, trial or otherwise.
+  // The escape hatch exists for local, preview, and dev-backend stacks only,
+  // so no production env value can reopen it.
+  if (env.VERCEL_ENV === "production") return false;
   // The new name is authoritative when present. A value must be explicitly
   // truthy; typos and explicit false values fail closed.
   if (env.CMUX_VM_ALLOW_FREE_PROVISIONING !== undefined) {

@@ -165,9 +165,11 @@ describe("VM defaults and pricing copy", () => {
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
       expect(row!.max).toBe("32 GB RAM");
-      for (const plan of ["free", "pro", "team"] as const) {
+      for (const plan of ["pro", "team"] as const) {
         expect(row![plan]).toBe("8 GB RAM");
       }
+      // Free accounts include no Cloud VM at all.
+      expect(row!.free).toBe("false");
       for (const row of messages.pricing.compare.rows) {
         expect(typeof row.max).toBe("string");
       }

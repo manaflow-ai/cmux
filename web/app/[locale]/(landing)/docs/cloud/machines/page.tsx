@@ -64,6 +64,7 @@ cmux vm new --detach --json`}</CodeBlock>
         <li>{t("limitsPaid")}</li>
         <li>{t("limitsTeam")}</li>
         <li>{t("limitsMax")}</li>
+        <li>{t("limitsOversize")}</li>
       </ul>
       <p>{t("limitsPricing")}</p>
 

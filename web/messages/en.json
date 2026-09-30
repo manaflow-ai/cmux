@@ -1799,7 +1799,7 @@
         },
         {
           "label": "Largest Cloud VM",
-          "free": "8 GB RAM",
+          "free": "false",
           "pro": "8 GB RAM",
           "max": "32 GB RAM",
           "team": "8 GB RAM",
@@ -1904,7 +1904,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, each with up to 16 vCPUs and 32 GB RAM. Pro, Team, and Free machines top out at 4 vCPUs and 8 GB RAM."
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, each with up to 16 vCPUs and 32 GB RAM. Pro and Team machines top out at 4 vCPUs and 8 GB RAM. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4365,6 +4365,7 @@
       "limitsPaid": "Pro and Max accounts can have up to 5 active machines. A machine is active while it is running or starting.",
       "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat.",
       "limitsMax": "Machines larger than 8 GB need cmux Max. Max machines go up to 32 GB and 16 vCPUs.",
+      "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
       "resizeTitle": "Resize",
       "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB, memory up to 32 GB, and CPU up to 16 vCPU. Your plan sets the real maximum.",
