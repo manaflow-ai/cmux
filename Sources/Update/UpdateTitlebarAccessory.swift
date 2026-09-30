@@ -280,6 +280,32 @@ final class NotificationsAnchorRegistry {
         anchors.add(view)
     }
 
+    func visibleAnchor(in window: NSWindow) -> NSView? {
+        anchors.allObjects
+            .compactMap { view -> (view: NSView, frame: NSRect)? in
+                guard view.window === window,
+                      !view.bounds.isEmpty,
+                      notificationsPopoverAnchorIsVisible(view) else {
+                    return nil
+                }
+                let frame = view.convert(view.bounds, to: nil)
+                guard !frame.isEmpty else { return nil }
+                return (view, frame)
+            }
+            // During presentation-mode transitions more than one anchor can be
+            // visible briefly. AppKit does not define NSHashTable ordering, so
+            // use the stable titlebar position to keep the bell selection
+            // deterministic while still rejecting unusable frames.
+            .sorted {
+                if $0.frame.maxY != $1.frame.maxY {
+                    return $0.frame.maxY > $1.frame.maxY
+                }
+                return $0.frame.minX < $1.frame.minX
+            }
+            .first?
+            .view
+    }
+
     func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
@@ -2295,7 +2321,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             }
         }
 
-        if let anchorView = viewModel.notificationsAnchorView, anchorView.window != nil, !isHidden {
+        if let anchorView = NotificationsAnchorRegistry.shared.visibleAnchor(in: window) {
             anchorView.superview?.layoutSubtreeIfNeeded()
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
