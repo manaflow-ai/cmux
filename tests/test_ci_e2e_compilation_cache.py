@@ -231,7 +231,7 @@ exit 97
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
             self.assertEqual(
                 checkout['with']['sparse-checkout'].split(),
-                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py'],
+                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py', 'scripts/ci/ui-mirror.py'],
             )
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],

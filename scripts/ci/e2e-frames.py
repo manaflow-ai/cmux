@@ -9,6 +9,8 @@ For each test it writes, under <out>/<Class>/<method>/:
     frames/NN-<action>.jpg    the screen right after that action
     sheet-N.jpg               3x4 contact sheets, each tile captioned with its action
     attachments/<name>        text a test attached (a dogfood tour's trees, socket replies, step log)
+    index.html                 an interactive local-first UI mirror of the run
+    mirror.json                the mirror's machine-readable manifest
 
 A frame is the last screenshot XCUITest saved under a top-level action. On hosts
 where XCTest keeps a screen recording of a failing test instead, the recording
@@ -385,6 +387,21 @@ def markdown(summary: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def write_mirror(out: Path, quiet: bool = False) -> None:
+    """Build the interactive mirror next to the extracted frames."""
+    mirror = Path(__file__).with_name("ui-mirror.py")
+    result = subprocess.run(
+        [sys.executable, str(mirror), str(out)],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0 and not quiet:
+        print(result.stdout.strip())
+    elif result.returncode != 0:
+        print(f"warning: could not build UI mirror: {result.stderr.strip()[:240]}", file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", help="run id, run URL, an .xcresult, or a directory of them")
@@ -417,6 +434,7 @@ def main() -> int:
             with args.summary.open("a") as handle:
                 handle.write(markdown(summary))
 
+    write_mirror(out, quiet=args.json)
     if args.json:
         print(json.dumps(summary, indent=2))
         return 0
