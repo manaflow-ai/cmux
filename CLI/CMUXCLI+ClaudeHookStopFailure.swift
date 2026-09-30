@@ -23,13 +23,17 @@ extension CMUXCLI {
         if let priority {
             cmd += " --priority=\(priority)"
         }
-        if let workState {
-            cmd += " --work=\(workState.rawValue)"
-        }
         cmd += " --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid,
            ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" {
             cmd += " --pid=\(pid)"
+        }
+        // Options are order-independent on the wire, and this one is new and
+        // optional, so it goes last: several existing tests pin the command
+        // up to `--tab=`, and inserting a flag before that would break them
+        // for no reason connected to what they check.
+        if let workState {
+            cmd += " --work=\(workState.rawValue)"
         }
         _ = try client.send(command: cmd)
     }
