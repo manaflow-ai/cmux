@@ -82,14 +82,6 @@ struct ComputerUseWatchTargetRuntimeTests {
         defer { scannedSessions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
-        // One element per terminal focus. A scan can report the background
-        // session and still defer its activity (the target's process metadata
-        // is not ready yet); only the focus itself proves the activity ran.
-        let terminalFocuses = AsyncStream.makeStream(
-            of: Void.self,
-            bufferingPolicy: .unbounded
-        )
-        defer { terminalFocuses.continuation.finish() }
         var cursorVisibilityChanges: [
             (
                 driverSessionID: String,
@@ -114,7 +106,6 @@ struct ComputerUseWatchTargetRuntimeTests {
             ),
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
-                terminalFocuses.continuation.yield()
             },
             onCursorVisibilityChange: {
                 driverSessionID,
@@ -209,13 +200,11 @@ struct ComputerUseWatchTargetRuntimeTests {
             }
         }
 
-        var focusIterator = terminalFocuses.stream.makeAsyncIterator()
-        while focusedTerminalSessions.count < 2,
-              await focusIterator.next() != nil {}
-
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
-        #expect(focusedTerminalSessions.count == 2)
+        // Agent activity never focuses the calling terminal (#15311); the
+        // only focus is the explicit continue-in-background request above.
+        #expect(focusedTerminalSessions.count == 1)
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
