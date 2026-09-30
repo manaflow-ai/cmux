@@ -101,16 +101,30 @@ extension ContentView {
     static let commandPaletteLaunchCodexTeamsCommandID = "palette.launchCodexTeams"
 
     /// Builds launcher commands from availability already resolved away from the main actor.
+    ///
+    /// `nil` means the probe for installed agent CLIs has not finished. Both
+    /// launchers are contributed and disabled in that case, rather than left
+    /// out: the palette drops a disabled row the same way it drops an invisible
+    /// one, so nothing changes on screen, while `palette.list` reports "exists,
+    /// not yet" instead of "no such command". A resolved set that lacks a
+    /// provider still leaves it out, because that CLI is not on this machine.
     static func commandPaletteAgentLauncherContributions(
-        availableProviders: Set<AgentSessionProviderID>
+        availableProviders: Set<AgentSessionProviderID>?
     ) -> [CommandPaletteCommandContribution] {
+        let isAvailable: (AgentSessionProviderID) -> Bool = { provider in
+            availableProviders?.contains(provider) ?? true
+        }
+        let hasResolvedAvailability = availableProviders != nil
         let canLaunchFromCurrentWorkspace: (CommandPaletteContextSnapshot) -> Bool = { snapshot in
             snapshot.bool(CommandPaletteContextKeys.hasWorkspace)
                 && !snapshot.bool(commandPaletteWorkspaceIsRemoteKey)
         }
+        let isEnabledOnceResolved: (CommandPaletteContextSnapshot) -> Bool = { _ in
+            hasResolvedAvailability
+        }
 
         var contributions: [CommandPaletteCommandContribution] = []
-        if availableProviders.contains(.claude) {
+        if isAvailable(.claude) {
             contributions.append(CommandPaletteCommandContribution(
                 commandId: commandPaletteLaunchClaudeTeamsCommandID,
                 title: { _ in
@@ -121,10 +135,11 @@ extension ContentView {
                 },
                 subtitle: { _ in "cmux claude-teams" },
                 keywords: ["claude", "claude-teams", "teams", "agent", "launcher"],
-                when: canLaunchFromCurrentWorkspace
+                when: canLaunchFromCurrentWorkspace,
+                enablement: isEnabledOnceResolved
             ))
         }
-        if availableProviders.contains(.codex) {
+        if isAvailable(.codex) {
             contributions.append(CommandPaletteCommandContribution(
                 commandId: commandPaletteLaunchCodexTeamsCommandID,
                 title: { _ in
@@ -135,7 +150,8 @@ extension ContentView {
                 },
                 subtitle: { _ in "cmux codex-teams" },
                 keywords: ["codex", "codex-teams", "teams", "agent", "launcher"],
-                when: canLaunchFromCurrentWorkspace
+                when: canLaunchFromCurrentWorkspace,
+                enablement: isEnabledOnceResolved
             ))
         }
         return contributions

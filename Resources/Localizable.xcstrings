@@ -600243,6 +600243,773 @@
           }
         }
       }
+    },
+    "cli.palette.error.missingCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette requires a subcommand: list"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب palette أمرًا فرعيًا: list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette erfordert einen Unterbefehl: list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette requiere un subcomando: list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette nécessite une sous-commande: list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette にはサブコマンドが必要です: list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette에는 하위 명령이 필요합니다: list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette 需要子命令：list"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette 需要子指令：list"
+          }
+        }
+      }
+    },
+    "cli.palette.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown palette command '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر palette غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter palette-Befehl '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de palette desconocido '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande palette inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な palette コマンド '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 palette 명령 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 palette 命令“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 palette 指令「%@」"
+          }
+        }
+      }
+    },
+    "cli.palette.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No palette commands available."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أوامر متاحة في لوحة الأوامر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Palettenbefehle verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay comandos de paleta disponibles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune commande de palette disponible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できるパレットコマンドはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 있는 팔레트 명령이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的面板命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用的面板指令。"
+          }
+        }
+      }
+    },
+    "cli.palette.list.unavailableMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(unavailable here)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(غير متاح هنا)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(hier nicht verfügbar)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(no disponible aquí)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(indisponible ici)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（ここでは利用できません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(여기서는 사용할 수 없음)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（此处不可用）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（此處不可用）"
+          }
+        }
+      }
+    },
+    "cli.palette.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux palette list [--window <id|ref|index>] [--json]\n\nList the command palette entries a window offers right now. A command the\npalette hides is absent; one that exists but does not apply to the current\nselection is listed and marked unavailable.\n\nCommands:\n  list              Print every palette command with its shortcut and availability\n\nFlags:\n  --window <id|ref|index>   Read a specific window instead of the active window\n  --json                    Print the socket payload\n\nExamples:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux palette list [--window <id|ref|index>] [--json]\n\nسرد العناصر التي تعرضها لوحة الأوامر لنافذة ما في الوقت الحالي. الأمر الذي تخفيه\nاللوحة لا يظهر؛ والأمر الموجود الذي لا ينطبق على التحديد الحالي يظهر مع تمييزه\nبأنه غير متاح.\n\nالأوامر:\n  list              طباعة كل أمر في اللوحة مع اختصاره ومدى توفره\n\nالخيارات:\n  --window <id|ref|index>   قراءة نافذة محددة بدلاً من النافذة النشطة\n  --json                    طباعة استجابة المقبس\n\nأمثلة:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux palette list [--window <id|ref|index>] [--json]\n\nListet die Einträge auf, die die Befehlspalette eines Fensters gerade anbietet. Ein\nBefehl, den die Palette ausblendet, fehlt; ein Befehl, der existiert, aber auf die\naktuelle Auswahl nicht zutrifft, wird aufgeführt und als nicht verfügbar markiert.\n\nBefehle:\n  list              Jeden Palettenbefehl mit Tastenkürzel und Verfügbarkeit ausgeben\n\nOptionen:\n  --window <id|ref|index>   Ein bestimmtes Fenster statt des aktiven Fensters lesen\n  --json                    Die Socket-Antwort ausgeben\n\nBeispiele:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux palette list [--window <id|ref|index>] [--json]\n\nEnumera las entradas que la paleta de comandos de una ventana ofrece en este momento.\nUn comando que la paleta oculta no aparece; un comando que existe pero no se aplica a\nla selección actual aparece marcado como no disponible.\n\nComandos:\n  list              Imprimir cada comando de la paleta con su atajo y su disponibilidad\n\nOpciones:\n  --window <id|ref|index>   Leer una ventana concreta en lugar de la ventana activa\n  --json                    Imprimir la respuesta del socket\n\nEjemplos:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux palette list [--window <id|ref|index>] [--json]\n\nListe les entrées que la palette de commandes d'une fenêtre propose actuellement. Une\ncommande masquée par la palette est absente; une commande qui existe mais ne s'applique\npas à la sélection actuelle est listée et marquée comme indisponible.\n\nCommandes:\n  list              Afficher chaque commande de la palette avec son raccourci et sa disponibilité\n\nOptions:\n  --window <id|ref|index>   Lire une fenêtre précise au lieu de la fenêtre active\n  --json                    Afficher la réponse du socket\n\nExemples:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux palette list [--window <id|ref|index>] [--json]\n\nウインドウのコマンドパレットが現在提供している項目を一覧表示します。パレットが\n隠しているコマンドは表示されず、存在するものの現在の選択に当てはまらないコマンドは\n利用不可として表示されます。\n\nコマンド:\n  list              各パレットコマンドをショートカットと利用可否とともに出力します\n\nオプション:\n  --window <id|ref|index>   アクティブなウインドウではなく指定したウインドウを読み取ります\n  --json                    ソケットの応答を出力します\n\n例:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux palette list [--window <id|ref|index>] [--json]\n\n특정 창의 명령 팔레트가 지금 제공하는 항목을 나열합니다. 팔레트가 숨기는 명령은\n표시되지 않고, 존재하지만 현재 선택에 적용되지 않는 명령은 사용할 수 없음으로\n표시됩니다.\n\n명령어:\n  list              모든 팔레트 명령을 단축키와 사용 가능 여부와 함께 출력합니다\n\n옵션:\n  --window <id|ref|index>   활성 창 대신 지정한 창을 읽습니다\n  --json                    소켓 응답을 출력합니다\n\n예시:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux palette list [--window <id|ref|index>] [--json]\n\n列出某个窗口的命令面板当前提供的项。被面板隐藏的命令不会出现；\n存在但不适用于当前选择的命令会列出，\n并标记为不可用。\n\n命令:\n  list              打印每个面板命令及其快捷键和可用状态\n\n选项:\n  --window <id|ref|index>   读取指定窗口，而不是当前活动窗口\n  --json                    打印 socket 响应\n\n示例:\n  cmux palette list\n  cmux palette list --json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux palette list [--window <id|ref|index>] [--json]\n\n列出某個視窗的命令面板目前提供的項目。被面板隱藏的指令不會出現；\n存在但不適用於目前選取範圍的指令會列出，\n並標示為不可用。\n\n指令：\n  list              印出每個面板指令及其快速鍵與可用狀態\n\n選項：\n  --window <id|ref|index>   讀取指定的視窗，而非使用中的視窗\n  --json                    印出 socket 回應\n\n範例：\n  cmux palette list\n  cmux palette list --json"
+          }
+        }
+      }
+    },
+    "socket.palette.list.invalidWindowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id must be a window UUID or ref from `window.list`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون window_id معرّف UUID لنافذة أو مرجعًا من `window.list`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id muss eine Fenster-UUID oder eine Referenz aus `window.list` sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id debe ser un UUID de ventana o una referencia de `window.list`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id doit être un UUID de fenêtre ou une référence de `window.list`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id はウインドウの UUID または `window.list` の参照である必要があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id는 창 UUID 또는 `window.list`의 참조여야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id 必须是窗口 UUID 或来自 `window.list` 的引用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id 必須是視窗 UUID 或來自 `window.list` 的參照。"
+          }
+        }
+      }
+    },
+    "socket.palette.list.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window answered in time."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تستجب أي نافذة في الوقت المحدد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Fenster hat rechtzeitig geantwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna ventana respondió a tiempo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune fenêtre n'a répondu à temps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間内に応答したウインドウはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간 내에 응답한 창이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有窗口在时限内响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有視窗在時限內回應。"
+          }
+        }
+      }
+    },
+    "socket.palette.list.windowNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window with that id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد نافذة بهذا المعرّف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Fenster mit dieser ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna ventana con ese identificador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune fenêtre avec cet identifiant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その ID のウインドウはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 ID의 창이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有该 ID 的窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有該 ID 的視窗。"
+          }
+        }
+      }
+    },
+    "cli.palette.error.windowRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: يتطلب الخيار --window معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list : --window requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window에 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list：--window 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: --window 需要 id"
+          }
+        }
+      }
+    },
+    "cli.palette.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: unexpected argument '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: وسيط غير متوقع '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: unerwartetes Argument „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: argumento inesperado '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list : argument inattendu '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 予期しない引数 '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 예기치 않은 인수 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list：意外参数 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 未預期的引數 '%@'"
+          }
+        }
+      }
+    },
+    "cli.palette.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: unknown flag '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: علم غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: unbekanntes Flag „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: opción desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list : option inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 不明なフラグ '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 알 수 없는 플래그 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list：未知标志 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "palette list: 未知的旗標 '%@'"
+          }
+        }
+      }
+    },
+    "socket.palette.list.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux window is open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد نافذة cmux مفتوحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es ist kein cmux-Fenster geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna ventana de cmux abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune fenêtre cmux n’est ouverte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いている cmux ウインドウはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 cmux 창이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已打开的 cmux 窗口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有已開啟的 cmux 視窗。"
+          }
+        }
+      }
+    },
+    "socket.palette.list.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window command palette is not ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة أوامر النافذة غير جاهزة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Befehlspalette des Fensters ist nicht bereit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La paleta de comandos de la ventana no está lista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La palette de commandes de la fenêtre n’est pas prête."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウのコマンドパレットはまだ準備できていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 명령 팔레트가 준비되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口命令面板尚未准备好。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗命令面板尚未準備好。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

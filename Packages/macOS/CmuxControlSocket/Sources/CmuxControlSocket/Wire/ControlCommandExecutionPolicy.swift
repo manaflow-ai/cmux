@@ -232,6 +232,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.state",
         "remote.tmux.mirror", "remote.tmux.window",
         "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        // `palette.list` asks the target window's SwiftUI body for the rows it
+        // would draw and blocks on the answer. On the main actor that wait is a
+        // deadlock: the body that has to answer cannot run while the main thread
+        // is parked. Keep it on the worker, like debug.window.screenshot's
+        // capture wait.
+        "palette.list",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

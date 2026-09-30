@@ -543,6 +543,22 @@ struct CmuxAgentChatConfigTests {
         #expect(codexOnly.map(\.commandId) == [
             ContentView.commandPaletteLaunchCodexTeamsCommandID,
         ])
+
+        // Availability is probed off-main the first time someone opens the
+        // palette, so it is unresolved for a `palette.list` caller. Both rows
+        // are contributed and disabled then: the palette drops a disabled row
+        // just as it drops an invisible one, so the screen is unchanged, while
+        // an agent reads "exists, not yet" rather than "no such command".
+        let unresolved = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: nil
+        )
+        #expect(unresolved.map(\.commandId) == [
+            ContentView.commandPaletteLaunchClaudeTeamsCommandID,
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+        ])
+        #expect(unresolved.allSatisfy { $0.when(localContext) })
+        #expect(unresolved.allSatisfy { !$0.enablement(localContext) })
+        #expect(both.allSatisfy { $0.enablement(localContext) })
     }
 
     @MainActor

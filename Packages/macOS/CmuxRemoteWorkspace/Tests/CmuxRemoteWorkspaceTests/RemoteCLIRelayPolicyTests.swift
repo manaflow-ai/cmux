@@ -350,6 +350,36 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("palette.list has no relay contract")
+    func paletteListHasNoRelayContract() {
+        #expect(
+            RemoteRelayRoutingSchema().parameters(for: "palette.list") == nil,
+            "palette.list must stay absent from the relay routing schema"
+        )
+    }
+
+    /// palette.list answers with the command rows a *local* window offers, and
+    /// running one of those commands is a local effect. A remote workspace has no
+    /// business enumerating, or learning the enablement of, the commands on the
+    /// machine its relay lands on, so the method stays off the allowlist and the
+    /// relay denies it with or without a window id.
+    @Test("palette.list is denied through a relay", arguments: [
+        #"{"id":"p5p","method":"palette.list","params":{}}"#,
+        #"{"id":"p5p","method":"palette.list","params":{"window_id":"1EA7D9C4-0000-4000-8000-00000000A001"}}"#,
+        #"{"id":"p5p","method":"palette.list","params":{"workspace_id":"1EA7D9C4-0000-4000-8000-00000000A001"}}"#,
+    ])
+    func deniesPaletteList(commandLine: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: commandLine
+            )
+            expectDenial(exchange, unixServer, "palette.list")
+        }
+    }
+
     @Test("non-JSON command lines are denied")
     func deniesNonJSONCommandLine() throws {
         try withServer { port, unixServer in

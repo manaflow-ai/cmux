@@ -204,6 +204,7 @@ Environment:
 | `clear-log` | Clear sidebar log entries. |
 | `list-log` | List sidebar log entries. |
 | `sidebar-state` | Dump sidebar metadata state. |
+| `palette` | List the command palette entries a window offers. |
 | `claude-hook` | Compatibility alias for Claude Code hook events from stdin JSON. |
 | `codex-hook` | Compatibility alias for Codex hook events from stdin JSON, kept for hooks installed before `cmux hooks`. Outside a cmux terminal, with no `CMUX_SURFACE_ID`/`CMUX_WORKSPACE_ID` and no `--surface`/`--workspace`, it prints `{}` and exits so an old installed hook cannot fail a shell. Hidden from help. |
 | `feed-hook` | Compatibility alias for Feed hook events from stdin JSON, kept for hooks installed before `cmux hooks`. Requires `--source <name>`. Outside a cmux terminal, with no `CMUX_SURFACE_ID`/`CMUX_WORKSPACE_ID` and no `--surface`/`--workspace`, it prints `{}` and exits so an old installed hook cannot fail a shell. Hidden from help. |
@@ -718,6 +719,17 @@ Right sidebar commands:
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
 | `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
+Command palette commands:
+
+| Command | Contract |
+| --- | --- |
+| `palette list` | Print the command palette entries the target window offers right now, one per line: id, title, shortcut, and an unavailable marker for a command that exists but does not apply to the window's current state. A command the palette hides (its `when` gate, or `palette: false` in the config) is absent, and so are the entries that only make sense from the UI (CLI install, updates, socket restart, default-terminal registration, mobile pairing, VS Code serve-web). Nothing is opened, closed or run. `--json` prints the socket payload from `palette.list`, whose rows carry the same `id`, `title` and `shortcut` plus the palette's `subtitle` and an `enabled` flag in place of the text marker. |
+| `--window <id\|ref\|index>` | Target a window. Without it, `CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID` name the caller's own window, and a caller with neither reads the active window. With no cmux window open the socket answers `not_found`. |
+
+The two agent-launcher rows (`palette.launchClaudeTeams`, `palette.launchCodexTeams`)
+list as unavailable until the app has checked which agent CLIs are installed,
+which it does the first time someone opens the palette in that window.
+
 Custom sidebar commands:
 
 | Command | Contract |
@@ -1085,6 +1097,7 @@ the expected text without connecting to a cmux socket.
 - `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
 - `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
+- `cmux palette --help` -> `Usage: cmux palette list`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`

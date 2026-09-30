@@ -155,6 +155,24 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func paletteListRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        // `palette.list` asks the target window's SwiftUI body for its rows and
+        // waits for the answer, so on the main actor it parks the thread that
+        // has to answer. The lane is what keeps `cmux palette list` from
+        // hanging the app, and nothing in the type system notices a method
+        // moving lanes, so pin both halves: the worker membership and the
+        // absence from the main-thread-callable refinement.
+        #expect(ControlCommandExecutionPolicy.socketWorkerMethods.contains("palette.list"))
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "palette.list")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            !ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerMethods
+             .contains("palette.list")
+        )
+    }
+
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         // Tranche D (issue #5757): the implicit handle-normalization reads.
         // One controlResolveOnMain hop (refresh + witness + ref minting),

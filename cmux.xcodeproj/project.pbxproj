@@ -646,6 +646,7 @@
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
 		89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */; };
 		C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */; };
+		602EDA85BCC6FF734DA1FA10 /* CLIPaletteListArgumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67DE841E0DBB03301BDAF4EA /* CLIPaletteListArgumentTests.swift */; };
 		C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A1 /* CLIPasteCommandTests.swift */; };
 		C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */; };
 		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
@@ -2590,6 +2591,8 @@
 		A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240070000000000000001 /* OwnedProcessSupervisor.swift */; };
 		49C6C7B44A597DE137E19B6C /* OwnWindowFrameCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6A1AD299FCFD50D958AE98 /* OwnWindowFrameCapture.swift */; };
 		7A0CE1000000000000000046 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000020 /* PacketTunnelProvider.swift */; };
+		2DC6B7301ABF07231A6D178C /* PaletteAgentCommandsBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 567A17CDBF16F38787CD2810 /* PaletteAgentCommandsBroker.swift */; };
+		8CE7B1B66ADD6D30E00023C7 /* PaletteAgentCommandsWindowIdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */; };
 		E3B7A4000000000000000021 /* PaneChromeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000022 /* PaneChromeSettings.swift */; };
 		C51A73000000000000000201 /* PaneDropContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000202 /* PaneDropContainer.swift */; };
 		D0B752900000000000000002 /* PaneDropRoutingRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */; };
@@ -3629,6 +3632,7 @@
 		D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
+		3F8E1A6064380375AA15CE27 /* TerminalController+PaletteAgentCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B835917632D9F2788CE0A0 /* TerminalController+PaletteAgentCommands.swift */; };
 		A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */; };
 		55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */; };
 		A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */; };
@@ -5042,6 +5046,7 @@
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
 		89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpHookBindingTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
+		67DE841E0DBB03301BDAF4EA /* CLIPaletteListArgumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIPaletteListArgumentTests.swift"; sourceTree = "<group>"; };
 		C117570000000000000000A1 /* CLIPasteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIPasteCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRelayQueuedHookRegressionTests.swift; sourceTree = "<group>"; };
 		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
@@ -6843,6 +6848,8 @@
 		A10240070000000000000001 /* OwnedProcessSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedProcessSupervisor.swift; sourceTree = "<group>"; };
 		6B6A1AD299FCFD50D958AE98 /* OwnWindowFrameCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnWindowFrameCapture.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000020 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		567A17CDBF16F38787CD2810 /* PaletteAgentCommandsBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteAgentCommandsBroker.swift; sourceTree = "<group>"; };
+		21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaletteAgentCommandsWindowIdTests.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000022 /* PaneChromeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneChromeSettings.swift; sourceTree = "<group>"; };
 		C51A73000000000000000202 /* PaneDropContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropContainer.swift; sourceTree = "<group>"; };
 		D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingRegistration.swift; sourceTree = "<group>"; };
@@ -7867,6 +7874,7 @@
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		08B835917632D9F2788CE0A0 /* TerminalController+PaletteAgentCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+PaletteAgentCommands.swift"; sourceTree = "<group>"; };
 		C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnostics.swift"; sourceTree = "<group>"; };
 		68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnosticsAsync.swift"; sourceTree = "<group>"; };
 		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
@@ -11507,6 +11515,8 @@
 				A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */,
 				1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */,
 				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
+				567A17CDBF16F38787CD2810 /* PaletteAgentCommandsBroker.swift */,
+				08B835917632D9F2788CE0A0 /* TerminalController+PaletteAgentCommands.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12971,6 +12981,8 @@
 				C851974591E32B011E9704A7 /* ClaudeHookWorkStateTests.swift */,
 				2D3917E88FC3A4BFAD8ED176 /* SidebarAgentWorkStateTests.swift */,
 				EA6E81B689749BFCBB162559 /* AutoNamingOpenCodeArgumentsTests.swift */,
+				67DE841E0DBB03301BDAF4EA /* CLIPaletteListArgumentTests.swift */,
+				21BFB90A9B41761ECE5C3BB4 /* PaletteAgentCommandsWindowIdTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15107,6 +15119,7 @@
 				ODBG00020000000000000001 /* OpenDiffViewerAgentContextRequest.swift in Sources */,
 					A6AC72040000000000000001 /* OverlayComparison.swift in Sources */,
 				49C6C7B44A597DE137E19B6C /* OwnWindowFrameCapture.swift in Sources */,
+				2DC6B7301ABF07231A6D178C /* PaletteAgentCommandsBroker.swift in Sources */,
 				E3B7A4000000000000000021 /* PaneChromeSettings.swift in Sources */,
 				C51A73000000000000000201 /* PaneDropContainer.swift in Sources */,
 				D0B752900000000000000002 /* PaneDropRoutingRegistration.swift in Sources */,
@@ -15813,6 +15826,7 @@
 				D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
+				3F8E1A6064380375AA15CE27 /* TerminalController+PaletteAgentCommands.swift in Sources */,
 				A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */,
 				55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */,
 				A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */,
@@ -16861,6 +16875,7 @@
 				86D573598C8C1225D24AED5A /* CLINotifyProcessSocketState.swift in Sources */,
 				A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
 				89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */,
+				602EDA85BCC6FF734DA1FA10 /* CLIPaletteListArgumentTests.swift in Sources */,
 				C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */,
 					A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
 					FE89827F4FAB9F7524A38B41 /* CLISendQueuedOutputTests.swift in Sources */,
@@ -17427,6 +17442,7 @@
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				B11371000000000000000011 /* OwnedAgentDescendantLifecycleTests.swift in Sources */,
+				8CE7B1B66ADD6D30E00023C7 /* PaletteAgentCommandsWindowIdTests.swift in Sources */,
 				649063F6165DE5FAEA9BB93A /* PaneDropTargetIdentityTests.swift in Sources */,
 				96B4F71E4B75DDDE94C654B1 /* PaneDropZoneOverlayAnimationTests.swift in Sources */,
 				29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */,

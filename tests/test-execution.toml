@@ -629,6 +629,10 @@ path = "tests/test_ci_cli_contract_verb_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_command_palette_agent_surface_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 

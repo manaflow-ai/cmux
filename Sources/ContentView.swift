@@ -943,6 +943,7 @@ struct ContentView: View {
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
+    @State private var commandPaletteAgentCommandsProvider = PaletteAgentCommandsProvider()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -3551,6 +3552,9 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onDisappear {
+            if let observedWindow {
+                PaletteAgentCommandsBroker.shared.unregister(for: observedWindow)
+            }
             sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
             workspaceSwitchPortalSignalRouter.clearSources()
             if isResizerDragging {
@@ -3591,6 +3595,11 @@ struct ContentView: View {
         appearance: WindowAppearanceSnapshot,
         commandPaletteOverlayView: AnyView
     ) {
+        PaletteAgentCommandsBroker.shared.register(
+            commandPaletteAgentCommandsProvider,
+            for: window
+        )
+        refreshCommandPaletteAgentCommandsSnapshot()
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
         setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
@@ -7119,6 +7128,7 @@ struct ContentView: View {
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
+        refreshCommandPaletteAgentCommandsSnapshot()
         let context = commandsContext.snapshot
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
@@ -7158,6 +7168,37 @@ struct ContentView: View {
         }
 
         return commands
+    }
+
+    /// Refreshes the value snapshot read by `palette.list` for this window.
+    ///
+    /// Mirrors `commandPaletteCommands(commandsContext:)` gate for gate, against
+    /// the same cached context, so an agent reads the palette this window would
+    /// draw rather than a separately maintained list. One deliberate difference:
+    /// a command whose `enablement` predicate is false is listed with
+    /// `isEnabled == false` instead of being dropped, so an agent can tell a
+    /// command that does not apply right now from one that does not exist.
+    /// `CommandPaletteAgentSurface` applies the rest of the listing rules.
+    private func refreshCommandPaletteAgentCommandsSnapshot() {
+        let commandsContext = commandPaletteCachedCommandsContext()
+        let context = commandsContext.snapshot
+        var handlerRegistry = CommandPaletteHandlerRegistry()
+        registerCommandPaletteHandlers(&handlerRegistry)
+        let candidates = commandPaletteCommandContributions().map { contribution in
+            let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
+                .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
+            return CommandPaletteAgentCommandCandidate(
+                commandId: contribution.commandId,
+                title: configuredPaletteAction?.title ?? contribution.title(context),
+                subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
+                shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
+                isVisible: contribution.when(context),
+                isEnabled: contribution.enablement(context),
+                isHiddenFromPalette: configuredPaletteAction.map { !$0.palette } ?? false,
+                hasRegisteredHandler: handlerRegistry.handler(for: contribution.commandId) != nil
+            )
+        }
+        commandPaletteAgentCommandsProvider.replace(with: candidates)
     }
 
     private func commandPaletteShortcutHint(
@@ -7471,6 +7512,20 @@ struct ContentView: View {
             return String(format: String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • %@"), name)
         }
 
+        // Whether this panel holds a conversation the fork commands can fork.
+        //
+        // This is enablement rather than `when`, and the difference matters to
+        // an agent. The answer comes from an availability probe that has not run
+        // until the palette refreshes, so in `when` a panel nobody has probed
+        // yet would make the fork rows absent from `palette.list`, where absence
+        // means the command does not exist. As enablement they are listed with
+        // `isEnabled == false`, which is what "not right now" looks like. On
+        // screen nothing changes: the palette requires both predicates, so a
+        // false enablement drops the row either way.
+        let forkableAgentEnablement: (CommandPaletteContextSnapshot) -> Bool = {
+            $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+        }
+
         func terminalPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
             return String(format: String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • %@"), name)
@@ -7533,7 +7588,7 @@ struct ContentView: View {
         contributions.append(contentsOf: Self.commandPaletteNewAgentChatContributions())
         contributions.append(
             contentsOf: Self.commandPaletteAgentLauncherContributions(
-                availableProviders: commandPaletteAgentLauncherAvailability ?? []
+                availableProviders: commandPaletteAgentLauncherAvailability
             )
         )
         contributions.append(
@@ -8543,10 +8598,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(
@@ -8555,10 +8608,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(
@@ -8567,10 +8618,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(
@@ -8579,10 +8628,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(
@@ -8591,10 +8638,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "tab", "same", "pane"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(
@@ -8603,10 +8648,8 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
                 subtitle: workspaceSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) },
+                enablement: forkableAgentEnablement
             )
         )
         contributions.append(

@@ -61,6 +61,11 @@ PATH_OWNERS = {
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
 
+    # The command-palette agent-surface guard reads this inventory without its
+    # step naming the file, so the group observes the inventory directly.
+    "scripts/command-palette-agent-surface-inventory.json": frozenset(
+        ("quality-determinism",)
+    ),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
