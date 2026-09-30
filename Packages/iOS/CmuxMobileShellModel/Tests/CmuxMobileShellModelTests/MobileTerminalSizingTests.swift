@@ -405,3 +405,43 @@ private func sizeState(
         #expect(text.contains("\"counts_override\":null"))
     }
 }
+
+/// The terminal title menu's "Connected Devices…" item.
+@Suite struct MobileTerminalConnectedDevicesMenuItemTests {
+    /// Offered on a shared-sizing Mac even when this phone's viewport equals
+    /// the grid, so the chip is hidden and nothing else opens the sheet.
+    @Test func offeredWhenSizesMatch() throws {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1, cols: 50, rows: 30),
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        #expect(!presentation.showsChip)
+        let item = try #require(MobileTerminalConnectedDevicesMenuItem(presentation: presentation))
+        #expect(item.otherDeviceCount == 1)
+    }
+
+    @Test func countsEveryOtherAttachedDevice() throws {
+        let state = sizeState(generation: 1, participants: [
+            participant("c3", user: "u_maya", name: "Maya Ortiz", device: "Mac Studio",
+                        viewport: TerminalGridSize(cols: 118, rows: 38)),
+            participant("c4", user: "u_li", name: "Li Chen", device: "MacBook Pro",
+                        viewport: TerminalGridSize(cols: 120, rows: 40)),
+            participant("mobile:phone", user: "u_maya", kind: .iphone, device: "iPhone",
+                        viewport: TerminalGridSize(cols: 50, rows: 30)),
+        ])
+        let presentation = MobileTerminalSizingPresentation(
+            state: state,
+            selfParticipantID: "mobile:phone",
+            localViewport: TerminalGridSize(cols: 50, rows: 30)
+        )
+        let item = try #require(MobileTerminalConnectedDevicesMenuItem(presentation: presentation))
+        #expect(item.otherDeviceCount == 2)
+    }
+
+    /// No published size state: the Mac does not support shared sizing (or
+    /// has not answered yet), so there is no sheet to open.
+    @Test func hiddenWithoutASizeState() {
+        #expect(MobileTerminalConnectedDevicesMenuItem(presentation: nil) == nil)
+    }
+}
