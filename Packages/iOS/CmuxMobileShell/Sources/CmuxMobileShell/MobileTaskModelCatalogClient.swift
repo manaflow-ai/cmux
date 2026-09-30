@@ -66,7 +66,7 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
     /// Fetches one full backend catalog so a prefetch wave can distribute the
     /// same response to every provider and paired Mac.
     func allResults() async throws -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
-        let data = try await loader(endpoint)
+        let data = try await loadPrefetchData()
         var results: [MobileTaskAgentProvider: MobileTaskModelListResult] = [:]
         for provider in MobileTaskAgentProvider.allCases {
             if let result = try? Self.result(from: data, provider: provider) {
@@ -75,6 +75,88 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
         }
         guard !results.isEmpty else { throw MobileTaskModelCatalogError.invalidCatalog }
         return results
+    }
+
+    private func loadPrefetchData() async throws -> Data {
+        final class Completion: @unchecked Sendable {
+            private let lock = NSLock()
+            private var completed = false
+            private var continuation: CheckedContinuation<Data, any Error>?
+            private var loaderTask: Task<Void, Never>?
+            private var timeoutTask: Task<Void, Never>?
+
+            func install(_ continuation: CheckedContinuation<Data, any Error>) {
+                lock.lock()
+                if completed {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                self.continuation = continuation
+                lock.unlock()
+            }
+
+            func setTasks(
+                loaderTask: Task<Void, Never>,
+                timeoutTask: Task<Void, Never>
+            ) {
+                lock.lock()
+                if completed {
+                    lock.unlock()
+                    loaderTask.cancel()
+                    timeoutTask.cancel()
+                    return
+                }
+                self.loaderTask = loaderTask
+                self.timeoutTask = timeoutTask
+                lock.unlock()
+            }
+
+            func finish(_ result: Result<Data, any Error>) {
+                lock.lock()
+                guard !completed else {
+                    lock.unlock()
+                    return
+                }
+                completed = true
+                let continuation = self.continuation
+                self.continuation = nil
+                let loaderTask = self.loaderTask
+                self.loaderTask = nil
+                let timeoutTask = self.timeoutTask
+                self.timeoutTask = nil
+                lock.unlock()
+                loaderTask?.cancel()
+                timeoutTask?.cancel()
+                continuation?.resume(with: result)
+            }
+        }
+
+        let completion = Completion()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Data, any Error>) in
+                completion.install(continuation)
+                let loaderTask = Task {
+                    do {
+                        completion.finish(.success(try await loader(endpoint)))
+                    } catch {
+                        completion.finish(.failure(error))
+                    }
+                }
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                        completion.finish(.failure(MobileTaskModelCatalogError.timeout))
+                    } catch {
+                        // The loader completed first or the caller cancelled.
+                    }
+                }
+                completion.setTasks(loaderTask: loaderTask, timeoutTask: timeoutTask)
+            }
+        } onCancel: {
+            completion.finish(.failure(CancellationError()))
+        }
     }
 
     /// Parses one provider from the versioned backend payload.
@@ -175,4 +257,5 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
 private enum MobileTaskModelCatalogError: Error {
     case unsuccessfulResponse
     case invalidCatalog
+    case timeout
 }

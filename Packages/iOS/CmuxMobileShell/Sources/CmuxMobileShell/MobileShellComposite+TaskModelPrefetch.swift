@@ -33,24 +33,21 @@ extension MobileShellComposite {
             cancelTaskModelPrefetchTasks()
             return
         }
-        let desiredTargets = Dictionary(
-            uniqueKeysWithValues: targets.flatMap { target in
-                MobileTaskAgentProvider.allCases.map { provider in
-                    let pairingID = MobilePairedMac.pairingID(
-                        macDeviceID: target.macDeviceID,
-                        instanceTag: target.instanceTag
-                    )
-                    return (
-                        MobileTaskModelPrefetchKey(
-                            pairingID: pairingID,
-                            connectionIdentity: target.connectionIdentity,
-                            provider: provider
-                        ),
-                        target
-                    )
-                }
+        let desiredTargets = targets.reduce(
+            into: [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget]()
+        ) { desiredTargets, target in
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: target.macDeviceID,
+                instanceTag: target.instanceTag
+            )
+            for provider in MobileTaskAgentProvider.allCases {
+                desiredTargets[MobileTaskModelPrefetchKey(
+                    pairingID: pairingID,
+                    connectionIdentity: target.connectionIdentity,
+                    provider: provider
+                )] = target
             }
-        )
+        }
         taskModelPrefetchDesiredTargets = desiredTargets
         taskModelPrefetchCompletedKeys = taskModelPrefetchCompletedKeys.filter {
             desiredTargets[$0] != nil
