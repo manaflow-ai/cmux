@@ -5700,8 +5700,19 @@ struct CMUXCLI {
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
-                    // Absent or null means the plan has no active-machine cap.
-                    if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
+                    // The list endpoint can report the free/zero-cap shape for accounts
+                    // whose Cloud access is enabled separately. Keep this inventory neutral;
+                    // a running machine is not evidence of a paid or unlimited entitlement.
+                    let hasPlanMeter = planId != "free" && (limits["maxActiveVms"] as? Int) != 0
+                    let hasStalePlanWithRunningMachines = !hasPlanMeter && !vms.isEmpty
+                    if !hasPlanMeter {
+                        if vms.count == 1 {
+                            print(String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine"))
+                        } else {
+                            let format = String(localized: "machines.meter.count.unlimited", defaultValue: "%1$d machines")
+                            print(String(format: format, vms.count))
+                        }
+                    } else if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
@@ -5722,7 +5733,7 @@ struct CMUXCLI {
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
-                    let expiresAtMs = (limits["freeAccessExpiresAt"] as? Int64)
+                    let expiresAtMs = hasStalePlanWithRunningMachines ? nil : (limits["freeAccessExpiresAt"] as? Int64)
                         ?? (limits["freeAccessExpiresAt"] as? Int).map(Int64.init)
                         ?? (limits["freeAccessExpiresAt"] as? Double).map(Int64.init)
                     if let expiresAtMs {
