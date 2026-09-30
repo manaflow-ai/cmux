@@ -3603,8 +3603,19 @@ class TerminalController {
             "description": v2OrNull(topology.description),
             "selected": topology.isSelected,
             "pinned": topology.isPinned,
+            "host": v2TopHostNode(workspace.hostLabel),
             "panes": panes,
             "tags": v2TopTagNodes(for: workspace)
+        ]
+    }
+
+    /// Where a `system.top` workspace runs: `kind` is `local`, `ssh` or `cloud`;
+    /// `label` is the host (`big-red`) and `detail` the full target.
+    private func v2TopHostNode(_ host: WorkspaceHostLabel) -> [String: Any] {
+        [
+            "kind": host.kind.rawValue,
+            "label": v2OrNull(host.label.isEmpty ? nil : host.label),
+            "detail": v2OrNull(host.detail.isEmpty ? nil : host.detail),
         ]
     }
 
