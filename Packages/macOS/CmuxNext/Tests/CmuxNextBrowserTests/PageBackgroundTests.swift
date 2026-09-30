@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
@@ -9,5 +10,14 @@ import Testing
     @Test func aPageOpenedByAPageUsesTheEngineDefault() {
         #expect(!PageBackground.startsWithTheme(openedByPage: true))
         #expect(PageBackground.startsWithTheme(openedByPage: false))
+    }
+
+    @Test func blankURLs() {
+        #expect(PageBackground.isBlank(nil))
+        #expect(PageBackground.isBlank(URL(string: "about:blank")))
+        // A new Chromium tab opens the New Tab page: blank, no URL in the omnibar.
+        #expect(PageBackground.isBlank(URL(string: "chrome://newtab/")))
+        #expect(BrowserURLDisplay.displayText(for: URL(string: "chrome://newtab/")) == "")
+        #expect(!PageBackground.isBlank(URL(string: "https://example.com")))
     }
 }
