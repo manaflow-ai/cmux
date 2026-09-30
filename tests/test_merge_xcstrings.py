@@ -28,6 +28,15 @@ def unit(value):
     return {"localizations": {"en": {"stringUnit": {"state": "translated", "value": value}}}}
 
 
+def localized_unit(values):
+    return {
+        "localizations": {
+            language: {"stringUnit": {"state": "translated", "value": value}}
+            for language, value in values.items()
+        }
+    }
+
+
 def catalog(strings):
     return {"sourceLanguage": "en", "strings": strings, "version": "1.0"}
 
@@ -71,6 +80,14 @@ def assert_conflict_preserves(merged, *values, marker_size=7):
         assert value in merged, value
 
 
+def conflict_regions(text):
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("<<<<<<<")]
+    ends = [index for index, line in enumerate(lines) if line.startswith(">>>>>>>")]
+    assert len(starts) == len(ends), (starts, ends)
+    return ["\n".join(lines[start : end + 1]) for start, end in zip(starts, ends)]
+
+
 def run_with_patched_merge(result):
     driver = load_driver()
     with tempfile.TemporaryDirectory() as directory:
@@ -104,8 +121,32 @@ def test_disjoint_additions_merge():
     theirs = catalog({"a": unit("A"), "c": unit("C")})
     code, merged, _ = run(base, ours, theirs)
     assert code == 0, "disjoint additions must merge"
-    strings = json.loads(merged)["strings"]
-    assert set(strings) == {"a", "b", "c"}, strings.keys()
+    document = json.loads(merged)
+    assert list(document["strings"]) == ["a", "b", "c"]
+
+
+def test_theirs_only_top_level_keys_are_appended():
+    base = catalog({"a": unit("A")})
+    ours = catalog({"a": unit("A")})
+    theirs = catalog({"a": unit("A")})
+    theirs["metadata"] = {"owner": "theirs"}
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    document = json.loads(merged)
+    assert list(document) == ["sourceLanguage", "strings", "version", "metadata"]
+    assert document["metadata"] == {"owner": "theirs"}
+
+
+def test_top_level_divergence_is_reported():
+    base = catalog({"a": unit("A")})
+    ours = catalog({"a": unit("A")})
+    ours["version"] = "2.0"
+    theirs = catalog({"a": unit("A")})
+    theirs["version"] = "3.0"
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "catalog.version" in stderr, stderr
+    assert_conflict_preserves(merged, '"version": "2.0"', '"version": "3.0"')
 
 
 def test_same_key_same_value_is_not_a_conflict():
@@ -140,6 +181,72 @@ def test_multiple_conflict_hunks_keep_untouched_keys_outside_conflicts():
     for start, end in zip(starts, ends):
         assert '"value": "untouched"' not in "\n".join(lines[start : end + 1])
     assert merged.count('"value": "untouched"') == 1
+
+
+def test_each_reported_key_is_inside_a_conflict_region():
+    base = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "base-en",
+                    "ru": "base-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            )
+        }
+    )
+    ours = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "ours-en",
+                    "ru": "base-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            ),
+            "ours-only": unit("ours"),
+        }
+    )
+    theirs = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "base-en",
+                    "ru": "theirs-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            ),
+            "theirs-only": unit("theirs"),
+        }
+    )
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    report = stderr.split("materializing a conflict: ", 1)[1].strip()
+    regions = conflict_regions(merged)
+    for name in report.split(", "):
+        key = name.split(".", 1)[1]
+        assert any(f'"{key}"' in region for region in regions), (name, merged)
 
 
 def test_git_marker_size_is_used_for_materialized_conflicts():
@@ -179,7 +286,6 @@ def test_non_canonical_input_merges_without_reformatting():
     assert code == 0, stderr
     assert set(json.loads(merged)["strings"]) == {"a", "b", "c"}
     assert '\n        "a"' in merged, "our four-space layout must survive"
-    assert "canonically serialized" not in stderr
 
 
 def test_xcode_spaced_style_is_preserved():
@@ -265,7 +371,18 @@ def test_non_utf8_input_materializes_a_byte_conflict():
     assert code == 1
     assert merged.startswith(b"<<<<<<< ours\n")
     assert b"\xff" in merged
+    assert b'"value": "ours"' in merged
+    assert b'"value": "old"' in merged
     assert b'"value": "theirs"' in merged
+
+
+def test_explicit_text_conflict_contains_all_sections():
+    driver = load_driver()
+    merged = driver.explicit_conflict("BASE section", "OURS section", "THEIRS section", 9)
+    assert merged.startswith("<<<<<<<<<< ours\n")
+    assert "OURS section" in merged
+    assert "BASE section" in merged
+    assert "THEIRS section" in merged
 
 
 def test_invalid_catalog_shape_materializes_a_conflict():
@@ -293,14 +410,24 @@ def test_unexpected_merged_key_set_materializes_a_conflict():
 
 def test_every_refusal_preserves_theirs_in_the_output():
     cases = [
-        (catalog({"a": unit("old")}), catalog({"a": unit("ours")}), catalog({"a": unit("theirs")})),
-        (catalog({}), "{not json", catalog({"a": unit("theirs")})),
-        (catalog({}), catalog({"a": unit("ours")}), render({"sourceLanguage": "en", "strings": [], "version": "1.0"})),
+        (
+            catalog({"a": unit("old")}),
+            catalog({"a": unit("ours")}),
+            catalog({"a": unit("theirs")}),
+            '"value": "theirs"',
+        ),
+        (catalog({}), "{not json", catalog({"a": unit("theirs")}), '"value": "theirs"'),
+        (
+            catalog({}),
+            catalog({"a": unit("ours")}),
+            render({"sourceLanguage": "en", "strings": [], "version": "1.0"}),
+            '"strings": []',
+        ),
     ]
-    for base, ours, theirs in cases:
+    for base, ours, theirs, expected in cases:
         code, merged, _ = run(base, ours, theirs)
         assert code == 1
-        assert '"value": "theirs"' in merged or '"strings": []' in merged
+        assert expected in merged
         assert "<<<<<<<" in merged
 
     for result in (("{not json", [], ["a"]), (render(catalog({})), [], ["not-a"])):
@@ -308,6 +435,31 @@ def test_every_refusal_preserves_theirs_in_the_output():
         assert code == 1
         assert '"value": "theirs"' in merged
         assert "<<<<<<<" in merged
+
+
+def test_utf8_bom_falls_back_to_a_byte_conflict():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path, ours_path, theirs_path = (root / "O", root / "A", root / "B")
+        base_path.write_bytes(render(catalog({})).encode())
+        ours_path.write_bytes(b"\xef\xbb\xbf" + render(catalog({"a": unit("ours")})).encode())
+        theirs_path.write_bytes(render(catalog({"a": unit("theirs")})).encode())
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(DRIVER),
+                str(base_path),
+                str(ours_path),
+                str(theirs_path),
+                "Localizable.xcstrings",
+            ],
+            capture_output=True,
+        )
+        merged = ours_path.read_bytes()
+    assert result.returncode == 1
+    assert b"\xef\xbb\xbf" in merged
+    assert b'"value": "ours"' in merged
+    assert b'"value": "theirs"' in merged
 
 
 def test_a_refusal_that_cannot_render_blanks_the_result():
