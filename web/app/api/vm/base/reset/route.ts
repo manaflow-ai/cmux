@@ -6,6 +6,10 @@ import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { runBaseRoute } from "../routeShared";
 
 
+// Base open/reset cold-provisions a machine; same budget and rationale as
+// POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,

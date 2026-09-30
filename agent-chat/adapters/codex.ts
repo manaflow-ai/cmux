@@ -39,9 +39,33 @@ interface CodexState {
   currentTurnId?: string;
   turnActive: boolean;
   activeGeneration?: number;
-  turnWaiters: ((id: string | null) => void)[];
+  turnWaiters: TurnWaiter[];
+  // One in-flight startup cancellation at a time. Without this, every extra
+  // Stop press during the startup window parks its own waiter and the late
+  // turn/started notification fans out into that many interrupts and, on
+  // timeout, that many error events.
+  pendingStop?: Promise<void>;
   commands: CommandEntry[];
 }
+
+interface TurnWaiter {
+  resolve: (id: string | null) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+// Keep a startup cancellation waiter alive for the same bounded period as the
+// turn/start RPC. A delayed turn/started notification is still actionable
+// while that request is in flight.
+const TURN_START_WAIT_TIMEOUT_MS = 30_000;
+
+// A steer is a fresh user message, so it must not sit silently for the full
+// startup window; it gives up quickly and reports that the turn is still
+// starting. Keeping this separate from the stop deadline is what stops the
+// two callers of waitForTurnId from sharing a timeout and a message.
+const STEER_TURN_ID_WAIT_TIMEOUT_MS = 5_000;
+
+const STOP_DEADLINE_ERROR = "codex turn did not start before the stop deadline";
 
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
@@ -74,18 +98,25 @@ export const codexAdapter: Adapter = {
       const srv = await ensureServer();
       const st = await ensureCodexState(sess);
       let threadId = sess.internal.threadId as string | undefined;
-      if (!threadId) {
-        // Single-flight: concurrent first sends must share one thread/start or
-        // each spawns its own thread and the UI tracks only one of them.
+      if (!threadId || srv.sessionsByThread.get(threadId) !== sess) {
+        // Single-flight: concurrent first sends and post-crash resumes must
+        // share one thread/start or resume, rather than creating duplicates.
         let starting = sess.internal.threadStarting as Promise<string> | undefined;
         if (!starting) {
           starting = (async () => {
-            const res = await srv.request("thread/start", { cwd: sess.cwd });
+            const savedThreadId = sess.internal.threadId as string | undefined;
+            const res = savedThreadId
+              ? await srv.request("thread/resume", { threadId: savedThreadId, cwd: sess.cwd })
+              : await srv.request("thread/start", { cwd: sess.cwd });
             const id: string | undefined = res.thread?.id;
-            if (!id) throw new Error("codex thread/start returned no thread id");
+            if (!id) {
+              throw new Error(
+                `codex ${savedThreadId ? "thread/resume" : "thread/start"} returned no thread id`,
+              );
+            }
             sess.internal.threadId = id;
             srv.sessionsByThread.set(id, sess);
-            sess.emit({ kind: "meta", providerSessionId: id });
+            if (id !== savedThreadId) sess.emit({ kind: "meta", providerSessionId: id });
             emitOptions(sess);
             await refreshCommands(sess);
             return id;
@@ -98,7 +129,7 @@ export const codexAdapter: Adapter = {
         threadId = await starting;
       }
       if (codexSendRoute(st) === "steer") {
-        const turnId = st.currentTurnId ?? await waitForTurnId(st);
+        const turnId = st.currentTurnId ?? await waitForTurnId(st, STEER_TURN_ID_WAIT_TIMEOUT_MS);
         if (!turnId) throw new Error("codex turn is still starting");
         await srv.request("turn/steer", {
           threadId,
@@ -136,10 +167,47 @@ export const codexAdapter: Adapter = {
     }
   },
   stop(sess) {
+    const st = codexState(sess);
     const threadId = sess.internal.threadId as string | undefined;
-    if (threadId && shared) shared.request("turn/interrupt", { threadId }).catch(() => {});
+    const srv = shared;
+    if (!threadId || !srv || !st.turnActive) return;
+
+    const generation = st.activeGeneration;
+    const interrupt = (turnId: string) => {
+      // A turn can finish while Stop waits for `turn/started`; never apply the
+      // late ID to a subsequent turn on the same thread.
+      if (!codexStopGenerationMatches(st, generation) || sess.internal.threadId !== threadId) return;
+      const params = codexInterruptParams(threadId, turnId);
+      if (!params) return;
+      srv.request("turn/interrupt", params).catch((err) => {
+        sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
+      });
+    };
+
+    const params = codexInterruptParams(threadId, st.currentTurnId);
+    if (params) {
+      srv.request("turn/interrupt", params).catch((err) => {
+        sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(String(err), 400)}` });
+      });
+      return;
+    }
+
+    if (st.pendingStop) return;
+    const pending = waitForTurnId(st, TURN_START_WAIT_TIMEOUT_MS, STOP_DEADLINE_ERROR).then((turnId) => {
+      if (turnId) interrupt(turnId);
+    }).catch((err) => {
+      // This path also reports the locally constructed deadline Error, so read
+      // its message instead of stringifying it into "Error: ...".
+      const message = err instanceof Error ? err.message : String(err);
+      sess.emit({ kind: "error", message: `Codex stop failed: ${truncate(message, 400)}` });
+    }).finally(() => {
+      if (st.pendingStop === pending) st.pendingStop = undefined;
+    });
+    st.pendingStop = pending;
   },
   dispose(sess) {
+    const st = sess.internal.codex as CodexState | undefined;
+    if (st) resolveTurnWaiters(st, null);
     const threadId = sess.internal.threadId as string | undefined;
     if (threadId && shared) shared.sessionsByThread.delete(threadId);
   },
@@ -267,7 +335,6 @@ async function startServer(): Promise<AppServer> {
         sess.emit({ kind: "done", generation } as any);
         sess.setStatus("idle");
       }
-      sess.internal.threadId = undefined;
     }
     if (shared === srv) shared = null;
   });
@@ -278,7 +345,7 @@ async function startServer(): Promise<AppServer> {
   let initTimedOut = false;
   const initTimer = setTimeout(() => {
     initTimedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, 30_000);
   try {
     await request("initialize", {
@@ -286,6 +353,11 @@ async function startServer(): Promise<AppServer> {
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
   } catch (err) {
+    // This server has not been published to shared. Reap it before allowing
+    // another startup; even a rejected initialize can leave the child alive.
+    clearTimeout(initTimer);
+    if (proc.exitCode === null && !proc.killed) proc.kill("SIGKILL");
+    await proc.exited;
     throw initTimedOut ? new Error("codex app-server did not initialize within 30s") : err;
   } finally {
     clearTimeout(initTimer);
@@ -497,24 +569,92 @@ function codexSendRoute(st: Pick<CodexState, "turnActive" | "currentTurnId">): "
   return codexSendRouteForTest(st);
 }
 
-function waitForTurnId(st: CodexState): Promise<string | null> {
+function codexStopGenerationMatches(st: Pick<CodexState, "turnActive" | "activeGeneration">, generation: number | undefined): boolean {
+  return st.turnActive && st.activeGeneration === generation;
+}
+
+export function codexStopGenerationMatchesForTest(
+  st: { turnActive?: boolean; activeGeneration?: number },
+  generation: number | undefined,
+): boolean {
+  return codexStopGenerationMatches({
+    turnActive: st.turnActive ?? false,
+    activeGeneration: st.activeGeneration,
+  }, generation);
+}
+
+function codexInterruptParams(threadId: unknown, turnId: unknown): { threadId: string; turnId: string } | null {
+  if (typeof threadId !== "string" || !threadId.trim()) return null;
+  if (typeof turnId !== "string" || !turnId.trim()) return null;
+  return { threadId, turnId };
+}
+
+// Lets the stop tests drive the production waiter and its resolver on a short
+// deadline, instead of sleeping past the real one or reimplementing the
+// resolver's body (a hand-rolled copy cannot catch a regression inside it).
+export const codexStopWaitTimeoutsForTest = {
+  turnStartMs: TURN_START_WAIT_TIMEOUT_MS,
+  steerMs: STEER_TURN_ID_WAIT_TIMEOUT_MS,
+  stopDeadlineError: STOP_DEADLINE_ERROR,
+};
+
+export function codexWaitForTurnIdForTest(
+  st: Pick<CodexState, "currentTurnId" | "turnWaiters">,
+  timeoutMs: number,
+  timeoutError?: string,
+): Promise<string | null> {
+  return waitForTurnId(st as CodexState, timeoutMs, timeoutError);
+}
+
+export function codexResolveTurnWaitersForTest(
+  st: Pick<CodexState, "turnWaiters">,
+  id: string | null,
+): void {
+  resolveTurnWaiters(st as CodexState, id);
+}
+
+export function codexInterruptParamsForTest(threadId: unknown, turnId: unknown): { threadId: string; turnId: string } | null {
+  return codexInterruptParams(threadId, turnId);
+}
+
+// Lets a test drive codexAdapter.stop() against a fake app server instead of
+// spawning `codex app-server`; stop() reads the shared connection directly.
+export function codexSetSharedServerForTest(srv: unknown): void {
+  shared = (srv as AppServer | null) ?? null;
+}
+
+/** Stops the shared child used by an isolated adapter lifecycle test. */
+export function codexStopSharedServerForTest(): void {
+  const srv = shared;
+  shared = null;
+  srv?.proc.kill();
+}
+
+// Without `timeoutError` the wait resolves null on expiry and the caller
+// decides what that means; with it the wait rejects, which is how Stop turns a
+// turn that never started into a visible failure instead of a silent no-op.
+function waitForTurnId(st: CodexState, timeoutMs: number, timeoutError?: string): Promise<string | null> {
   if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      st.turnWaiters = st.turnWaiters.filter((r) => r !== done);
-      resolve(null);
-    }, 5_000);
-    const done = (id: string | null) => {
-      clearTimeout(timer);
-      resolve(id);
+  return new Promise((resolve, reject) => {
+    const waiter: TurnWaiter = {
+      resolve,
+      reject,
+      timer: setTimeout(() => {
+        st.turnWaiters = st.turnWaiters.filter((candidate) => candidate !== waiter);
+        if (timeoutError) reject(new Error(timeoutError));
+        else resolve(null);
+      }, timeoutMs),
     };
-    st.turnWaiters.push(done);
+    st.turnWaiters.push(waiter);
   });
 }
 
 function resolveTurnWaiters(st: CodexState, id: string | null) {
   const waiters = st.turnWaiters.splice(0);
-  for (const resolve of waiters) resolve(id);
+  for (const waiter of waiters) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(id);
+  }
 }
 
 function codexState(sess: SessionCtx): CodexState {
@@ -594,7 +734,7 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true, handoff: true } });
 }
 
 function buildOptions(st: CodexState): SessionOption[] {

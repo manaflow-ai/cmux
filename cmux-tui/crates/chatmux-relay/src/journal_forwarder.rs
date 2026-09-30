@@ -52,7 +52,8 @@ const MAX_DISCOVERED_SESSIONS: usize = 128;
 const MAX_SOCKET_ENTRIES_PER_ROOT: usize = 512;
 const SUBSCRIBE_REQUEST_ID: &str = "chatmux-journal-subscribe";
 const PROTOCOL: &str = "cmux.protocol/2";
-const DEFAULT_CURSOR_PATH: &str = "/tmp/.chatmux-relay-cursors.json";
+#[cfg(unix)]
+const LEGACY_CURSOR_PATH: &str = "/tmp/.chatmux-relay-cursors.json";
 // Control prefix: it cannot pass core session-name validation and is never
 // serialized as `sessionName`. It is only a local cursor/task key for hashed
 // socket filenames whose original name is not recoverable.
@@ -298,7 +299,9 @@ struct Shared {
     events: ManagedEvents,
     client: reqwest::Client,
     cursors: Arc<tokio::sync::Mutex<HashMap<String, JournalCursor>>>,
-    cursor_path: PathBuf,
+    /// None when no private per-user store is available; cursors then
+    /// live only in memory.
+    cursor_path: Option<PathBuf>,
     cancellation: CancellationToken,
     claims: Arc<Mutex<HashSet<String>>>,
     /// The forwarder-level pooled buffers and flush state shared by every
@@ -326,7 +329,21 @@ struct PoolState {
 
 #[cfg(unix)]
 async fn run(events: ManagedEvents, cancellation: CancellationToken) {
-    let cursors = load_cursor_file(Path::new(DEFAULT_CURSOR_PATH)).await;
+    let store = match default_cursor_path() {
+        Some(path) => open_cursor_store(&path, Path::new(LEGACY_CURSOR_PATH))
+            .await
+            .map(|cursors| (path, cursors)),
+        None => None,
+    };
+    let (cursor_path, cursors) = match store {
+        Some((path, cursors)) => (Some(path), cursors),
+        None => {
+            eprintln!(
+                "chatmux-relay: journal cursors stay in memory; no private state directory is available"
+            );
+            (None, HashMap::new())
+        }
+    };
     let client = match build_http_client(DEFAULT_REQUEST_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
@@ -339,7 +356,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         events,
         client,
         cursors: Arc::new(tokio::sync::Mutex::new(cursors)),
-        cursor_path: PathBuf::from(DEFAULT_CURSOR_PATH),
+        cursor_path,
         cancellation: cancellation.clone(),
         claims: Arc::new(Mutex::new(HashSet::new())),
         pool: Arc::new(Mutex::new(PoolState::default())),
@@ -987,6 +1004,13 @@ fn enqueue_pending(
     }
     let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
     if total < MAX_BATCH_RECORDS {
+        // During an in-flight POST the completion path re-arms the debounce
+        // for any leftover pending records (flush_cycle reads the total under
+        // the same lock that clears `flushing`), so waking here would only
+        // store a spurious permit — the exact wake the deferral pin forbids.
+        if pool.flushing {
+            return;
+        }
         drop(pool);
         shared.flush_wake.notify_one();
         return;
@@ -1267,6 +1291,71 @@ fn decimal_less(left: &str, right: &str) -> bool {
 }
 
 #[cfg(unix)]
+fn default_cursor_path() -> Option<PathBuf> {
+    cursor_path_for(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
+}
+
+/// `$XDG_STATE_HOME/chatmux-relay/journal-cursors.json`, falling back to
+/// `$HOME/.local/state`. Relative values are ignored, as the XDG spec requires.
+#[cfg(unix)]
+fn cursor_path_for(
+    state_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    let absolute = |value: std::ffi::OsString| {
+        let path = PathBuf::from(value);
+        path.is_absolute().then_some(path)
+    };
+    let state_home = state_home
+        .and_then(absolute)
+        .or_else(|| home.and_then(absolute).map(|home| home.join(".local/state")))?;
+    Some(state_home.join("chatmux-relay").join("journal-cursors.json"))
+}
+
+/// Open the cursor store at `path` in a private directory. The first time,
+/// cursors from this user's private legacy `/tmp` file move into it. None
+/// means no private store is available and cursors stay in memory.
+#[cfg(unix)]
+async fn open_cursor_store(path: &Path, legacy: &Path) -> Option<HashMap<String, JournalCursor>> {
+    if !prepare_cursor_directory(path.parent()?).await {
+        return None;
+    }
+    if tokio::fs::symlink_metadata(path).await.is_ok() {
+        return Some(load_cursor_file(path).await);
+    }
+    // load_cursor_file only accepts this user's private regular file.
+    let cursors = load_cursor_file(legacy).await;
+    if !cursors.is_empty() && persist_cursor_file(path, &cursors).await {
+        let _ = tokio::fs::remove_file(legacy).await;
+    }
+    Some(cursors)
+}
+
+#[cfg(unix)]
+async fn prepare_cursor_directory(dir: &Path) -> bool {
+    let parent_ready = match dir.parent() {
+        Some(parent) => tokio::fs::create_dir_all(parent).await.is_ok(),
+        None => true,
+    };
+    if !parent_ready {
+        return false;
+    }
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(dir).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(_) => return false,
+    }
+    let Ok(metadata) = tokio::fs::symlink_metadata(dir).await else { return false };
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::getuid() } {
+        return false;
+    }
+    metadata.permissions().mode() & 0o077 == 0
+        || tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).await.is_ok()
+}
+
+#[cfg(unix)]
 async fn load_cursor_file(path: &Path) -> HashMap<String, JournalCursor> {
     let Some(file) = open_cursor_file(path).await else { return HashMap::new() };
     let mut bytes = Vec::with_capacity(MAX_CURSOR_FILE_BYTES.min(4096));
@@ -1289,7 +1378,9 @@ async fn load_cursor_file(path: &Path) -> HashMap<String, JournalCursor> {
 #[cfg(unix)]
 async fn persist_cursors(shared: &Shared) {
     let cursors = shared.cursors.lock().await.clone();
-    let _ = persist_cursor_file(&shared.cursor_path, &cursors).await;
+    if let Some(path) = &shared.cursor_path {
+        let _ = persist_cursor_file(path, &cursors).await;
+    }
 }
 
 #[cfg(unix)]
@@ -1846,6 +1937,62 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn private_cursor_store_lives_in_a_per_user_state_directory() {
+        let store = |state: Option<&str>, home: Option<&str>| {
+            cursor_path_for(state.map(Into::into), home.map(Into::into))
+        };
+        assert_eq!(
+            store(Some("/home/u/state"), Some("/home/u")),
+            Some(PathBuf::from("/home/u/state/chatmux-relay/journal-cursors.json"))
+        );
+        assert_eq!(
+            store(None, Some("/home/u")),
+            Some(PathBuf::from("/home/u/.local/state/chatmux-relay/journal-cursors.json"))
+        );
+        assert_eq!(
+            store(Some("state"), Some("/home/u")),
+            Some(PathBuf::from("/home/u/.local/state/chatmux-relay/journal-cursors.json")),
+            "a relative XDG_STATE_HOME is ignored"
+        );
+        assert_eq!(store(None, None), None);
+        assert_eq!(store(None, Some("home")), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn private_cursor_store_migrates_an_own_legacy_file() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+        let (root, legacy) = cursor_test_path("legacy").await;
+        let path = root.join("state/chatmux-relay/journal-cursors.json");
+        let cursors = HashMap::from([(String::from("work"), cursor("generation", "7"))]);
+        assert!(persist_cursor_file(&legacy, &cursors).await);
+
+        assert_eq!(open_cursor_store(&path, &legacy).await, Some(cursors.clone()));
+        assert_eq!(load_cursor_file(&path).await, cursors);
+        assert!(
+            tokio::fs::symlink_metadata(&legacy).await.is_err(),
+            "the migrated legacy file is removed"
+        );
+        let directory = tokio::fs::symlink_metadata(root.join("state/chatmux-relay"))
+            .await
+            .expect("read cursor directory");
+        assert_eq!(directory.permissions().mode() & 0o777, 0o700);
+
+        // An existing private store wins over a legacy file.
+        let stale = HashMap::from([(String::from("work"), cursor("generation", "1"))]);
+        assert!(persist_cursor_file(&legacy, &stale).await);
+        assert_eq!(open_cursor_store(&path, &legacy).await, Some(cursors));
+
+        // A store whose directory is a symlink is not used.
+        let linked = root.join("linked");
+        symlink(root.join("state/chatmux-relay"), &linked).expect("link cursor directory");
+        assert_eq!(open_cursor_store(&linked.join("journal-cursors.json"), &legacy).await, None);
+        remove_cursor_test_path(&root).await;
+    }
+
+    #[cfg(unix)]
     fn test_shared(url: String, cursor_path: PathBuf) -> (Shared, Arc<tokio::sync::Notify>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let flush_wake = Arc::new(tokio::sync::Notify::new());
@@ -1854,7 +2001,7 @@ mod tests {
             events: ManagedEvents { url, token: String::from("test-token") },
             client: build_http_client(Duration::from_secs(5)).expect("build test client"),
             cursors: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            cursor_path,
+            cursor_path: Some(cursor_path),
             cancellation: CancellationToken::new(),
             claims: Arc::new(Mutex::new(HashSet::new())),
             pool: Arc::new(Mutex::new(PoolState::default())),
@@ -1909,7 +2056,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn pooled_arm_wakes_are_coalesced_while_the_flusher_is_busy() {
+    async fn pooled_arm_wakes_defer_while_the_flusher_is_busy_and_coalesce_after() {
         let (root, path) = cursor_test_path("pool-arm-coalesce").await;
         let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
         let generation = Some(String::from("gen_a"));
@@ -1927,9 +2074,32 @@ mod tests {
             );
         }
 
+        // While a POST is in flight, below-threshold arms never wake: the
+        // completion path re-arms the debounce from the leftover total under
+        // the same lock that clears `flushing` (the #11034 deferral rule —
+        // this pin and the pooled_threshold deferral pin share it).
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
+            "arms during an in-flight POST must defer to the completion re-arm"
+        );
+
+        // After the POST settles, arm wakes flow again — and coalesce.
+        {
+            let mut pool = shared.pool.lock().expect("lock pool");
+            pool.flushing = false;
+        }
+        for sequence in 4..=6 {
+            enqueue_pending(
+                &shared,
+                "alpha",
+                "alpha",
+                &generation,
+                record("gen_a", &sequence.to_string()),
+            );
+        }
         tokio::time::timeout(Duration::from_millis(100), wake.notified())
             .await
-            .expect("arm request must wake the flusher");
+            .expect("an idle-flusher arm request must wake the flusher");
         assert!(
             tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
             "repeated arm requests must use one pending wake"

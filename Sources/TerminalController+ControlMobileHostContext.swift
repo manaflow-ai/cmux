@@ -57,8 +57,8 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalMouse(params: foundationParams(params)))
     }
 
-    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
+    func controlMobileTerminalPaste(params: [String: JSONValue]) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileTerminalPaste(params: foundationParams(params)))
     }
 
     func controlMobileTaskAttachmentUpload(
@@ -75,6 +75,20 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(
             await v2MobileTaskModelsList(params: foundationParams(params))
         )
+    }
+
+    nonisolated func controlMobileChatSend(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatSend(params: params))
+    }
+
+    nonisolated func controlMobileChatInterrupt(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        let params = foundationParams(params)
+        return bridgeMobileResult(await v2MobileChatInterrupt(params: params))
     }
 
     func controlMobileChatSessionsDump() -> ControlCallResult {

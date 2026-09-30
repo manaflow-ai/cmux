@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxMobileTerminal
+@testable import CmuxMobileTerminal
 import CmuxMobileShellModel
 import SwiftUI
 import Testing
@@ -72,6 +72,7 @@ struct TerminalSurfaceMountOwnershipTests {
             runtime: try GhosttyRuntime.shared(),
             delegate: coordinator
         )
+        surfaceView.stopDisplayLink()
         let host = UIViewController()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = host
@@ -86,6 +87,7 @@ struct TerminalSurfaceMountOwnershipTests {
 
         surfaceView.frame = host.view.bounds
         host.view.addSubview(surfaceView)
+        surfaceView.stopDisplayLink()
         for _ in 0..<20 {
             await Task.yield()
         }
@@ -116,8 +118,17 @@ struct TerminalSurfaceMountOwnershipTests {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
         }
         #expect(unmounted)
+        // Losing a UIKit window stops the output consumer but keeps the sticky
+        // viewport lease. Releasing it here manufactured clear→apply resize
+        // pairs during transient SwiftUI remounts and fed #13474's SIGWINCH
+        // replay loop.
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        #expect(store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
 
         host.view.addSubview(surfaceView)
+        surfaceView.stopDisplayLink()
         for _ in 0..<20 {
             await Task.yield()
         }
@@ -138,6 +149,13 @@ struct TerminalSurfaceMountOwnershipTests {
             return token != firstToken
         }
         #expect(remounted)
+
+        // Presentation ownership, unlike temporary window attachment, releases
+        // the sticky viewport lease and its generation-fenced Mac report.
+        coordinator.setTerminalPresentationActive(false)
+        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
     }
 
     @MainActor

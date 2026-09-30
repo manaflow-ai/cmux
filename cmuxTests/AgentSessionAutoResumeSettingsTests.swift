@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxTerminal
 import Foundation
 import CmuxCore
 import XCTest
@@ -274,10 +275,16 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 input
             )
             XCTAssertFalse(input.contains("/tmp/repo"), input)
+            // The remote cwd survives restore as the panel's trusted remote
+            // directory report, not as the host shell's spawn directory: the
+            // restored resume input owns the `cd`, and a remote-host path is
+            // never enterable locally (OneShotTerminalLauncherStore filters it),
+            // so seeding it as the local spawn cwd would break the owning shell.
             XCTAssertEqual(
-                restoredPanel.requestedWorkingDirectory,
+                restored.panelDirectories[restoredPanelId],
                 remoteWorkingDirectory
             )
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .awaitingAutoResumeCommand
@@ -793,7 +800,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -818,7 +828,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = clipboard"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
         )
         XCTAssertEqual(notificationCount, 1)
 
@@ -834,7 +844,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = false"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = false"
         )
         XCTAssertEqual(notificationCount, 2)
 
@@ -844,7 +854,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
         XCTAssertEqual(notificationCount, 2)
     }
 }

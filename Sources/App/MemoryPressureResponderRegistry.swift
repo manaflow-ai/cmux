@@ -12,18 +12,24 @@ final class MemoryPressureResponderRegistry {
         category: "MemoryPressure"
     )
 
-    private var respondersByID: [String: any MemoryPressureResponder] = [:]
+    var respondersByID: [String: any MemoryPressureResponder] = [:]
 
     func register(_ responder: any MemoryPressureResponder) {
         respondersByID[responder.memoryPressureResponderID] = responder
     }
 
     @discardableResult
-    func dispatch(_ snapshot: MemoryPressureSnapshot) -> [MemoryPressureShedAction] {
+    func dispatch(
+        _ snapshot: MemoryPressureSnapshot,
+        signal: MemoryPressureResponderSignal = .system
+    ) -> [MemoryPressureShedAction] {
         guard snapshot.severity >= .warning else { return [] }
 
         let eligibleResponders = respondersByID.values
-            .filter { snapshot.severity >= $0.memoryPressureMinimumSeverity }
+            .filter {
+                snapshot.severity >= $0.memoryPressureMinimumSeverity &&
+                    $0.memoryPressureResponderScope.accepts(signal)
+            }
             .sorted { lhs, rhs in
                 if lhs.memoryPressurePriority != rhs.memoryPressurePriority {
                     return lhs.memoryPressurePriority > rhs.memoryPressurePriority

@@ -39,6 +39,9 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
     "branch",
     "requirement =",
 )
+XCODE_PRODUCT_PACKAGE_LINK_RE = re.compile(
+    r"\bpackage\s*=\s*[^;]*\bXCRemoteSwiftPackageReference\b"
+)
 
 
 class PackageNode(NamedTuple):
@@ -308,6 +311,12 @@ def xcode_package_reference_changed(
     )
     for line in diff.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+            continue
+        # A product dependency's `package = ... XCRemoteSwiftPackageReference`
+        # field only links a product to an already-declared package. Adding or
+        # removing that linkage does not change Xcode's resolved package graph,
+        # so it must not require a Package.resolved diff.
+        if XCODE_PRODUCT_PACKAGE_LINK_RE.search(line):
             continue
         if any(token in line for token in XCODE_PACKAGE_REFERENCE_TOKENS):
             return True

@@ -1,30 +1,28 @@
-import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
+import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   jsonResponse,
-  notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
-  vmCreateLikeErrorResponse,
+  vmCreateLikeErrorResponders,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
 } from "../../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import {
-  isVmNotFoundError,
-} from "../../../../../services/vms/errors";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../../services/vms/entitlements";
-import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
+import { forkVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneGatewayFor } from "../../../../../services/vms/modelPlaneGateway";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 import {
   idempotencyKeyFromRequest,
   parseOptionalObjectBody,
   stringField,
 } from "../../../../../services/vms/routeInput";
+
+// Fork cold-provisions a machine (and may snapshot the source first); same
+// budget and rationale as POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
 
 export async function POST(
   request: Request,
@@ -38,7 +36,10 @@ export async function POST(
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "fork", response, span });
+      });
       const parsedBody = await parseOptionalObjectBody(request, {
         operation: "fork",
         action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",
@@ -46,31 +47,18 @@ export async function POST(
       if (!parsedBody.ok) return parsedBody.response;
       const body = parsedBody.body;
       const { id } = await params;
-      let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
-      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        let refreshedUser: AuthedUser | null;
-        try {
-          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
-        } catch (error) {
-          return authProviderErrorResponse(error, "/api/vm.fork.team-auth");
-        }
-        if (!refreshedUser) return unauthorized();
-        user = refreshedUser;
-      }
-      let entitlements;
-      try {
-        entitlements = resolveVmEntitlements(user, process.env, {
-          requestedBillingTeamId,
-          requireTeam: true,
-        });
-      } catch (err) {
-        if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-        throw err;
-      }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
-      }
+      const reverified = await reverifyVmRequestForTeam({
+        request,
+        user: initialUser,
+        requestedBillingTeamId,
+        authErrorLabel: "/api/vm.fork.team-auth",
+      });
+      if (!reverified.ok) return reverified.response;
+      const user = reverified.user;
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      if (!account.ok) return account.response;
+      const entitlements = account.entitlements;
       const idempotencyKey = idempotencyKeyFromRequest(request);
       const name = stringField(body, "name");
       setSpanAttributes(span, {
@@ -78,38 +66,42 @@ export async function POST(
         "cmux.billing.team_id_set": !!entitlements.billingTeamId,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
-      try {
-        const result = await runVmWorkflow(forkVm({
-          userId: user.id,
-          billingCustomerType: entitlements.billingCustomerType,
-          billingTeamId: entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          billingPlanId: entitlements.planId,
-          maxActiveVms: entitlements.maxActiveVms,
-          providerVmId: id,
-          name,
-          idempotencyKey,
-          timing,
-        }));
-        return jsonResponse({
-          snapshotId: result.snapshot?.id ?? null,
-          id: result.fork.providerVmId,
-          provider: result.fork.provider,
-          image: result.fork.image,
-          imageVersion: result.fork.imageVersion,
-          status: result.fork.status,
-          createdAt: result.fork.createdAt,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        const response = vmCreateLikeErrorResponse(err, {
+      const run = await runVmRoute(forkVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        providerVmId: id,
+        name,
+        idempotencyKey,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
+        timing,
+      }), {
+        request,
+        onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,
-          retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
-        });
-        if (response) return response;
-        throw err;
-      }
+          retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
+        }),
+      });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      return jsonResponse({
+        snapshotId: result.snapshot?.id ?? null,
+        id: result.fork.providerVmId,
+        provider: result.fork.provider,
+        image: result.fork.image,
+        imageVersion: result.fork.imageVersion,
+        status: result.fork.status,
+        createdAt: result.fork.createdAt,
+        capabilities: vmCapabilitiesFor(result.fork.provider),
+      });
     },
   );
 }

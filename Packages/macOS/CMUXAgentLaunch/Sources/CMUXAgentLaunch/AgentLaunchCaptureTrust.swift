@@ -19,6 +19,7 @@ public enum AgentLaunchCaptureTrust {
     ]
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
+        "amp": ["amp"],
         "antigravity": ["agy"],
         "campfire": ["campfire"],
         "claude": ["claude"],
