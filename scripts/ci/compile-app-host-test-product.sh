@@ -5,11 +5,11 @@
 #
 # Compiles the app-host test product with Xcode's compilation cache on for
 # every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). cmuxTests also emits no Swift module. ci.yml
-# `macos-compile-admission` restores that cache read-only and nightly.yml
-# `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
-# whole compiler invocation and on absolute paths, so both jobs must build
-# through this script or they stop sharing hits without anything failing.
+# build()). cmuxTests also emits no Swift module. Owned minis add the deployed
+# fleet-cas node's remote settings; other runners use the local CAS path and
+# the scheduled seed writer. A cache entry is keyed on the whole compiler
+# invocation and on absolute paths, so both jobs must build through this
+# script or they stop sharing hits without anything failing.
 #
 # `fingerprint` keys the cache. A cache entry bakes in the absolute source and
 # derived-data paths, so which paths the build used decides whether a seed can
@@ -55,6 +55,11 @@ CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 # it, so it reaches only these builds. A build database written in one mode
 # reruns every task in the other, so the mode is part of the fingerprint.
 XCBUILD_FILE_SYSTEM_MODE=checksum-only
+# Keep compiler metadata independent of the producer's canonical root. Test
+# fixtures that need source files use cmuxTestSourceURL(), which resolves
+# #fileID against the matching runtime alias because Swift's #filePath literal
+# does not honor -file-prefix-map.
+FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
 fingerprint() {
   local derived_data="$1"
@@ -66,7 +71,7 @@ fingerprint() {
     && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
     && [ "${derived_data##*/}" != "" ]; then
     {
-      echo "canonical-v1"
+      echo "canonical-v2"
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
@@ -88,6 +93,13 @@ fingerprint() {
   } | shasum -a 256 | cut -c1-32
 }
 
+# The resolve and every build run xcodebuild through
+# `swiftpm-manifest-cache.sh run`, with FileSystemMode as the one extra
+# variable, so all of them share one environment. SwiftPM keys each evaluated
+# Package.swift on that whole environment: the first scheme build then reuses
+# the manifests the resolve (or the restored seed cache) evaluated instead of
+# evaluating all 91 again, which took 18 to 44 s per admission.
+#
 # `build` disables package resolution, so a resolve that reports success
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
@@ -99,11 +111,36 @@ fingerprint() {
 # once without fetching each package remote. Pins are exact revisions, so
 # skipping the fetch cannot change what is checked out. If it fails for any
 # reason, fall through to the normal resolve of the same cache.
+#
+# An owned Mac hands the resolve the packages its last job resolved
+# (owned_build_state.py), which is no `spm-` hit at all, so every owned
+# admission fetched all 11 package remotes: 10 to 55 s of the resolve,
+# depending on GitHub (hq#661). A successful resolve therefore stamps the
+# packages with the Package.resolved (and cache layout) it resolved. When the
+# stamp matches this checkout, the packages are exactly what an exact `spm-`
+# hit holds and take the same offline resolve and fallback.
+RESOLVED_STAMP=.cmux-resolved-sha256
+
+resolved_stamp() {
+  local resolved=cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+  [ -f "$resolved" ] || return 0
+  cat "$resolved" "$SCRIPT_DIR/swiftpm-cache-layout" | shasum -a 256 | cut -d' ' -f1
+}
+
 resolve() {
-  local derived_data="$1" source_packages="$2" attempt
+  local derived_data="$1" source_packages="$2" attempt stamp offline=""
+  stamp="$(resolved_stamp)"
   if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
+    offline=1
+  elif [ -n "$stamp" ] && [ "$(cat "$source_packages/$RESOLVED_STAMP" 2>/dev/null)" = "$stamp" ]; then
+    echo "Kept Swift packages were resolved from this Package.resolved; resolving without package updates"
+    offline=1
+  fi
+  # Stamped again only by a resolve that succeeds below.
+  rm -f "$source_packages/$RESOLVED_STAMP"
+  if [ -n "$offline" ]; then
     mkdir -p "$source_packages" "$derived_data"
-    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+    if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
@@ -112,13 +149,14 @@ resolve() {
       -resolvePackageDependencies \
       && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
       && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
       return 0
     fi
-    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+    echo "Offline resolve of the restored or kept packages failed; resolving normally" >&2
   fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
-    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+    if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
@@ -126,6 +164,7 @@ resolve() {
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+        [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
         return 0
       fi
       echo "Resolve succeeded but binary artifacts are missing" >&2
@@ -194,9 +233,18 @@ build() {
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
     CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+    # Keep cache keys stable when a PR runner's checkout and DerivedData live
+    # under a different absolute root than the fleet CAS writer.
+    SWIFT_ENABLE_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PREFIX_MAPPING=YES
+    SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    # Xcode 26.6 emits one bounded remark per cache query. The build metrics
+    # receipt turns those remarks into cacheable-task and hit counters.
+    COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
-    'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' -Xfrontend -debug-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
     CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
     # A clean build has no module for Xcode's Copy tasks to install (#14371).
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
@@ -212,18 +260,72 @@ build() {
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
   fi
+  # Owned minis carry the fleet-cas node installed by glaeda. Its settings
+  # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
+  # runners simply keep the local CAS path above. The helper is probed once
+  # per build and is advisory, so a down node never refuses a CI job.
+  local -a fleet_cache_setting=()
+  local fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
+  local fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
+  local fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"
+  if [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
+    local fleet_settings=''
+    fleet_settings="$("$fleet_cas_settings" "$fleet_cas_socket" 2>/dev/null | head -n 8)" || fleet_settings=''
+    local fleet_plugin_ok=0
+    local fleet_remote_ok=0
+    while IFS= read -r setting; do
+      case "$setting" in
+        COMPILATION_CACHE_ENABLE_PLUGIN=YES) fleet_plugin_ok=1 ;;
+        COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*) fleet_remote_ok=1 ;;
+        COMPILATION_CACHE_CAS_PATH=/*) ;;
+      esac
+    done <<< "$fleet_settings"
+    if [ "$fleet_plugin_ok" -eq 1 ] && [ "$fleet_remote_ok" -eq 1 ]; then
+      fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
+      while IFS= read -r setting; do
+        case "$setting" in
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
+            fleet_cache_setting+=("$setting")
+            ;;
+        esac
+      done <<< "$fleet_settings"
+    fi
+  fi
+  # xcodebuild runs under the resolve's fixed environment (see resolve()), but
+  # the app's script phases still need the caller's: PATH for cargo, rustup,
+  # go and zig (Nucleo FFI, the diff sidecar, wireguard-go, bundled
+  # resources), HOME for ~/.cargo, CI and CMUX_SKIP_ZIG_BUILD for what they
+  # build. Command-line build settings reach every script phase's environment
+  # without entering SwiftPM's key. Swift Build builds a script's PATH from its
+  # own process PATH and ignores a PATH build setting, so PATH travels as
+  # CMUX_CALLER_PATH and scripts/build-phase-caller-path.sh puts it back.
+  local -a caller_settings=("CMUX_CALLER_PATH=$PATH")
+  local name
+  while IFS= read -r name; do
+    # xcodebuild prints command-line settings, and they land in the build log
+    # a DerivedData seed carries, so nothing that looks like a secret goes.
+    case "$name" in
+      CMUX_CALLER_PATH|*TOKEN*|*SECRET*|*PASSWORD*|*_KEY) ;;
+      CI|HOME|TMPDIR|ZIG_REQUIRED|RUSTC|RUSTC_WRAPPER|RUSTFLAGS|CMUX_*|CARGO_*|RUSTUP_*|GO[A-Z]*|CGO_*)
+        caller_settings+=("$name=${!name}")
+        ;;
+    esac
+  done < <(compgen -e)
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
   for scheme in "${schemes[@]}"; do
-    FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
+    FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -disableAutomaticPackageResolution \
       -destination "platform=macOS" \
+      "${caller_settings[@]}" \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
       'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
       "${cache_setting[@]}" \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${fleet_cache_setting[@]+"${fleet_cache_setting[@]}"} \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"

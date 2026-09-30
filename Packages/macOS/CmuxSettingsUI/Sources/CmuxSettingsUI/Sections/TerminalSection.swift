@@ -23,7 +23,14 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
+    @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
+    @State private var textEditingGesturesInFullScreenApps: DefaultsValueModel<Bool>
+    @State private var passwordInputIndicator: DefaultsValueModel<Bool>
+    @State private var passwordInputDots: DefaultsValueModel<Bool>
+    @State private var predictiveLocalEcho: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -51,7 +58,18 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
+        _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _textEditingCommandMovesByWord = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingCommandMovesByWord)
+        )
+        _textEditingGesturesInFullScreenApps = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGesturesInFullScreenApps)
+        )
+        _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
+        _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
+        _predictiveLocalEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.predictiveLocalEcho))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -73,6 +91,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            TerminalGhosttyOptionsCard(hostActions: hostActions)
             LocalTmuxSettingsCard(hostActions: hostActions)
             resumeCommandsCard
         }
@@ -87,7 +106,14 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
+            reflowHardWrapOnCopy,
+            confirmUnsafePaste,
             textEditingGestures,
+            textEditingCommandMovesByWord,
+            textEditingGesturesInFullScreenApps,
+            passwordInputIndicator,
+            passwordInputDots,
+            predictiveLocalEcho,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -167,15 +193,9 @@ public struct TerminalSection: View {
     }
 
     private var sessionContentWidthSubtitle: String {
-        if sessionContentWidthEnabled {
-            return String(
-                localized: "settings.terminal.sessionContentWidth.subtitleOn",
-                defaultValue: "Terminal and agent chat content wraps within this width. Narrow panes still use all available space."
-            )
-        }
-        return String(
-            localized: "settings.terminal.sessionContentWidth.subtitleOff",
-            defaultValue: "Terminal and agent chat content uses the full pane width."
+        String(
+            localized: "settings.terminal.sessionContentWidth.subtitle",
+            defaultValue: "Wraps terminal and agent chat content at this width. Narrow panes still use their full width."
         )
     }
 
@@ -263,51 +283,20 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
-                String(localized: "settings.app.theme", defaultValue: "Theme")
+                String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
+                subtitle: String(
+                    localized: "settings.terminal.importFromTerminal.subtitle",
+                    defaultValue: "Bring over your font, colors, cursor and more from iTerm2, Terminal, Alacritty, Kitty, WezTerm or Warp."
+                )
             ) {
                 Button(
-                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
+                    String(localized: "settings.terminal.importFromTerminal.button", defaultValue: "Import…")
                 ) {
-                    hostActions.openTerminalThemePicker()
+                    hostActions.openTerminalImport()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalThemePickerButton")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.adaptiveDefaultTheme"),
-                String(
-                    localized: "settings.terminal.adaptiveDefaultTheme",
-                    defaultValue: "Adapt Default Theme to Appearance"
-                ),
-                subtitle: adaptiveDefaultTheme.current
-                    ? String(
-                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
-                    )
-                    : String(
-                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
-                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
-                    )
-            ) {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { adaptiveDefaultTheme.current },
-                        set: { enabled in
-                            adaptiveDefaultTheme.set(enabled) {
-                                @MainActor [hostActions] in
-                                hostActions.terminalAdaptiveDefaultThemeDidChange()
-                            }
-                        }
-                    )
-                )
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier(
-                    "SettingsTerminalAdaptiveDefaultThemeToggle"
-                )
+                .accessibilityIdentifier("SettingsTerminalImportButton")
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -405,9 +394,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showScrollBar"),
                 String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
-                subtitle: scrollBar.current
-                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
-                    : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                subtitle: String(localized: "settings.terminal.scrollBar.subtitle", defaultValue: "Shows a scroll bar in terminals, except in full-screen apps.")
             ) {
                 Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
                     .labelsHidden()
@@ -418,9 +405,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.copyOnSelect"),
                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
-                subtitle: copyOnSelect.current
-                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is also copied to the system clipboard when the selection is committed.")
-                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "cmux does not add system-clipboard copy on selection. Ghostty config still controls Paste Selection.")
+                subtitle: String(localized: "settings.terminal.copyOnSelect.subtitle", defaultValue: "Selecting text in a terminal copies it to the clipboard.")
             ) {
                 Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
                     .labelsHidden()
@@ -429,11 +414,33 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .json("terminal.reflowHardWrapOnCopy"),
+                String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
+                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copying text also joins line breaks a program printed at the full terminal width and drops a short continuation indent. Soft-wrapped lines always copy as one line.")
+            ) {
+                Toggle("", isOn: Binding(get: { reflowHardWrapOnCopy.current }, set: { reflowHardWrapOnCopy.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalReflowHardWrapOnCopyToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.confirmUnsafePaste"),
+                String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"),
+                subtitle: confirmUnsafePaste.current
+                    ? String(localized: "settings.terminal.confirmUnsafePaste.subtitleOn", defaultValue: "A paste Ghostty flags as unsafe, such as several lines into a program without bracketed paste, waits for you to confirm it in a sheet on the window.")
+                    : String(localized: "settings.terminal.confirmUnsafePaste.subtitleOff", defaultValue: "Pastes Ghostty flags as unsafe go through without asking.")
+            ) {
+                Toggle("", isOn: Binding(get: { confirmUnsafePaste.current }, set: { confirmUnsafePaste.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalConfirmUnsafePasteToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: textEditingGestures.current
-                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "Command and Option arrow keys move by line and word, and the Command and Option delete keys kill by line and word. Applications receive these chords instead of the gesture, so turn this off before working in a full-screen TUI.")
-                    : String(localized: "settings.terminal.textEditingGestures.subtitleOff", defaultValue: "Command and Option key combinations reach the terminal unchanged.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Command and Option arrow and delete keys move and delete by line and word at the shell prompt.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
@@ -442,11 +449,69 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .json("terminal.textEditingCommandMovesByWord"),
+                String(localized: "settings.terminal.textEditingCommandMovesByWord", defaultValue: "Command Moves by Word"),
+                subtitle: textEditingCommandMovesByWord.current
+                    ? String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOn", defaultValue: "Command arrow and delete keys move and delete by word, like Option. Control Left and Right Arrow move to the start and end of the line.")
+                    : String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOff", defaultValue: "Command arrow and delete keys move and delete by line, as in macOS text fields.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingCommandMovesByWord.current }, set: { textEditingCommandMovesByWord.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!textEditingGestures.current)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingCommandMovesByWordToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textEditingGesturesInFullScreenApps"),
+                String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
+                subtitle: String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitle", defaultValue: "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingGesturesInFullScreenApps.current }, set: { textEditingGesturesInFullScreenApps.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!textEditingGestures.current)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingGesturesInFullScreenAppsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showPasswordInputIndicator"),
+                String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not.")
+            ) {
+                Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPasswordInputIndicatorToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showPasswordInputDots"),
+                String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
+                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted.")
+            ) {
+                Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!passwordInputIndicator.current)
+                    .accessibilityIdentifier("SettingsTerminalPasswordInputDotsToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.predictiveLocalEcho"),
+                String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"),
+                subtitle: String(localized: "settings.terminal.predictiveLocalEcho.subtitle", defaultValue: "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded.")
+            ) {
+                Toggle("", isOn: Binding(get: { predictiveLocalEcho.current }, set: { predictiveLocalEcho.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalPredictiveLocalEchoToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.autoResumeAgentSessions"),
                 String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
-                subtitle: autoResume.current
-                    ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
-                    : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+                subtitle: String(localized: "settings.terminal.agentAutoResume.subtitle", defaultValue: "Reopening cmux resumes agent sessions automatically.")
             ) {
                 Toggle("", isOn: Binding(get: { autoResume.current }, set: { autoResume.set($0) }))
                     .labelsHidden()
@@ -457,9 +522,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: hibernation.current
-                    ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
-                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()
@@ -500,9 +563,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.rendererRealization.enabled"),
                 String(localized: "settings.terminal.rendererRealization", defaultValue: "Reclaim Offscreen Terminal Memory"),
-                subtitle: rendererReclaim.current
-                    ? String(localized: "settings.terminal.rendererRealization.subtitleOn", defaultValue: "Off-screen terminals release their GPU renderer memory while idle and rebuild it instantly when you switch back. The process keeps running.")
-                    : String(localized: "settings.terminal.rendererRealization.subtitleOff", defaultValue: "Every visited terminal keeps its full GPU renderer allocated until you close it, even when off-screen.")
+                subtitle: String(localized: "settings.terminal.rendererRealization.subtitle", defaultValue: "Frees graphics memory from terminals that are out of view. Their processes keep running.")
             ) {
                 Toggle("", isOn: Binding(get: { rendererReclaim.current }, set: { rendererReclaim.set($0) }))
                     .labelsHidden()
@@ -544,9 +605,7 @@ public struct TerminalSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:terminal:memory-guardrail",
                 String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                subtitle: memGuardrailEnabled.current
-                    ? String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app.")
-                    : String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app.")
+                subtitle: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "Warns when the processes in one pane use too much memory.")
             ) {
                 Toggle("", isOn: Binding(get: { memGuardrailEnabled.current }, set: { memGuardrailEnabled.set($0) }))
                     .labelsHidden()

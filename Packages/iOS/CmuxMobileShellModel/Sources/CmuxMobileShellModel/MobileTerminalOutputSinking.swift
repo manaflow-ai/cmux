@@ -22,6 +22,9 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
 }
 
 public struct MobileTerminalOutputChunk: Sendable {
+    /// The terminal this output belongs to. A view refuses a chunk naming any
+    /// other terminal, whatever stream delivered it.
+    public let surfaceID: String?
     public let receivedAtNanos: UInt64
     public let data: Data
     public let streamToken: UUID
@@ -47,7 +50,9 @@ public struct MobileTerminalOutputChunk: Sendable {
     ///   - endSequence: Terminal byte high-water mark represented by the chunk.
     ///   - requiresVerifiedReplay: Whether the verified replay path is required.
     ///   - terminalConfigTheme: Raw Ghostty defaults paired with the bytes.
+    ///   - surfaceID: The terminal the output belongs to.
     public init(
+        surfaceID: String? = nil,
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
@@ -58,6 +63,7 @@ public struct MobileTerminalOutputChunk: Sendable {
         terminalConfigTheme: TerminalTheme? = nil,
         receivedAtNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        self.surfaceID = surfaceID
         self.receivedAtNanos = receivedAtNanos
         self.data = data
         self.streamToken = streamToken

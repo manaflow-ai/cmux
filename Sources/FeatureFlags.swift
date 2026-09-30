@@ -58,6 +58,7 @@ final class CmuxFeatureFlags {
     #else
     nonisolated static let cloudMachinesDefault = false
     #endif
+    private nonisolated static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -181,6 +182,24 @@ final class CmuxFeatureFlags {
 
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
+    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    // Controls availability of the opt-in multi-provider conversation sidebar.
+    // The user-facing beta setting is evaluated separately by the sidebar
+    // integration; this flag is the remote rollout gate and emergency kill
+    // switch for the feature.
+    nonisolated static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
+        key: "conversation-sidebar-release",
+        title: String(
+            localized: "featureFlags.conversationSidebar.title",
+            defaultValue: "Multi-provider conversation sidebar"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.conversationSidebar.description",
+            defaultValue: "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
+    )
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -305,6 +324,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
 
@@ -357,6 +377,10 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.goPlanFlag)
     }
 
+    var isConversationSidebarAvailable: Bool {
+        effectiveValue(for: Self.conversationSidebarFlag)
+    }
+
     /// Effective values mirrored for nonisolated readers: the mobile host
     /// serves status payloads (which carry the capability list) off the main
     /// actor. Written only by the shared instance so test instances cannot
@@ -390,6 +414,14 @@ final class CmuxFeatureFlags {
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
+    /// A remote value outranks a local override, so a UI-test launch pins flags
+    /// to their local values: otherwise a cached or freshly fetched rollout value
+    /// swaps the surface under a test that deliberately selected the other one.
+    private let pinsFlagsToLocalValues: Bool
+
+    nonisolated static var pinsFlagsToLocalValuesForCurrentLaunch: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1"
+    }
     private var resolutionsByKey: [String: CmuxFeatureFlagResolution] = [:]
 
     init(
@@ -398,11 +430,13 @@ final class CmuxFeatureFlags {
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
-        publishesOffMainSnapshot: Bool = false
+        publishesOffMainSnapshot: Bool = false,
+        pinsFlagsToLocalValues: Bool = CmuxFeatureFlags.pinsFlagsToLocalValuesForCurrentLaunch
     ) {
         self.defaults = defaults
         self.overrideCapability = overrideCapability
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
+        self.pinsFlagsToLocalValues = pinsFlagsToLocalValues
         self.remoteFlagValueProvider = remoteFlagValueProvider
         // Reload's marker travels with the signed artifact, including an HQ
         // restore on a fresh Mac. Seed both gates before publishing any flag
@@ -440,14 +474,16 @@ final class CmuxFeatureFlags {
                 values[definition.key] = value
             }
         }
-        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
-            if let value = Self.storedBoolValue(
-                forKey: Self.remoteCacheKey(for: definition.key),
-                defaults: defaults
-            ) {
-                values[definition.key] = value
+        remoteValuesByKey = pinsFlagsToLocalValues
+            ? [:]
+            : Self.allFlags.reduce(into: [:]) { values, definition in
+                if let value = Self.storedBoolValue(
+                    forKey: Self.remoteCacheKey(for: definition.key),
+                    defaults: defaults
+                ) {
+                    values[definition.key] = value
+                }
             }
-        }
         recomputeEffectiveValues()
     }
 
@@ -464,6 +500,7 @@ final class CmuxFeatureFlags {
     }
 
     private func refreshRemoteFlags() {
+        guard !pinsFlagsToLocalValues else { return }
         guard refreshTask == nil else { return }
         let loader = remoteFlagLoader
         refreshTask = Task { @MainActor [weak self] in

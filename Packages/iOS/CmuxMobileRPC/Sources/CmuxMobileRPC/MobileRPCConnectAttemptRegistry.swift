@@ -11,7 +11,8 @@ import Foundation
 /// live transports, active dials, and cleanup debt across all routes.
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumUnresolvedCleanupsPerRoute = 2
-    private static let maximumGlobalOutstandingAttempts = 16
+    /// Live transports, active dials, and cleanup debt allowed across all routes.
+    public static let maximumGlobalOutstandingAttempts = 16
 
     private var routeStates:
         [MobileRPCConnectAttemptKey: MobileRPCConnectRouteState] = [:]

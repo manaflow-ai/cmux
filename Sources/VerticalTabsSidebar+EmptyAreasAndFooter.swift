@@ -192,13 +192,15 @@ enum SidebarFooterHelpIconDebugSettings {
 struct SidebarFooterCircularIcon: View {
     let systemName: String
     let style: SidebarFooterCircularIconStyle
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
 
     var body: some View {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: style.pointSize,
             weight: style.weight,
-            tint: .secondary
+            tint: SidebarAppearanceColorResolver().readableSecondary(for: colorScheme, over: readabilityBackdrop)
         )
     }
 }
@@ -347,7 +349,7 @@ private struct SidebarFooterIconButtonStyleBody: View {
             .onHover { hovering in
                 isHovered = hovering
             }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .chromeRevealAnimation(isVisible: isHovered, fadeOut: .easeOut(duration: 0.12))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
@@ -378,6 +380,7 @@ struct SidebarDevFooter: View {
 #endif
 
 struct SidebarEmptyArea: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
@@ -406,7 +409,7 @@ struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if topDropIndicatorVisible {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(cmuxAccent.color)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -418,18 +421,12 @@ struct SidebarEmptyArea: View {
     private var dropTarget: some View {
         let base = hitTarget
             .onTapGesture(count: 2) {
-                // When the active workspace is a remote-tmux mirror, route through
-                // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace. Gate on the
-                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
-                // be polluted with a dragged-in local workspace (move targets don't
-                // exclude dedicated windows), and `contains` would then misroute a
-                // local empty-area double-tap into spawning an unwanted tmux session.
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
+                // Both sidebar implementations (this one and the AppKit table)
+                // share one entry point so a configured `ui.newWorkspace.action`,
+                // and the remote-tmux mirror routing, behave identically here and
+                // for the `+` button.
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: tabManager)
                 } else {
                     tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
@@ -489,6 +486,7 @@ private extension View {
 }
 
 struct ExtensionSidebarBrowserStackEmptyArea: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let rowSpacing: CGFloat
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
     let dragAutoScrollController: SidebarDragAutoScrollController
@@ -512,7 +510,7 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(cmuxAccentColor())
+                        .fill(cmuxAccent.color)
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))

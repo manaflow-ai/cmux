@@ -3,6 +3,9 @@ import CmuxCloudTui
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
+import os
+
+private let sshTuiWorkspaceLogger = Logger(subsystem: "com.cmuxterm.app", category: "SSHTuiWorkspace")
 
 /// Composes SSH carriers with the same terminal graph and native projections as Cloud.
 @MainActor
@@ -11,11 +14,13 @@ final class SSHTuiWorkspaceCoordinator {
     private let clientURL: () -> URL?
     private let paths: CloudTuiClientPaths
     private var attempts: [UUID: Task<Void, Never>] = [:]
+    private let agentStatus: SSHTuiAgentStatusProjector
 
     init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths) {
         self.catalog = catalog
         self.clientURL = clientURL
         self.paths = paths
+        agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
     func connect(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
@@ -46,7 +51,8 @@ final class SSHTuiWorkspaceCoordinator {
         if let existing = catalog.provider(for: machine) as? CmuxTuiSurfaceProvider { return existing }
         guard let clientURL = clientURL() else { throw CloudMachineLink.LinkError.clientMissing }
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
-                                     isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled })
+                                     isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
+                                     agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
         catalog.register(provider)
         return provider
@@ -74,10 +80,14 @@ final class SSHTuiWorkspaceCoordinator {
             }
         }
         if let saved = configuration.restoredSSHSession, saved.sshSessionOwner != "cmux-tui" {
-            throw CloudDiagnosticFailure.unsupported
+            // Use the same eligibility check as snapshot conversion, including
+            // the legacy default when terminalTransport was not persisted.
+            guard saved.legacyTmuxSSHConfiguration(agentSocketPath: configuration.agentSocketPath) != nil else {
+                throw CloudDiagnosticFailure.unsupported
+            }
         }
         guard await provider.refreshCurrentGraph(force: false) else {
-            throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? CloudDiagnosticFailure.network.label)
+            throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkFailureMessage)
         }
         try requireCurrent(workspace: workspace, attemptID: attemptID)
         if !configuration.preserveAfterTerminalExit {
@@ -105,9 +115,7 @@ final class SSHTuiWorkspaceCoordinator {
         } else {
             let connected = try await provider.links.connected(machineID: connection.id)
             guard let link = await provider.links.link(machineID: connection.id) else { throw CancellationError() }
-            let request = CloudTuiRequests.createWorkspaceArguments(
-                socketPath: connected.socketPath, empty: true
-            ).withIdempotencyKey("ssh-workspace-" + workspace.stableId.uuidString.lowercased())
+            let request = Self.remoteWorkspaceCreationRequest(for: workspace, socketPath: connected.socketPath)
             let response = try await link.run(arguments: request)
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             guard let object = try JSONSerialization.jsonObject(with: response) as? [String: Any],
@@ -119,6 +127,12 @@ final class SSHTuiWorkspaceCoordinator {
                 request: CloudTerminalCreationRequest(id: workspace.stableId, remoteWorkspaceID: remoteID, restoring: restoring)
             )
             try requireCurrent(workspace: workspace, attemptID: attemptID)
+            if let title = Self.remoteWorkspaceTitleToPublish(for: workspace) {
+                // A failed publish degrades to the daemon default name; log it rather than fail the attach.
+                catalog.enqueueRemoteWorkspaceRename(on: machine, id: remoteID, name: title) { error in
+                    sshTuiWorkspaceLogger.error("publishing the workspace title to \(remoteID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                }
+            }
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: connection.id, isBase: false, remoteWorkspaceID: remoteID)
             let projected = try await catalog.project(resource.id, into: .workspace(id: workspace.id, placement: .tab),
                                                       focus: false, adopting: reservation)
@@ -127,6 +141,32 @@ final class SSHTuiWorkspaceCoordinator {
         }
         completed = true
         workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: configuration.displayTarget)
+    }
+
+    /// The `workspace.create` request an SSH attach sends when the workspace has no remote identity yet.
+    ///
+    /// It stays unnamed so its creation fingerprint is stable: the idempotency
+    /// key is per workspace, and the daemon rejects a replay whose parameters
+    /// changed (`creation.conflict`), which a title edit between retries would cause.
+    static func remoteWorkspaceCreationRequest(for workspace: Workspace, socketPath: String) -> CloudTuiRequest {
+        CloudTuiRequests.createWorkspaceArguments(socketPath: socketPath, empty: true)
+            .withIdempotencyKey("ssh-workspace-" + workspace.stableId.uuidString.lowercased())
+    }
+
+    /// The local title an SSH attach publishes to the remote workspace it just created.
+    ///
+    /// Once the workspace is bound, the daemon graph owns its name and
+    /// reconciliation projects that name onto the local title, so a title from
+    /// `--name` or a restored snapshot must reach the daemon first. Attach
+    /// enqueues it as a rename before binding; the pending rename keeps
+    /// reconciliation from painting the daemon default (`workspace-N`) meanwhile.
+    /// Auto titles are derived locally and are not pinned into the daemon, and a
+    /// title over the daemon's 1024-byte workspace-name limit is not sent.
+    static func remoteWorkspaceTitleToPublish(for workspace: Workspace) -> String? {
+        guard workspace.effectiveCustomTitleSource != .auto,
+              let title = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty, title.utf8.count <= 1024 else { return nil }
+        return title
     }
 
     /// Replace the local scaffold before yielding so an SSH workspace can never start a local shell.

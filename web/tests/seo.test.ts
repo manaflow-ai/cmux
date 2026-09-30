@@ -464,6 +464,15 @@ describe("SEO metadata helpers", () => {
         ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
         ["/docs/getting-started", "gettingStarted"],
         ["/docs/remote-tmux", "remoteTmux"],
+        ["/docs/cloud", "cloudOverview"],
+        ["/docs/cloud/machines", "cloudMachines"],
+        ["/docs/cloud/workspaces", "cloudWorkspaces"],
+        ["/docs/cloud/networking", "cloudNetworking"],
+        ["/docs/cloud/cli", "cloudCli"],
+        ["/docs/cloud/troubleshooting", "cloudTroubleshooting"],
+        ["/docs/coderouter", "coderouterOverview"],
+        ["/docs/coderouter/agents", "coderouterAgents"],
+        ["/docs/coderouter/cli", "coderouterCli"],
       ] as const;
       for (const [path, pageKey] of auditedDocsPages) {
         if (pageKey === "remoteTmux" && locale !== "en" && locale !== "ja") {
@@ -1365,3 +1374,14 @@ function requestFor(pathname: string, headers: Record<string, string> = {}) {
     },
   });
 }
+
+describe("docs markdown alternate", () => {
+  test("docs pages advertise their .md copy; other pages do not", () => {
+    expect(buildAlternates("ja", "/docs/api").types).toEqual({
+      "text/markdown": "https://cmux.com/ja/docs/api.md",
+    });
+    expect("types" in buildAlternates("en", "/blog/cmux-omo")).toBe(false);
+    // /docs/base has no agent-readable copy, so it must not advertise one.
+    expect("types" in buildAlternates("en", "/docs/base")).toBe(false);
+  });
+});

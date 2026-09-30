@@ -380,6 +380,14 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            #if DEBUG
+            .environment(
+                \.mobileWhatsNewPresentationPolicy,
+                MobileWhatsNewPresentationPolicy(
+                    suppressLaunchPresentation: UITestConfig.suppressWhatsNewLaunch
+                )
+            )
+            #endif
             #endif
     }
 
@@ -387,7 +395,13 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
+            AgentFeedDecisionPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
+            AgentFeedFullTextPreviewView(
+                failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
+            )
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
             ComputerPickerPersistencePreviewView()
         } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
@@ -554,8 +568,15 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            // SSH hosts and keys are device-local and account-independent
+            // (docs/prd/ios-direct-ssh.md D5): Application Support, never
+            // cleared by sign-out.
+            sshComputers: MobileSSHComputers(
+                directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
+            )
         )
+        Task { await store.startSSHComputers() }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

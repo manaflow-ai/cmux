@@ -248,6 +248,28 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentAutoResumeCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentAutoResume"
+                )
+            )
+
+            XCTAssertEqual(descriptor.settingsKey, "automation.agentAutoResume")
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey) as? Bool,
+                false
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertFalse(AutomationCatalogSection().agentAutoResume.value(in: defaults))
+        }
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -303,6 +325,8 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let catalog = SettingCatalog()
             let keys = [
                 catalog.app.warnBeforeClosingTab,
+                catalog.app.warnBeforeClosingWorkspace,
+                catalog.app.warnBeforeClosingWindow,
                 catalog.app.hideTabCloseButton,
                 catalog.app.renameSelectsExistingName,
             ]

@@ -362,30 +362,43 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
     #if DEBUG
     @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer { TerminalController.shared.setActiveTabManager(previousManager) }
 
-        let service = MobileHostService.shared
-        MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
-        defer { MobileHostPublicStatusCache.removeAll() }
-        let workspace = try #require(manager.selectedWorkspace)
+            let service = MobileHostService.shared
+            let previousRoutes = MobileHostPublicStatusCache.snapshot()
+            let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+            defer {
+                MobileHostPublicStatusCache.removeAll()
+                MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+                MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+                if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+                   case let .peer(identity, pathHints) = route.endpoint {
+                    MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+                }
+            }
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
+            let workspace = try #require(manager.selectedWorkspace)
 
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "legacy-attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: ["workspace_id": workspace.id.uuidString],
-                auth: nil
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "legacy-attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: ["workspace_id": workspace.id.uuidString],
+                    auth: nil
+                )
             )
-        )
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any] else {
-            return #expect(Bool(false), "Expected attach ticket payload")
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any] else {
+                return #expect(Bool(false), "Expected attach ticket payload")
+            }
+            #expect(payload["attach_url"] as? String != nil)
         }
-        #expect(payload["attach_url"] as? String != nil)
     }
     #endif
 
@@ -513,6 +526,51 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         for request in requests {
             #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: macWideTicket,
+                    request: request
+                ) == nil
+            )
+        }
+    }
+
+    @Test func agentFeedListReadsAccountWideWhileRepliesFailClosedOnScopedTickets() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+
+        let listRequest = MobileHostRPCRequest(
+            id: "agent-feed-list",
+            method: "feed.list",
+            params: [:],
+            auth: nil
+        )
+        // The workstream feed is the same account-authoritative read model as
+        // the notification feed: tickets neither widen nor narrow it.
+        #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: listRequest) == nil)
+        #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: listRequest) == nil)
+
+        // Replies resolve agent prompts that may target any workspace but
+        // carry only a request_id, so a workspace-scoped ticket cannot prove
+        // coverage and must fail closed; Mac-wide pairings pass.
+        let replyMethods: [(method: String, params: [String: Any])] = [
+            ("feed.permission.reply", ["request_id": "r1", "mode": "once"]),
+            ("feed.question.reply", ["request_id": "r1", "selections": ["a"]]),
+            ("feed.exit_plan.reply", ["request_id": "r1", "mode": "manual"]),
+        ]
+        for entry in replyMethods {
+            let request = MobileHostRPCRequest(
+                id: entry.method,
+                method: entry.method,
+                params: entry.params,
+                auth: nil
+            )
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: scopedTicket,
+                    request: request
+                )?.code == "forbidden"
+            )
             #expect(
                 MobileHostService.ticketAuthorizationError(
                     ticket: macWideTicket,

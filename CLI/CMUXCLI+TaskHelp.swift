@@ -188,7 +188,8 @@ extension CMUXCLI {
         return """
         \(restoreCommandUsageLine)
         \(forkCommandUsageLine)
-        restore-session
+        restore-session [--from <channel|path> | --export <path> [--force]]
+        session restore [--list] [--session <id>]...
         \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
         open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
@@ -220,6 +221,7 @@ extension CMUXCLI {
         new-window
         focus-window --window <id>
         close-window --window <id>
+        resize-window --window <id> [--width <points>] [--height <points>]
         move-workspace-to-window --workspace <id|ref> --window <id|ref>
         reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
         reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
@@ -262,6 +264,7 @@ extension CMUXCLI {
         vault checkpoints --agent <id> --session <id> [--json]
         vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
         vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
+        recover [--query <text>] [--session <id>] [--limit <n>] [--focus] [--json]
         list-workspaces [--window <id|ref|index>]
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
@@ -273,6 +276,8 @@ extension CMUXCLI {
         current-workspace [--window <id|ref|index>]
         \(Self.readSelectionUsageLine)
         \(Self.readScreenUsageLine)
+        \(Self.recordUsageLine)
+        \(Self.shotUsageLine)
         sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
         markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
         diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
@@ -283,13 +288,14 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+        docs [settings|shortcuts|api|browser|capture|agents|dock|sidebars]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts
         feedback [--email <email> --body <text> [--image <path> ...]]
         feed tui|clear
         themes [list|set|clear]
+        import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <validate|reload|select|open> [name]
@@ -307,8 +313,9 @@ extension CMUXCLI {
         automation <list|show|test|enable|disable|logs|reload> [args]
         \(executionExchangeHelp)
         todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
-        send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
+        send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--paste] <text>
         send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
+        paste [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--submit] [text | -]
         send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
         send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
         notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
@@ -389,6 +396,7 @@ extension CMUXCLI {
         ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
+        session move <session-id> --to <ssh-destination|local> [--from <ssh-destination>] [--name <title>] [--no-code] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus]
         ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus] [--new-window]
         ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
         ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
@@ -428,9 +436,9 @@ extension CMUXCLI {
         set-hook [--list] [--unset <event>] | <event> <command>
         popup
         bind-key | unbind-key | copy-mode
-        set-buffer [--name <name>] <text>
+        set-buffer [--name <name>] [<text> | -]
         list-buffers
-        paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        paste-buffer [--name <name>] [--bracketed] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]
         display-message [-p|--print] <text>
         """

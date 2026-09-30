@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { useCtx } from "../context";
 import { agentChatText } from "../i18n";
 import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProviderOption } from "../options-store";
-import type { OptionValue, SessionOption } from "../session";
+import { routedToTranscript, transcriptComposerLocked, type OptionValue, type SessionOption } from "../session";
 import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
 import { optionAcceptsValue, optionsForSelectedModel } from "./options";
@@ -55,7 +55,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, handoffPending, reply, stop, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -72,12 +72,16 @@ export function Chat() {
     [providerOptions, providers],
   );
   const running = session?.status === "running";
+  // Transcript views mirror a terminal agent: no composer, catalogs, or files.
+  const transcriptView = session ? session.mode === "transcript" : routedToTranscript;
+  const composerLocked = transcriptComposerLocked(session);
+  const catalogCwd = transcriptView ? "" : cwd;
   const resolvedOptions = useMemo(() => optionsForSelectedModel(options), [options]);
 
   useRestoreModelScopedOptions({ provider: session?.provider, options: resolvedOptions, setOption, pendingModelRestoreRef });
   usePersistSessionOptions(session?.provider, resolvedOptions, pendingModelRestoreRef.current !== null);
-  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", cwd, requestProviderOptions, requestProviderCommands);
-  useFileCatalog(ready, connectionEpoch, cwd, requestFiles);
+  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", catalogCwd, requestProviderOptions, requestProviderCommands);
+  useFileCatalog(ready, connectionEpoch, catalogCwd, requestFiles);
   useStickToBottom(scrollRef, stickRef, blocks, running);
   useKeymap({
     options: resolvedOptions,
@@ -101,11 +105,14 @@ export function Chat() {
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
   const submit = () => {
+    if (composerLocked) {
+      focusTerminal();
+      return;
+    }
     const t = text.trim();
     if (!t) return;
     stickRef.current = true;
-    reply(t);
-    setText("");
+    if (reply(t)) setText("");
   };
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
@@ -125,9 +132,23 @@ export function Chat() {
     compose();
   };
 
+  const chatActions = (
+    <div className="chat-actions">
+      {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}
+      <button className="send" type="button" aria-label="Send" disabled={composerLocked || !text.trim()} onClick={submit}>
+        <ArrowUp />
+      </button>
+    </div>
+  );
+
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
+        {!ready ? (
+          <div className="connection-notice" role="status">
+            {connectionEpoch > 0 ? "Connection lost. Reconnecting… Your draft stays here." : "Connecting to cmux…"}
+          </div>
+        ) : null}
         <Blocks
           blocks={blocks}
           status={session?.status}
@@ -137,6 +158,7 @@ export function Chat() {
           onHandoff={handoff}
           handoffPending={handoffPending}
           fileDiffs={fileDiffs}
+          fileDiffErrors={fileDiffErrors}
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
         />
       </div>
@@ -146,14 +168,22 @@ export function Chat() {
         ) : routing?.phase === "rerouted" ? (
           <div className="routing-notice" role="status">{agentChatText("movedServingRoute")}</div>
         ) : null}
+        {transcriptView && session?.attention ? (
+          <div className="terminal-attention" id="terminal-attention" role="status">
+            <span className="terminal-attention-text">{session.attention}</span>
+            <button className="terminal-attention-btn" type="button" onClick={focusTerminal}>{agentChatText("answerInTerminal")}</button>
+          </div>
+        ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">
             <textarea
               ref={taRef}
               id="chat-input"
               data-primary-textarea="true"
-              placeholder="Reply…"
+              placeholder={composerLocked ? "Answer in terminal…" : "Reply…"}
               value={text}
+              disabled={composerLocked}
+              aria-describedby={composerLocked ? "terminal-attention" : undefined}
               onChange={(e) => setText(e.target.value)}
               onSelect={commandMenu.onSelect}
               onKeyUp={commandMenu.onSelect}
@@ -166,27 +196,32 @@ export function Chat() {
             />
             {commandMenu.menu}
           </div>
-          <StatusRow
-            provider={session?.provider ?? "agent"}
-            providers={providers}
-            allProviderOptions={allProviderOptions}
-            loadingProviderIds={loadingProviderIds}
-            onProviderModelChange={switchHarnessModel}
-            cwd={session?.cwd ?? ""}
-            options={resolvedOptions}
-            onChange={setOption}
-            openOptionId={openOptionId}
-            setOpenOptionId={setOpenOptionId}
-            running={running}
-            trailing={(
-              <div className="chat-actions">
-                {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}
-                <button className="send" type="button" aria-label="Send" disabled={!text.trim()} onClick={submit}>
-                  <ArrowUp />
-                </button>
-              </div>
-            )}
-          />
+          {transcriptView ? (
+            // Terminal chat views drive the agent in the terminal: no model or
+            // option controls, just where the message goes and send/stop.
+            <div className="transcript-composer-row">
+              <span className="transcript-hint">
+                <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
+                <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
+              </span>
+              {chatActions}
+            </div>
+          ) : (
+            <StatusRow
+              provider={session?.provider ?? "agent"}
+              providers={providers}
+              allProviderOptions={allProviderOptions}
+              loadingProviderIds={loadingProviderIds}
+              onProviderModelChange={switchHarnessModel}
+              cwd={session?.cwd ?? ""}
+              options={resolvedOptions}
+              onChange={setOption}
+              openOptionId={openOptionId}
+              setOpenOptionId={setOpenOptionId}
+              running={running}
+              trailing={chatActions}
+            />
+          )}
         </div>
       </div>
       {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={resolvedOptions} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}

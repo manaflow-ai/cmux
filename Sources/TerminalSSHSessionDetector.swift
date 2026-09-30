@@ -5,7 +5,7 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
+struct DetectedSSHSession: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
@@ -119,11 +119,30 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: String(
+                    // scp's own stderr is the only thing that says WHY, and it is
+                    // often the whole answer — "Permission denied
+                    // (keyboard-interactive)" for a host whose 2FA this transport
+                    // cannot answer, say, which the generic "check the host is
+                    // reachable" actively misdirects away from. It is already
+                    // captured, so carry it.
+                    let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let message: String
+                    if detail.isEmpty {
+                        message = String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
                             defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
-                        ),
+                        )
+                    } else {
+                        message = String.localizedStringWithFormat(
+                            String(
+                                localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                                defaultValue: "Couldn't upload the file to the remote session: %@"
+                            ),
+                            detail
+                        )
+                    }
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: message,
                     ])
                 }
 
@@ -146,14 +165,15 @@ struct DetectedSSHSession: Equatable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -185,7 +205,7 @@ struct DetectedSSHSession: Equatable {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        args += ["--", localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -198,14 +218,15 @@ struct DetectedSSHSession: Equatable {
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
         ]
+        // Uploads and their cleanup run beside the user's session and never
+        // become its master, so they forward nothing even when that session
+        // used `-A`. Ahead of the user's options: OpenSSH keeps the first value.
+        args += SSHBackgroundForwarding.allOff.optionArguments
 
         if useIPv4 {
             args.append("-4")
         } else if useIPv6 {
             args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
         }
         if compressionEnabled {
             args.append("-C")
@@ -234,7 +255,7 @@ struct DetectedSSHSession: Equatable {
             args += ["-o", option]
         }
 
-        args += [destination, command]
+        args += ["--", destination, command]
         return args
     }
 
@@ -398,6 +419,10 @@ struct DetectedSSHSession: Equatable {
 }
 
 enum TerminalSSHSessionDetector {
+    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let nonInteractiveFlags = Set("nTGV")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+
     struct ProcessSnapshot: Equatable {
         let pid: Int32
         let pgid: Int32
@@ -516,12 +541,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static let psPath = "/bin/ps"
-    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
-    private static let nonInteractiveFlags = Set("nTGV")
-    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
-
-    private static func normalizeTTYName(_ ttyName: String) -> String {
+    static func normalizeTTYName(_ ttyName: String) -> String {
         let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         if let lastComponent = trimmed.split(separator: "/").last {
@@ -530,7 +550,7 @@ enum TerminalSSHSessionDetector {
         return trimmed
     }
 
-    private static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+    static func isForegroundRemoteShellProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
             RemoteShellTransport(executableName: process.executableName) != nil &&
             process.pgid > 0 &&
@@ -620,52 +640,6 @@ enum TerminalSSHSessionDetector {
             return value == "yes" || value == "true"
         }
         return key == "sessiontype" && value == "none"
-    }
-
-    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: psPath)
-        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return []
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        return output
-            .split(separator: "\n")
-            .compactMap(parseProcessSnapshot)
-    }
-
-    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
-        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
-        guard parts.count == 5,
-              let pid = Int32(parts[0]),
-              let pgid = Int32(parts[1]),
-              let tpgid = Int32(parts[2]) else {
-            return nil
-        }
-
-        return ProcessSnapshot(
-            pid: pid,
-            pgid: pgid,
-            tpgid: tpgid,
-            tty: String(parts[3]),
-            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
     }
 
     static func commandLineArguments(forPID pid: Int32) -> [String]? {

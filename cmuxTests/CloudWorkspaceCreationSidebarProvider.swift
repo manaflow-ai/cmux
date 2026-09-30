@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 
 @MainActor
 final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
-    let machine = SurfaceMachineID.cloud("create-fixture-\(UUID().uuidString)")
+    let machine: SurfaceMachineID
     var info: SurfaceMachineInfo
     unowned let catalog: SurfaceCatalog
     var beforeRefresh: (@MainActor () throws -> Void)?
@@ -30,8 +31,9 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var closedWorkspaceIDs: [String] = []
     var onRemoteClose: (@MainActor () -> Void)?
 
-    init(catalog: SurfaceCatalog) {
+    init(catalog: SurfaceCatalog, machine: SurfaceMachineID = .cloud("create-fixture-\(UUID().uuidString)")) {
         self.catalog = catalog
+        self.machine = machine
         info = SurfaceMachineInfo(id: machine, name: "bright-teal-otter", status: "running", image: nil,
             hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)

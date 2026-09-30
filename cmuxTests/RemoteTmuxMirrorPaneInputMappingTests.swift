@@ -597,6 +597,14 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         defer { harness.tearDown() }
         let tabManager = try #require(AppDelegate.shared?.tabManagerFor(windowId: harness.windowId))
         tabManager.selectWorkspace(harness.workspace)
+        // The mirror joined the window unselected (`select: false`), so the
+        // window's mount reconcile turned its portal rendering off. Selecting it
+        // turns rendering back on only when SwiftUI delivers the selection
+        // change, and this synchronous test never yields for that. Establish the
+        // authority here, as RemoteTmuxProjectedFocusInteractionTests does, so
+        // the portal-activation checks below do not depend on some unrelated
+        // synchronous tabs publish, such as a notification reordering the sidebar.
+        harness.workspace.setPortalRenderingEnabled(true, reason: "pane-input-mapping-test")
 
         harness.publishListWindows([
             "@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] zsh",
@@ -727,6 +735,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         ) === expectedInputPanel)
         #expect(harness.workspace.focusedTerminalPanel === containerPanel)
         #expect(harness.workspace.focusedTerminalInputTarget()?.panel === expectedInputPanel)
+        // Copy actions target the focused container, and must read the active
+        // inner pane's screen and remote cwd, never skipping to a local walk.
+        #expect(harness.workspace.copyActionTerminal(panelId: containerPanelId)?.panel === expectedInputPanel)
+        #expect(
+            harness.workspace.copyActionDirectoryTarget(panelId: containerPanelId)
+                == TerminalCopyDirectoryTarget(path: "/srv/project", isLocal: false)
+        )
         #expect(
             AppDelegate.resolveTerminalPanelForTextSend(
                 in: harness.workspace,

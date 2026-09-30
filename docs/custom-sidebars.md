@@ -141,6 +141,12 @@ Rules of the runtime:
   `.hoverBackground` (host-side hover wash, no JS round trip)
   `.cornerRadius` (continuous/squircle curvature) `.borderColor`
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  (or `.frame(() => ({...}))` to bind every key live; the keys come from
+  the first evaluation, so return every key you need from the start)
+  `.layoutPriority(n)` (who keeps width in an `HStack`; truncating text
+  defaults to 1, so give a button or badge beside it 2) `.fixedSize()` (keep
+  a view at its natural size; `.fixedSize("horizontal")` or `"vertical"` for
+  one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
   chevron that turns instead of swapping glyphs) `.fade(width)` (constant
@@ -189,7 +195,10 @@ Rules of the runtime:
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
-  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). The menu
+  opens only over the view it is attached to, so put it on the row's outer
+  HStack when right-clicking anywhere on the row, including the empty space a
+  Spacer fills, should open it. Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
@@ -244,6 +253,9 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `btop-agents.js` is a btop-style agent activity list: a braille sparkline
+  of recent agent activity per workspace, state glyphs, a small progress meter,
+  and a header graph of busy workspaces.
 
 Install one from a cmux checkout:
 
@@ -304,7 +316,17 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  session, oldest first; omitted when none). Each `children[k]` has `id`
+  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
+  when available it adds `label` and `endedEpoch` (set when the child
+  settles; settled children are pruned after a short retention). Headless
+  OMP/Pi subagents run inside the parent's process, so they appear here via
+  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
+  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes the oldest running child (FIFO). The `agent_id` field is
+  not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -404,7 +426,7 @@ A button or `.onTapGesture` body calls `cmux("<method>", param: value)`. On tap
 it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
-    ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    ...onTapGesture { cmux("surface.focus", surface_id: t.surfaceId) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`

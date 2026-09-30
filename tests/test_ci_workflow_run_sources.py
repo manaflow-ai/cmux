@@ -71,18 +71,15 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-screenshots.yml",
         "runner",
     ),
-    # The warm labeler labels the runner that ran compile admission.
-    (
-        "scripts/ci/owned_warm_labels.py",
-        ".github/workflows/ci-macos.yml",
-        "macos-compile-admission",
-    ),
 )
 
 # The fail-fast watcher is started by a display name but must not act on one.
 # Display names are not unique, and the run object that arrives here carries
 # the stable path, so it can confirm what woke it before it cancels anything.
-IDENTITY_CHECKED = ".github/workflows/merge-group-fail-fast.yml"
+IDENTITY_CHECKED = (
+    ".github/workflows/merge-group-fail-fast.yml",
+    ".github/workflows/ci-fail-fast.yml",
+)
 
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
 # to find another workflow's runs. The file still has to exist.
@@ -183,13 +180,42 @@ def check_runs_lookups_by_path(documents: dict[Path, dict], failures: list[str])
 
 
 def check_identity_before_acting(failures: list[str]) -> None:
-    watcher = (ROOT / IDENTITY_CHECKED).read_text(encoding="utf-8")
-    if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
-        failures.append(
-            f"{IDENTITY_CHECKED}: must compare github.event.workflow_run.path "
-            f"against {DECLARATION} before it cancels anything, so a workflow "
-            "that merely shares a display name cannot drive it"
-        )
+    for relative in IDENTITY_CHECKED:
+        watcher = (ROOT / relative).read_text(encoding="utf-8")
+        if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
+            failures.append(
+                f"{relative}: must compare github.event.workflow_run.path "
+                f"against {DECLARATION} before it cancels anything, so a workflow "
+                "that merely shares a display name cannot drive it"
+            )
+
+
+def test_ci_fail_fast_is_a_trusted_pr_run_watcher() -> None:
+    path = WORKFLOWS / "ci-fail-fast.yml"
+    text = path.read_text(encoding="utf-8")
+    document = load(path)
+    workflow_run = triggers(document)["workflow_run"]
+
+    assert as_list(workflow_run["workflows"]) == [
+        display_name(WORKFLOWS / "ci.yml", load(WORKFLOWS / "ci.yml"))
+    ]
+    assert as_list(workflow_run["types"]) == ["in_progress"]
+    assert document["env"][DECLARATION] == ".github/workflows/ci.yml"
+    assert document["permissions"] == {}
+    assert document["jobs"]["watch"]["permissions"] == {"actions": "write"}
+    assert document["concurrency"]["cancel-in-progress"] is False
+    assert "SOURCE_EVENT" in text and '!= "pull_request"' in text
+    assert "SOURCE_PATH" in text and '!= "$SOURCE_WORKFLOW_PATHS"' in text
+    assert "RUN_ID: ${{ github.event.workflow_run.id }}" in text
+    assert "RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}" in text
+    assert "current_attempt" in text
+    assert "actions: write" in text
+    assert 'gh api --method POST "$RUN/cancel"' in text
+    assert '"Fast static checks"' in text
+    assert '"linux-preflight"' in text
+    assert 'startswith("guards / ")' in text
+    assert "uses:" not in text
+    assert "actions/checkout" not in text
 
 
 def main() -> int:

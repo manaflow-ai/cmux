@@ -44,10 +44,6 @@ JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 # (workflow, stripped line) -> why a Blacksmith label there may stay ungated.
 UNGATED_BLACKSMITH_ALLOWED = {
-    ("cla.yml", "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"): (
-        "scripts/ci/validate-cla-policy.rb pins this runner from the trusted base; "
-        "the job signs manaflow-ai's CLA ledger and has nothing to do in a fork"
-    ),
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
     ),
@@ -57,6 +53,19 @@ UNGATED_BLACKSMITH_ALLOWED = {
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
 LOCAL_WORKFLOW_CALL = re.compile(
     r"uses:\s+\./\.github/workflows/([A-Za-z0-9_.-]+\.ya?ml)"
+)
+# Events an outside contributor can start in manaflow-ai's own context, with
+# its secrets and, for pull_request_target, a write token. A comment event
+# does not say whether its pull request comes from a fork, so the fork branch
+# below cannot gate these: their jobs pin a GitHub-hosted label.
+# Matched as a whole word anywhere in the `on:` value, so block, inline,
+# list and mapping forms all count.
+OUTSIDER_TRIGGER = re.compile(
+    r"(?<![\w-])(?:pull_request_target|issue_comment|issues|pull_request_review"
+    r"|pull_request_review_comment|discussion|discussion_comment)(?![\w-])"
+)
+HOSTED_LITERAL_RUNNER = re.compile(
+    r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
 )
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
@@ -92,7 +101,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # Nothing keeps them hosted except their current values, so they are gated too.
 # Context names are case-insensitive, and `vars['X']` reads the same value as
 # `vars.X`; _refs normalizes the index form before matching.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)"
+# CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
+# (runner_label_policy.side_lane_reason), so every read of them is gated too.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -109,6 +120,10 @@ FORK_GATE_EXEMPT = {
         "pr_runner_pool.py's input: it compares the lane with its default and "
         "ignores it for a fork head, and every runs-on reading its output takes "
         "the fork branch first"
+    ),
+    ("ci.yml", "MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}"): (
+        "pr_runner_pool.py's input: it ignores the default for an untrusted fork head, "
+        "and every runs-on reading its output gates the selected label"
     ),
     ("test-ios.yml", "RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}"): (
         "ios_runner_pool.py's input: for a fork head (--fork) the picker returns "
@@ -312,19 +327,49 @@ def _blacksmith_pick(node: tuple) -> bool:
     )
 
 
+def _trusted_fork_exclusion(node: tuple) -> bool:
+    # The trusted allowlist is the one intentional exception to the hosted
+    # fork branch. Every other fork must take the Blacksmith branch first.
+    return (
+        node[0] == "not"
+        and node[1][0] == "call"
+        and node[1][1] == "contains"
+        and len(node[1][2]) == 2
+        and node[1][2][0][0] == "call"
+        and node[1][2][0][1] == "fromJSON"
+        and _refs(node[1][2][0][2][0])
+        and _refs(node[1][2][0][2][0])[0].endswith("owned_head_repos")
+        and _refs(node[1][2][1]) == ["github.event.pull_request.head.repo.full_name"]
+    )
+
+
 def _is_fork_pull_request_branch(node: tuple) -> bool:
     if node[0] == "and" and node[1] and _blacksmith_pick(node[1][-1]):
         conditions = node[1][:-1]
         keys = [_condition_key(condition) for condition in conditions]
-        return None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS
+        if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+            return True
+        return (
+            None not in keys[:2]
+            and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+            and len(conditions) == 3
+            and _trusted_fork_exclusion(conditions[2])
+        )
     guarded = _guarded_literal(node)
     if not guarded:
         return False
     conditions, label = guarded
     keys = [_condition_key(condition) for condition in conditions]
-    if None in keys:
-        return False
-    if not (set(keys) == FORK_PULL_REQUEST_CONDITIONS or keys == [PULL_REQUEST_CONDITION]):
+    if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if (
+        len(conditions) == 3
+        and None not in keys[:2]
+        and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+        and _trusted_fork_exclusion(conditions[2])
+    ):
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if None in keys or keys != [PULL_REQUEST_CONDITION]:
         return False
     return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
 
@@ -410,9 +455,36 @@ def has_workflow_call_trigger(text: str) -> bool:
     return bool(re.search(r"(?m)^[^#\n]*\bworkflow_call\b", text))
 
 
-def fork_exercised_workflows() -> list[Path]:
+def triggers_block(text: str) -> str:
+    """The `on:` block, so `  issues: write` under `permissions:` does not count."""
+    match = re.search(r"(?ms)^(?:on|\"on\"|'on'):(.*?)(?=^\S|\Z)", text)
+    return match.group(1) if match else ""
+
+
+def outsider_triggered_workflows() -> list[Path]:
+    return [
+        path
+        for path in sorted(WORKFLOWS.glob("*.y*ml"))
+        if OUTSIDER_TRIGGER.search(triggers_block(path.read_text(encoding="utf-8")))
+    ]
+
+
+def outsider_runner_errors(name: str, text: str) -> list[str]:
+    """Every runner must be a hosted literal; no runner selector may appear."""
+    errors: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        if OWNED_RUNNER_SELECTOR.search(line):
+            errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
+        elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
+            errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
+    return errors
+
+
+def fork_exercised_workflows(roots: list[Path] | None = None) -> list[Path]:
     """PR workflows plus every local reusable workflow reachable from them."""
-    pending = list(pull_request_workflows())
+    pending = list(pull_request_workflows() if roots is None else roots)
     seen: set[Path] = set()
     while pending:
         path = pending.pop()
@@ -735,6 +807,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         CMUX_CI_XCODE_APP_PR would fail at Xcode selection.
         """
         same_repository = "github.event.pull_request.head.repo.full_name == github.repository"
+        trusted_repository = "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)"
+        trusted_input = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         checked = 0
         failures = []
         for path in fork_exercised_workflows():
@@ -742,7 +816,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if line.lstrip().startswith("#") or not re.search(r"vars\.CMUX_(?:CI|CI_HELPER)_XCODE_APP_PR\b", line):
                     continue
                 checked += 1
-                if same_repository not in line:
+                if not any(clause in line for clause in (same_repository, trusted_repository, trusted_input)):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
@@ -823,6 +897,54 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
         self.assertGreater(saw_linux, 0)
         self.assertGreater(saw_macos, 0)
+
+    def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
+        """pull_request_target and comment events run fork-started jobs with trusted tokens."""
+        roots = outsider_triggered_workflows()
+        self.assertIn(WORKFLOWS / "cla.yml", roots)
+        self.assertIn(WORKFLOWS / "claude.yml", roots)
+        errors: list[str] = []
+        for path in fork_exercised_workflows(roots):
+            errors.extend(outsider_runner_errors(path.name, path.read_text(encoding="utf-8")))
+        self.assertEqual(errors, [], "\n" + "\n".join(errors))
+
+    def test_outsider_runner_check_rejects_variables_and_self_hosted_labels(self) -> None:
+        text = (
+            "on:\n"
+            "  pull_request_target:\n"
+            "jobs:\n"
+            "  a:\n"
+            "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+            "  b:\n"
+            "    runs-on: ${{ " + FORK_LINUX_BRANCH + " || vars.LINUX_RUNNER || 'ubuntu-24.04' }}\n"
+            "  c:\n"
+            "    runs-on: self-hosted\n"
+            "  d:\n"
+            "    runs-on:\n"
+            "      - self-hosted\n"
+            "  e:\n"
+            "    env:\n"
+            "      RUNNER: ${{ vars['LINUX_RUNNER'] }}\n"
+            "    runs-on: blacksmith-4vcpu-ubuntu-2404\n"
+            "  ok:\n"
+            "    runs-on: ubuntu-24.04 # github-hosted-required: write token\n"
+        )
+        self.assertTrue(OUTSIDER_TRIGGER.search(triggers_block(text)))
+        self.assertFalse(OUTSIDER_TRIGGER.search(triggers_block(
+            "on:\n  push:\npermissions:\n  issues: write\njobs: {}\n"
+        )))
+        for flow in (
+            "on: [push, issue_comment]\n",
+            "on: pull_request_target\n",
+            "on: {issues: {}}\n",
+            "on:\n    pull_request_review:\n",
+        ):
+            with self.subTest(flow=flow):
+                self.assertTrue(OUTSIDER_TRIGGER.search(triggers_block(flow + "jobs: {}\n")))
+        self.assertFalse(OUTSIDER_TRIGGER.search(triggers_block("on: [pull_request, push]\njobs: {}\n")))
+        errors = outsider_runner_errors("x.yml", text)
+        self.assertEqual([error.split(" ", 1)[0] for error in errors],
+                         ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

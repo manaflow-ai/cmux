@@ -18,21 +18,17 @@ import UniformTypeIdentifiers
 import CmuxTerminal
 
 struct cmuxApp: App {
-    /// Dependency container for the new settings packages. Constructed
-    /// once at app launch and injected into the SwiftUI environment via
-    /// `.settingsRuntime(_:)`; descendant views resolve their settings
-    /// through it via the `@LiveSetting` property wrapper.
+    /// App-owned settings graph, injected into each SwiftUI hosting root.
     private let settingsRuntime: SettingsRuntime
 
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
-    /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
-    /// hosted-browser sign-in flow). Constructed once at app launch and
-    /// injected into AppDelegate and the auth-consuming services.
+    /// App-owned auth graph injected into the delegate and auth consumers.
     private let authComposition: MacAuthComposition
     /// Composition-root owner for the config-backed automation bridge.
     private let automationEngine: AutomationEngine
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -102,10 +98,12 @@ struct cmuxApp: App {
             backupTimestamp: secretMigrationTimestamp
         )
         let authComposition = MacAuthComposition()
+        let browserDataImportCoordinator = BrowserDataImportCoordinator()
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
         self.authComposition = authComposition
+        self.browserDataImportCoordinator = browserDataImportCoordinator
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -200,6 +198,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
+                browserDataImportCoordinator: browserDataImportCoordinator,
                 computersActions: devices.settingsActions,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
@@ -318,6 +317,7 @@ struct cmuxApp: App {
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
+            browserDataImportCoordinator: browserDataImportCoordinator,
             computerUseRuntimeService: computerUseRuntimeService,
             devicesRegistry: devicesRegistry,
             computersService: computersService
@@ -524,6 +524,11 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
+                Button(AppDelegate.actionsAndLaunchersMenuTitle) {
+                    appDelegate.presentActionsAndLaunchersCustomization(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                }
                 Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
                     openCmuxSettingsFileInEditor()
                 }
@@ -553,12 +558,17 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
+                if let target = appDelegate.appChannelSwitchTarget {
+                    Button(AppChannelSwitchPresenter.menuTitle(for: target)) {
+                        appDelegate.switchAppChannel(nil)
+                    }
+                }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
 
             CommandGroup(replacing: .appTermination) {
                 splitCommandButton(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), shortcut: menuShortcut(for: .quit)) {
-                    NSApp.terminate(nil)
+                    AppDelegate.requestApplicationTermination()
                 }
             }
 
@@ -1078,6 +1088,7 @@ struct cmuxApp: App {
         }
         helpCommands
         historyCommands
+        cloudCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 // The AppKit-hosted Settings window has no SwiftUI
@@ -1087,6 +1098,15 @@ struct cmuxApp: App {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }
+            }
+
+            splitCommandButton(
+                title: String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input"),
+                shortcut: menuShortcut(for: .focusTextBoxInput)
+            ) {
+                _ = AppDelegate.shared?.performFocusTextBoxInputShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
 
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
@@ -1182,7 +1202,7 @@ struct cmuxApp: App {
             Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
                 // Defer modal presentation until after AppKit finishes menu tracking.
                 DispatchQueue.main.async {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    browserDataImportCoordinator.presentImportDialog()
                 }
             }
 
@@ -1696,6 +1716,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.configEditor",
     "cmux.computerUse.onboarding",
     "cmux.defaultTerminalRegistrationError",
+    "cmux.featureFlags",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -1723,6 +1744,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
+    "cmux.cloudCreateTeam",
     "cmux.sudo.approval",
 ]
 
@@ -1839,6 +1861,7 @@ private final class DebugWindowControlsWindowController: ReleasingWindowControll
 }
 
 private struct DebugWindowControlsView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
     private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -2028,7 +2051,7 @@ private struct DebugWindowControlsView: View {
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
                                 .cmuxFont(size: 12, weight: .medium)
-                                .foregroundStyle(selectedDevToolsColorOption.color)
+                                .foregroundStyle(selectedDevToolsColorOption.color(accent: cmuxAccent))
                         }
 
                         HStack(spacing: 12) {
@@ -2385,7 +2408,7 @@ private struct BrowserImportHintDebugView: View {
                             }
                             Button("Open Import Dialog") {
                                 DispatchQueue.main.async {
-                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                    AppDelegate.shared?.browserDataImportCoordinator?.presentImportDialog()
                                 }
                             }
                         }
@@ -3383,7 +3406,8 @@ private struct SidebarFooterHelpIconReference: View {
 #endif
 
 private struct SidebarDebugView: View {
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
@@ -3424,7 +3448,7 @@ private struct SidebarDebugView: View {
                 if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
                     return Color(nsColor: nsColor)
                 }
-                return cmuxAccentColor()
+                return cmuxAccent.color
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)

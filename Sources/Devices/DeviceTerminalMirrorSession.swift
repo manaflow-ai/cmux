@@ -1,5 +1,8 @@
 import CMUXMobileCore
+import CmuxMobileRPC
 import CmuxTerminal
+import CmuxTerminalSharing
+import CmuxTerminalSizing
 import Foundation
 import OSLog
 
@@ -11,8 +14,13 @@ nonisolated private let deviceMirrorLog = Logger(subsystem: "dev.cmux", category
 /// that surface's raw PTY bytes (`terminal.bytes`, chained by sequence from a
 /// render-grid replay on attach) into a local manual-mirror ``TerminalSurface``,
 /// sends local keystrokes back as `mobile.terminal.input`. The source Mac owns
-/// the terminal grid: mirrors follow its replay and resize events, without
-/// reporting a viewport that could resize the original terminal.
+/// the terminal grid: mirrors follow its replay and resize events.
+///
+/// With a sizing identity this Mac is a participant of the source Mac's
+/// shared sizing (docs/shared-terminal-sizing.md), exactly like a paired
+/// phone: it reports its pane's grid as `device_kind: mac`, counts by the
+/// same rules, shows the bounds and chip in its pane, and can be
+/// disconnected and reattached through the same size panel actions.
 @MainActor
 final class DeviceTerminalMirrorSession {
     enum Phase: Equatable {
@@ -37,6 +45,12 @@ final class DeviceTerminalMirrorSession {
         }
     }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
+    var onAttached: (@MainActor () -> Void)?
+    /// The reserved pane's early input, held until an attach sticks. Losing
+    /// the link discards it, since a restarted Mac can restore a terminal
+    /// under the same surface ID with a new shell, and so does stopping the
+    /// session, so a replacement owner never inherits it.
+    private var adoptedRelay: CloudOptimisticInputRelay?
 
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
@@ -45,13 +59,25 @@ final class DeviceTerminalMirrorSession {
     private var replayNeeded = false
     private var attachingBytes: [(sequence: UInt64?, data: Data)] = []
     private var attachingByteCount = 0
+    /// This Mac as a shared-sizing participant of the source Mac, when it has
+    /// an identity (the production path; tests may omit it).
+    private(set) var viewer: RemoteMacTerminalViewer?
+    /// The local surface id this session published sharing state under.
+    private var sharingSurfaceID: UUID?
+    /// Consecutive `viewport_transition` answers, bounded so a host that never
+    /// settles cannot spin the attach loop.
+    private var viewportTransitionRetries = 0
 
     convenience init(link: DeviceLink, remoteWorkspaceID: String, remoteSurfaceID: UUID) {
         self.init(
             remoteWorkspaceID: remoteWorkspaceID, remoteSurfaceID: remoteSurfaceID,
             events: link.terminalEvents,
             isConnected: { link.isConnected },
-            requestData: { method, params in try await link.requestData(method, params: params) }
+            requestData: { method, params in try await link.requestData(method, params: params) },
+            viewer: RemoteMacTerminalViewer(
+                clientID: link.clientID,
+                identity: TerminalController.shared.localSizingIdentity()
+            )
         )
     }
 
@@ -60,24 +86,30 @@ final class DeviceTerminalMirrorSession {
         remoteSurfaceID: UUID,
         events: DeviceLinkTerminalEvents,
         isConnected: @escaping @MainActor @Sendable () -> Bool,
-        requestData: @escaping @MainActor @Sendable (String, [String: Any]) async throws -> Data
+        requestData: @escaping @MainActor @Sendable (String, [String: Any]) async throws -> Data,
+        viewer: RemoteMacTerminalViewer? = nil
     ) {
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteSurfaceID = remoteSurfaceID
         self.events = events
         self.isConnected = isConnected
         self.requestData = requestData
+        self.viewer = viewer
         let attachment = DeviceTerminalAttachmentStatus()
         self.attachment = attachment
+        let clientID = viewer?.clientID
         inputRouter = DeviceTerminalInputRouter(
             send: { @MainActor data in
                 guard attachment.isConnected, isConnected() else { throw DeviceLinkError.notConnected }
                 guard let text = String(data: data, encoding: .utf8) else { throw DeviceTerminalInputRouter.InputError.invalidEncoding }
-                let input: [String: Any] = [
+                var input: [String: Any] = [
                     "workspace_id": remoteWorkspaceID,
                     "surface_id": remoteSurfaceID.uuidString,
                     "text": text
                 ]
+                // The client id makes input sizing activity on the host and
+                // lets the host refuse it while this Mac is disconnected.
+                if let clientID { input["client_id"] = clientID }
                 let response = try await requestData("mobile.terminal.input", input)
                 _ = try Self.responseObject(response, method: "mobile.terminal.input")
             },
@@ -98,12 +130,22 @@ final class DeviceTerminalMirrorSession {
         ["workspace_id": remoteWorkspaceID, "surface_id": remoteSurfaceID.uuidString]
     }
 
-    /// Applies the source grid to the local renderer without claiming a host viewport.
+    /// Applies the source grid to the local renderer. A participant also
+    /// reports the pane's own grid whenever it changes.
     func bind(surface: TerminalSurface) {
         self.surface = surface
         if let assigned = assignedGrid {
             surface.setAssignedGrid(columns: assigned.columns, rows: assigned.rows)
         }
+        guard viewer != nil else { return }
+        sharingSurfaceID = surface.id
+        // While the grid is pinned to the source Mac's, a pane resize changes
+        // no Ghostty size, so it arrives here.
+        surface.onNaturalGridInputsChanged = { [weak self] in
+            // Hop out of the in-progress updateSize before re-reporting.
+            Task { @MainActor [weak self] in self?.paneGridChanged() }
+        }
+        measurePaneGrid()
     }
 
     func start() {
@@ -123,6 +165,10 @@ final class DeviceTerminalMirrorSession {
         eventTask?.cancel()
         eventTask = nil
         inputRouter.invalidate()
+        onAttached = nil
+        adoptedRelay?.discard()
+        adoptedRelay = nil
+        leaveSharing()
         surface?.clearAssignedGrid()
         surface = nil
     }
@@ -130,6 +176,21 @@ final class DeviceTerminalMirrorSession {
     func retry() {
         guard phase != .stopped else { return }
         scheduleAttach()
+    }
+
+    /// Takes over a reserved pane's input. What was typed before an attach
+    /// first sticks, including while a replay failed on a live link, belongs
+    /// to this remote surface and is delivered in order once one does. If the
+    /// link drops first, that input is discarded rather than sent to whatever
+    /// shell the Mac has when it comes back. After an attach the router drops
+    /// input typed while detached, as it does for panes it created itself, and
+    /// stopping the session discards anything still held.
+    func adopt(_ relay: CloudOptimisticInputRelay) {
+        adoptedRelay = relay
+        onAttached = { [weak self] in
+            guard let self else { return }
+            relay.attach(self.inputRouter)
+        }
     }
 
     // MARK: - Attach and bytes
@@ -183,14 +244,28 @@ final class DeviceTerminalMirrorSession {
         case .resyncRequired:
             if isConnected() {
                 scheduleAttach()
-            } else if phase == .attached || phase == .attaching {
-                phase = .detached
+            } else {
+                linkDropped()
             }
         case .linkReconnected:
             scheduleAttach()
         case .linkLost:
-            if phase == .attached || phase == .attaching { phase = .detached }
+            linkDropped()
+        case let .sizeState(state, selfParticipantID):
+            guard viewer?.receive(state, selfParticipantID: selfParticipantID) == true else { return }
+            publishSharing()
+        case let .sharingDetached(reason, at):
+            guard viewer != nil else { return }
+            viewer?.detached(TerminalSharingDetachment(reason: reason, at: at ?? Date()))
+            publishSharing()
         }
+    }
+
+    /// Detaches and drops the reserved pane's held input: the next attach that
+    /// sticks resumes forwarding from what is typed after it.
+    private func linkDropped() {
+        adoptedRelay?.discard()
+        if phase == .attached || phase == .attaching { phase = .detached }
     }
 
     /// Single-flight replay of the source screen, followed by sequenced live bytes.
@@ -212,7 +287,10 @@ final class DeviceTerminalMirrorSession {
 
     private func attach() async {
         guard phase != .stopped, isConnected() else {
-            if phase != .stopped { phase = .detached }
+            if phase != .stopped {
+                adoptedRelay?.discard()
+                phase = .detached
+            }
             return
         }
         phase = .attaching
@@ -220,9 +298,16 @@ final class DeviceTerminalMirrorSession {
         attachingByteCount = 0
         guard !Task.isCancelled, phase != .stopped else { return }
         do {
-            let response = try await requestData("mobile.terminal.replay", surfaceParams)
+            var params = surfaceParams
+            if let viewer, viewer.detachment == nil {
+                // Register this Mac with its pane grid before the host captures.
+                params.merge(viewer.replayParams()) { _, new in new }
+            }
+            let response = try await requestData("mobile.terminal.replay", params)
             let replay = try await Self.decodeReplay(response)
             guard !Task.isCancelled, phase == .attaching, isConnected() else { return }
+            viewportTransitionRetries = 0
+            receiveReplaySizing(response)
             if let columns = replay.columns, let rows = replay.rows { pin(columns: columns, rows: rows) }
             surface?.processRemoteOutput(replay.bytes)
             expectedSequence = replay.sequence
@@ -233,14 +318,30 @@ final class DeviceTerminalMirrorSession {
             // Discard bytes already covered by the replay, then apply the
             // remaining contiguous tail through the normal sequence check.
             for chunk in buffered { handle(.bytes(sequence: chunk.sequence, data: chunk.data)) }
+            // A replay queued meanwhile re-enters `.attaching` at once, which
+            // drops input the router has not sent yet. Hand over held input
+            // only on the attach that sticks.
+            if !replayNeeded { onAttached?() }
         } catch DeviceLinkError.notConnected {
             guard phase != .stopped else { return }
+            adoptedRelay?.discard()
             phase = .detached
         } catch {
             guard !Task.isCancelled, phase != .stopped else { return }
+            if Self.isViewportTransition(error), viewportTransitionRetries < 3 {
+                // The host is applying this Mac's grid; the next replay
+                // captures the settled grid.
+                viewportTransitionRetries += 1
+                replayNeeded = true
+                return
+            }
             deviceMirrorLog.error("device terminal replay failed: \(String(describing: error), privacy: .private)")
             phase = .detached
         }
+    }
+
+    private static func isViewportTransition(_ error: Error) -> Bool {
+        String(describing: error).contains("viewport_transition")
     }
 
     private struct Replay: Sendable {
@@ -285,10 +386,121 @@ final class DeviceTerminalMirrorSession {
     /// replacement, so nothing from before it may survive.
     nonisolated private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
 
+    // MARK: - Shared sizing (this Mac as a participant of the source Mac)
+
+    @discardableResult
+    private func measurePaneGrid() -> [String: Any]? {
+        guard viewer != nil, let natural = surface?.naturalGridSize() else { return nil }
+        return viewer?.paneResized(TerminalGridSize(cols: natural.columns, rows: natural.rows))
+    }
+
+    private func paneGridChanged() {
+        guard phase != .stopped, let report = measurePaneGrid(), phase == .attached else { return }
+        sendSizing("mobile.terminal.viewport", report)
+    }
+
+    private func receiveReplaySizing(_ response: Data) {
+        guard viewer != nil else { return }
+        if let sizing = MobileTerminalReplaySizing.decodeIfPresent(response), let state = sizing.sizeState {
+            viewer?.receive(state, selfParticipantID: sizing.selfParticipantID)
+        }
+        publishSharing()
+        // The replay's report expires on the host's TTL; the dedicated
+        // report keeps this Mac attached for the link's lifetime.
+        if let report = viewer?.viewportParams() { sendSizing("mobile.terminal.viewport", report) }
+    }
+
+    /// Sends one sizing request; failures only log, since the next size
+    /// state or replay reconciles.
+    private func sendSizing(_ method: String, _ params: [String: Any]) {
+        var params = params
+        params.merge(surfaceParams) { current, _ in current }
+        let requestData = requestData
+        Task { @MainActor in
+            do {
+                _ = try await requestData(method, params)
+            } catch {
+                deviceMirrorLog.error("device terminal \(method, privacy: .public) failed: \(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
+    private func publishSharing() {
+        guard let viewer, let surfaceID = sharingSurfaceID else { return }
+        let controller = TerminalController.shared
+        controller.ensureTerminalSharingPresentation()
+        controller.terminalSharing.register(self, surfaceID: surfaceID)
+        controller.terminalSharing.publish(viewer.snapshot, surfaceID: surfaceID)
+    }
+
+    /// Stops counting at once instead of waiting for the link to close.
+    private func leaveSharing() {
+        guard let viewer else { return }
+        if let surfaceID = sharingSurfaceID {
+            TerminalController.shared.terminalSharing.unregister(self, surfaceID: surfaceID)
+        }
+        surface?.onNaturalGridInputsChanged = nil
+        if viewer.viewport != nil, isConnected() { sendSizing("mobile.terminal.viewport", viewer.clearParams()) }
+        sharingSurfaceID = nil
+    }
+
     /// Pins only the mirror to the source grid; local resizing clips or letterboxes it.
     private func pin(columns: Int, rows: Int) {
         if let assigned = assignedGrid, assigned.columns == columns, assigned.rows == rows { return }
         assignedGrid = (columns, rows)
         surface?.setAssignedGrid(columns: columns, rows: rows)
+    }
+}
+
+// MARK: - Size panel actions (TerminalSharingSurfaceControlling)
+
+/// The size panel, tab accessory, context menu, palette and socket act on a
+/// viewed Mac's terminal through the host's mobile RPC, as a phone does.
+extension DeviceTerminalMirrorSession: TerminalSharingSurfaceControlling {
+    func sharingSetPolicy(_ policy: TerminalSizingPolicy) -> Bool {
+        guard viewer != nil else { return false }
+        sendSizing("mobile.terminal.size_policy.set", ["policy": TerminalSizingWireCoder().jsonObject(policy)])
+        return true
+    }
+
+    /// The host's mobile RPC sets the counts override of this viewer only.
+    func sharingSetCountsOverride(participantID: String, value: Bool?) -> Bool {
+        guard let viewer, participantID == viewer.selfParticipantID,
+              let report = viewer.countsParams(value) else { return false }
+        sendSizing("mobile.terminal.viewport", report)
+        return true
+    }
+
+    /// The host names this Mac as the actor from its authenticated account
+    /// and this client's reported device name.
+    func sharingDisconnect(participantID: String, by: TerminalDetachActor?) -> Bool {
+        guard let viewer else { return false }
+        sendSizing("mobile.terminal.participant.disconnect", ["participant_id": participantID, "client_id": viewer.clientID])
+        return true
+    }
+
+    /// Input already carries the client id, which the host records as
+    /// activity; an explicit focus has no mobile RPC.
+    func sharingNoteSelfActivity() {}
+
+    func sharingReattach(asViewer: Bool) -> Bool {
+        guard let viewer, viewer.detachment != nil else { return false }
+        var params = viewer.reattachParams(asViewer: asViewer)
+        params.merge(surfaceParams) { current, _ in current }
+        let requestData = requestData
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await requestData("mobile.terminal.reattach", params)
+                guard let self else { return }
+                self.viewer?.reattached()
+                self.publishSharing()
+                // Re-anchor on a fresh replay: the host dropped this Mac's
+                // viewport and input while it was disconnected.
+                self.scheduleAttach()
+            } catch {
+                deviceMirrorLog.error("device terminal reattach failed: \(String(describing: error), privacy: .private)")
+            }
+        }
+        return true
     }
 }

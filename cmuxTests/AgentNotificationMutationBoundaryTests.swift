@@ -100,6 +100,17 @@ extension AgentNotificationRegressionTests {
                     surfaceId: fixture.panelId
                 )
         )
+
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "pid": Int(process.processIdentifier),
+        ])
+        guard case .ok(let payload) = result,
+              let target = payload as? [String: Any] else {
+            Issue.record("Expected live PID delivery target, got \(result)")
+            return
+        }
+        #expect(target["source"] as? String == "pid")
+        #expect(target["pid"] as? Int == Int(process.processIdentifier))
     }
 
     @Test("Local PID routing excludes remote TTY device namespaces")
@@ -204,7 +215,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: nil
+            pid: nil,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
             target: .workspace(dockOwnerId),
@@ -256,7 +268,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: nil
+            pid: nil,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(dockOwnerId),
@@ -580,7 +593,8 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: 43_210
+            pid: 43_210,
+            workState: nil
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),

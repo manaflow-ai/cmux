@@ -49,9 +49,9 @@ base ref to include committed branch changes since its merge-base with HEAD.
 `--affected` with `--swift-changed` to also parse changed Swift files, or use
 `--only` instead when you want to choose checks yourself.
 
-Selection covers the ten checks below. Each checker declares its file inputs
+Selection covers the twelve checks below. Each checker declares its file inputs
 in `CHECK_INPUTS` in `scripts/verify-local.py`; update those declarations when a
-checker gains dependencies. Unknown paths select all ten checks. Known prose
+checker gains dependencies. Unknown paths select all twelve checks. Known prose
 changes omit unrelated checks, while feature-flag expiry policy always runs
 because its result depends on today's date. This does not select native tests
 or the separate CI workflow guards.
@@ -140,10 +140,12 @@ it does not assert that the entire CI checkout equals the PR head.
 | `launch-policy` | Generated Claude launch policy is current |
 | `test-wiring` | Every Swift test file belongs to the Xcode test target |
 | `package-groups` | Workspace Swift package grouping |
+| `remote-tmux-waits-tests` | Remote-tmux wait lint fixture suite |
+| `remote-tmux-waits` | No new sleep, timer or poll in remote-tmux product sources beyond the baseline and documented exceptions |
 | `feature-flags` | Flag names, ownership, expiry, defaults, single evaluation and retired keys |
 
 Each failure prints a bounded diagnostic tail and an exact `--only` rerun command.
-The default runs all ten checks so one pass reveals independent failures.
+The default runs all twelve checks so one pass reveals independent failures.
 `--only` runs the named subset and says which checks actually ran; it does not
 infer affected tests from a diff. `--repo` targets another checkout. Each check
 has a 60-second deadline, adjustable with `--timeout`; Ctrl-C stops the active

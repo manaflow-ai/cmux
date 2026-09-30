@@ -19,6 +19,7 @@ CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+E2E_TEST_ACTION_FILE="$ROOT_DIR/.github/actions/e2e-run-tests/action.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
@@ -47,10 +48,11 @@ check_macos_runner() {
     # check covers on its own, or, on a re-run or when the picker did not
     # place this shard on the owned pool, the Blacksmith pool the pull
     # request picker named for a run on an owned pool (pr_retry_runner), or
-    # on attempt 2 of a refused owned shard, the owned pool once more.
-    # On attempt 1 it may first take the root label late-placement chose (an owned
+    # the owned label on attempts 1 and 2. The
+    # gui label (pr_gui_runner) names the GUI runners of that owned pick.
+    # It may first take the label late-placement chose in this attempt (an owned
     # root runner found idle once admission finished; late_placement.py).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 1 && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \(inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (needs\.late-placement\.outputs\.attempt == github\.run_attempt && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(\(github\.run_attempt > 2 && \(github\.triggering_actor == .github-actions\[bot\]. \|\| github\.event_name != .pull_request.\) \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -92,7 +94,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -164,11 +166,16 @@ check_e2e_runner_fallbacks() {
   # Compilation caching is an optional optimization. Its failure must not
   # suppress setup/test failures or make successful tests depend on the cache
   # service. Keep the exception confined to these cache operations.
-  python3 - "$E2E_FILE" <<'PYTHON'
+  python3 - "$E2E_FILE" "${E2E_TEST_ACTION_FILE:-}" <<'PYTHON'
 import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
+# The tests run in this composite action, from the build job or the fallback
+# test job, so its steps answer to the same rule. None may mask a failure.
+if len(sys.argv) > 2 and sys.argv[2]:
+    action = yaml.safe_load(open(sys.argv[2]))
+    document["jobs"]["e2e-run-tests action"] = {"steps": action["runs"]["steps"]}
 # Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
 # canonical fallbacks. Everything else must fail the job it runs in.
 allowed = {
@@ -180,12 +187,27 @@ allowed = {
     ("build", None, "Start the DerivedData seed download", ""),
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
+    # An owned Mac's kept build state, read only: any failure leaves the
+    # cache and seed downloads to run as they would anywhere else.
+    ("build", "owned-state", "Reuse this owned Mac's build state", ""),
+    ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
+    ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
     # The owned-pool rescue marker: without it the run is only not watched.
     ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
     # The sweeper's fixed-name marker: without it the run is only not watched.
     ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
+    # The routing App's token: without it the pool choice reads the janitor snapshot.
+    ("runner", "route-token", "Mint the owned-pool routing token", "actions/create-github-app-token"),
+    ("runner", "route-token-repo", "Mint the routing token without the org permission",
+     "actions/create-github-app-token"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -277,13 +299,14 @@ check_release_helper_artifact_from_package_lane() {
   # The one arm besides the dual-Xcode pool: the side label, else the owned
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  # The opt-in build-fleet gateway (hq#794) likewise takes only a run without the helper.
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
     in_job && index($0, dual_runner) { saw_dual_runner=1 }
     in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
-    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /timeout-minutes:[[:space:]]*60/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
     in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
@@ -1284,8 +1307,9 @@ check_owned_pools_route_through_picker() {
   # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
   # exactly one way, or inside a runs-on branch that a pull_request condition
   # guards. Parsed as YAML, so a block scalar or a second output is seen too.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import re
 import sys
 from pathlib import Path
@@ -1296,8 +1320,6 @@ PICKED = "steps.macos-pool.outputs.runner"
 RETRY_PICKED = "steps.macos-pool.outputs.retry_runner"
 OUTPUT = "needs.changes.outputs.macos_pr_runner"
 RETRY_OUTPUT = "needs.changes.outputs.macos_pr_retry_runner"
-REFUSED_PICKED = "steps.macos-pool.outputs.refused_retry_runner"
-REFUSED_OUTPUT = "needs.changes.outputs.macos_pr_refused_retry_runner"
 SHARD_PICKED = "steps.macos-pool.outputs.shard_runner"
 SHARD_OUTPUT = "needs.changes.outputs.macos_pr_shard_runner"
 ROOT_PICKED = "steps.macos-pool.outputs.root_runner"
@@ -1306,35 +1328,48 @@ ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
 ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
 SIDE_PICKED = "steps.macos-pool.outputs.side_runner"
 SIDE_OUTPUT = "needs.changes.outputs.macos_pr_side_runner"
+LIGHT_SIDE_PICKED = "steps.macos-pool.outputs.light_side_runner"
+LIGHT_SIDE_OUTPUT = "needs.changes.outputs.macos_pr_light_side_runner"
+
+
+def lane_side(key):
+    """A side lane's label: the light side label when the picker put this lane there, else the pool's side label."""
+    return (f"contains(needs.changes.outputs.macos_pr_light_side_jobs, ' {key} ') && {LIGHT_SIDE_OUTPUT}"
+            f" || {SIDE_OUTPUT}")
+
+
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
 INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
-          "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
           "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}",
           "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
           "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
-          "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
+          "pr_side_runner": {"remote-daemon": "${{ " + lane_side("remote-daemon") + " }}",
+                             "macos": "${{ " + lane_side("swift-package") + " }}"}}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
-          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+          "-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}"
+          "-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+    " && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
     " && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner"
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
     # A side lane: the side label of the pool first, when the picker named one.
-    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
+    "github.event_name == 'pull_request' && ((" + lane_side("claude-wrapper") + ")"
     " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
-    # Attempt 2 of a refused owned job: the owned pool once more.
-    "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
-    " ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
-    " || needs.changes.outputs.macos_pr_refused_retry_runner)",
-    # A re-run of failed jobs on an owned-pool run, or a job the picker did not
+    # The bot's re-run past attempt 2 on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.
-    "github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    "github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
     " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
+    # A trusted manual dispatch (code already in the repository, which
+    # pr_runner_pool.py places like a pull request): only the job it placed.
+    "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2"
+    " && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_runner)",
 )
 
 
@@ -1370,10 +1405,6 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_shard_runner")
                 and value == "${{ " + SHARD_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's shard runner outside macos_pr_shard_runner")
-        if REFUSED_PICKED in value and not (
-                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_refused_retry_runner")
-                and value == "${{ " + REFUSED_PICKED + " }}"):
-            violations.append(f"{where}: reads the picker's refused retry runner outside macos_pr_refused_retry_runner")
         if ROOT_PICKED in value and not (
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_root_runner")
                 and value == "${{ " + ROOT_PICKED + " }}"):
@@ -1386,26 +1417,34 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_side_runner")
                 and value == "${{ " + SIDE_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's side runner outside macos_pr_side_runner")
+        if LIGHT_SIDE_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_light_side_runner")
+                and value == "${{ " + LIGHT_SIDE_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's light side runner outside macos_pr_light_side_runner")
         if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
-            if value != INPUTS[path[-1]] or file.name != "ci.yml":
-                violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
+            expected = INPUTS[path[-1]]
+            if isinstance(expected, dict):  # one value per calling job
+                expected = expected.get(path[1], "")
+            if value != expected or file.name != "ci.yml":
+                violations.append(f"{where}: {path[-1]} must be exactly {expected}")
             continue
-        if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
+        if OUTPUT not in value and RETRY_OUTPUT not in value \
                 and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value \
-                and SIDE_OUTPUT not in value:
+                and SIDE_OUTPUT not in value and LIGHT_SIDE_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
-            if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
+            if OUTPUT not in rest and RETRY_OUTPUT not in rest \
                     and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest \
-                    and SIDE_OUTPUT not in rest:
+                    and SIDE_OUTPUT not in rest and LIGHT_SIDE_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: the picked pull request pool must reach jobs only through pr_runner_pool.py's checked route"
     echo "$violations"
@@ -1623,8 +1662,9 @@ check_macos_xcode_pin_tracks_pull_request_lane() {
   # .github/workflows that names the macos-15 Xcode must also read the
   # pull-request variant, unless its exact (file, job, key) is exempted below
   # with a reason. A macOS job added next month inherits the rule for free.
-  local violations
-  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+  local violations violations_file
+  violations_file="$(mktemp)"
+  python3 - "$ROOT_DIR/.github/workflows" >"$violations_file" <<'PYTHON'
 import sys
 from pathlib import Path
 
@@ -1633,8 +1673,6 @@ import yaml
 # (workflow file, job id, env key) -> why this site keeps the macos-15 Xcode
 # regardless of where the pull-request lane points.
 EXEMPT = {
-    ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
-        "uses the macOS 15 Xcode configuration; runs on MACOS_RUNNER_15 for paid overflow or blacksmith-6vcpu-macos-15 otherwise",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
@@ -1674,7 +1712,8 @@ for path in sorted(Path(sys.argv[1]).glob("*.yml")):
 
 print("\n".join(violations))
 PYTHON
-)"
+  violations="$(<"$violations_file")"
+  rm -f "$violations_file"
   if [ -n "$violations" ]; then
     echo "FAIL: a macos-15 Xcode pin does not follow the pull-request lane"
     echo "      Route it through CMUX_CI_XCODE_APP_PR, or add its (file, job, key) to"
@@ -1702,20 +1741,24 @@ check_macos_runner_identity_env_tracks_routing() {
   # move a job without moving what that job reports about itself.
   # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
   # identity value. A parser failure aborts under set -e rather than passing.
-  local mismatches
-  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+  local mismatches mismatches_file
+  mismatches_file="$(mktemp)"
+  python3 - "$CI_MACOS_FILE" >"$mismatches_file" <<'PYTHON'
 import sys
 from pathlib import Path
 import yaml
 
 
-# Attempt 1 of compile admission may take the warm labels in
-# pr_admission_runner, a JSON array; the env restates the first, the root label.
-WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+# Compile admission may take the pinned labels of admission-placement (this
+# attempt's) or pr_admission_runner (attempt 1's), a JSON array; the env
+# restates the first, the root label.
+WARM_RUNS_ON = ("fromJSON(needs.admission-placement.outputs.runner)", "fromJSON(inputs.pr_admission_runner)")
 
 
 def restated(value):
-    return value.replace(WARM_RUNS_ON + "[0]", WARM_RUNS_ON)
+    for pinned in WARM_RUNS_ON:
+        value = value.replace(pinned + "[0]", pinned)
+    return value
 
 
 def mismatched_identities(document):
@@ -1751,7 +1794,8 @@ assert len(list(mismatched_identities(fixture))) == 2
 
 print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
 PYTHON
-)"
+  mismatches="$(<"$mismatches_file")"
+  rm -f "$mismatches_file"
   if [ -n "$mismatches" ]; then
     echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
     echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"

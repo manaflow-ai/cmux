@@ -61,6 +61,8 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: catalog)
         let keys = [
             catalog.app.warnBeforeClosingTab,
+            catalog.app.warnBeforeClosingWorkspace,
+            catalog.app.warnBeforeClosingWindow,
             catalog.app.hideTabCloseButton,
             catalog.app.renameSelectsExistingName,
         ]
@@ -88,8 +90,8 @@ struct SettingsSearchIndexTests {
         let sectionCount = result.filter {
             if case .section = $0.kind { return true } else { return false }
         }.count
-        #expect(sectionCount == SettingsSectionID.allCases.count - 1)
-        #expect(result.contains { $0.id == "section:computers" } == false)
+        #expect(sectionCount == SettingsSectionID.allCases.count)
+        #expect(result.contains { $0.id == "section:computers" })
     }
 
     @Test func tokenizedQueryFiltersBothSectionsAndSettings() {
@@ -99,34 +101,29 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
-    @Test func exactComputersSearchTargetsMobileSubsection() throws {
+    /// Every name people use for the Cloud sidebar's My Devices feature ranks
+    /// a Devices result first, anchored on the Devices section (#14771).
+    @Test(arguments: ["computers", "Computers", "devices", "Devices", "my devices", "macs", "discovery", "discoverable"])
+    func devicesQueriesLandOnTheDevicesSection(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let result = try #require(index.match("Computers").first)
+        let first = try #require(index.match(query).first)
 
-        #expect(result.id == "section:computers")
-        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
-        #expect(result.kind == .section)
+        switch first.kind {
+        case .section:
+            #expect(first.id == "section:computers")
+            #expect(first.anchorID == "section:computers")
+        case .setting(let parent):
+            #expect(parent == .computers, "\(query) ranked \(first.id) first")
+        }
     }
 
-    @Test(arguments: ["devices", "mac", "tailscale", "remote"])
-    func computersSectionAliasesPreserveSearchRanking(query: String) throws {
+    @Test(arguments: ["mac", "tailscale", "remote"])
+    func devicesSectionAliasesPreserveSearchRanking(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = try #require(index.match(query).first { $0.kind == .section })
 
         #expect(result.id == "section:computers")
-        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
-    }
-
-    /// `devices` legitimately ranks the phone-push row first because its
-    /// subtitle contains an exact `devices` token. The Computers section
-    /// must still outrank the less-specific Mobile Pairing result.
-    @Test func devicesAliasRanksComputersAboveMobilePairing() throws {
-        let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let results = index.match("devices")
-        let computersIndex = try #require(results.firstIndex { $0.id == "section:computers" })
-        let mobilePairingIndex = try #require(results.firstIndex { $0.id == "setting:mobile:pairDevice" })
-
-        #expect(computersIndex < mobilePairingIndex)
+        #expect(result.anchorID == "section:computers")
     }
 
     /// Typing an exact section name navigates to that section first.
@@ -170,6 +167,9 @@ struct SettingsSearchIndexTests {
         ("naming agent", "setting:automation:workspace-auto-naming"),
         ("automation.autoNamingAgent", "setting:automation:workspace-auto-naming"),
         ("autoNamingAgent", "setting:automation:workspace-auto-naming"),
+        ("auto resume errors", "setting:automation:agent-error-auto-resume"),
+        ("overloaded", "setting:automation:agent-error-auto-resume"),
+        ("automation.agentAutoResume", "setting:automation:agent-error-auto-resume"),
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
@@ -221,6 +221,27 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(try #require(index.match("Terminal Config").first).id == "setting:app:terminal-config")
         #expect(try #require(index.match("copy on select").first).id == "setting:terminal:copy-on-select")
+    }
+
+    /// The native Ghostty rows in Settings > Terminal are found by their
+    /// Ghostty config key as well as by plain words.
+    @Test(arguments: [
+        ("font-family", "setting:terminal:font-family"),
+        ("terminal font size", "setting:terminal:font-size"),
+        ("cursor-style", "setting:terminal:cursor-style"),
+        ("cursor blink", "setting:terminal:cursor-blink"),
+        ("window-padding-x", "setting:terminal:window-padding-x"),
+        ("window-padding-y", "setting:terminal:window-padding-y"),
+        ("background-opacity", "setting:terminal:background-opacity"),
+        ("transparency", "setting:terminal:background-opacity"),
+        ("background-blur", "setting:terminal:background-blur"),
+        ("macos-option-as-alt", "setting:terminal:option-as-alt"),
+        ("option as meta", "setting:terminal:option-as-alt"),
+        ("scrollback-limit", "setting:terminal:scrollback-limit"),
+    ])
+    func ghosttyOptionRowsAreSearchable(query: String, expectedID: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.match(query).contains { $0.id == expectedID })
     }
 
     @Test func diacriticInsensitiveMatch() {

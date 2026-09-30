@@ -92,6 +92,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Journals agent sessions ended by closing their terminal. Tests point it
+    /// at a private journal.
+    @ObservationIgnored var agentSessionCloseJournal = AgentSessionCloseJournal()
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
@@ -352,11 +355,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             configuration: Self.makeConfiguration(),
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
-            guard source == .closeButton else { return }
+            guard source == .closeButton || source == .middleClick else { return }
+            // Both pointer close gestures use the explicit tab-close path. This
+            // preserves the close warning and closed-surface history behavior.
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
@@ -1107,7 +1115,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -1123,7 +1130,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel: terminal,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: initialInput != nil,
             resumeWorkingDirectory: snapshot.workingDirectory
         )

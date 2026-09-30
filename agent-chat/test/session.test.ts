@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptHandoffResponse } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptSessionActionResponse, transcriptComposerLocked } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 
 const writes: Record<string, string> = {};
@@ -33,13 +33,19 @@ if (consumeOptimisticUserEcho(optimistic, "same")) {
   throw new Error("non-optimistic repeated user message should not be suppressed");
 }
 
-if (!shouldAcceptHandoffResponse("session-1", "session-1", "session-1")) {
+// An echo that never lands (a failed send) or lands rewritten must not block later ones.
+const stuck: string[] = ["!ls", "next"];
+if (!consumeOptimisticUserEcho(stuck, "next") || stuck.length !== 1 || stuck[0] !== "!ls") {
+  throw new Error("a later echo should match past an entry whose echo never landed");
+}
+
+if (!shouldAcceptSessionActionResponse("session-1", "session-1", "session-1")) {
   throw new Error("current pending handoff response should be accepted");
 }
-if (shouldAcceptHandoffResponse("session-1", null, "session-1")) {
+if (shouldAcceptSessionActionResponse("session-1", null, "session-1")) {
   throw new Error("cleared handoff must ignore a late response");
 }
-if (shouldAcceptHandoffResponse("session-1", "session-1", "session-2")) {
+if (shouldAcceptSessionActionResponse("session-1", "session-1", "session-2")) {
   throw new Error("handoff response from a session the user left must be ignored");
 }
 
@@ -86,6 +92,16 @@ if (latest?.health !== "degraded" || latest?.parentSessionId !== "session-1") {
 }
 if (latestRouteStatus([{ kind: "routing", phase: "invalid", conversationId: "c", requestId: "r", attempt: 1 }]) !== null) {
   throw new Error("malformed routing events should not become route health state");
+}
+
+if (!transcriptComposerLocked({ mode: "transcript", attention: "Codex needs approval" })) {
+  throw new Error("terminal attention should lock the transcript composer");
+}
+if (
+  transcriptComposerLocked({ mode: "transcript", attention: "   " })
+  || transcriptComposerLocked({ mode: undefined, attention: "Codex needs approval" })
+) {
+  throw new Error("only non-empty transcript attention should lock the composer");
 }
 
 console.log("session store assertions passed");

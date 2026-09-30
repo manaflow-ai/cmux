@@ -232,7 +232,9 @@ extension AppDelegate {
         return (workspace.id, { [self] in
             unregisterMainWindowContextForTesting(windowId: windowId)
             forgetRecoverableMainWindowRoute(windowId: windowId)
-            manager.finalizeAllWorkspacesForWindowClose()
+            // Kill the workspace terminals' shells first so their frees do
+            // not wait out Ghostty's 12 s SIGHUP grace into later tests.
+            manager.closeWorkspacesForTesting()
         })
     }
 }

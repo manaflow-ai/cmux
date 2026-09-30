@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -17,6 +17,27 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+
+/** A closed, actionable observed-destroy cleanup object. */
+export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
+  return sql`coalesce(
+    jsonb_typeof(${cleanup}) = 'object'
+    and (${cleanup} - 'modelPlane' - 'homeVolume') = '{}'::jsonb
+    and (
+      not (${cleanup} ? 'modelPlane')
+      or ${cleanup}->'modelPlane' = 'true'::jsonb
+    )
+    and (
+      not (${cleanup} ? 'homeVolume')
+      or (
+        jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+        and length(btrim(${cleanup}->>'homeVolume')) > 0
+      )
+    )
+    and (${cleanup} ? 'modelPlane' or ${cleanup} ? 'homeVolume'),
+    false
+  )`;
+}
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -103,6 +124,18 @@ export const cloudVms = pgTable(
     index("cloud_vms_owner_team_status_idx").on(table.ownerTeamId, table.status),
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
+    index("cloud_vms_observed_destroy_cleanup_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.status} = 'destroyed'
+        and ${table.providerMetadata} ? 'cmuxObservedDestroyCleanup'
+        and jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup') = 'object'
+        and (
+          ${table.providerMetadata}->'cmuxObservedDestroyCleanup' @> '{"modelPlane":true}'::jsonb
+          or (
+            jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->'homeVolume') = 'string'
+            and length(btrim(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->>'homeVolume')) > 0
+          )
+        )`),
     uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
       .on(table.billingTeamId, table.idempotencyKey)
       .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),
@@ -113,6 +146,30 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_billing_team_slug_live_unique")
       .on(table.billingTeamId, table.slug)
       .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
+  ],
+);
+
+/**
+ * External teardown that must outlive its account-owned VM row. Account
+ * deletion moves pending terminal cleanup here in the same transaction that
+ * removes the VM, so no user/team foreign key may be added to this outbox.
+ */
+export const cloudVmObservedDestroyCleanups = pgTable(
+  "cloud_vm_observed_destroy_cleanups",
+  {
+    vmId: uuid("vm_id").primaryKey(),
+    provider: vmProvider("provider").notNull(),
+    cleanup: jsonb("cleanup").$type<{ modelPlane?: true; homeVolume?: string }>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_observed_destroy_cleanups_updated_idx")
+      .on(table.updatedAt, table.vmId)
+      .where(observedDestroyCleanupValidityPredicate(table.cleanup)),
+    check(
+      "cloud_vm_observed_destroy_cleanups_pending_step",
+      observedDestroyCleanupValidityPredicate(table.cleanup),
+    ),
   ],
 );
 
@@ -889,6 +946,7 @@ export const cloudVmLeases = pgTable(
     index("cloud_vm_leases_identity_cleanup_idx")
       .on(table.expiresAt, table.createdAt, table.id)
       .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
+    index("cloud_vm_leases_kind_expiry_idx").on(table.kind, table.expiresAt, table.id),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
@@ -906,6 +964,11 @@ export const cloudVmSessions = pgTable(
     title: text("title"),
     kind: text("kind").notNull().default("terminal"),
     status: cloudVmSessionStatus("status").notNull().default("running"),
+    // Lifetime number of attaches, not the number of clients attached now.
+    // upsertVmSession is the only writer and there is no detach writer at all,
+    // so the count only grows and never returns to zero. Pair it with
+    // lastAttachedAt to reason about recency; do not present it as a live
+    // viewer or participant count.
     attachmentCount: integer("attachment_count").notNull().default(0),
     effectiveCols: integer("effective_cols"),
     effectiveRows: integer("effective_rows"),
@@ -2177,6 +2240,19 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Durable state for state-change and reminder delivery of operator alerts. */
+export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
+  alertKey: text("alert_key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  severity: text("severity").notNull().default("warning"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  deliveryLeaseId: text("delivery_lease_id"),
+  deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
+]);
+
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
 export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
   userId: text("user_id").notNull(),
@@ -2230,4 +2306,58 @@ export const coderouterPoolAccounts = pgTable("coderouter_pool_accounts", {
   uniqueIndex("coderouter_pool_accounts_native_unique").on(table.poolId, table.accountId),
   uniqueIndex("coderouter_pool_accounts_claude_unique").on(table.poolId, table.claudeAccountId),
   check("coderouter_pool_accounts_one_account", sql`num_nonnulls(${table.accountId}, ${table.claudeAccountId}) = 1`),
+]);
+
+export const teamInviteRole = pgEnum("team_invite_role", ["admin", "member"]);
+
+/**
+ * The role an email invitation grants. Stack sends the invitation and owns the
+ * code, but its API has no role field, so the role is keyed by the team and
+ * the lowercased recipient email and applied when that invitation is accepted.
+ */
+export const teamInviteRoles = pgTable("team_invite_roles", {
+  stackTeamId: text("stack_team_id").notNull(),
+  email: text("email").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The Stack invitation this role was sent with; null until cmux sees it. */
+  stackInvitationId: text("stack_invitation_id"),
+}, (table) => [
+  primaryKey({ name: "team_invite_roles_pkey", columns: [table.stackTeamId, table.email] }),
+  check("team_invite_roles_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
+
+/**
+ * Reusable team invite links. Only a SHA-256 of the raw token is stored, links
+ * grant `member` only, and revocation sets `revoked_at` so redemptions keep
+ * their history.
+ */
+export const teamInviteLinks = pgTable("team_invite_links", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stackTeamId: text("stack_team_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  createdByUserId: text("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  maxUses: integer("max_uses"),
+  useCount: integer("use_count").notNull().default(0),
+}, (table) => [
+  uniqueIndex("team_invite_links_token_hash_unique").on(table.tokenHash),
+  index("team_invite_links_team_created_idx").on(table.stackTeamId, table.createdAt),
+  check("team_invite_links_member_only", sql`${table.role} = 'member'`),
+  check("team_invite_links_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("team_invite_links_max_uses_check", sql`${table.maxUses} is null or ${table.maxUses} > 0`),
+  check("team_invite_links_use_count_check", sql`${table.useCount} >= 0 and (${table.maxUses} is null or ${table.useCount} <= ${table.maxUses})`),
+]);
+
+/** One row per user who joined through a link, which makes redemption idempotent. */
+export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions", {
+  linkId: uuid("link_id").notNull().references(() => teamInviteLinks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "team_invite_link_redemptions_pkey", columns: [table.linkId, table.userId] }),
 ]);

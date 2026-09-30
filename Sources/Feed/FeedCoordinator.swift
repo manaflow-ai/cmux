@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
@@ -81,6 +82,20 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    /// Combines the two durable inputs to the mobile Feed into one monotonic
+    /// revision. The high and low 32-bit lanes preserve independent changes,
+    /// so a notification update cannot be hidden behind a larger workstream
+    /// revision (or vice versa).
+    static func combinedMobileFeedRevision(
+        workstream: Int,
+        notifications: Int
+    ) -> Int {
+        guard notifications > 0 else { return max(0, workstream) }
+        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        return Int(truncatingIfNeeded: (high << 32) | low)
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
@@ -95,6 +110,22 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        // Mirror of the notification feed's `notification.feed.changed`
+        // contract: a revision-only invalidation tells subscribed phones to
+        // re-list the workstream feed (`feed.list`). Emission is a no-op
+        // without subscribers.
+        store.onRevisionChange = { revision in
+            MobileHostService.emitEvent(
+                topic: "feed.changed",
+                payload: [
+                    "revision": Self.combinedMobileFeedRevision(
+                        workstream: revision,
+                        notifications: TerminalNotificationStore.shared
+                            .notificationFeedHistory.revision
+                    )
+                ]
+            )
+        }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -154,6 +185,10 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
         observeSemanticLifecycle(event)
+        let retiredDecision = retirePendingDecisionsSuperseded(by: event)
+        if !retiredDecision {
+            clearAgentPromptNotificationsSuperseded(by: event)
+        }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -461,7 +496,13 @@ final class FeedCoordinator: @unchecked Sendable {
                         agentKey: Self.lifecycleStatusKey(forSource: event.source),
                         requestID: requestId, resolvesRequest: true))
                 }
-                FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
+                FeedCoordinator.shared.clearSemanticFeedNotification(
+                    requestId: requestId,
+                    source: reply?.event.source,
+                    sessionId: reply?.event.sessionId,
+                    workspaceId: reply?.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                    surfaceId: reply?.event.surfaceId.flatMap(UUID.init(uuidString:))
+                )
                 if let store = FeedCoordinator.shared.store,
                    let itemId = Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(itemId, decision: decision)
@@ -479,6 +520,86 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     func isAwaitingDecision(requestId: String) -> Bool { waiterRegistry.isAwaiting(requestId) }
+
+    /// Whether `event` proves its agent already moved past every earlier
+    /// blocking decision in the same agent context.
+    ///
+    /// Claude Code runs its PermissionRequest hook beside its own permission
+    /// dialog and auto-mode classifier. When the user answers in the terminal
+    /// or the classifier decides, Claude keeps the abandoned hook waiting until
+    /// the hook's own timeout, so the Feed request and its "Needs input"
+    /// sidebar overlay outlived the decision by up to two minutes while the
+    /// agent was visibly running again. Claude fires PreToolUse before the
+    /// permission check, and the blocking hook is stamped only after its
+    /// ordering barrier delivered every earlier hook, so a later-stamped tool,
+    /// prompt, or stop hook can only follow the decision. AskUserQuestion and
+    /// ExitPlanMode PreToolUse hooks announce a blocking prompt of their own.
+    static func supersedesPendingDecisions(_ event: WorkstreamEvent) -> Bool {
+        guard event.feedHookSentAtMs != nil,
+              event.source == "claude" || (event.source == "codex" && event.feedHookIsOrdered) else {
+            return false
+        }
+        switch event.hookEventName {
+        case .preToolUse:
+            return event.toolName != "AskUserQuestion" && event.toolName != "ExitPlanMode"
+        case .postToolUse, .postToolUseFailure, .userPromptSubmit, .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Applies the same hook progression rule to terminal notifications even
+    /// when no Feed waiter exists, which is the normal Codex notify-hook path.
+    @MainActor
+    func clearAgentPromptNotificationsSuperseded(by event: WorkstreamEvent) {
+        guard Self.supersedesPendingDecisions(event),
+              let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
+              let surfaceId = event.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
+        let canonicalSessionId = FeedWorkstreamIdentifier.canonicalizedRawValue(
+            agentID: event.source,
+            rawValue: event.sessionId
+        )
+        let sessionId = FeedWorkstreamIdentifier(rawValue: canonicalSessionId)?.sessionID ?? event.sessionId
+        let sentAt = event.feedHookSentAtMs.map {
+            Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+        }
+        _ = TerminalNotificationStore.shared.clearAgentAttentionNotification(
+            forTabId: workspaceId,
+            surfaceId: surfaceId,
+            agentKind: event.source,
+            sessionId: sessionId,
+            before: sentAt
+        )
+    }
+
+    /// Retires blocking requests that `event` proves were decided outside cmux:
+    /// the waiting hook returns no decision, the card expires, and the
+    /// needs-input overlay and banner clear, as when the user replies in Feed.
+    @MainActor
+    @discardableResult
+    func retirePendingDecisionsSuperseded(by event: WorkstreamEvent) -> Bool {
+        guard Self.supersedesPendingDecisions(event) else { return false }
+        var retiredDecision = false
+        for (reply, itemID) in waiterRegistry.supersede(by: event) {
+            retiredDecision = true
+            cancelNotification(requestId: reply.requestID)
+            concludeAttentionOnMain(reply.target)
+            notificationJournal.observeFeed(AgentFeedSemanticInput(event: reply.event,
+                agentKey: Self.lifecycleStatusKey(forSource: reply.event.source),
+                requestID: reply.requestID, resolvesRequest: true))
+            _ = clearSemanticFeedNotification(
+                requestId: reply.requestID,
+                source: reply.event.source,
+                sessionId: reply.event.sessionId,
+                workspaceId: reply.event.workspaceId.flatMap(UUID.init(uuidString:)),
+                surfaceId: reply.event.surfaceId.flatMap(UUID.init(uuidString:))
+            )
+            expireTimedOutItem(itemID)
+            waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+        }
+        return retiredDecision
+    }
 
     private static func findItemId(
         for requestId: String,
@@ -697,7 +818,7 @@ extension FeedCoordinator {
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
-            color: "#4C8DFF",
+            color: CmuxAccentColor.builtInAgentStatusHex,
             timestamp: Date()
         ), key: statusKey, panelId: panelId)
 
@@ -1234,7 +1355,7 @@ private extension FeedCoordinator {
             case .authorized, .provisional:
                 break
             case .notDetermined:
-                var authorizationOptions: UNAuthorizationOptions = [.alert]
+                var authorizationOptions: UNAuthorizationOptions = [.alert, .badge]
                 if effectiveEffects.sound {
                     authorizationOptions.insert(.sound)
                 }
@@ -1591,6 +1712,50 @@ private func normalizedFeedNotificationCWD(_ cwd: String?) -> String? {
 enum FeedSocketEncoding {
     private static let primaryTextLimit = 8_000
     private static let secondaryTextLimit = 2_000
+
+    /// The mobile Feed is a rendered event stream, so an item must carry at
+    /// least one field the phone can display or act on before it enters the
+    /// response. This gate keeps sparse persistence records from becoming
+    /// blank rows after the client maps them into a presentation model.
+    static func isMobileFeedRenderable(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .permissionRequest(let requestID, let toolName, _, _):
+            return hasText(requestID) && hasText(toolName)
+        case .exitPlan(let requestID, _, _):
+            return hasText(requestID)
+        case .question(let requestID, let questions):
+            guard hasText(requestID) else { return false }
+            return questions.contains { question in
+                hasText(question.header)
+                    || hasText(question.prompt)
+                    || question.options.contains { option in
+                        hasText(option.label) || hasText(option.description)
+                    }
+            }
+        case .toolUse, .userPrompt, .sessionStart, .sessionEnd:
+            return false
+        case .toolResult(let toolName, let result, let isError):
+            return isError && (hasText(toolName) || hasText(result))
+        case .assistantMessage(let text):
+            return hasText(text)
+        case .stop(let reason):
+            return hasText(reason)
+                || item.context.map { context in
+                    hasText(context.lastUserMessage)
+                        || hasText(context.assistantPreamble)
+                        || hasText(context.planSummary)
+                        || hasText(context.toolSummary)
+                } == true
+                || hasText(item.reply?.text)
+        case .todos(let todos):
+            return todos.contains { hasText($0.content) }
+        }
+    }
+
+    private static func hasText(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static func payload(for result: FeedCoordinator.IngestBlockingResult) -> [String: Any] {
         switch result {

@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
@@ -14,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runChild } from "./helpers/run-child";
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 let fixture: string | undefined;
@@ -23,10 +23,10 @@ afterEach(() => {
   fixture = undefined;
 });
 
-function build(web: string) {
-  const result = spawnSync(process.execPath, ["tools/build-docs-search.mjs"], {
+/** Builds the docs search index in the fixture and returns its stdout; throws on failure. */
+async function build(web: string) {
+  const result = await runChild(process.execPath, ["tools/build-docs-search.mjs"], {
     cwd: web,
-    encoding: "utf8",
     timeout: 60_000,
     env: { ...process.env, CMUX_DOCS_CHANNEL: "release" },
   });
@@ -48,7 +48,7 @@ function outputHashes(directory: string): Record<string, string> {
   return hashes;
 }
 
-test("restores identical search assets and rebuilds after dependency or generator changes", () => {
+test("restores identical search assets and rebuilds after dependency or generator changes", async () => {
   fixture = mkdtempSync(path.join(tmpdir(), "cmux-docs-cache-"));
   const web = path.join(fixture, "web");
   mkdirSync(path.join(web, "tools"), { recursive: true });
@@ -62,21 +62,21 @@ test("restores identical search assets and rebuilds after dependency or generato
 
   const restored = "Docs search index restored";
   const output = path.join(web, "public", "pagefind");
-  expect(build(web)).not.toContain(restored);
+  expect(await build(web)).not.toContain(restored);
   const original = outputHashes(output);
   expect(Object.keys(original)).toContain("pagefind.js");
   rmSync(output, { recursive: true });
-  expect(build(web)).toContain(restored);
+  expect(await build(web)).toContain(restored);
   expect(outputHashes(output)).toEqual(original);
 
   appendFileSync(path.join(web, "bun.lock"), "\n");
-  expect(build(web)).not.toContain(restored);
-  expect(build(web)).toContain(restored);
+  expect(await build(web)).not.toContain(restored);
+  expect(await build(web)).toContain(restored);
 
   appendFileSync(script, "\n// Updated generator revision.\n");
-  expect(build(web)).not.toContain(restored);
+  expect(await build(web)).not.toContain(restored);
 
   appendFileSync(path.join(fixture, "CHANGELOG.md"), "\nA new searchable release note.\n");
-  expect(build(web)).not.toContain(restored);
+  expect(await build(web)).not.toContain(restored);
   expect(outputHashes(output)).not.toEqual(original);
 }, 120_000);

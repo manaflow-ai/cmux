@@ -72,12 +72,13 @@ extension SurfaceCatalog {
         }
         // Upgrade legacy projections before admitting the name. No display text
         // participates in either identity resolution or the remote payload.
-        if target.machine.cloudMachineID != nil, workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
+        if target.machine.tuiMachineID != nil, workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
             let previous = workspace.cloudVMBinding
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(
                 vmID: target.machine.rawValue,
                 isBase: previous?.vmID == target.machine.rawValue ? (previous?.isBase ?? false) : false,
-                remoteWorkspaceID: target.remoteWorkspaceID
+                remoteWorkspaceID: target.remoteWorkspaceID,
+                teamID: WorkspaceCloudVMBinding.owningTeamID(forVMID: target.machine.rawValue, previous: previous)
             )
         }
         let write = enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)

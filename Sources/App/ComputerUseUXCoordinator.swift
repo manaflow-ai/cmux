@@ -308,14 +308,15 @@ final class ComputerUseUXCoordinator {
     }
 
     private func presentOnboardingWindow(
-        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint
+        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint,
+        origin: ComputerUseOnboardingWindowController.PresentationOrigin
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
             runtimeService: runtimeService
         )
         onboardingWindowController = controller
-        controller.present(startingAt: startingPoint)
+        controller.present(startingAt: startingPoint, origin: origin)
     }
 
     private func ensureOnboardingCoordinator() -> ComputerUseOnboardingCoordinator {
@@ -323,8 +324,9 @@ final class ComputerUseUXCoordinator {
             return onboardingCoordinator
         }
         let coordinator = ComputerUseOnboardingCoordinator(
-            presenter: { [weak self] startingPoint in
-                self?.presentOnboardingWindow(startingAt: startingPoint)
+            runtimeService: runtimeService,
+            presenter: { [weak self] startingPoint, origin in
+                self?.presentOnboardingWindow(startingAt: startingPoint, origin: origin)
             }
         )
         onboardingCoordinator = coordinator
@@ -367,9 +369,7 @@ final class ComputerUseUXCoordinator {
             // Authenticated hook ingress has already established ownership of a
             // live local terminal. Agent process indexing may lag the first
             // hook, so it is used only for session bookkeeping below.
-            if runtimeService.requestAutomaticOnboarding() {
-                _ = ensureOnboardingCoordinator().requestFromToolInvocation()
-            }
+            _ = ensureOnboardingCoordinator().requestFromToolInvocation()
         }
         if isFunctionalInvocation,
            ownsLocalSurface,

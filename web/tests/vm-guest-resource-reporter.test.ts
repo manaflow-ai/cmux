@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { GUEST_RESOURCE_SAMPLE_SCRIPT, guestResourceSampleCommand, guestResourceReporterInstallCommand, guestResourceReporterScript } from "../services/vms/guestResourceReporter";
 
-function runCounterFixture(cpu: string[], meminfo: string) {
+/** Runs the sampling script against fake CPU and memory counters and returns the sample. */
+async function runCounterFixture(cpu: string[], meminfo: string) {
   const harness = `import builtins,io,json,os,sys,time,types
 fixture=json.loads(sys.argv[1])
 counters=iter(fixture['cpu'])
@@ -16,15 +17,15 @@ os.statvfs=lambda path: types.SimpleNamespace(f_blocks=10000,f_bfree=4000,f_bava
 exec(sys.stdin.read())
 print(json.dumps(sample()))
 `;
-  const result = spawnSync("python3", ["-c", harness, JSON.stringify({ cpu, meminfo })], {
-    input: GUEST_RESOURCE_SAMPLE_SCRIPT, encoding: "utf8",
+  const result = await runChild("python3", ["-c", harness, JSON.stringify({ cpu, meminfo })], {
+    input: GUEST_RESOURCE_SAMPLE_SCRIPT,
   });
   expect(result.status).toBe(0);
   return JSON.parse(result.stdout);
 }
 
-test("samples CPU deltas without double-counting guest ticks, reclaimable RAM, and root filesystem use", () => {
-  const stats = runCounterFixture([
+test("samples CPU deltas without double-counting guest ticks, reclaimable RAM, and root filesystem use", async () => {
+  const stats = await runCounterFixture([
     "cpu 100 0 50 800 50 0 0 0 80 0\n",
     "cpu 120 0 60 850 70 0 0 0 90 0\n",
   ], "MemTotal: 4194304 kB\nMemAvailable: 3145728 kB\nCached: 2000000 kB\n");
@@ -33,12 +34,12 @@ test("samples CPU deltas without double-counting guest ticks, reclaimable RAM, a
   expect(stats.diskUsedMb).toBe(23);
 });
 
-test("counter resets and incomplete memory counters leave those gauges missing", () => {
-  const stats = runCounterFixture(["cpu 100 0 50 800 50 0 0 0\n", "cpu 10 0 5 80 5 0 0 0\n"], "MemTotal: 4096 kB\n");
+test("counter resets and incomplete memory counters leave those gauges missing", async () => {
+  const stats = await runCounterFixture(["cpu 100 0 50 800 50 0 0 0\n", "cpu 10 0 5 80 5 0 0 0\n"], "MemTotal: 4096 kB\n");
   expect(stats).toEqual({ diskUsedMb: 23 });
 });
 
-test("the actual reporter posts the sample through the alias and then waits for its cadence", () => {
+test("the actual reporter posts the sample through the alias and then waits for its cadence", async () => {
   const harness = `import io,json,sys,time,urllib.request
 class Finished(BaseException): pass
 original_sleep=time.sleep
@@ -53,7 +54,7 @@ urllib.request.urlopen=post
 try: exec(sys.stdin.read())
 except Finished: pass
 `;
-  const result = spawnSync("python3", ["-c", harness], { input: guestResourceReporterScript(), encoding: "utf8" });
+  const result = await runChild("python3", ["-c", harness], { input: guestResourceReporterScript() });
   expect(result.status).toBe(0);
   const sent = JSON.parse(result.stdout);
   expect(sent.url).toBe("https://coderouter.cmux.internal/api/vm/resource-usage/self");
@@ -64,15 +65,15 @@ except Finished: pass
   expect(sent.body.diskUsedMb).toBeGreaterThanOrEqual(0);
 }, 15_000);
 
-test("installer is a valid portable shell program", () => {
-  const result = spawnSync("sh", ["-n"], { input: guestResourceReporterInstallCommand(), encoding: "utf8" });
+test("installer is a valid portable shell program", async () => {
+  const result = await runChild("sh", ["-n"], { input: guestResourceReporterInstallCommand() });
   expect(result.status).toBe(0);
 });
 
 // Execute the exact shell string sent to Freestyle: a prefix assertion cannot
 // catch broken heredoc quoting or literal backslash-n separators.
-test("the direct sampling command executes and returns measured gauges", () => {
-  const result = spawnSync("sh", ["-c", guestResourceSampleCommand()], { encoding: "utf8" });
+test("the direct sampling command executes and returns measured gauges", async () => {
+  const result = await runChild("sh", ["-c", guestResourceSampleCommand()]);
   expect(result.status).toBe(0);
   expect(JSON.parse(result.stdout).diskUsedMb).toBeGreaterThanOrEqual(0);
 });

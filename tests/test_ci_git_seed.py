@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+import git_fixture_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "git-seed.sh"
@@ -46,12 +47,12 @@ class GitSeedTests(unittest.TestCase):
         self.module_v1 = commit(self.module, "m.txt", "module v1")
         git("submodule", "add", "-q", f"file://{self.module}", "vendor/module", cwd=self.super)
         self.main = commit(self.super, "app.txt", "main")
-        self.env = dict(
+        self.env = git_fixture_env.without_auto_maintenance(dict(
             os.environ,
             GITHUB_SERVER_URL=f"file://{self.server}",
             GITHUB_REPOSITORY="acme/super",
             GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="protocol.file.allow", GIT_CONFIG_VALUE_0="always",
-        )
+        ))
 
     def seed_from_main(self) -> Path:
         """What the main-branch seeder checks out and stages."""
@@ -212,15 +213,30 @@ class WorkflowWiringTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIn("Restore git object seed", self.steps_before_checkout(text, job))
 
+    def test_e2e_and_ios_macos_jobs_restore_the_seed_before_checkout(self):
+        for workflow, jobs in (
+            ("test-e2e.yml", ("build", "test")),
+            ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
+        ):
+            text = (WORKFLOWS / workflow).read_text()
+            for job in jobs:
+                with self.subTest(workflow=workflow, job=job):
+                    self.assertIn("Restore git object seed", self.steps_before_checkout(text, job))
+
     def test_a_failed_seeded_checkout_retries_without_the_seed(self):
-        text = (WORKFLOWS / "ci-macos.yml").read_text()
-        for job in ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests"):
-            with self.subTest(job=job):
-                body = re.search(rf"^  {job}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", text, re.S | re.M).group(1)
-                discard = body.index("Discard the git object seed after a failed checkout")
-                retry = body.index("- name: Retry checkout", discard)
-                self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
-                self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
+        for workflow, jobs in (
+            ("ci-macos.yml", ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests")),
+            ("test-e2e.yml", ("build", "test")),
+            ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
+        ):
+            text = (WORKFLOWS / workflow).read_text()
+            for job in jobs:
+                with self.subTest(workflow=workflow, job=job):
+                    body = re.search(rf"^  {job}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text, re.S | re.M).group(1)
+                    discard = body.index("Discard the git object seed after a failed checkout")
+                    retry = body.index("- name: Retry checkout", discard)
+                    self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
+                    self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
 
     def test_only_main_saves_the_seed(self):
         text = (WORKFLOWS / "seed-derived-data.yml").read_text()

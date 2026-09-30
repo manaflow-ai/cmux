@@ -13,6 +13,9 @@ public import Foundation
 public enum DeeplinkWorkspaceNavigationOrigin: Equatable, Sendable {
     case external
     case notificationFeed
+    /// Opened from a Feed row: push inside the Feed tab so Back returns to
+    /// the Feed, as a Notifications row returns to Notifications.
+    case agentFeed
 }
 
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
@@ -144,6 +147,9 @@ extension CMUXMobileShellStore {
         // Surface ids are unique by construction (cmux-demo- prefixed), so
         // the sibling-build ambiguity this scoping defends against cannot
         // involve a demo surface.
+        if MobileSSHIdentifier(terminalID).isSSH {
+            return sshWorkspaceID(forTerminalID: terminalID)
+        }
         if MobileDemoContentCatalog.ownsIdentifier(terminalID) {
             // Self-heal first: a teardown can remove the seeded rows under a
             // still-presented detail, and this resolver must keep answering

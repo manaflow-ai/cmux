@@ -18,7 +18,12 @@ struct JSONConfigAtomicPublisher: Sendable {
         self.exchangeOverride = exchangeOverride
     }
 
-    func publish(_ data: Data, to target: URL, expected: Data?) throws {
+    func publish(
+        _ data: Data,
+        to target: URL,
+        expected: Data?,
+        isTargetCurrent: (@Sendable () -> Bool)? = nil
+    ) throws {
         let fileManager = FileManager.default
         let parent = target.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -59,11 +64,18 @@ struct JSONConfigAtomicPublisher: Sendable {
             try? fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: staging.path)
         }
 
-        guard fileManager.fileExists(atPath: target.path) else {
+        guard fileManager.fileExists(atPath: target.path), isTargetCurrent?() ?? true else {
             throw JSONConfigWriteConflict.sourceChanged
         }
         try exchange(staging, target)
         stagingContainsRecovery = true
+
+        guard isTargetCurrent?() ?? true else {
+            if try rollbackIfStillOwned(candidate: data, recovery: expected, staging: staging, target: target) {
+                stagingContainsRecovery = false
+            }
+            throw JSONConfigWriteConflict.sourceChanged
+        }
 
         let recovered: Data
         do {

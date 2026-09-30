@@ -91,21 +91,50 @@ is_shallow_boundary() {
 # Candidates: commits in the history that touch the client inputs, newest first. A
 # shallow boundary commit is skipped: with its parents missing, git shows it as adding
 # every file, so it would match whether or not it touched cmux-tui.
+#
+# The window counts commits, not input versions. Merge commits of one input version
+# interleave with newer ones, so HEAD's version alone can span dozens of commits (on
+# main, 14 members of one version sat within the first 23 candidates), and its only
+# published member can sit past a small window. The window is sized in versions'
+# worth of commits, and the deepen loop below stops on distinct versions, not commits.
+CANDIDATE_LIMIT=$((want * 50 + 100))
 CANDIDATES=()
+WINDOW_FULL=0
 collect_candidates() {
   CANDIDATES=()
-  local sha
+  WINDOW_FULL=0
+  local sha seen=0
   while IFS= read -r sha; do
     [[ -n "$sha" ]] || continue
+    seen=$((seen + 1))
     if is_shallow_boundary "$sha"; then continue; fi
     CANDIDATES[${#CANDIDATES[@]}]="$sha"
-  done < <(git log --full-history -n $((want * 4 + 16)) --format=%H "$head_sha" -- "${PATHS[@]}")
+  done < <(git log --full-history -n "$CANDIDATE_LIMIT" --format=%H "$head_sha" -- "${PATHS[@]}")
+  if [[ $seen -ge $CANDIDATE_LIMIT ]]; then WINDOW_FULL=1; fi
 }
 
 # The client inputs' content at a commit: a key equal for every commit a client built
 # from one of them is valid for.
 inputs_key() {
-  git ls-tree "$1" -- "${PATHS[@]}" | git hash-object --stdin
+  git ls-tree "$1" -- "${PATHS[@]}"
+}
+
+# Succeeds once the candidates span more than `want` input versions: the first `want`
+# versions have then reached an older one. Stops computing keys as soon as it knows.
+spans_enough_versions() {
+  local keys=() key k i known
+  for ((i = 0; i < ${#CANDIDATES[@]}; i++)); do
+    key="$(inputs_key "${CANDIDATES[$i]}")"
+    known=0
+    for k in ${keys[@]+"${keys[@]}"}; do
+      if [[ "$k" == "$key" ]]; then known=1; break; fi
+    done
+    if [[ $known -eq 0 ]]; then
+      keys[${#keys[@]}]="$key"
+      if [[ ${#keys[@]} -gt $want ]]; then return 0; fi
+    fi
+  done
+  return 1
 }
 
 # The deepen fetch is the resolver's one network call to GitHub, made after a
@@ -133,14 +162,16 @@ deepen=200
 rounds=0
 while :; do
   collect_candidates
-  if [[ ${#CANDIDATES[@]} -ge $want ]]; then break; fi
   # No shallow file means the history is complete: what we have is all there is.
   if [[ ! -f "$shallow_file" ]]; then break; fi
+  # A full window gains nothing from older history.
+  if [[ $WINDOW_FULL -eq 1 ]]; then break; fi
+  if spans_enough_versions; then break; fi
   if [[ $rounds -ge 6 ]]; then
     log "gave up deepening after $rounds rounds with ${#CANDIDATES[@]} usable candidate(s)"
     break
   fi
-  log "shallow clone shows ${#CANDIDATES[@]} usable cmux-tui commit(s); deepening by $deepen from $REMOTE"
+  log "shallow clone shows ${#CANDIDATES[@]} usable cmux-tui commit(s) short of $want complete input version(s); deepening by $deepen from $REMOTE"
   if ! fetch_deepen; then
     log "could not deepen the clone from $REMOTE after $FETCH_ATTEMPTS attempt(s)"
     break

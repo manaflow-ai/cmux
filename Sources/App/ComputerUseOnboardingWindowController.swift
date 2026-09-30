@@ -98,6 +98,36 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Who asked for the window. Only a deliberate user action may take focus
+    /// away from whatever app the user is working in.
+    enum PresentationOrigin: Sendable, Equatable {
+        case userAction
+        case toolInvocation
+    }
+
+    enum ActivationPlan: Sendable, Equatable {
+        /// Activate cmux and make the window key.
+        case activateAndFocus
+        /// cmux is already active: show the window without taking key focus
+        /// from the terminal the user is typing in.
+        case orderFrontWithoutFocus
+        /// Another app is active: keep the window behind it, bounce the Dock
+        /// icon, and bring the window forward once the user switches to cmux.
+        case waitForAppActivation
+    }
+
+    nonisolated static func activationPlan(
+        origin: PresentationOrigin,
+        isAppActive: Bool
+    ) -> ActivationPlan {
+        switch origin {
+        case .userAction:
+            return .activateAndFocus
+        case .toolInvocation:
+            return isAppActive ? .orderFrontWithoutFocus : .waitForAppActivation
+        }
+    }
+
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     static let directCaptureReadyDefaultsKey = ComputerUseOnboardingStore.legacyCompletionKey
     nonisolated static let completionDismissDelay: Duration = .seconds(2.4)
@@ -122,6 +152,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var pendingPermissionStep: ComputerUseOnboardingStep?
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var completionDismissTask: Task<Void, Never>?
+    private var appActivationObserver: NSObjectProtocol?
 
     init(
         runtimeService: ComputerUseRuntimeService,
@@ -156,8 +187,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         (window?.isVisible ?? false) || (permissionCompanionWindow?.isVisible ?? false)
     }
 
-    func present(startingAt startingPoint: StartingPoint = .overview) {
-        runtimeService.onboardingWasPresented()
+    func present(
+        startingAt startingPoint: StartingPoint = .overview,
+        origin: PresentationOrigin = .userAction
+    ) {
+        stopWaitingForAppActivation()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
@@ -169,9 +203,40 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         window.level = .normal
         window.collectionBehavior = [.managed]
         window.hidesOnDeactivate = false
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
+        show(window, plan: Self.activationPlan(origin: origin, isAppActive: NSApp.isActive))
+    }
+
+    private func show(_ window: NSWindow, plan: ActivationPlan) {
+        switch plan {
+        case .activateAndFocus:
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+        case .orderFrontWithoutFocus:
+            window.orderFront(nil)
+        case .waitForAppActivation:
+            window.orderBack(nil)
+            NSApp.requestUserAttention(.informationalRequest)
+            appActivationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.stopWaitingForAppActivation()
+                    guard let window = self.window, window.isVisible else { return }
+                    window.orderFront(nil)
+                }
+            }
+        }
+    }
+
+    private func stopWaitingForAppActivation() {
+        if let appActivationObserver {
+            NotificationCenter.default.removeObserver(appActivationObserver)
+        }
+        appActivationObserver = nil
     }
 
     func makeWindow(startingAt startingPoint: StartingPoint = .overview) -> ComputerUseOnboardingWindow {
@@ -225,6 +290,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
+        stopWaitingForAppActivation()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
@@ -237,6 +303,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard let closingWindow = notification.object as? NSWindow,
               closingWindow === window
         else { return }
+        stopWaitingForAppActivation()
         stopSystemSettingsObservation()
         dismissPermissionCompanion()
         closingWindow.delegate = nil

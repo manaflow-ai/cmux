@@ -1,7 +1,7 @@
+import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -180,38 +180,12 @@ extension SurfaceCatalog {
         return projected
     }
 
-    private func resolveRemoteView(
-        for member: SurfaceResourcePlacement,
-        fallbackWorkspaceID: String?
-    ) throws -> SurfaceRemoteView? {
-        // Unknown resources are skipped by the group projector. Once a resource exists,
-        // delegate placement validation to the catalog's single resolver so explicit IDs
-        // cannot silently fall back when remote view metadata is absent.
-        guard resources[member.resource] != nil else {
-            return nil
-        }
-        if let tabID = member.remoteTabID {
-            return try remoteView(
-                for: member.resource,
-                tabID: tabID,
-                workspaceID: member.remoteWorkspaceID ?? fallbackWorkspaceID
-            )
-        }
-        let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
-        guard let workspaceID else { return nil }
-        if projections.contains(where: {
-            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
-        }) {
-            return nil
-        }
-        return try remoteView(for: member.resource, workspaceID: workspaceID)
-    }
-
     /// How a group becomes a new local workspace: the machinery a caller injects so the
     /// layout can be checked without AppKit.
     struct NewWorkspaceHost {
-        /// Creates the workspace (⌘N) and reports its starter pane, if any.
-        var create: @MainActor (_ title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?)
+        /// Creates the workspace (⌘N) and reports its starter pane, if any. `focus: false`
+        /// leaves the current selection alone.
+        var create: @MainActor (_ title: String, _ focus: Bool) throws -> (workspaceID: UUID, starterPanelID: UUID?)
         /// Bonsplit pane id of a projected panel (the next split anchors on it).
         var paneLookup: PaneLookup
         /// Removes the starter pane once the group's first resource is in place.
@@ -228,7 +202,7 @@ extension SurfaceCatalog {
 
         @MainActor
         static let app = NewWorkspaceHost(
-            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title, titleSource: .auto) },
+            create: { title, focus in try SurfacePaneFactory.createLocalWorkspace(title: title, titleSource: .auto, focus: focus) },
             paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
             closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
             applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }
@@ -315,7 +289,7 @@ extension SurfaceCatalog {
         let layout = current.map { $0.layout } ?? layout
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
-        let created = try host.create(title)
+        let created = try host.create(title, focus)
         if let layout {
             var walk = LayoutProjectionWalk(
                 catalog: self,
@@ -420,7 +394,7 @@ extension SurfaceCatalog {
     private func reservableTerminals(_ group: SurfaceResourceGroup) -> [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)]? {
         var members: [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)] = []
         for placement in group.placements {
-            guard placement.resource.machine.cloudMachineID != nil,
+            guard placement.resource.machine.tuiMachineID != nil,
                   let resource = resources[placement.resource],
                   resource.kind == .terminal,
                   let remoteView = try? resolveRemoteView(for: placement, fallbackWorkspaceID: group.remoteWorkspaceID) else {
