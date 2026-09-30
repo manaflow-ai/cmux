@@ -4,29 +4,20 @@ import Foundation
 
 /// Child-run (subagent) bookkeeping from the parent session's hook events.
 ///
-/// Two shapes exist on the wire. Claude spawns children through its spawn
-/// tool, named `Task` before 2.x and `Agent` after (both are still on the
-/// wire; see `isTaskSpawn`), so a child's life is bracketed by that tool's
-/// `PreToolUse`/`PostToolUse` pair (the payload carries `description` and
-/// `subagent_type`). Codex, pi and OMP emit dedicated
-/// `SubagentStart`/`SubagentStop` events instead. Neither child ever runs
-/// hooks of its own, so this bookkeeping is
-/// the ONLY view cmux has of nested agents; the state machine in
-/// `nextState(previous:event:)` deliberately keeps ignoring these events (a
-/// child's lifecycle says nothing about whether the PARENT is working).
+/// Claude opens children through its spawn tool's `PreToolUse`, named `Task`
+/// before 2.x and `Agent` after (both are still on the wire; see
+/// `isTaskSpawn`), and closes them on `SubagentStop`. Its spawn tool's
+/// `PostToolUse` is ignored for Claude because a background spawn returns at
+/// detach while the child keeps running. Codex, pi and OMP use their
+/// dedicated `SubagentStart`/`SubagentStop` pair, with the FIFO fallback when
+/// a request id is absent. Neither child ever runs hooks of its own, so this
+/// bookkeeping is the ONLY view cmux has of nested agents; the state machine
+/// in `nextState(previous:event:)` deliberately keeps ignoring these events
+/// (a child's lifecycle says nothing about whether the PARENT is working).
 ///
-/// Honest limits: a background spawn returns from `PostToolUse` immediately
-/// while the child keeps running, so background children read as settled the
-/// moment they detach; without per-child ids from the CLI, a `stop`/`Stop`
-/// closes every open child (a stopped parent has no running foreground
-/// children). Claude straddles both shapes rather than only the first: it
-/// emits `SubagentStop` too (`CMUXCLI+ClaudeHookSettings` installs the hook,
-/// `FeedEventClassifier` maps it), and `requestId` decodes only
-/// `_opencode_request_id`, so for Claude both that event and the spawn
-/// tool's `PostToolUse` fall through to the FIFO branch of `closeChild` and
-/// one child closes two rows. With parallel spawns that settles a sibling
-/// early; fixing it needs a correlation id or a per-source rule, not a
-/// comment.
+/// Honest limits: without per-child ids from the CLI, a dedicated stop event
+/// can close the oldest open child, while a parent `stop`/`Stop` closes every
+/// open child (a stopped parent has no running foreground children).
 extension AgentChatSessionRegistry {
     nonisolated static func applyChildRunEvent(
         _ record: inout AgentChatSessionRecord,
@@ -40,7 +31,9 @@ extension AgentChatSessionRegistry {
                 label: taskLabel(from: event.toolInputJSON),
                 at: event.receivedAt
             )
-        case .postToolUse where isTaskSpawn(event):
+        // Claude's PostToolUse arrives when a background spawn detaches. The
+        // child remains running until Claude emits SubagentStop.
+        case .postToolUse where isTaskSpawn(event) && event.source != "claude":
             closeChild(&record, id: event.requestId, at: event.receivedAt)
         case .subagentStart:
             openChild(
