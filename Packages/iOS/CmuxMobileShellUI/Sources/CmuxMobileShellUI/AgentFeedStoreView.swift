@@ -25,13 +25,19 @@ struct AgentFeedStoreView: View {
             pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
             failedTerminalReplies: store.agentFeedFailedTerminalReplies,
             refreshesOnAppear: isActive,
+            isActive: isActive,
             actions: actions,
             searchText: searchCoordinator.searchDestinationText(for: .feed)
         )
-        .onAppear {
-            store.recordAppEvent(.agentFeedOpened, count: items.count)
+        .onChange(of: isActive, initial: true) { wasActive, active in
+            if active {
+                store.recordAppEvent(.agentFeedOpened, count: items.count)
+            } else if wasActive {
+                store.recordAppEvent(.agentFeedClosed)
+            }
         }
         .onDisappear {
+            guard isActive else { return }
             store.recordAppEvent(.agentFeedClosed)
         }
         .alert(String(localized: "mobile.agentFeed.openFailed.title", defaultValue: "Couldn’t open event", bundle: .module),
