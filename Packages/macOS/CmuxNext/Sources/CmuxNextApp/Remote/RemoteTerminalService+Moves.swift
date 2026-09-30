@@ -44,6 +44,10 @@ extension RemoteTerminalService {
                         return ActionWorkFailure(RemoteStrings.machineHasNoTerminal)
                     }
                     _ = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    // `terminal.project` (resource API) sends no raw tree
+                    // delta to this subscription (seen on an SSH session):
+                    // refetch so the tab shows.
+                    await destination.reconcile()
                     _ = try? await destinationConnection.setTerminalKeep(.terminal(ref.terminalID), keep: false)
                     try await sourceConnection.closeTab(surface)
                     self?.forget(tabID: tab.id)
