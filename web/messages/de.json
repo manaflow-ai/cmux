@@ -889,7 +889,7 @@
         },
         "maxUsesLabel": "Max. Nutzungen",
         "maxUsesPlaceholder": "Unbegrenzt",
-        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis 10000 sein oder leer für unbegrenzt.",
+        "maxUsesInvalid": "Max. Nutzungen muss eine ganze Zahl von 1 bis {max} sein oder leer für unbegrenzt.",
         "create": "Link erstellen",
         "creating": "Wird erstellt…",
         "memberOnly": "Wer über einen Link beitritt, wird Mitglied. Befördere Personen bei Bedarf danach zum Admin.",

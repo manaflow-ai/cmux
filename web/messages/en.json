@@ -1162,7 +1162,7 @@
         },
         "maxUsesLabel": "Max uses",
         "maxUsesPlaceholder": "Unlimited",
-        "maxUsesInvalid": "Max uses must be a whole number from 1 to 10000, or empty for unlimited.",
+        "maxUsesInvalid": "Max uses must be a whole number from 1 to {max}, or empty for unlimited.",
         "create": "Create link",
         "creating": "Creating…",
         "memberOnly": "People who join by link become members. Promote them to admin afterwards if needed.",

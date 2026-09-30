@@ -4,7 +4,7 @@ import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
 import { withStackDeadline, type StackSentInvitation } from "./stack";
 import type { TeamInvitation, TeamRole } from "./types";
 
-export const MAX_INVITE_EMAILS = 20;
+export { MAX_INVITE_EMAILS } from "./limits";
 
 export type InvitationDependencies = { readonly store?: TeamInviteStore };
 
@@ -75,6 +75,7 @@ export async function inviteTeamMembers(
       failed.push({ email, code: "already_member" });
       continue;
     }
+    const previousRole = (await store.inviteRoles(access.team.id, [email])).get(email);
     try {
       await store.upsertInviteRole({ stackTeamId: access.team.id, email, role: input.role, invitedByUserId: access.userId });
       await withStackDeadline(() => access.team.inviteUser({ email, callbackUrl: input.callbackUrl }));
@@ -82,6 +83,7 @@ export async function inviteTeamMembers(
     } catch {
       console.error("team invitation send failed", { teamId: access.team.id });
       failed.push({ email, code: "invite_failed" });
+      await restoreInviteRole(store, access, email, previousRole);
       continue;
     }
     await revokeSuperseded(previous.filter((invitation) => invitationEmail(invitation) === email));
@@ -91,6 +93,27 @@ export async function inviteTeamMembers(
   const sentSet = new Set(sent);
   const mine = latestPerEmail(all.filter((invitation) => sentSet.has(invitationEmail(invitation) ?? "")));
   return { invitations: await mapInvitations(access.team.id, mine, store), failed };
+}
+
+/**
+ * A failed send leaves any previous invitation valid, so it must keep the role
+ * that invitation was sent with, and a first invite that failed stores none.
+ */
+async function restoreInviteRole(
+  store: TeamInviteStore,
+  access: TeamAccess,
+  email: string,
+  previousRole: TeamRole | undefined,
+): Promise<void> {
+  try {
+    if (previousRole) {
+      await store.upsertInviteRole({ stackTeamId: access.team.id, email, role: previousRole, invitedByUserId: access.userId });
+    } else {
+      await store.deleteInviteRole(access.team.id, email);
+    }
+  } catch {
+    console.error("team invitation role restore failed", { teamId: access.team.id });
+  }
 }
 
 /**
@@ -123,7 +146,10 @@ async function findInvitation(access: TeamAccess, invitationId: string): Promise
   return invitation;
 }
 
-/** Stack cannot resend, so revoke and invite the same email again. The stored role is kept. */
+/**
+ * Stack cannot resend, so invite the same email again, then revoke the old
+ * code. The stored role is kept, and a failed send leaves the old code valid.
+ */
 export async function resendTeamInvitation(
   access: TeamAccess,
   invitationId: string,
@@ -134,8 +160,8 @@ export async function resendTeamInvitation(
   const invitation = await findInvitation(access, invitationId);
   const email = invitationEmail(invitation);
   if (!email) throw new TeamApiError("invitation_invalid", 409, "This invitation has no email address to resend to.");
-  await withStackDeadline(() => invitation.revoke());
   await withStackDeadline(() => access.team.inviteUser({ email, callbackUrl }));
+  await revokeSuperseded([invitation]);
   const replacement = latestPerEmail(
     (await listStackInvitations(access)).filter((candidate) => invitationEmail(candidate) === email),
   )[0];

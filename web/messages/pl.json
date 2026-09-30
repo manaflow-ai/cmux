@@ -889,7 +889,7 @@
         },
         "maxUsesLabel": "Maks. liczba użyć",
         "maxUsesPlaceholder": "Bez limitu",
-        "maxUsesInvalid": "Maks. liczba użyć musi być liczbą całkowitą od 1 do 10000 lub pusta (bez limitu).",
+        "maxUsesInvalid": "Maks. liczba użyć musi być liczbą całkowitą od 1 do {max} lub pusta (bez limitu).",
         "create": "Utwórz link",
         "creating": "Tworzenie…",
         "memberOnly": "Osoby dołączające przez link zostają członkami. W razie potrzeby awansuj je później na administratorów.",

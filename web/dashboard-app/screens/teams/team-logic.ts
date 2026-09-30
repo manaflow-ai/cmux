@@ -1,10 +1,12 @@
+import { MAX_INVITE_EMAILS, MAX_INVITE_LINK_USES } from "@/services/teams/limits";
+
 /**
  * Pure rules shared by the team pages. Kept free of React and fetch so the
  * behavior is testable without rendering.
  */
 
 export const TEAM_NAME_MAX_LENGTH = 120;
-export const MAX_INVITE_EMAILS = 20;
+export { MAX_INVITE_EMAILS, MAX_INVITE_LINK_USES };
 
 export type TeamNameValidation =
   | { readonly ok: true; readonly value: string }
@@ -117,7 +119,7 @@ export function parseMaxUses(raw: string): { ok: true; value: number | null } | 
   if (value === "") return { ok: true, value: null };
   if (!/^\d+$/.test(value)) return { ok: false };
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 10_000) return { ok: false };
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_INVITE_LINK_USES) return { ok: false };
   return { ok: true, value: parsed };
 }
 

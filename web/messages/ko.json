@@ -889,7 +889,7 @@
         },
         "maxUsesLabel": "최대 사용 횟수",
         "maxUsesPlaceholder": "무제한",
-        "maxUsesInvalid": "최대 사용 횟수는 1에서 10000 사이의 정수여야 합니다. 무제한으로 하려면 비워 두세요.",
+        "maxUsesInvalid": "최대 사용 횟수는 1에서 {max} 사이의 정수여야 합니다. 무제한으로 하려면 비워 두세요.",
         "create": "링크 만들기",
         "creating": "만드는 중…",
         "memberOnly": "링크로 참여한 사람은 멤버가 됩니다. 필요하면 나중에 관리자로 지정하세요.",

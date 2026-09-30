@@ -889,7 +889,7 @@
         },
         "maxUsesLabel": "最大使用次数",
         "maxUsesPlaceholder": "不限",
-        "maxUsesInvalid": "最大使用次数必须是 1 到 10000 之间的整数，留空表示不限。",
+        "maxUsesInvalid": "最大使用次数必须是 1 到 {max} 之间的整数，留空表示不限。",
         "create": "创建链接",
         "creating": "正在创建…",
         "memberOnly": "通过链接加入的人将成为成员。如有需要，之后可将其提升为管理员。",

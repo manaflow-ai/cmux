@@ -889,7 +889,7 @@
         },
         "maxUsesLabel": "Utilisations max.",
         "maxUsesPlaceholder": "Illimité",
-        "maxUsesInvalid": "Le nombre d’utilisations max. doit être un nombre entier de 1 à 10000, ou vide pour illimité.",
+        "maxUsesInvalid": "Le nombre d’utilisations max. doit être un nombre entier de 1 à {max}, ou vide pour illimité.",
         "create": "Créer un lien",
         "creating": "Création…",
         "memberOnly": "Les personnes qui rejoignent l’équipe via un lien deviennent membres. Promouvez-les ensuite en admin si nécessaire.",

@@ -20,6 +20,7 @@ import {
   INVITE_LINK_EXPIRY_OPTIONS,
   type InviteLinkExpiryOption,
   MAX_INVITE_EMAILS,
+  MAX_INVITE_LINK_USES,
   parseMaxUses,
   removeEmailChip,
   sendableEmails,
@@ -246,7 +247,7 @@ export function InviteLinkCreator({ teamId }: { readonly teamId: string }) {
         </button>
       </form>
       <p className="text-xs text-muted">{t("memberOnly")}</p>
-      {maxUsesInvalid ? <InlineError message={t("maxUsesInvalid")} /> : null}
+      {maxUsesInvalid ? <InlineError message={t("maxUsesInvalid", { max: MAX_INVITE_LINK_USES })} /> : null}
       {create.isError ? <InlineError message={errorText(create.error)} /> : null}
       {createdUrl ? (
         <div className="grid gap-1 border border-foreground p-2">
