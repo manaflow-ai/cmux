@@ -667,6 +667,10 @@ function ensureTranscriptSession(source: TranscriptSource): Session {
   return sess;
 }
 
+export function ensureTranscriptSessionForTest(source: TranscriptSource): Session {
+  return ensureTranscriptSession(source);
+}
+
 function startTranscriptTail(sess: Session, source: TranscriptSource) {
   attachTranscript(sess, source.agent, source.path, (title) => {
     if (sess.title === title) return;
