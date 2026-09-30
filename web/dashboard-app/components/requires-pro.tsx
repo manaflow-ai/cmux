@@ -14,8 +14,8 @@ export type ProFeature = "cloud" | "testflight" | "mobileDevices";
 /**
  * On a page that needs a paid plan: for a Free viewer, what the page needs
  * and Upgrade, which returns here after checkout; after that checkout, the
- * welcome line. Nothing while the plan is loading or failed, so the page
- * itself never waits on it.
+ * welcome line once the plan confirms it. Nothing while the plan is loading
+ * or failed, so the page itself never waits on it.
  */
 export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const t = useTranslations("dashboard.upgrade");
@@ -23,8 +23,10 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const location = useLocation();
   const plan = useQuery(planQuery);
   const welcome = welcomePlan((location.search as Record<string, unknown>).welcome);
-  if (welcome) return <PlanWelcomeBanner plan={welcome} />;
-  if (!plan.data || plan.data.isPro) return null;
+  if (!plan.data) return null;
+  // The welcome shows only once the plan confirms the upgrade; a stale
+  // ?welcome link must not hide the prompt from a Free viewer.
+  if (plan.data.isPro) return welcome ? <PlanWelcomeBanner plan={welcome} /> : null;
   return (
     <section data-testid="requires-pro" className="mb-3 flex flex-wrap items-start justify-between gap-3 border border-border p-3">
       <div className="min-w-0 flex-1">
