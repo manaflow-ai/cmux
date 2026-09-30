@@ -81,7 +81,23 @@ try {
   const prompts = readFileSync(join(directory, "prompts.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.deepEqual(prompts.map((prompt) => prompt.prompt[0].text), ["successful retry", "reused agent"]);
   assert.ok(prompts.every((prompt) => prompt.sessionId === `fixture-${children[4]!.pid}`));
-  console.log("ACP startup rejection/timeout cleanup, idle recovery, single-flight and successful retry: OK");
+
+  writeFileSync(join(directory, "mode"), "dispose-session");
+  const disposed: SessionCtx = { ...sess, id: "disposed-fixture", events: [], internal: {},
+    emit(event) { this.events.push(event); } };
+  const starting = adapter.refreshOptions(disposed);
+  const readyDeadline = Date.now() + 2_000;
+  while (!existsSync(join(directory, "session-ready")) && Date.now() < readyDeadline) await Bun.sleep(10);
+  assert.ok(existsSync(join(directory, "session-ready")), "fixture must reach session creation before disposal");
+  adapter.dispose(disposed); // SIGTERM was already sent, but the fixture ignores it.
+  writeFileSync(join(directory, "session-release"), "");
+  await bounded(starting);
+  assert.equal(processes().length, 6);
+  assert.equal(alive(processes()[5]!.pid), false, "disposal during startup must still reap the unpublished agent");
+  assert.equal(disposed.internal.acp, undefined);
+  assert.deepEqual(disposed.events, [], "disposed startup must not publish a session or options");
+  assert.equal(alive(children[4]!.pid), true, "cleaning another startup must not kill a healthy agent");
+  console.log("ACP startup rejection/timeout/disposal cleanup, idle recovery, single-flight and successful retry: OK");
 } finally {
   adapter.dispose(sess);
   const children = processes();

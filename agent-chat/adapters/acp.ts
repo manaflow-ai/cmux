@@ -256,7 +256,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
   let startupTimedOut = false;
   const startupTimer = setTimeout(() => {
     startupTimedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, 30_000);
   try {
     await request("initialize", {
@@ -265,7 +265,8 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
     });
     const created = await request("session/new", { cwd: sess.cwd, mcpServers: [] });
     if (sess.internal.acpDisposed) {
-      proc.kill();
+      if (proc.exitCode === null) proc.kill("SIGKILL");
+      await proc.exited;
       return;
     }
     st.acpSessionId = created.sessionId;
@@ -275,7 +276,11 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | 
     emitAcpState(sess, st);
     return st;
   } catch (err) {
-    proc.kill();
+    // Reap this unpublished agent before clearing acpStarting so a retry
+    // cannot accumulate children that rejected startup or ignored SIGTERM.
+    clearTimeout(startupTimer);
+    if (proc.exitCode === null) proc.kill("SIGKILL");
+    await proc.exited;
     throw startupTimedOut ? new Error(`${def.id} did not finish ACP startup within 30s`) : err;
   } finally {
     clearTimeout(startupTimer);

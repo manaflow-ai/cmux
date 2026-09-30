@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLines } from "../adapters/lines";
 
@@ -12,6 +12,16 @@ const keepAlive = setInterval(() => {}, 1_000);
 await readLines(Bun.stdin.stream(), (line) => {
   const request = JSON.parse(line);
   if (request.id === undefined) return;
+  if (request.method === "session/new" && mode === "dispose-session") {
+    writeFileSync(join(directory, "session-ready"), "");
+    const release = setInterval(() => {
+      if (!existsSync(join(directory, "session-release"))) return;
+      clearInterval(release);
+      console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id,
+        result: { sessionId: `fixture-${process.pid}` } }));
+    }, 10);
+    return;
+  }
   const stage = request.method === "initialize" ? "initialize" : request.method === "session/new" ? "session" : "";
   if (stage && mode === `hang-${stage}`) return;
   if (stage && mode === `reject-${stage}`) {
