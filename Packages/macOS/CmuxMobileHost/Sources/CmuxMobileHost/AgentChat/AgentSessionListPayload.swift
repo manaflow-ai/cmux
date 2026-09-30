@@ -72,7 +72,7 @@ public struct AgentSessionListPayload {
             json["state_age_seconds"] = record.state.attentionStateAgeSeconds(now: now)
         }
         if let title = record.title, !title.isEmpty { json["title"] = title }
-        json["last_output"] = record.lastOutput.flatMap(AgentSessionOutputPreview.cleaned) ?? NSNull()
+        json["last_output"] = record.lastOutput.flatMap(AgentSessionOutputPreview().cleaned) ?? NSNull()
         if let cwd = record.workingDirectory, !cwd.isEmpty { json["cwd"] = cwd }
         if let workspaceID = record.workspaceID, !workspaceID.isEmpty {
             json["workspace_id"] = workspaceID

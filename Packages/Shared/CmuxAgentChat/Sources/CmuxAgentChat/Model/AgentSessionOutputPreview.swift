@@ -2,8 +2,10 @@ import Foundation
 
 /// Normalizes a short agent output preview for session listings.
 public struct AgentSessionOutputPreview: Sendable, Equatable {
+    public init() {}
+
     /// Removes terminal control sequences and common Claude Code/Codex chrome.
-    public static func cleaned(_ text: String) -> String? {
+    public func cleaned(_ text: String) -> String? {
         let withoutANSI = text.replacingOccurrences(
             of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
             with: "",
@@ -34,7 +36,7 @@ public struct AgentSessionOutputPreview: Sendable, Equatable {
     }
 
     /// Returns the newest non-empty cleaned lines, capped for socket payloads.
-    public static func tail(_ text: String?, lines: Int) -> String? {
+    public func tail(_ text: String?, lines: Int) -> String? {
         guard let text, lines > 0, let cleaned = cleaned(text) else { return nil }
         return cleaned.components(separatedBy: .newlines).suffix(lines).joined(separator: "\n")
     }

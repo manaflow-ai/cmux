@@ -366,7 +366,7 @@ final class AgentChatSessionRegistry {
     /// Stores the latest assistant prose for the live session projection.
     func noteAgentOutput(sessionID: String, text: String, at timestamp: Date) {
         guard let previous = records[sessionID],
-              let output = AgentSessionOutputPreview.cleaned(text),
+              let output = AgentSessionOutputPreview().cleaned(text),
               !output.isEmpty else { return }
         var record = previous
         let isNewer = record.lastOutput == nil || timestamp >= (record.lastAgentOutputAt ?? .distantPast)

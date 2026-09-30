@@ -3,6 +3,8 @@ import Testing
 
 @Suite("Agent session output previews")
 struct AgentSessionOutputPreviewTests {
+    private let preview = AgentSessionOutputPreview()
+
     @Test("Claude Code chrome is removed while prose remains")
     func claudeCodeChrome() {
         let text = """
@@ -12,7 +14,7 @@ struct AgentSessionOutputPreviewTests {
         esc to interrupt
         ❯
         """
-        #expect(AgentSessionOutputPreview.cleaned(text) == "Here is the fix.")
+        #expect(preview.cleaned(text) == "Here is the fix.")
     }
 
     @Test("Codex chrome is removed while multiple output lines remain")
@@ -25,6 +27,6 @@ struct AgentSessionOutputPreviewTests {
         ? for shortcuts
         ›
         """
-        #expect(AgentSessionOutputPreview.tail(text, lines: 2) == "Changed the session projection.\nTests pass.")
+        #expect(preview.tail(text, lines: 2) == "Changed the session projection.\nTests pass.")
     }
 }
