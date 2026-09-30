@@ -586165,7 +586165,243 @@
           }
         }
       }
+    },
+    "cli.vm.env.requireUnknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: unknown flag '%1$@'\n\n%2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: unbekanntes Flag '%1$@'\n\n%2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require : option inconnue '%1$@'\n\n%2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: علامة غير معروفة '%1$@'\n\n%2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: bandera desconocida '%1$@'\n\n%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 未知旗標 '%1$@'\n\n%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 未知标志 '%1$@'\n\n%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 알 수 없는 플래그 '%1$@'\n\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 不明なフラグ '%1$@'\n\n%2$@"
+          }
+        }
+      }
+    },
+    "cli.vm.env.requireInvalidVariableName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: invalid variable name '%1$@' (keys match [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: ungültiger Variablenname '%1$@' (Schlüssel müssen mit [A-Za-z_][A-Za-z0-9_]* übereinstimmen)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require : nom de variable non valide '%1$@' (les clés doivent correspondre à [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: اسم متغير غير صالح '%1$@' (تطابق المفاتيح [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: nombre de variable no válido '%1$@' (las claves coinciden con [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 無效的變數名稱 '%1$@' (鍵值需符合 [A-Za-z_][A-Za-z0-9_]*)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 变量名 '%1$@' 无效（键必须匹配 [A-Za-z_][A-Za-z0-9_]*）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 잘못된 변수 이름 '%1$@' (키는 [A-Za-z_][A-Za-z0-9_]* 패턴과 일치해야 합니다)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: 無効な変数名 '%1$@' (キーは [A-Za-z_][A-Za-z0-9_]* に一致する必要があります)"
+          }
+        }
+      }
+    },
+    "cli.vm.env.requireMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: missing required variables on %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: erforderliche Variablen fehlen auf %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require : variables requises manquantes sur %1$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: المتغيرات المطلوبة مفقودة على %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: faltan variables requeridas en %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: %1$@ 缺少必要變數"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: %1$@ 缺少必需变量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: %1$@에 필요한 변수가 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm env require: %1$@ に必要な変数がありません"
+          }
+        }
+      }
+    },
+    "cli.vm.env.requireUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — Check required names without revealing their values."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — Erforderliche Namen prüfen, ohne ihre Werte anzuzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — Vérifier les noms requis sans afficher leurs valeurs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — تحقّق من الأسماء المطلوبة دون عرض قيمها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — Comprueba los nombres requeridos sin mostrar sus valores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — 檢查必要名稱，不顯示其值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — 检查必需名称，不显示其值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — 값을 표시하지 않고 필요한 이름을 확인합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  cmux vm env require <machine> KEY [KEY2 …] [--json] — 値を表示せず必要な名前を確認します。"
+          }
+        }
+      }
     }
   },
- "version": "1.0"
+  "version": "1.0"
 }
