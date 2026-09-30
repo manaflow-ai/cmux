@@ -8663,6 +8663,22 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            let metadata = copyAction.resolvedConfigMetadata
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: Self.commandPaletteCopyActionCommandID(copyAction),
+                    title: constant(metadata.title),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: metadata.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserRight",
@@ -9574,6 +9590,22 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
+            }
+        }
+        for copyAction in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            registry.register(commandId: Self.commandPaletteCopyActionCommandID(copyAction)) {
+                if let terminalCopyAction = copyAction.terminalCopyAction {
+                    let workspace = tabManager.selectedWorkspace
+                    TerminalCopyActionRunner.run(
+                        terminalCopyAction,
+                        workspace: workspace,
+                        panelId: workspace?.focusedPanelId
+                    )
+                }
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
