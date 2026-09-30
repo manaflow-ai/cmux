@@ -114,6 +114,13 @@ extension TerminalController {
                 return await Self.markBackgroundOpen(payload, focus: focus)
             }
 
+        case "vm.agent_fan_out":
+            return socketWorkerVMAgentFanOutResponse(id: id, params: params)
+        case "vm.agent_fan_out_status":
+            return socketWorkerVMAgentFanOutStatusResponse(id: id, params: params, wait: false)
+        case "vm.agent_fan_out_wait":
+            return socketWorkerVMAgentFanOutStatusResponse(id: id, params: params, wait: true)
+
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

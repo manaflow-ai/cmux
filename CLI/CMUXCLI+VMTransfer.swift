@@ -6,6 +6,49 @@ import Foundation
 /// Cloud file transfer. Push streams through OpenSSH/SFTP over the app's
 /// userspace WireGuard tunnel. Pull retains the existing exec transport.
 extension CMUXCLI {
+    static func vmAgentFanOutSummary(_ response: [String: Any]) -> String {
+        let operation = response["operation_id"] as? String ?? "?"
+        let created = response["created"] as? Int ?? 0
+        let requested = response["requested"] as? Int ?? 0
+        let state = response["state"] as? String ?? "unknown"
+        var lines = ["Fan-out \(operation) \(state) (\(created)/\(requested) children)"]
+        if let children = response["children"] as? [[String: Any]] {
+            for child in children {
+                let index = (child["index"] as? Int ?? 0) + 1
+                let childState = child["state"] as? String ?? "unknown"
+                let terminal = child["terminal_id"] as? String ?? "-"
+                lines.append("  [\(index)/\(requested)] \(childState) \(terminal)")
+            }
+        }
+        lines.append("Watch: cmux vm agent status \(operation)")
+        return lines.joined(separator: "\n")
+    }
+
+    func runVMAgentOperationCommand(verb: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        guard let operationID = rest.first, !operationID.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm agent \(verb) <operation-id> [--timeout <seconds>] [--json]")
+        }
+        var timeoutSeconds = verb == "wait" ? 30 : 0
+        var index = 1
+        while index < rest.count {
+            switch rest[index] {
+            case "--json":
+                index += 1
+            case "--timeout":
+                guard index + 1 < rest.count, let parsed = Int(rest[index + 1]), parsed >= 0 else {
+                    throw CLIError(message: "vm agent \(verb): --timeout must be a non-negative whole number of seconds")
+                }
+                timeoutSeconds = parsed
+                index += 2
+            default:
+                throw CLIError(message: "vm agent \(verb): unknown option \(rest[index])")
+            }
+        }
+        let method = verb == "wait" ? "vm.agent_fan_out_wait" : "vm.agent_fan_out_status"
+        let response = try client.sendV2(method: method, params: ["operation_id": operationID, "timeout_ms": timeoutSeconds * 1_000], responseTimeout: TimeInterval(timeoutSeconds + 30))
+        if jsonOutput { print(jsonString(response)) } else { print(Self.vmAgentFanOutSummary(response)) }
+    }
+
     /// Raw bytes per exec round trip. Base64 expands this ~4/3, staying well
     /// under control-plane request/response body limits.
     static let vmTransferChunkBytes = 512 * 1024
@@ -1500,7 +1543,9 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--fan-out <count> [--operation-id <id>]] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+               cmux vm agent status <operation-id> [--json]
+               cmux vm agent wait <operation-id> [--timeout <seconds>] [--json]
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1531,6 +1576,13 @@ extension CMUXCLI {
                            Land the agent's terminal in this machine workspace
                            (a `ws_…` id from `vm tree`, e.g. one staged with
                            `vm workspace new --no-open`) instead of the detached pool.
+          --fan-out <n>    Start 2…32 independent children as one durable operation.
+                           The children share a new remote workspace unless one is
+                           supplied with --remote-workspace. Use status/wait to observe
+                           the operation after this command returns.
+          --operation-id <id>
+                           Reuse the same id on retries; an accepted operation never
+                           creates a second child for the same id.
           --wait           Block until the agent's process exits and pass its exit
                            code through (`exited code=<n>`; 1 for a signal). Ctrl-C
                            stops waiting only — the agent keeps running detached.
@@ -1684,6 +1736,10 @@ extension CMUXCLI {
             print(Self.vmAgentUsage)
             return
         }
+        if let verb = rest.first, verb == "status" || verb == "wait" {
+            try runVMAgentOperationCommand(verb: verb, rest: Array(rest.dropFirst()), client: client, jsonOutput: jsonOutput)
+            return
+        }
         var flags: [String] = rest
         var agentArgs: [String] = []
         if let separator = rest.firstIndex(of: "--") {
@@ -1703,6 +1759,8 @@ extension CMUXCLI {
         var wait = false
         var wantOutput = false
         var waitTimeoutOption: String?
+        var fanOutOption: String?
+        var operationIDOption: String?
         var index = 0
         while index < flags.count {
             let arg = flags[index]
@@ -1733,6 +1791,8 @@ extension CMUXCLI {
                 wait = true
                 wantOutput = true
             case "--timeout": waitTimeoutOption = try takeValue()
+            case "--fan-out": fanOutOption = try takeValue()
+            case "--operation-id": operationIDOption = try takeValue()
             case "--json": break
             default:
                 throw CLIError(message: "Unknown option \(arg)\n\n\(Self.vmAgentUsage)")
@@ -1744,6 +1804,16 @@ extension CMUXCLI {
         }
         guard let argv = Self.vmAgentArgv(agent: agent, args: agentArgs) else {
             throw CLIError(message: Self.vmAgentUsage)
+        }
+        let fanOutCount = fanOutOption.flatMap(Int.init) ?? 1
+        if fanOutOption != nil, !(1...32).contains(fanOutCount) {
+            throw CLIError(message: "vm agent: --fan-out must be an integer from 1 through 32")
+        }
+        if operationIDOption != nil, fanOutCount == 1 {
+            throw CLIError(message: "vm agent: --operation-id belongs to --fan-out greater than 1")
+        }
+        if fanOutCount > 1, wait || wantOutput {
+            throw CLIError(message: "vm agent: --wait and --output are single-agent options; use `cmux vm agent wait <operation-id>` and per-child terminal output instead")
         }
         var memoryMb: Int?
         if let sizeOption {
@@ -1797,6 +1867,23 @@ extension CMUXCLI {
         let remoteCwd = syncedRemoteDir.map { "~/\($0)" } ?? "~"
 
         let name = nameOption ?? Self.vmAgentTerminalName(agent: agent, args: agentArgs)
+        if fanOutCount > 1 {
+            var fanOutParams: [String: Any] = [
+                "machine": selection.id, "agent": agent,
+                "argv": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
+                "count": fanOutCount, "name_prefix": name,
+                "open": !noOpen, "focus": focus ?? Self.defaultFocusForUserOpen(),
+            ]
+            if let operationIDOption { fanOutParams["operation_id"] = operationIDOption }
+            if let remoteWorkspaceOption { fanOutParams["remote_workspace_id"] = remoteWorkspaceOption }
+            if !noOpen,
+               let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+                fanOutParams["workspace_id"] = callerWorkspace
+            }
+            let response = try client.sendV2(method: "vm.agent_fan_out", params: fanOutParams, responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)) } else { print(Self.vmAgentFanOutSummary(response)) }
+            return
+        }
         // The agent is a terminal resource on the machine (`surface.new_terminal`): it lives
         // in the machine's cmux-tui session, shows up in `cmux vm tree`, and opens locally as a
         // pane unless --no-open.
