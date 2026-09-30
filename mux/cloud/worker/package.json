@@ -9,6 +9,7 @@
     "smoke": "bun scripts/smoke.ts"
   },
   "dependencies": {
+    "@mux/brain": "workspace:*",
     "@mux/protocol": "workspace:*"
   },
   "devDependencies": {
