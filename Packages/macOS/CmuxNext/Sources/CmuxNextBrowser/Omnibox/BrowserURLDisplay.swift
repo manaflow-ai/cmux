@@ -30,6 +30,18 @@ public nonisolated enum BrowserURLDisplay {
         return scheme == "http" ? "http://" + text : text
     }
 
+    /// The host's UTF-16 range inside `displayText(for:)`, which the
+    /// omnibar draws at full strength while the rest of the URL is dimmed
+    /// (Chromium's host emphasis). Nil for file URLs and blank pages.
+    public static func hostRange(in text: String, for url: URL?) -> NSRange? {
+        guard let url, !url.isFileURL, var host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
+        if host.lowercased().hasPrefix("www."), host.split(separator: ".").count > 2 { host = String(host.dropFirst(4)) }
+        let prefix = text.lowercased().hasPrefix("http://") ? "http://" : ""
+        let hostText = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        guard text.dropFirst(prefix.count).lowercased().hasPrefix(hostText.lowercased()) else { return nil }
+        return NSRange(location: prefix.utf16.count, length: hostText.utf16.count)
+    }
+
     /// Full text placed in the field when editing starts.
     public static func editingText(for url: URL?) -> String {
         guard let url, url.absoluteString != "about:blank" else { return "" }

@@ -18,6 +18,8 @@ final class BrowserTabService {
     var isAvailable: @MainActor () -> Bool
     /// Whether the CEF runtime is bundled and can start.
     var cefAvailable: @MainActor () -> Bool
+    /// Why Chromium cannot open a tab (localized), nil when it can.
+    var cefUnavailableReason: @MainActor () -> String?
     var writeBackDelay: Duration = .milliseconds(500)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
@@ -34,6 +36,11 @@ final class BrowserTabService {
         }
         isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
         cefAvailable = { [weak cef] in cef?.availability == .available }
+        cefUnavailableReason = { [weak cef] in
+            guard let cef else { return nil }
+            if case .unavailable(let reason) = cef.availability { return reason }
+            return nil
+        }
     }
 
     /// The engine for a request: CEF only when asked for and available,

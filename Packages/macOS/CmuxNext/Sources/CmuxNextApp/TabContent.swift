@@ -48,9 +48,10 @@ final class BrowserEntry {
     let tab: any BrowserTab
     let chrome: BrowserChromeView
 
-    init(tab: any BrowserTab) {
+    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab)
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine)
+        chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false
     }

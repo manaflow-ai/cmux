@@ -21,6 +21,10 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
+    /// Pages visited this session, shared by every omnibar for suggestions
+    /// and inline autocomplete (in memory; not persisted yet).
+    let history = InMemoryBrowserHistory()
+    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
     private(set) var browserTabs: BrowserTabService!
     private var pendingBrowsers: Set<String> = []
     /// A CEF page finished its asynchronous creation; panes showing `key` re-show.
@@ -81,7 +85,7 @@ final class TabContentCache {
     func browser(for key: String, url: URL?) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let tab = webKit.makeWebKitTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url))
-        let entry = BrowserEntry(tab: tab)
+        let entry = BrowserEntry(tab: tab, suggestionEngine: suggestionEngine, history: history)
         browsers[key] = entry
         return entry
     }
@@ -105,7 +109,7 @@ final class TabContentCache {
         Task { [weak tab] in
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await cef.makeTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), initialURL: url)) else { return }
-            browsers[key] = BrowserEntry(tab: page)
+            browsers[key] = BrowserEntry(tab: page, suggestionEngine: suggestionEngine, history: history)
             if let tab { browserTabs.track(page, for: tab) }
             onBrowserReady?(key)
         }

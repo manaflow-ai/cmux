@@ -174,7 +174,7 @@ extension TabStripView {
         if pressedNewTab {
             pressedNewTab = false
             newTabButton.isPressed = false
-            if isInNewTabButton(point) { model.send(.newTab(after: nil)) }
+            if isInNewTabButton(point) { pressNewTabButton() }
             return
         }
         if endTrailingButtonPress(at: point) { return }
@@ -210,6 +210,7 @@ extension TabStripView {
         hoverCard.hide(allowsQuickReshow: false)
         let point = convert(event.locationInWindow, from: nil)
         if trailingButtonIndex(at: point) != nil { return nil }
+        if isInNewTabButton(point) { return contextMenuProvider?(.newTabButton) }
         if let group = chipGroup(at: point) {
             if let menu = contextMenuProvider?(.group(group)) { return menu }
             showGroupEditor(for: group)
@@ -230,6 +231,19 @@ extension TabStripView {
         scroll.snap(to: TabScrollMath.clamp(scroll.value - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth))
         hoverCard.hide(allowsQuickReshow: false)
         applyFrames()
+    }
+
+    /// The + button: shows the App's new tab menu (which kind of tab) under
+    /// the button, or opens a tab directly when there is no menu.
+    func pressNewTabButton() {
+        guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else {
+            model.send(.newTab(after: nil))
+            return
+        }
+        hoverCard.hide(allowsQuickReshow: false)
+        let frame = convert(newTabButton.frame, from: newTabButton.superview)
+        let origin = NSPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2)
+        menu.popUp(positioning: nil, at: origin, in: self)
     }
 
     /// Closes a tab. Mouse closes enter Chrome's closing mode first.
