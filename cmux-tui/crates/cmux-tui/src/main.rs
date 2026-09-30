@@ -516,7 +516,7 @@ START OPTIONS
                      xterm-ghostty, else xterm-256color).
   --terminal-reap-grace-seconds <seconds>
                      End a terminal with no tab after this long unless it is
-                     kept (default: 30; 0 ends it at once; at most 604800).
+                     kept (default: never; 0 ends it at once; at most 604800).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -2090,6 +2090,18 @@ fn loopback_forward_policy(
     }
 }
 
+/// Denies loopback forwarding to ports this daemon listens on, so a forwarded
+/// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
+#[cfg(unix)]
+fn deny_daemon_listener_ports<const N: usize>(
+    policy: &mut cmux_tui_core::server::LoopbackForwardPolicy,
+    addresses: [Option<std::net::SocketAddr>; N],
+) {
+    for address in addresses.into_iter().flatten().filter(|address| address.port() != 0) {
+        policy.deny_port(address.port());
+    }
+}
+
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2380,6 +2392,17 @@ fn run_server(
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    // Nor the remote runtime's listeners: a Cloud daemon serves its
+    // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
+    // `--remote-http`, both reachable at a loopback address on the machine.
+    #[cfg(unix)]
+    {
+        let bound = remote_runtime.as_ref().and_then(|runtime| runtime.info().direct_websocket);
+        deny_daemon_listener_ports(
+            &mut loopback_forward_policy,
+            [bound, remote_direct_websocket, remote_workspace_http],
+        );
+    }
     mux.set_loopback_forward_policy(loopback_forward_policy);
     mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
         crate::client_log::stderr_log!("loopback-forward", "cmux-tui: {line}");
@@ -2392,19 +2415,25 @@ fn run_server(
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     // Ends terminals that have had no tab placement for the reap grace
-    // period and are not marked keep (`terminal-reap-v1`).
-    if let Some(grace) = args.terminal_reap_grace {
-        mux.set_terminal_reap_grace(grace)?;
-    }
-    let terminal_reaper = match cmux_tui_core::start_terminal_reaper(&mux) {
-        Ok(reaper) => Some(reaper),
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "cmux-tui: unplaced terminal reaper unavailable: {error}"
-            );
-            None
+    // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
+    // has always left the terminal running unplaced, and clients built
+    // before the reaper (and Cloud supervisors) rely on that, so only a
+    // daemon started with `--terminal-reap-grace-seconds` reaps.
+    let terminal_reaper = match args.terminal_reap_grace {
+        Some(grace) => {
+            mux.set_terminal_reap_grace(grace)?;
+            match cmux_tui_core::start_terminal_reaper(&mux) {
+                Ok(reaper) => Some(reaper),
+                Err(error) => {
+                    crate::client_log::stderr_log!(
+                        "startup",
+                        "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                    );
+                    None
+                }
+            }
         }
+        None => None,
     };
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
@@ -3268,6 +3297,22 @@ mod remote_args_tests {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn loopback_forward_denies_every_daemon_listener_port() {
+        let mut policy = cmux_tui_core::server::LoopbackForwardPolicy::default();
+        let addresses = [
+            Some("127.0.0.1:1337".parse().unwrap()),
+            None,
+            Some("[::]:8080".parse().unwrap()),
+            Some("127.0.0.1:0".parse().unwrap()),
+        ];
+        super::deny_daemon_listener_ports(&mut policy, addresses);
+        assert!(!policy.permits_port(1337));
+        assert!(!policy.permits_port(8080));
+        assert!(policy.permits_port(3000));
+    }
+
     use std::time::Duration;
 
     use super::*;
