@@ -116,11 +116,16 @@ function prorationBehavior(direction: Switch["direction"]) {
 
 type PreviewLine = { readonly amount: number; readonly parent?: { readonly subscription_item_details?: { readonly proration?: boolean } | null } | null; readonly proration?: boolean };
 
+/**
+ * The credit a downgrade leaves: the unused time on the old plan minus the
+ * remaining time charged on the new one (both are proration lines).
+ */
 function prorationCredit(invoice: Stripe.Invoice): number {
   const lines = (invoice.lines?.data ?? []) as unknown as readonly PreviewLine[];
-  return lines
-    .filter((line) => (line.parent?.subscription_item_details?.proration ?? line.proration) === true && line.amount < 0)
-    .reduce((total, line) => total - line.amount, 0);
+  const net = lines
+    .filter((line) => (line.parent?.subscription_item_details?.proration ?? line.proration) === true)
+    .reduce((total, line) => total + line.amount, 0);
+  return Math.max(0, -net);
 }
 
 export async function previewPersonalPlanChange(
