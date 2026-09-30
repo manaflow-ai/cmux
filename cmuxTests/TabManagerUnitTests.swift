@@ -287,7 +287,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             "macOS 26 aborts while forming weak references during these AppKit window fixtures"
         )
     }
-
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
@@ -307,12 +306,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             "Expected selection to stay at the same index after deleting the selected workspace"
         )
     }
-
     func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
-
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
 
